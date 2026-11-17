@@ -19,6 +19,8 @@ why, what it costs, and when to revisit it.
 | [12](0012-suggested-settlements-are-read-from-the-balances-and-the-members.md) | A suggestion of settlements is read from the balances and the members, and recorded nowhere |
 | [13](0013-a-cash-settlement-is-recorded-in-the-groups-book-and-counted-by-the-balances.md) | A cash settlement is recorded in the group's book, and the balances count it at once |
 | [14](0014-a-settlement-through-the-provider-is-pending-in-the-groups-book.md) | A settlement through the provider is pending in the group's book, and counted once its payment succeeds |
+| [15](0015-a-refund-through-the-provider-is-a-status-of-the-settlement.md) | A refund through the provider is a status of the settlement |
+| [16](0016-a-payout-account-is-known-to-the-provider-and-required-to-be-paid.md) | A payout account is an aggregate of Settlements, known to the provider, and required to be paid through it |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

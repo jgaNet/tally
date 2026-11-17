@@ -10,6 +10,7 @@ const request = (overrides: Partial<RequestProviderPaymentCommand> = {}): Reques
   amount: 30,
   members: ['ann', 'bob', 'cy'],
   balances: { payer: -30, payee: 30 },
+  payoutAccount: 'ann-at-the-provider',
   at,
   ...overrides,
 });
@@ -27,19 +28,20 @@ function requested(book: SettlementBook, command: RequestProviderPaymentCommand 
   const reserved = book.reserveProviderPayment(command);
   if (reserved.isFailure()) throw reserved.error;
   const recorded = book.recordProviderPayment(command, {
-    settlementId: reserved.data,
+    settlementId: reserved.data.settlementId,
     providerPaymentId: 'pay-1',
     payUrl: 'https://pay.example/pay-1',
   });
   if (recorded.isFailure()) throw recorded.error;
-  return { settlementId: reserved.data, settlement: recorded.data };
+  return { settlementId: reserved.data.settlementId, settlement: recorded.data };
 }
 
 describe('a settlement through the payment provider', () => {
   it('reserves an id once the rules hold, and records nothing', () => {
     const book = SettlementBook.fromSnapshot({ groupId: 'group-1', version: 0 });
     const reserved = book.reserveProviderPayment(request());
-    expect(reserved.isSuccess() && reserved.data.length > 0).toBe(true);
+    expect(reserved.isSuccess() && reserved.data.settlementId.length > 0).toBe(true);
+    expect(reserved.isSuccess() && reserved.data.payee).toBe('ann-at-the-provider');
     expect(book.recorded).toEqual([]);
     expect(book.pullDomainEvents()).toEqual([]);
   });
@@ -87,6 +89,13 @@ describe('a settlement through the payment provider', () => {
     expect(book.reserveProviderPayment(request({ amount: 11, balances: { payer: -30, payee: 30 } })).isFailure()).toBe(
       true,
     );
+  });
+
+  it('refuses a payee with no payout account by its name, before the provider is asked, and records nothing', () => {
+    const book = SettlementBook.fromSnapshot({ groupId: 'group-1', version: 0 });
+    const reserved = book.reserveProviderPayment(request({ payoutAccount: undefined }));
+    expect(reserved.isFailure() && reserved.error.type).toBe('PayeeHasNoPayoutAccount');
+    expect(book.recorded).toEqual([]);
   });
 
   it('refuses a payee who is not a member, and paying oneself, as a cash settlement is refused', () => {

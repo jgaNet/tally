@@ -6,6 +6,7 @@ import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 import { getSettlement, recordCashSettlement } from '@Contexts/Settlements/Application/Settlements';
 import { payThroughProvider, refundSettlement } from '@Contexts/Settlements/Application/Payments';
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
+import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 
 /**
  * The settlements' routes, at the API's root with their full path (docs/adr/0003): each answers its use case at once. A body says
@@ -70,6 +71,25 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
     '/settlements/:id/refund',
     { schema: { tags: ['settlements'] } },
     (req, reply) => answerAtOnce(req, reply, module.useCase(refundSettlement), { id: req.params.id }),
+  );
+
+  fastify.put<{ Body: { accountId: string } }>(
+    '/accounts/me/payout-account',
+    {
+      schema: {
+        tags: ['payout accounts'],
+        body: {
+          type: 'object',
+          required: ['accountId'],
+          properties: { accountId: { type: 'string' } },
+        },
+      },
+    },
+    (req, reply) => answerAtOnce(req, reply, module.useCase(setPayoutAccount), { accountId: req.body.accountId }),
+  );
+
+  fastify.get('/accounts/me/payout-account', { schema: { tags: ['payout accounts'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getPayoutAccount), undefined),
   );
 
   done();

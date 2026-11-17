@@ -11,6 +11,7 @@ import {
 } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
 import {
   InvalidSettlementAmountException,
+  PayeeHasNoPayoutAccountException,
   SettlementExceedsDebtException,
   SettlementNotRefundableException,
   SettlementToSelfException,
@@ -29,14 +30,24 @@ export interface RecordCashSettlementCommand {
   at: Date;
 }
 
-/** What a member asks to pay through the provider: the payer is the caller (`by`), the payee `to`; the rest as for a cash one. */
+/**
+ * What a member asks to pay through the provider: the payer is the caller (`by`), the payee `to`; the rest as for a cash one, and the payee's
+ * payout account as its PayoutAccount reads it now: `undefined` when the payee has none (request 16).
+ */
 export interface RequestProviderPaymentCommand {
   by: string;
   to: string;
   amount: number;
   members: string[];
   balances: { payer: number; payee: number };
+  payoutAccount: string | undefined;
   at: Date;
+}
+
+/** A settlement the provider is asked to pay: its id, which is the reference the provider is given, and the payee's payout account (request 16). */
+export interface ProviderReservation {
+  settlementId: string;
+  payee: string;
 }
 
 /** What a payee asks to refund: the caller (`by`), the settlement, and the members of the group as Groups lists them now. */
@@ -199,20 +210,21 @@ export class SettlementBook extends AggregateRoot {
     return Result.ok(settlement);
   }
 
-  /** Decides a settlement through the provider and reserves its id: the reference the provider is given. Records nothing. */
-  reserveProviderPayment({ by, to, amount, members, balances }: RequestProviderPaymentCommand): IResult<string> {
-    const decided = this.#decide({ from: by, to, amount, members, balances });
-    if (decided.isFailure()) return decided;
-    return Result.ok(Id.generate().value);
+  /**
+   * Decides a settlement through the provider and reserves its id: the reference the provider is given, with the payee's payout account
+   * the provider pays. Records nothing. A payee with no payout account is refused (`PayeeHasNoPayoutAccount`), before the provider is asked.
+   */
+  reserveProviderPayment(command: RequestProviderPaymentCommand): IResult<ProviderReservation> {
+    const payee = this.#decideProvider(command);
+    if (payee.isFailure()) return payee;
+    return Result.ok({ settlementId: Id.generate().value, payee: payee.data });
   }
 
   /** Decides again with the provider's link in hand, and records the settlement pending, its payment waiting (request 13). */
-  recordProviderPayment(
-    { by, to, amount, members, balances, at }: RequestProviderPaymentCommand,
-    link: ProviderPaymentLink,
-  ): IResult<SettlementView> {
-    const decided = this.#decide({ from: by, to, amount, members, balances });
+  recordProviderPayment(command: RequestProviderPaymentCommand, link: ProviderPaymentLink): IResult<SettlementView> {
+    const decided = this.#decideProvider(command);
     if (decided.isFailure()) return decided;
+    const { by, to, amount, at } = command;
 
     const settlement: NewSettlement = {
       id: link.settlementId,
@@ -301,6 +313,18 @@ export class SettlementBook extends AggregateRoot {
     const { id, from, to, amount } = payment;
     this.#moved.push({ id, status: 'refunded' });
     this.record(SettlementRefundedEvent.set({ settlementId: id, groupId: this.groupId, from, to, amount }));
+  }
+
+  /**
+   * The rules of a settlement through the provider: the rules every settlement has (`#decide`), and a payee that has a payout account
+   * (request 16). Answers the payout account the provider is asked to pay.
+   */
+  #decideProvider(command: RequestProviderPaymentCommand): IResult<string> {
+    const { by, to, amount, members, balances, payoutAccount } = command;
+    const decided = this.#decide({ from: by, to, amount, members, balances });
+    if (decided.isFailure()) return decided;
+    if (payoutAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccountException());
+    return Result.ok(payoutAccount);
   }
 
   /**

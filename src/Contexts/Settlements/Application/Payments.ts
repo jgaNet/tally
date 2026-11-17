@@ -3,6 +3,7 @@ import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
 
 import { ISettlementBooks } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBooks';
+import { IPayoutAccounts } from '@Contexts/Settlements/Domain/PayoutAccount/Ports/IPayoutAccounts';
 import { IGroupBalances } from '@Contexts/Settlements/Domain/Suggestion/Ports/IGroupBalances';
 import { ISettlementMembers } from '@Contexts/Settlements/Domain/Suggestion/Ports/ISettlementMembers';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
@@ -18,7 +19,8 @@ export interface PayThroughProviderInput {
 /**
  * Asks the provider for a payment link and keeps the settlement pending, the caller its payer (request 13, docs/adr/0014). The rules are
  * the book's, as for a cash settlement, and the book decides before the provider is asked and again with the link in hand: a refused
- * settlement asks the provider for nothing, and a provider that gives no link keeps nothing. The settlement's id is the reference the
+ * settlement asks the provider for nothing, and a provider that gives no link keeps nothing. The payee must have a payout account
+ * (request 16): it is read from its PayoutAccount when the payment is asked for, and the provider pays that account. The settlement's id is the reference the
  * provider is given, so its webhook names the settlement it is about. Two requests at once meet the book's version as in cash
  * (CONC-OPTIMISTIC): the one that loses re-reads, and a payment its provider has already made for it is never paid, as nothing
  * names it. Its id is the answer.
@@ -29,6 +31,7 @@ export const payThroughProvider = command(
     books: ISettlementBooks,
     balances: IGroupBalances,
     members: ISettlementMembers,
+    payouts: IPayoutAccounts,
     provider: IPaymentProvider,
     clock: Clock,
   ) =>
@@ -41,22 +44,29 @@ export const payThroughProvider = command(
       const owed = await balances.balancesOf(groupId);
       const balanceOf = (memberId: string) => owed.find(balance => balance.memberId === memberId)?.balance ?? 0;
 
+      const payee = await payouts.get(to);
       const request = {
         by,
         to,
         amount,
         members: group.members.map(member => member.memberId),
         balances: { payer: balanceOf(by), payee: balanceOf(to) },
+        payoutAccount: payee.providerAccountId,
         at: clock(),
       };
       const reserved = book.reserveProviderPayment(request);
       if (reserved.isFailure()) return reserved;
 
-      const link = await provider.requestPayment({ reference: reserved.data, amount, currency: group.currency });
+      const link = await provider.requestPayment({
+        reference: reserved.data.settlementId,
+        amount,
+        currency: group.currency,
+        payee: reserved.data.payee,
+      });
       if (link.isFailure()) return link;
 
       const recorded = book.recordProviderPayment(request, {
-        settlementId: reserved.data,
+        settlementId: reserved.data.settlementId,
         providerPaymentId: link.data.id,
         payUrl: link.data.payUrl,
       });

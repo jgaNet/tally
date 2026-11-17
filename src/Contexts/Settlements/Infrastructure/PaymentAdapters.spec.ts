@@ -5,7 +5,7 @@ import { AddressInfo } from 'net';
 import { HmacWebhookSignature } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignature';
 import { HttpPaymentProvider, PROVIDER_TIMEOUT_MS } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
 
-const REQUEST = { reference: 'settlement-1', amount: 30, currency: 'EUR' };
+const REQUEST = { reference: 'settlement-1', amount: 30, currency: 'EUR', payee: 'ann-at-the-provider' };
 
 /** A provider's server that answers each request with what `answer` says, or never answers when it says nothing. */
 async function providerAt(answer: (path: string) => { status: number; body: string } | undefined) {
@@ -25,6 +25,45 @@ async function providerAt(answer: (path: string) => { status: number; body: stri
 }
 
 describe('the payment provider over HTTP', () => {
+  it('asks GET /accounts/{id} whether it knows a payout account: its id when it does, none when it answers 404', async () => {
+    const provider = await providerAt(url =>
+      url === '/accounts/ann-at-the-provider'
+        ? { status: 200, body: '{"id":"ann-at-the-provider"}' }
+        : { status: 404, body: '' },
+    );
+    try {
+      const adapter = new HttpPaymentProvider(() => `${provider.origin}/`);
+      const known = await adapter.findPayoutAccount('ann-at-the-provider');
+      expect(known.isSuccess() && known.data).toBe('ann-at-the-provider');
+      const unknown = await adapter.findPayoutAccount('nobody');
+      expect(unknown.isSuccess() && unknown.data).toBeUndefined();
+      expect(provider.requests.map(({ url, method }) => ({ url, method }))).toEqual([
+        { url: '/accounts/ann-at-the-provider', method: 'GET' },
+        { url: '/accounts/nobody', method: 'GET' },
+      ]);
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('refuses a payout account answer that is another answer, or another id, as ProviderUnavailable', async () => {
+    const other = await providerAt(() => ({ status: 500, body: '' }));
+    const wrongId = await providerAt(() => ({ status: 200, body: '{"id":"someone-else"}' }));
+    const silent = await providerAt(() => undefined);
+    try {
+      const refusedOther = await new HttpPaymentProvider(() => other.origin).findPayoutAccount('ann-at-the-provider');
+      expect(refusedOther.isFailure() && refusedOther.error.type).toBe('ProviderUnavailable');
+      const refusedId = await new HttpPaymentProvider(() => wrongId.origin).findPayoutAccount('ann-at-the-provider');
+      expect(refusedId.isFailure() && refusedId.error.type).toBe('ProviderUnavailable');
+      const late = await new HttpPaymentProvider(() => silent.origin, 50).findPayoutAccount('ann-at-the-provider');
+      expect(late.isFailure() && late.error.type).toBe('ProviderUnavailable');
+    } finally {
+      await other.close();
+      await wrongId.close();
+      await silent.close();
+    }
+  });
+
   it('asks POST /payments for the reference, amount and currency, and takes the link it answers 201 with', async () => {
     const provider = await providerAt(() => ({
       status: 201,

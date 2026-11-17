@@ -63,6 +63,7 @@ async function recordPending(database: SqliteDatabase): Promise<void> {
       amount: 50,
       members: [PAYER, PAYEE],
       balances: { payer: -50, payee: 50 },
+      payoutAccount: PAYEE,
       at: new Date('2026-11-17T10:00:00Z'),
     },
     { settlementId: SETTLEMENT, providerPaymentId: PAYMENT, payUrl: `https://pay.example/${PAYMENT}` },

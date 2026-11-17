@@ -51,6 +51,12 @@ beforeAll(async () => {
       response.end(answer.body === undefined ? '' : JSON.stringify(answer.body));
       return;
     }
+    if (request.method === 'GET' && /^\/accounts\/[^/]+$/.test(request.url ?? '')) {
+      const id = decodeURIComponent((request.url ?? '').slice('/accounts/'.length));
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ id }));
+      return;
+    }
     response.writeHead(404).end();
   });
   await new Promise<void>(resolve => providerServer.listen(0, '127.0.0.1', () => resolve()));
@@ -126,6 +132,11 @@ async function annAndBobOwing50(label: string) {
   const ann = await signedIn(`${label}-ann@example.com`, 'Ann');
   const bob = await signedIn(`${label}-bob@example.com`, 'Bob');
   const groupId = await groupWith(ann, [bob]);
+  // Ann is paid through the provider, so she has a payout account at it (request 16).
+  await http.request('PUT', `${api}/accounts/me/payout-account`, {
+    body: { accountId: `acct-${ann.id}` },
+    token: ann.token,
+  });
   await http.request('POST', `${api}/groups/${groupId}/expenses`, {
     body: { description: 'Lunch', amount: 100, date: '2026-01-15', splitBetween: [ann.id, bob.id] },
     token: ann.token,

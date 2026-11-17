@@ -10,6 +10,9 @@ import {
   refundSettlement,
 } from '@Contexts/Settlements/Application/Payments';
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
+import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
+import { SqlitePayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountQueries';
+import { SqlitePayoutAccounts } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccounts';
 import { GroupBalancesOfLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesOfLedger';
 import { HmacWebhookSignature } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignature';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
@@ -28,6 +31,8 @@ const books = new SqliteSettlementBooks(sharedDatabase);
 const settlements = new SqliteSettlementQueries(sharedDatabase);
 const balances = new GroupBalancesOfLedger(ledgerReadModel);
 const members = new SettlementMembersOfGroups(groupsReadModel);
+const payouts = new SqlitePayoutAccounts(sharedDatabase);
+const payoutQueries = new SqlitePayoutAccountQueries(sharedDatabase);
 // The provider and its webhook's key are the environment's: read when they are used, not when the module loads (request 13).
 const provider = new HttpPaymentProvider();
 const signatures = new HmacWebhookSignature();
@@ -36,10 +41,12 @@ export const localSettlementsModule = new LiteModule({
   name: 'Settlements',
   useCases: [
     recordCashSettlement(books, balances, members, systemClock),
-    payThroughProvider(books, balances, members, provider, systemClock),
+    payThroughProvider(books, balances, members, payouts, provider, systemClock),
     receivePaymentWebhook(books, signatures),
     refundSettlement(books, members, provider),
     getSettlement(settlements, members),
     getSuggestedSettlements(balances, members, settlements),
+    setPayoutAccount(payouts, provider),
+    getPayoutAccount(payoutQueries),
   ],
 });

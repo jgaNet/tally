@@ -61,3 +61,17 @@ export class SettlementNotRefundableException extends Exception {
     });
   }
 }
+
+/**
+ * The payee has no payout account at the provider, so the payee cannot be paid through it (request 16): a settlement through the provider is
+ * refused by this name, before the provider is asked, and nothing is kept; `422`. A cash settlement needs no payout account.
+ */
+export class PayeeHasNoPayoutAccountException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'PayeeHasNoPayoutAccount',
+      message: 'A member is paid through the payment provider only with a payout account',
+    });
+  }
+}

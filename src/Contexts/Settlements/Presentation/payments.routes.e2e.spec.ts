@@ -18,7 +18,7 @@ const WEBHOOK_SECRET = 'a-shared-secret-with-the-provider';
  * each request it was asked. Request 13's suite reads what Tally asked of it, and answers what the test says.
  */
 let providerAnswer: { status: number; body?: unknown } | undefined;
-let providerRequests: Array<{ reference: string; amount: number; currency: string }> = [];
+let providerRequests: Array<{ reference: string; amount: number; currency: string; payee: string }> = [];
 let paymentCount = 0;
 let providerServer: Server;
 let providerOrigin: string;
@@ -46,6 +46,12 @@ beforeAll(async () => {
       };
       response.writeHead(answer.status, { 'content-type': 'application/json' });
       response.end(answer.body === undefined ? '' : JSON.stringify(answer.body));
+      return;
+    }
+    if (request.method === 'GET' && /^\/accounts\/[^/]+$/.test(request.url ?? '')) {
+      const id = decodeURIComponent((request.url ?? '').slice('/accounts/'.length));
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ id }));
       return;
     }
     response.writeHead(404).end();
@@ -125,6 +131,11 @@ async function annAndBobOwing50(label: string) {
   const ann = await signedIn(`${label}-ann@example.com`, 'Ann');
   const bob = await signedIn(`${label}-bob@example.com`, 'Bob');
   const groupId = await groupWith(ann, [bob]);
+  // Ann is paid through the provider, so she has a payout account at it (request 16).
+  await http.request('PUT', `${api}/accounts/me/payout-account`, {
+    body: { accountId: `acct-${ann.id}` },
+    token: ann.token,
+  });
   await http.request('POST', `${api}/groups/${groupId}/expenses`, {
     body: { description: 'Lunch', amount: 100, date: '2026-01-15', splitBetween: [ann.id, bob.id] },
     token: ann.token,
@@ -140,7 +151,7 @@ describe('a settlement through the payment provider', () => {
     const created = await payThrough(groupId, bob.token, { to: ann.id, amount: 50 });
     expect(created.status).toBe(201);
     const id = (created.body as { id: string }).id;
-    expect(providerRequests).toEqual([{ reference: id, amount: 50, currency: 'EUR' }]);
+    expect(providerRequests).toEqual([{ reference: id, amount: 50, currency: 'EUR', payee: `acct-${ann.id}` }]);
 
     const settlement = await readSettlement(id, bob.token);
     expect(settlement.status).toBe(200);
@@ -198,6 +209,21 @@ describe('a settlement through the payment provider', () => {
     } finally {
       process.env.PROVIDER_URL = configured;
     }
+  });
+
+  it('is refused by its name when the payee has no payout account, and the provider is not asked', async () => {
+    const ann = await signedIn('pay-no-account-ann@example.com', 'Ann');
+    const bob = await signedIn('pay-no-account-bob@example.com', 'Bob');
+    const groupId = await groupWith(ann, [bob]);
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Lunch', amount: 100, date: '2026-01-15', splitBetween: [ann.id, bob.id] },
+      token: ann.token,
+    });
+
+    const refused = await payThrough(groupId, bob.token, { to: ann.id, amount: 50 });
+    expect(refused.status).toBe(422);
+    expect(refused.body).toMatchObject({ type: 'PayeeHasNoPayoutAccount' });
+    expect(providerRequests).toEqual([]);
   });
 
   it('is refused to a caller who is not signed in', async () => {
@@ -271,6 +297,10 @@ describe("the provider's webhook", () => {
 describe('Groups → Settlements', () => {
   it('makes the group through the API, keeps the id it answered, and settles in it: Groups decides who may, the settlement is found by its own id', async () => {
     const ann = await signedIn('groups-settle-ann@example.com', 'Ann');
+    await http.request('PUT', `${api}/accounts/me/payout-account`, {
+      body: { accountId: `acct-${ann.id}` },
+      token: ann.token,
+    });
     const bob = await signedIn('groups-settle-bob@example.com', 'Bob');
     const cy = await signedIn('groups-settle-cy@example.com', 'Cy');
     const created = await http.request('POST', `${api}/groups`, {
@@ -305,6 +335,10 @@ describe('Groups → Settlements', () => {
 describe('Ledger → Settlements', () => {
   it('makes the expense through the API, keeps the id it answered, and is settled against the balance it made: the payment is found by its own id', async () => {
     const ann = await signedIn('ledger-settle-ann@example.com', 'Ann');
+    await http.request('PUT', `${api}/accounts/me/payout-account`, {
+      body: { accountId: `acct-${ann.id}` },
+      token: ann.token,
+    });
     const bob = await signedIn('ledger-settle-bob@example.com', 'Bob');
     const groupId = await groupWith(ann, [bob]);
     const expense = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
