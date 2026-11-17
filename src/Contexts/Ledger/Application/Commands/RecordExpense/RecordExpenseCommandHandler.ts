@@ -38,7 +38,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       date,
       paidBy: payer,
       splitBetween,
-      members,
+      members: members.map(member => member.memberId),
       today: this.clock(),
     });
     if (recorded.isFailure()) return Result.fail(recorded.error);

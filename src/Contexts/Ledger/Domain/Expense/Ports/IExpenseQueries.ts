@@ -1,6 +1,6 @@
 import { ExpenseShare } from '@Contexts/Ledger/Domain/Expense/Split';
 
-/** What a member reads of an expense: as recorded, its shares in the order of the split. */
+/** What a member reads of an expense: as it is now, its version, and its shares in the order of the split. */
 export interface ExpenseView {
   id: string;
   groupId: string;
@@ -9,6 +9,8 @@ export interface ExpenseView {
   date: string;
   paidBy: string;
   shares: ExpenseShare[];
+  /** 1 when it is recorded, and one more at each edit. */
+  version: number;
 }
 
 /** The read side of expenses: a read model, never an aggregate (QUERY-READ-MODELS). Membership is not asked here. */

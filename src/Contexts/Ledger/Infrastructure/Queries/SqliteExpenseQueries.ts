@@ -10,6 +10,7 @@ interface ExpenseViewRow {
   amount: number;
   spent_on: string;
   paid_by: string;
+  version: number;
 }
 
 /** The read side of expenses over the same file: each expense as recorded, its shares in the order of the split. */
@@ -34,6 +35,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
         date: row.spent_on,
         paidBy: row.paid_by,
         shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
+        version: row.version,
       };
     });
   }

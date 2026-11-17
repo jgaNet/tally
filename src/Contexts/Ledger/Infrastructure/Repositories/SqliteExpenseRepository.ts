@@ -91,11 +91,31 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     });
   }
 
-  /** An expense is stored once, at version 1; one already stored is a conflict, since nothing changes it. */
+  /**
+   * A new expense (version 0) is inserted at version 1. An expense read at a version is updated only where the row is
+   * still at that version, as SQL makes the check atomic: no row changed means another writer got there first (ADR 8).
+   */
   async save(expense: Expense): Promise<IResult> {
     const snapshot: IExpenseSnapshot = expense.toSnapshot();
+    return snapshot.version === 0 ? this.insert(snapshot) : this.update(snapshot);
+  }
+
+  /** The expense is deleted at the version it was read at; its shares and its balance entries go with it. */
+  async remove(expense: Expense): Promise<IResult> {
+    const { _id: id, version } = expense.toSnapshot();
     const connection = this.database.connection;
 
+    const deleted = connection.prepare('DELETE FROM expenses WHERE id = ? AND version = ?').run(id, version);
+    if (deleted.changes === 0) {
+      return Result.fail(new ConcurrencyConflictException('Ledger', 'The expense changed since it was read', { id }));
+    }
+    connection.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(id);
+    connection.prepare('DELETE FROM balance_entries WHERE expense_id = ?').run(id);
+    return Result.ok();
+  }
+
+  private insert(snapshot: IExpenseSnapshot): IResult {
+    const connection = this.database.connection;
     const stored = connection.prepare('SELECT version FROM expenses WHERE id = ?').get(snapshot._id);
     if (stored) {
       return Result.fail(
@@ -115,19 +135,44 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         snapshot.paidBy,
         snapshot.version + 1,
       );
+    this.writeShares(snapshot);
+    return Result.ok();
+  }
+
+  private update(snapshot: IExpenseSnapshot): IResult {
+    const connection = this.database.connection;
+    const { _id: id, description, amount, date, version } = snapshot;
+
+    const updated = connection
+      .prepare(
+        'UPDATE expenses SET description = :description, amount = :amount, spent_on = :date, version = :next WHERE id = :id AND version = :version',
+      )
+      .run({ id, description, amount, date, version, next: version + 1 });
+    if (updated.changes === 0) {
+      return Result.fail(new ConcurrencyConflictException('Ledger', 'The expense changed since it was read', { id }));
+    }
+    connection.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(id);
+    connection.prepare('DELETE FROM balance_entries WHERE expense_id = ?').run(id);
+    this.writeShares(snapshot);
+    return Result.ok();
+  }
+
+  /**
+   * The shares in the order of the split, and the balance read model's entries: one for the payer (the amount owed to
+   * them) and one per share (what its member owes), written in the same transaction as the expense, so the entries of
+   * this expense add up to 0 (ADR 1, T4).
+   */
+  private writeShares(snapshot: IExpenseSnapshot): void {
+    const connection = this.database.connection;
     snapshot.shares.forEach((share, position) =>
       connection
         .prepare('INSERT INTO expense_shares (expense_id, position, member_id, amount) VALUES (?, ?, ?, ?)')
         .run(snapshot._id, position, share.memberId, share.amount),
     );
-
-    // The balance read model counts the expense in the same transaction that stores it: the payer is owed the amount,
-    // each share is owed by its member, so the entries of this expense add up to 0.
     const entry = connection.prepare(
       'INSERT INTO balance_entries (expense_id, group_id, member_id, amount) VALUES (?, ?, ?, ?)',
     );
     entry.run(snapshot._id, snapshot.groupId, snapshot.paidBy, snapshot.amount);
     snapshot.shares.forEach(share => entry.run(snapshot._id, snapshot.groupId, share.memberId, -share.amount));
-    return Result.ok();
   }
 }

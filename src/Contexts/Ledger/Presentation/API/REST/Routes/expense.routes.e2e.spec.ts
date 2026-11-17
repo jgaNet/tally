@@ -48,6 +48,10 @@ async function groupWith(owner: { token: string }, others: { token: string }[]):
 const record = (groupId: string, token: string | undefined, body: unknown) =>
   http.request('POST', `/v1/groups/${groupId}/expenses`, { body, token });
 const readExpense = (id: string, token?: string) => http.get(`/v1/expenses/${id}`, { token });
+const editExpense = (id: string, token: string | undefined, body: unknown) =>
+  http.request('PUT', `/v1/expenses/${id}`, { body, token });
+const deleteExpense = (id: string, token?: string) => http.request('DELETE', `/v1/expenses/${id}`, { token });
+const balancesOf = (groupId: string, token: string) => http.get(`/v1/groups/${groupId}/balances`, { token });
 
 describe('Groups → Ledger', () => {
   it('splits an expense between members of a group made through the API, and reads it by the id it was answered', async () => {
@@ -76,6 +80,36 @@ describe('Groups → Ledger', () => {
         { memberId: ana.id, amount: 500 },
       ],
     });
+  });
+});
+
+describe('Groups → Ledger, editing and deleting', () => {
+  it('lets the owner, whom Groups names as the owner, edit and delete a member’s expense, and keeps the payer', async () => {
+    const ana = await accountOf('ana.owner-edit@example.com', 'Ana');
+    const ben = await accountOf('ben.owner-edit@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+    const recorded = await record(groupId, ben.token, {
+      description: 'Tram tickets',
+      amount: 600,
+      date: SPENT,
+      splitBetween: [ben.id, ana.id],
+    });
+    const expenseId = (recorded.body as { id: string }).id;
+
+    const edited = await editExpense(expenseId, ana.token, {
+      description: 'Tram tickets',
+      amount: 900,
+      date: SPENT,
+      splitBetween: [ben.id, ana.id],
+      version: 1,
+    });
+    const read = await readExpense(expenseId, ana.token);
+    expect(edited.status).toBe(201);
+    expect(read.body).toMatchObject({ amount: 900, paidBy: ben.id, version: 2 });
+
+    const deleted = await deleteExpense(expenseId, ana.token);
+    expect(deleted.status).toBe(201);
+    expect((await readExpense(expenseId, ana.token)).status).toBe(404);
   });
 });
 
@@ -196,5 +230,212 @@ describe('reading an expense', () => {
     expect(asOther.status).toBe(404);
     expect(anonymous.status).toBe(401);
     expect(unknown.status).toBe(404);
+  });
+});
+
+describe('editing an expense', () => {
+  const base = { description: 'Dinner', amount: 900, date: SPENT };
+
+  it('gives the expense again, whole, and computes its shares again, from the version its author read', async () => {
+    const ana = await accountOf('ana.edit@example.com', 'Ana');
+    const ben = await accountOf('ben.edit@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+    const expenseId = (await record(groupId, ana.token, { ...base, splitBetween: [ana.id, ben.id] })).body as {
+      id: string;
+    };
+
+    const first = await readExpense(expenseId.id, ana.token);
+    expect(first.body).toMatchObject({ version: 1 });
+
+    const edited = await editExpense(expenseId.id, ana.token, {
+      description: 'Dinner, with dessert',
+      amount: 1001,
+      date: SPENT,
+      splitBetween: [ana.id, ben.id],
+      version: 1,
+    });
+    const read = await readExpense(expenseId.id, ben.token);
+
+    expect(edited.status).toBe(201);
+    expect(read.body).toMatchObject({
+      description: 'Dinner, with dessert',
+      amount: 1001,
+      paidBy: ana.id,
+      version: 2,
+      shares: [
+        { memberId: ana.id, amount: 501 },
+        { memberId: ben.id, amount: 500 },
+      ],
+    });
+  });
+
+  it('lets the owner edit an expense a member paid, and the payer stays the one who paid', async () => {
+    const ana = await accountOf('ana.owner-only@example.com', 'Ana');
+    const ben = await accountOf('ben.owner-only@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+    const expenseId = ((await record(groupId, ben.token, { ...base, splitBetween: [ben.id] })).body as { id: string })
+      .id;
+
+    const edited = await editExpense(expenseId, ana.token, {
+      ...base,
+      amount: 400,
+      splitBetween: [ben.id, ana.id],
+      version: 1,
+    });
+    const read = await readExpense(expenseId, ana.token);
+
+    expect(edited.status).toBe(201);
+    expect(read.body).toMatchObject({ paidBy: ben.id, amount: 400 });
+  });
+
+  it('refuses an edit by a member who is neither the payer nor the owner, and answers a stranger as if it did not exist', async () => {
+    const ana = await accountOf('ana.refuse-edit@example.com', 'Ana');
+    const ben = await accountOf('ben.refuse-edit@example.com', 'Ben');
+    const cy = await accountOf('cy.refuse-edit@example.com', 'Cy');
+    const eve = await accountOf('eve.refuse-edit@example.com', 'Eve');
+    const groupId = await groupWith(ana, [ben, cy]);
+    const expenseId = ((await record(groupId, ana.token, { ...base, splitBetween: [ana.id] })).body as { id: string })
+      .id;
+    const body = { ...base, splitBetween: [ana.id], version: 1 };
+
+    const byOtherMember = await editExpense(expenseId, ben.token, body);
+    const byStranger = await editExpense(expenseId, eve.token, body);
+    const anonymous = await editExpense(expenseId, undefined, body);
+
+    expect(byOtherMember.status).toBe(403);
+    expect(byOtherMember.body).toMatchObject({ type: 'NotAllowed' });
+    expect(byStranger.status).toBe(404);
+    expect(anonymous.status).toBe(401);
+    expect((await readExpense(expenseId, ana.token)).body).toMatchObject({ amount: 900, version: 1 });
+  });
+
+  it('refuses an edit from a version the expense has moved on from, and keeps only the edit that got there first', async () => {
+    const ana = await accountOf('ana.stale@example.com', 'Ana');
+    const ben = await accountOf('ben.stale@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+    const expenseId = (
+      (await record(groupId, ana.token, { ...base, splitBetween: [ana.id, ben.id] })).body as {
+        id: string;
+      }
+    ).id;
+
+    const first = await editExpense(expenseId, ana.token, {
+      ...base,
+      amount: 1200,
+      splitBetween: [ana.id, ben.id],
+      version: 1,
+    });
+    const stale = await editExpense(expenseId, ana.token, {
+      ...base,
+      amount: 300,
+      splitBetween: [ana.id],
+      version: 1,
+    });
+
+    expect(first.status).toBe(201);
+    expect(stale.status).toBe(409);
+    expect(stale.body).toMatchObject({ type: 'ExpenseChanged' });
+    expect((await readExpense(expenseId, ana.token)).body).toMatchObject({ amount: 1200, version: 2 });
+  });
+
+  it('keeps exactly one of two edits made from the same version at once, and the balances still add up to 0', async () => {
+    const ana = await accountOf('ana.race@example.com', 'Ana');
+    const ben = await accountOf('ben.race@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+    const expenseId = (
+      (await record(groupId, ben.token, { ...base, splitBetween: [ana.id, ben.id] })).body as {
+        id: string;
+      }
+    ).id;
+
+    const [one, two] = await Promise.all([
+      editExpense(expenseId, ana.token, { ...base, amount: 1000, splitBetween: [ana.id, ben.id], version: 1 }),
+      editExpense(expenseId, ben.token, { ...base, amount: 2000, splitBetween: [ana.id, ben.id], version: 1 }),
+    ]);
+    const read = await readExpense(expenseId, ana.token);
+    const balances = (await balancesOf(groupId, ana.token)).body as { memberId: string; balance: number }[];
+
+    expect([one.status, two.status].sort()).toEqual([201, 409]);
+    expect([one, two].find(answer => answer.status === 409)?.body).toMatchObject({ type: 'ExpenseChanged' });
+    expect(read.body).toMatchObject({ version: 2 });
+    expect([1000, 2000]).toContain((read.body as { amount: number }).amount);
+    expect(balances.reduce((sum, { balance }) => sum + balance, 0)).toBe(0);
+  });
+
+  it('refuses a body missing its version, and values the rules refuse as they are refused on recording', async () => {
+    const ana = await accountOf('ana.edit-values@example.com', 'Ana');
+    const ben = await accountOf('ben.edit-values@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+    const expenseId = (
+      (await record(groupId, ana.token, { ...base, splitBetween: [ana.id, ben.id] })).body as {
+        id: string;
+      }
+    ).id;
+
+    const missing = await editExpense(expenseId, ana.token, { ...base, splitBetween: [ana.id, ben.id] });
+    const withoutPayer = await editExpense(expenseId, ana.token, {
+      ...base,
+      splitBetween: [ben.id],
+      version: 1,
+    });
+    const zero = await editExpense(expenseId, ana.token, { ...base, amount: 0, splitBetween: [ana.id], version: 1 });
+
+    expect(missing.status).toBe(400);
+    expect(withoutPayer.body).toMatchObject({ type: 'SplitWithoutPayer' });
+    expect(zero.body).toMatchObject({ type: 'InvalidAmount' });
+    expect((await readExpense(expenseId, ana.token)).body).toMatchObject({ amount: 900, version: 1 });
+  });
+});
+
+describe('deleting an expense', () => {
+  it('deletes it for its payer: it is read by no one, and counts in no balance', async () => {
+    const ana = await accountOf('ana.delete@example.com', 'Ana');
+    const ben = await accountOf('ben.delete@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+    const expenseId = (
+      (
+        await record(groupId, ben.token, {
+          description: 'Bread',
+          amount: 300,
+          date: SPENT,
+          splitBetween: [ben.id, ana.id],
+        })
+      ).body as {
+        id: string;
+      }
+    ).id;
+    const before = (await balancesOf(groupId, ana.token)).body as { balance: number }[];
+
+    const deleted = await deleteExpense(expenseId, ben.token);
+    const after = (await balancesOf(groupId, ana.token)).body as { balance: number }[];
+
+    expect(before.map(({ balance }) => balance)).toEqual([-150, 150]);
+    expect(deleted.status).toBe(201);
+    expect((await readExpense(expenseId, ana.token)).status).toBe(404);
+    expect(after.map(({ balance }) => balance)).toEqual([0, 0]);
+  });
+
+  it('refuses a deletion by a member who is neither the payer nor the owner, and answers a stranger as if it did not exist', async () => {
+    const ana = await accountOf('ana.refuse-delete@example.com', 'Ana');
+    const ben = await accountOf('ben.refuse-delete@example.com', 'Ben');
+    const cy = await accountOf('cy.refuse-delete@example.com', 'Cy');
+    const eve = await accountOf('eve.refuse-delete@example.com', 'Eve');
+    const groupId = await groupWith(ana, [ben, cy]);
+    const expenseId = (
+      (await record(groupId, ben.token, { description: 'Milk', amount: 200, date: SPENT, splitBetween: [ben.id] }))
+        .body as {
+        id: string;
+      }
+    ).id;
+
+    const byOtherMember = await deleteExpense(expenseId, cy.token);
+    const byStranger = await deleteExpense(expenseId, eve.token);
+    const anonymous = await deleteExpense(expenseId);
+
+    expect(byOtherMember.status).toBe(403);
+    expect(byOtherMember.body).toMatchObject({ type: 'NotAllowed' });
+    expect(byStranger.status).toBe(404);
+    expect(anonymous.status).toBe(401);
+    expect((await readExpense(expenseId, ben.token)).status).toBe(200);
   });
 });

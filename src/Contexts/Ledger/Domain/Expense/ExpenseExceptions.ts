@@ -1,4 +1,4 @@
-import { Exception } from '@Architecture/Domain';
+import { ConflictException, Exception } from '@Architecture/Domain';
 
 /** The description is not 1 to 100 characters, or is only spaces. */
 export class InvalidExpenseDescriptionException extends Exception {
@@ -62,6 +62,17 @@ export class SplitWithoutPayerException extends Exception {
       service: 'Ledger',
       type: 'SplitWithoutPayer',
       message: 'The payer is one of the members of the split',
+    });
+  }
+}
+
+/** The expense changed since the version the edit was made from: its author reads it again and decides. */
+export class ExpenseChangedException extends ConflictException {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'ExpenseChanged',
+      message: 'The expense changed since it was read',
     });
   }
 }

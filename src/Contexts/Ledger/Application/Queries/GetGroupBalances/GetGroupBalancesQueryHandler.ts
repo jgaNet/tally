@@ -32,6 +32,6 @@ export class GetGroupBalancesQueryHandler extends QueryHandler<
     const counted = new Map(
       (await this.queries.balancesOf(groupId)).map(({ memberId, balance }) => [memberId, balance]),
     );
-    return Result.ok(members.map(memberId => ({ memberId, balance: counted.get(memberId) ?? 0 })));
+    return Result.ok(members.map(({ memberId }) => ({ memberId, balance: counted.get(memberId) ?? 0 })));
   }
 }
