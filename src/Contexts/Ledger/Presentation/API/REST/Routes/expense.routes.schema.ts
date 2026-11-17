@@ -1,4 +1,4 @@
-const RefusedSchema = {
+export const RefusedSchema = {
   type: 'object',
   properties: { message: { type: 'string' } },
 } as const;

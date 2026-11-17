@@ -66,6 +66,27 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         .prepare('INSERT INTO ledger_expense_shares (expense_id, position, member_id, amount) VALUES (?, ?, ?, ?)')
         .run(id, position, memberId, share),
     );
+    if (version === 0) this.recordBalanceEntries(id, groupId, paidBy, amount, shares);
     return Result.ok();
+  }
+
+  /**
+   * The expense's effect on each member's balance, written with the expense (the balances' read model): the payer's
+   * net is what they paid minus their own share, each other member's is minus their share. They add up to 0.
+   */
+  private recordBalanceEntries(
+    id: string,
+    groupId: string,
+    paidBy: string,
+    amount: number,
+    shares: readonly { memberId: string; amount: number }[],
+  ): void {
+    const nets = new Map<string, number>([[paidBy, amount]]);
+    for (const { memberId, amount: share } of shares) nets.set(memberId, (nets.get(memberId) ?? 0) - share);
+    for (const [memberId, net] of nets) {
+      this.database.connection
+        .prepare('INSERT INTO ledger_balance_entries (expense_id, group_id, member_id, amount) VALUES (?, ?, ?, ?)')
+        .run(id, groupId, memberId, net);
+    }
   }
 }
