@@ -95,19 +95,24 @@ describe('SettlementBook', () => {
 });
 
 const PAYMENT_LINK = { id: 'pay_1', payUrl: 'https://provider.example/pay/pay_1' };
+const PAYEE_ACCOUNT = 'acct_ann';
 const proposePayment = (
   book: SettlementBook,
   overrides: Partial<Parameters<SettlementBook['proposePayment']>[0]> = {},
+  payeeAccount: string | null = PAYEE_ACCOUNT,
 ) =>
-  book.proposePayment({
-    payer: BOB,
-    payee: ANN,
-    amount: 30,
-    at: AT,
-    members: MEMBERS,
-    balances: BALANCES,
-    ...overrides,
-  });
+  book.proposePayment(
+    {
+      payer: BOB,
+      payee: ANN,
+      amount: 30,
+      at: AT,
+      members: MEMBERS,
+      balances: BALANCES,
+      ...overrides,
+    },
+    payeeAccount,
+  );
 
 /** A book that holds one payment through the provider from Bob to Ann of 30, waiting. */
 function bookWithPendingPayment(): { book: SettlementBook; settlementId: string } {
@@ -342,5 +347,24 @@ describe('SettlementBook, a refund through the provider (request 15)', () => {
     book.pullDomainEvents();
     book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' });
     expect(book.pullDomainEvents()).toEqual([]);
+  });
+});
+
+describe("SettlementBook and the payee's payout account (request 16)", () => {
+  it('refuses a payment to a payee with no payout account, as PayeeHasNoPayoutAccount, and records nothing', () => {
+    const book = SettlementBook.open('group-1');
+    const refused = proposePayment(book, {}, null);
+    expect(refused.isFailure() && refused.error.type).toBe('PayeeHasNoPayoutAccount');
+    expect(book.pullDomainEvents()).toEqual([]);
+  });
+
+  it('proposes the payment to the payout account of its payee, the one the provider is asked to pay', () => {
+    const proposal = proposePayment(SettlementBook.open('group-1'), {}, 'acct_bob');
+    if (proposal.isFailure()) throw new Error('the proposal should be decided');
+    expect(proposal.data.payeeAccount).toBe('acct_bob');
+  });
+
+  it('keeps a cash settlement needing no payout account', () => {
+    expect(recordCash(SettlementBook.open('group-1')).isSuccess()).toBe(true);
   });
 });

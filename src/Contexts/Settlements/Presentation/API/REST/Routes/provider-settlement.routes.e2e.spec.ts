@@ -17,7 +17,7 @@ const PASSWORD = 'correct horse';
 
 /** What the fake provider answers its next payment request with: a link, a refusal, or no answer in time. */
 let answer: 'link' | 'refuse' | 'slow' = 'link';
-let requested: { reference: string; amount: number; currency: string }[] = [];
+let requested: { reference: string; amount: number; currency: string; payee: string }[] = [];
 /** The payment ids the fake provider issued, in order: each test's payment is the last one issued. */
 let issued: string[] = [];
 const lastPayment = () => issued[issued.length - 1];
@@ -30,6 +30,10 @@ const nextPaymentId = (): string => {
 };
 /** What the fake provider answers its next refund request with: accepted, refused, or no answer in time (request 15). */
 let refundAnswer: 'accept' | 'refuse' | 'slow' = 'accept';
+/** What the fake provider answers a payout account asked of it with (request 16): known, unknown (`acct_unknown` is never known), refused, or no answer in time. */
+let accountAnswer: 'answer' | 'refuse' | 'slow' = 'answer';
+/** The payout accounts the fake provider was asked about, in order. */
+let accountsAsked: string[] = [];
 /** The refund requests the fake provider received, in order: the path asked, and the body sent. */
 let refunds: { path: string; body: { reference: string } }[] = [];
 let provider: Server;
@@ -43,6 +47,19 @@ beforeAll(async () => {
     let text = '';
     req.on('data', chunk => (text += chunk));
     req.on('end', () => {
+      if (req.method === 'GET' && req.url?.startsWith('/accounts/')) {
+        const accountId = decodeURIComponent(req.url.slice('/accounts/'.length));
+        accountsAsked.push(accountId);
+        const answered = () => {
+          if (accountAnswer === 'refuse') return void res.writeHead(500).end();
+          if (accountId === 'acct_unknown' || !accountId.startsWith('acct_')) return void res.writeHead(404).end();
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ id: accountId }));
+        };
+        if (accountAnswer === 'slow') setTimeout(answered, 5500);
+        else answered();
+        return;
+      }
       if (req.url?.endsWith('/refunds')) {
         refunds.push({ path: req.url, body: JSON.parse(text) as { reference: string } });
         if (refundAnswer === 'refuse') return void res.writeHead(500).end();
@@ -54,7 +71,7 @@ beforeAll(async () => {
         else refunded();
         return;
       }
-      const body = JSON.parse(text) as { reference: string; amount: number; currency: string };
+      const body = JSON.parse(text) as { reference: string; amount: number; currency: string; payee: string };
       requested.push(body);
       if (answer === 'refuse') return void res.writeHead(500).end();
       const reply = () => {
@@ -87,6 +104,8 @@ beforeEach(() => {
   issued = [];
   refundAnswer = 'accept';
   refunds = [];
+  accountAnswer = 'answer';
+  accountsAsked = [];
 });
 
 async function accountOf(email: string, name: string): Promise<{ token: string; id: string }> {
@@ -113,6 +132,9 @@ async function groupWith(owner: { token: string }, others: { token: string }[]):
   return groupId;
 }
 
+const setPayoutAccount = (token: string | undefined, accountId: unknown) =>
+  http.request('PUT', '/v1/accounts/me/payout-account', { body: { accountId }, token });
+const readPayoutAccount = (token?: string) => http.get('/v1/accounts/me/payout-account', { token });
 const payThroughProvider = (groupId: string, token: string, body: unknown) =>
   http.request('POST', `/v1/groups/${groupId}/settlements/provider`, { body, token });
 const settleInCash = (groupId: string, token: string, body: unknown) =>
@@ -165,6 +187,8 @@ async function annAndBobOwing(): Promise<{
 }> {
   const ann = await accountOf('ann.provider@example.com', 'Ann');
   const bob = await accountOf('bob.provider@example.com', 'Bob');
+  // Ann is paid through the provider, so she has a payout account it knows (request 16).
+  expect((await setPayoutAccount(ann.token, 'acct_ann')).status).toBe(201);
   const groupId = await groupWith(ann, [bob]);
   const expense = await http.request('POST', `/v1/groups/${groupId}/expenses`, {
     body: { description: 'Dinner', amount: 60, date: SPENT, splitBetween: [ann.id, bob.id] },
@@ -207,10 +231,13 @@ describe('Groups → Settlements', () => {
 
     const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
     expect(asked.status).toBe(201);
-    expect(requested).toEqual([{ reference: (asked.body as { id: string }).id, amount: 30, currency: 'EUR' }]);
+    expect(requested).toEqual([
+      { reference: (asked.body as { id: string }).id, amount: 30, currency: 'EUR', payee: 'acct_ann' },
+    ]);
 
     // Nothing is owed to the stranger, so nothing is paid to them, and the provider is not asked.
     const stranger = await accountOf('stranger.provider@example.com', 'Stranger');
+    expect((await setPayoutAccount(stranger.token, 'acct_stranger')).status).toBe(201);
     const refused = await payThroughProvider(groupId, bob.token, { to: stranger.id, amount: 1 });
     expect(refused.status).toBe(400);
     expect(refused.body).toEqual({ type: 'SettlementExceedsBalance', message: expect.any(String) });
@@ -534,6 +561,89 @@ describe('a refund through the provider (request 15)', () => {
     expect(await balancesOf(groupId, ann.token)).toEqual([
       { memberId: ann.id, balance: 30 },
       { memberId: bob.id, balance: -30 },
+    ]);
+  });
+});
+
+describe('Payout accounts (request 16)', () => {
+  it('sets the account the provider knows, replaces it, and only its owner reads it', async () => {
+    const ann = await accountOf('payout.ann@example.com', 'Ann');
+    const bob = await accountOf('payout.bob@example.com', 'Bob');
+    expect((await readPayoutAccount(ann.token)).status).toBe(404);
+
+    expect((await setPayoutAccount(ann.token, 'acct_ann_1')).status).toBe(201);
+    expect(accountsAsked).toEqual(['acct_ann_1']);
+    expect((await readPayoutAccount(ann.token)).body).toEqual({ accountId: 'acct_ann_1' });
+
+    expect((await setPayoutAccount(ann.token, 'acct_ann_2')).status).toBe(201);
+    expect((await readPayoutAccount(ann.token)).body).toEqual({ accountId: 'acct_ann_2' });
+    expect((await readPayoutAccount(bob.token)).status).toBe(404);
+  });
+
+  it('refuses an account the provider does not know, and one it does not answer about, and keeps the one held', async () => {
+    const ann = await accountOf('payout.refusal@example.com', 'Ann');
+    expect((await setPayoutAccount(ann.token, 'acct_ann_3')).status).toBe(201);
+
+    const unknown = await setPayoutAccount(ann.token, 'acct_unknown');
+    expect(unknown.status).toBe(400);
+    expect(unknown.body).toEqual({ type: 'UnknownPayoutAccount', message: expect.any(String) });
+
+    accountAnswer = 'refuse';
+    const refused = await setPayoutAccount(ann.token, 'acct_ann_4');
+    expect(refused.status).toBe(400);
+    expect(refused.body).toEqual({ type: 'ProviderUnavailable', message: expect.any(String) });
+
+    expect((await readPayoutAccount(ann.token)).body).toEqual({ accountId: 'acct_ann_3' });
+  });
+
+  it('refuses a provider that does not answer within 5 seconds, and keeps the account held', async () => {
+    const ann = await accountOf('payout.slow@example.com', 'Ann');
+    expect((await setPayoutAccount(ann.token, 'acct_ann_5')).status).toBe(201);
+
+    accountAnswer = 'slow';
+    const late = await setPayoutAccount(ann.token, 'acct_ann_6');
+    // The answer waits for the outcome only so long; the refusal is then read at the operation, as a slow payment's is.
+    const outcome =
+      late.status === 202
+        ? await operationOutcome((late.body as { operationId: string }).operationId, ann.token)
+        : { status: late.status, body: late.body };
+    expect(outcome.status).toBe(400);
+    expect(outcome.body).toEqual({ type: 'ProviderUnavailable', message: expect.any(String) });
+    expect((await readPayoutAccount(ann.token)).body).toEqual({ accountId: 'acct_ann_5' });
+  }, 15000);
+
+  it('is refused to a caller who is not signed in, and asks the provider nothing', async () => {
+    expect((await setPayoutAccount(undefined, 'acct_anon')).status).toBe(401);
+    expect((await readPayoutAccount()).status).toBe(401);
+    expect(accountsAsked).toEqual([]);
+  });
+
+  it('refuses a payment to a payee with no payout account before the provider is asked, and keeps a cash settlement free of one', async () => {
+    const ann = await accountOf('payout.nothing@example.com', 'Ann');
+    const bob = await accountOf('payout.owing@example.com', 'Bob');
+    const groupId = await groupWith(ann, [bob]);
+    const expense = await http.request('POST', `/v1/groups/${groupId}/expenses`, {
+      body: { description: 'Lunch', amount: 40, date: SPENT, splitBetween: [ann.id, bob.id] },
+      token: ann.token,
+    });
+    expect(expense.status).toBe(201);
+
+    const refused = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 20 });
+    expect(refused.status).toBe(400);
+    expect(refused.body).toEqual({ type: 'PayeeHasNoPayoutAccount', message: expect.any(String) });
+    expect(requested).toEqual([]);
+
+    expect((await settleInCash(groupId, ann.token, { from: bob.id, amount: 20 })).status).toBe(201);
+  });
+
+  it('pays through the payee account the provider is given, as it is set at the moment of the payment', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    expect((await setPayoutAccount(ann.token, 'acct_ann_7')).status).toBe(201);
+
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    expect(asked.status).toBe(201);
+    expect(requested).toEqual([
+      { reference: (asked.body as { id: string }).id, amount: 30, currency: 'EUR', payee: 'acct_ann_7' },
     ]);
   });
 });

@@ -7,6 +7,7 @@ import {
 } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
   InvalidSettlementAmountException,
+  PayeeHasNoPayoutAccountException,
   ProviderUnavailableException,
   SettlementExceedsBalanceException,
   SettlementNotRefundableException,
@@ -67,6 +68,8 @@ export interface ProviderPaymentUpdate {
 export interface PaymentProposal {
   readonly settlementId: string;
   readonly request: SettlementRequest;
+  /** The payee's payout account at the provider, where the provider is asked to pay the money (request 16). */
+  readonly payeeAccount: string;
 }
 
 /**
@@ -164,12 +167,14 @@ export class SettlementBook extends AggregateRoot {
 
   /**
    * Decides a payment through the provider, before the provider is asked: the rules of `recordCash()`, against what is still
-   * owed, and the settlement's id the provider is asked with as the reference. Records nothing.
+   * owed, and the settlement's id the provider is asked with as the reference. The payee must have a payout account at the provider
+   * (`payeeAccount`, request 16): a payee with none is refused before anything else is decided. Records nothing.
    */
-  proposePayment(request: SettlementRequest): IResult<PaymentProposal> {
+  proposePayment(request: SettlementRequest, payeeAccount: string | null): IResult<PaymentProposal> {
+    if (payeeAccount === null) return Result.fail(new PayeeHasNoPayoutAccountException());
     const decided = this.decide(request);
     if (decided.isFailure()) return Result.fail(decided.error);
-    return Result.ok({ settlementId: Id.generate().value, request: { ...request } });
+    return Result.ok({ settlementId: Id.generate().value, request: { ...request }, payeeAccount });
   }
 
   /**

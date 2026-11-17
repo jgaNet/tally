@@ -29,7 +29,7 @@ const REQUEST: SettlementRequest = {
 /** A group's book with one settlement through the provider, kept pending under the payment id `pay_1`. */
 function bookWithPendingPayment(): SettlementBook {
   const book = SettlementBook.open('group-1');
-  const proposal = book.proposePayment(REQUEST);
+  const proposal = book.proposePayment(REQUEST, 'acct_ann');
   if (proposal.isFailure()) throw new Error('the payment should be decided');
   const kept = book.keepPayment(proposal.data, { id: 'pay_1', payUrl: 'https://provider.example/pay/pay_1' });
   if (kept.isFailure()) throw new Error('the payment should be kept');

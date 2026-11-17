@@ -116,3 +116,30 @@ export const ProviderWebhookResSchema = {
   400: RefusalSchema,
   401: RefusalSchema,
 } as const;
+
+/** The body of a payout account: the provider's id of the account the member is paid on (request 16). Whether the provider knows it is the domain's to decide. */
+export interface SetPayoutAccountBody {
+  accountId: string;
+}
+
+export const SetPayoutAccountReqBodySchema = {
+  type: 'object',
+  required: ['accountId'],
+  properties: { accountId: { type: 'string' } },
+} as const;
+
+export const SetPayoutAccountResSchema = {
+  201: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+  202: { type: 'object', required: ['operationId'], properties: { operationId: { type: 'string' } } },
+  400: RefusalSchema,
+  401: RefusalSchema,
+  404: RefusalSchema,
+  409: RefusalSchema,
+} as const;
+
+/** A member's payout account, as the member reads it (request 16's `payoutAccount` resource). */
+export const GetPayoutAccountResSchema = {
+  200: { type: 'object', required: ['accountId'], properties: { accountId: { type: 'string' } } },
+  401: RefusalSchema,
+  404: RefusalSchema,
+} as const;

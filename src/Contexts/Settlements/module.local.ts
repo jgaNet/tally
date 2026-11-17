@@ -5,6 +5,7 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ledgerBalanceQueries } from '@Bootstrap/Fastify/readModels';
 import { groupQueries } from '@Contexts/Groups/module.local';
 import {
+  GetPayoutAccountQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
@@ -17,12 +18,16 @@ import {
   RecordCashSettlementCommandHandler,
   RefundSettlementCommandEvent,
   RefundSettlementCommandHandler,
+  SetPayoutAccountCommandEvent,
+  SetPayoutAccountCommandHandler,
 } from '@Contexts/Settlements/Application/Commands';
 import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/Ledger/LedgerGroupBalances';
 import { GroupsSettlementMembers } from '@Contexts/Settlements/Infrastructure/Groups/GroupsSettlementMembers';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/Provider/HttpPaymentProvider';
 import { SqliteSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/Repositories/SqliteSettlementBookRepository';
 import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/Queries/SqliteSettlementQueries';
+import { SqlitePayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/Queries/SqlitePayoutAccountQueries';
+import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/Repositories/SqlitePayoutAccountRepository';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADR 6, ADR 7, ADR 8). A settlement is recorded in its group's book, which
@@ -36,6 +41,8 @@ const groupBalances = new LedgerGroupBalances(ledgerBalanceQueries);
 const settlementMembers = new GroupsSettlementMembers(groupQueries);
 const books = new SqliteSettlementBookRepository(database);
 export const settlementQueries = new SqliteSettlementQueries(database);
+const payoutAccounts = new SqlitePayoutAccountRepository(database);
+const payoutAccountQueries = new SqlitePayoutAccountQueries(database);
 /** The provider is asked where PROVIDER_URL points when a payment is asked, so an unset URL refuses it (request 13). */
 const paymentProvider = new HttpPaymentProvider(() => process.env.PROVIDER_URL);
 const clock = systemClock;
@@ -49,7 +56,16 @@ export const localSettlementsModule = new Module({
     },
     {
       event: PayThroughProviderCommandEvent,
-      handlers: [new PayThroughProviderCommandHandler(settlementMembers, groupBalances, books, paymentProvider, clock)],
+      handlers: [
+        new PayThroughProviderCommandHandler(
+          settlementMembers,
+          groupBalances,
+          books,
+          payoutAccounts,
+          paymentProvider,
+          clock,
+        ),
+      ],
     },
     {
       event: ReceivePaymentWebhookCommandEvent,
@@ -59,9 +75,14 @@ export const localSettlementsModule = new Module({
       event: RefundSettlementCommandEvent,
       handlers: [new RefundSettlementCommandHandler(settlementMembers, books, paymentProvider)],
     },
+    {
+      event: SetPayoutAccountCommandEvent,
+      handlers: [new SetPayoutAccountCommandHandler(payoutAccounts, paymentProvider)],
+    },
   ],
   queries: [
     new GetSuggestedSettlementsQueryHandler(groupBalances, settlementMembers, settlementQueries),
     new GetSettlementQueryHandler(settlementQueries, settlementMembers),
+    new GetPayoutAccountQueryHandler(payoutAccountQueries),
   ],
 });

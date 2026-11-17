@@ -6,3 +6,5 @@ export * from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook/
 export * from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook/ReceivePaymentWebhookCommandHandler';
 export * from '@Contexts/Settlements/Application/Commands/RefundSettlement/RefundSettlementCommandEvent';
 export * from '@Contexts/Settlements/Application/Commands/RefundSettlement/RefundSettlementCommandHandler';
+export * from '@Contexts/Settlements/Application/Commands/SetPayoutAccount/SetPayoutAccountCommandEvent';
+export * from '@Contexts/Settlements/Application/Commands/SetPayoutAccount/SetPayoutAccountCommandHandler';

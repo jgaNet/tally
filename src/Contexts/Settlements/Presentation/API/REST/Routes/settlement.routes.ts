@@ -5,6 +5,7 @@ import { Module } from '@Architecture/Application';
 import { FastifySettlementController } from '@Contexts/Settlements/Presentation/API/REST/Controllers/FastifySettlementController';
 import { providerSignatureIsValid } from '@Contexts/Settlements/Presentation/API/REST/Routes/provider-signature';
 import {
+  GetPayoutAccountResSchema,
   GetSettlementResSchema,
   GetSuggestedSettlementsResSchema,
   PayThroughProviderBody,
@@ -17,6 +18,9 @@ import {
   RecordCashSettlementReqBodySchema,
   RecordCashSettlementResSchema,
   RefundSettlementResSchema,
+  SetPayoutAccountBody,
+  SetPayoutAccountReqBodySchema,
+  SetPayoutAccountResSchema,
 } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
 
 /**
@@ -86,6 +90,18 @@ export const settlementRoutes = function (
     '/settlements/:id/refund',
     { schema: { tags, response: RefundSettlementResSchema } },
     controller.refundSettlement.bind(controller),
+  );
+
+  fastify.put<{ Body: SetPayoutAccountBody }>(
+    '/accounts/me/payout-account',
+    { schema: { tags, body: SetPayoutAccountReqBodySchema, response: SetPayoutAccountResSchema } },
+    controller.setPayoutAccount.bind(controller),
+  );
+
+  fastify.get(
+    '/accounts/me/payout-account',
+    { schema: { tags, response: GetPayoutAccountResSchema } },
+    controller.getPayoutAccount.bind(controller),
   );
 
   fastify.get<{ Params: { id: string } }>(

@@ -50,7 +50,18 @@ export class ProviderUnavailableException extends Exception {
     super({
       service: 'Settlements',
       type: 'ProviderUnavailable',
-      message: 'The payment provider did not give a payment link',
+      message: 'The payment provider did not answer as asked',
+    });
+  }
+}
+
+/** The payee has no payout account at the provider, so no payment through the provider is asked for them (request 16). */
+export class PayeeHasNoPayoutAccountException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'PayeeHasNoPayoutAccount',
+      message: 'The payee has no payout account, so the payment through the provider is not asked',
     });
   }
 }
