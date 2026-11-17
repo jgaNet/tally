@@ -12,3 +12,10 @@ export class GroupCreatedEvent extends DomainEvent<{ groupId: string; ownerId: s
  * reacts to it yet, so it is not an integration event (ADR 4). Ledger asks for the members when it decides (feature 4).
  */
 export class MemberJoinedEvent extends DomainEvent<{ groupId: string; accountId: string; joinedAt: Date }> {}
+
+/**
+ * An account left a group: its membership ended, and it is no longer among the group's members. Recorded by `Group.leave()`
+ * and published after its save; nothing reacts to it yet, so it is not an integration event. Ledger is not told: it reads the
+ * members when it decides (feature 9, ADR 7).
+ */
+export class MemberLeftEvent extends DomainEvent<{ groupId: string; accountId: string; leftAt: Date }> {}

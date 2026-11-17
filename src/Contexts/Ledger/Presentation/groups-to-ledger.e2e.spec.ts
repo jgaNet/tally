@@ -205,4 +205,27 @@ describe('Groups → Ledger', () => {
         .status,
     ).toBe(404);
   });
+  it('does not count a member who left Groups: the group they left is not found by them, and Ledger refuses them in a split', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as {
+      id: string;
+    };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+    expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: grace.token })).status).toBe(204);
+
+    const balances = (await http.request('GET', `${api}/groups/${groupId}/balances`, { token: ada.token })).body as {
+      memberId: string;
+    }[];
+    expect(balances.map(balance => balance.memberId)).toEqual([ada.id]);
+    const refused = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Bread', amount: 300, date: '2020-01-15', splitBetween: [ada.id, grace.id] },
+      token: ada.token,
+    });
+    expect(refused.status).toBe(400);
+  });
 });

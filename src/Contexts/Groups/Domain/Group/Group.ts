@@ -1,8 +1,8 @@
-import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
-import { GroupCreatedEvent, MemberJoinedEvent } from './GroupEvents';
+import { GroupCreatedEvent, MemberJoinedEvent, MemberLeftEvent } from './GroupEvents';
 import { Currency, CurrencyCode } from './Currency';
-import { AlreadyMemberException } from './GroupExceptions';
+import { AlreadyMemberException, OwnerCannotLeaveException } from './GroupExceptions';
 import { GroupName } from './GroupName';
 
 /** A member as it is stored: the account, and when it joined. */
@@ -114,6 +114,20 @@ export class Group extends AggregateRoot {
     if (this.hasMember(accountId)) return Result.fail(new AlreadyMemberException());
     this.#members.push({ accountId, joinedAt: at });
     this.record(MemberJoinedEvent.set({ groupId: this._id.value, accountId, joinedAt: at }));
+    return Result.ok(undefined);
+  }
+
+  /**
+   * A member leaves the group at `at`: it is no longer among its members, and the group is not among its groups. Refused for
+   * the owner, who stays, and for an account that is not a member. Recorded as `MemberLeft`; whether its balance is 0 is the
+   * decision's to say (`decideLeaveGroup`), before this is called.
+   */
+  leave(accountId: string, at: Date): IResult<void> {
+    if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
+    const index = this.#members.findIndex(member => member.accountId === accountId);
+    if (index === -1) return Result.fail(new NotFoundException('Groups', 'No group is found'));
+    this.#members.splice(index, 1);
+    this.record(MemberLeftEvent.set({ groupId: this._id.value, accountId, leftAt: at }));
     return Result.ok(undefined);
   }
 

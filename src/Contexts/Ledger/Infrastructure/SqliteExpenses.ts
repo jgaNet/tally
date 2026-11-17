@@ -203,6 +203,17 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
     }));
   }
 
+  async isInvolved(groupId: string, memberId: string): Promise<boolean> {
+    const row = this.database.connection
+      .prepare(
+        `SELECT 1 AS found FROM ledger_expenses e
+           LEFT JOIN ledger_expense_shares s ON s.expense_id = e.id
+          WHERE e.group_id = ? AND (e.paid_by = ? OR s.member_id = ?) LIMIT 1`,
+      )
+      .get(groupId, memberId, memberId);
+    return row !== undefined;
+  }
+
   async balancesOf(groupId: string): Promise<ReadonlyMap<string, number>> {
     const rows = this.database.connection
       .prepare('SELECT member_id, balance FROM ledger_balances WHERE group_id = ?')

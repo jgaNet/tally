@@ -4,7 +4,11 @@ import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
 import { ExpenseAmount } from './ExpenseAmount';
 import { ExpenseDate } from './ExpenseDate';
 import { ExpenseDescription } from './ExpenseDescription';
-import { ExpenseChangedSinceReadException, SplitMemberNotInGroupException } from './ExpenseExceptions';
+import {
+  ExpenseChangedSinceReadException,
+  ExpenseHasFormerMemberException,
+  SplitMemberNotInGroupException,
+} from './ExpenseExceptions';
 import { ExpenseSnapshot } from './Expense';
 import { memberIdsOfSplit, Split, SplitRequest } from './Split';
 
@@ -86,6 +90,7 @@ export const decideEditExpense: Decision<NewExpenseValues, EditExpenseCommand, n
   if (!mayChange(expense.paidBy, ownerId, command.by))
     return Result.fail(new NotAllowedException('Ledger', MAY_NOT_CHANGE));
   if (command.version !== expense.version) return Result.fail(new ExpenseChangedSinceReadException());
+  if (concernsFormerMember(expense, memberIds)) return Result.fail(new ExpenseHasFormerMemberException());
   return newValues(
     {
       description: command.description,
@@ -104,13 +109,18 @@ export const decideEditExpense: Decision<NewExpenseValues, EditExpenseCommand, n
  * the use case removes the expense, which records `ExpenseDeleted`.
  */
 export const decideDeleteExpense: Decision<undefined, DeleteExpenseCommand, never, StoredExpenseAccess> = (
-  { expense, ownerId },
+  { expense, memberIds, ownerId },
   command,
 ) => {
   if (!mayChange(expense.paidBy, ownerId, command.by))
     return Result.fail(new NotAllowedException('Ledger', MAY_NOT_CHANGE));
+  if (concernsFormerMember(expense, memberIds)) return Result.fail(new ExpenseHasFormerMemberException());
   return decided(undefined);
 };
+
+/** Whether the expense's payer or a member of its split is no longer a member of the group (request 9). */
+const concernsFormerMember = (expense: ExpenseSnapshot, memberIds: readonly string[]): boolean =>
+  [expense.paidBy, ...expense.shares.map(share => share.memberId)].some(member => !memberIds.includes(member));
 
 /** The payer, and the group's owner, may change an expense; no one else. */
 const mayChange = (payer: string, ownerId: string, by: string): boolean => by === payer || by === ownerId;

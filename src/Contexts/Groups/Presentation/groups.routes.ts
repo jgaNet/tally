@@ -2,7 +2,7 @@ import { FastifyPluginCallback } from 'fastify';
 
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
-import { createGroup, getGroup, getGroupMembers, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 
 import { shapeOf } from './bodyShape';
@@ -37,6 +37,10 @@ export const groupRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fasti
 
   fastify.get('/groups/:id/members', { schema: { tags: ['groups'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getGroupMembers), { id: (req.params as { id: string }).id }),
+  );
+
+  fastify.post('/groups/:id/leave', { schema: { tags: ['groups'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(leaveGroup), { id: (req.params as { id: string }).id }),
   );
 
   fastify.post('/groups/:id/invitations', { schema: { tags: ['invitations'] } }, (req, reply) =>

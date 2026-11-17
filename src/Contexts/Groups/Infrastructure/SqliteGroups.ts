@@ -86,7 +86,14 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
       if (updated.changes !== 1) {
         throw new ConcurrencyConflictException('Groups', 'The group changed since it was read');
       }
-      // The members already stored are kept as they are; only those that joined since the read are new.
+      // The members stored are kept as they are, except those who left since the read: they are removed. Those who joined
+      // since the read are inserted; a member who left and joins again is inserted again, last.
+      const kept = members.map(member => member.accountId);
+      connection
+        .prepare(
+          `DELETE FROM expense_group_members WHERE group_id = ? AND account_id NOT IN (${kept.map(() => '?').join(', ')})`,
+        )
+        .run(id, ...kept);
       this.insertMembers(id, members);
       connection.exec('COMMIT');
     } catch (error) {

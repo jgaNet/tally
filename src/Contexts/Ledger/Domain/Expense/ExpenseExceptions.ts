@@ -112,3 +112,17 @@ export class InvalidSplitSharesException extends Exception {
     });
   }
 }
+
+/**
+ * The expense concerns a member who is no longer in its group, as its payer or in its split: it can no longer be changed or
+ * deleted, so that that member's balance stays 0 and the group's balances still add up to 0 (request 9).
+ */
+export class ExpenseHasFormerMemberException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'ExpenseHasFormerMember',
+      message: 'The expense concerns a member who left the group, so it can no longer be changed or deleted',
+    });
+  }
+}

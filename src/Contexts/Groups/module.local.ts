@@ -1,8 +1,10 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
+import { ledgerBalancesReadModel } from '@Contexts/Ledger/module.local';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
-import { createGroup, getGroup, getGroupMembers, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
+import { BalancesOfLedger } from '@Contexts/Groups/Infrastructure/BalancesOfLedger';
 import { GroupsDatabase } from '@Contexts/Groups/Infrastructure/GroupsDatabase';
 import { SqliteAccounts } from '@Contexts/Groups/Infrastructure/SqliteAccounts';
 import { SqliteGroups } from '@Contexts/Groups/Infrastructure/SqliteGroups';
@@ -25,7 +27,8 @@ export const groupsAccessTokens = new SignedAccessTokens(database);
 
 /**
  * The read model of the members, which Ledger asks through its own `GroupMembers` port (ADR 5): the one thing of Groups
- * another context reaches through this file.
+ * another context reaches through this file. Ledger's wiring imports this one and this one imports Ledger's, for the two read
+ * models each asks the other (ADR 7): each is read when a request comes, never when the modules are built.
  */
 export const groupsMembersReadModel = groups;
 
@@ -42,5 +45,6 @@ export const localGroupsModule = new LiteModule({
     acceptInvitation(invitations, groups, systemClock),
     getInvitation(invitations),
     getGroupMembers(groups),
+    leaveGroup(groups, new BalancesOfLedger(() => ledgerBalancesReadModel), systemClock),
   ],
 });

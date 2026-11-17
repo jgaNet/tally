@@ -176,8 +176,9 @@ export const getGroupExpenses = query(
 /**
  * A member of a group reads the statement of any member of the group, themselves included (request 8): every expense that
  * member paid or is in the split of, the earliest date first, with the balance after each entry. Anyone who is not a
- * member gets the answer for a group that does not exist; a member who has never been one of the group does not exist
- * either, so the answer for them is the same as for a member who is not there.
+ * member gets the answer for a group that does not exist. A member who left the group keeps their statement readable while
+ * an expense of theirs is recorded (request 9); one who never was in an expense of the group does not exist, so the answer
+ * for them is the same as for a member who is not there.
  */
 export const getMemberStatement = query(
   'GetMemberStatement',
@@ -185,7 +186,8 @@ export const getMemberStatement = query(
     async ({ id, memberId }: { id: string; memberId: string }, context) => {
       const members = await groupMembers.membersOf(id, callerOf(context));
       if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
-      if (!memberIdsOf(members).includes(memberId)) {
+      const isMember = memberIdsOf(members).includes(memberId);
+      if (!isMember && !(await expenses.isInvolved(id, memberId))) {
         return Result.fail(new NotFoundException('Ledger', 'No member is found'));
       }
       const answer: StatementView = await expenses.statementOf(id, memberId);

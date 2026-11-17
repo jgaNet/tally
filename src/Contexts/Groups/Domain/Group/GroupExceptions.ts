@@ -32,3 +32,25 @@ export class AlreadyMemberException extends Exception {
     });
   }
 }
+
+/** The owner created the group and stays in it: the owner cannot leave it (request 9). */
+export class OwnerCannotLeaveException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'OwnerCannotLeave',
+      message: 'The owner of a group cannot leave it',
+    });
+  }
+}
+
+/** A member leaves only once their balance in the group is 0 (request 9). */
+export class BalanceNotZeroException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'BalanceNotZero',
+      message: 'You can leave the group only once your balance in it is 0',
+    });
+  }
+}

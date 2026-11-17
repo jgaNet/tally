@@ -24,7 +24,14 @@ const database = new LedgerDatabase(
   () => process.env.LEDGER_DATABASE_PATH || process.env.DATABASE_PATH || 'tally.sqlite',
 );
 const expenses = new SqliteExpenses(database);
-const groupMembers = new GroupMembersOfGroups(groupsMembersReadModel);
+const groupMembers = new GroupMembersOfGroups(() => groupsMembersReadModel);
+
+/**
+ * The balances, the read model of the expenses' balances, which Groups asks through its own `MemberBalances` port before a
+ * member leaves (ADR 7): the one thing of Ledger another context reaches through this file. Groups' wiring imports this one
+ * and this one imports Groups', each for the read model the other asks; both are read at a request (ADR 7).
+ */
+export const ledgerBalancesReadModel = expenses;
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',

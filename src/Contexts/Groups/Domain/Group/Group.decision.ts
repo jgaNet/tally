@@ -1,6 +1,8 @@
+import { Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
 
 import { Currency } from './Currency';
+import { BalanceNotZeroException, OwnerCannotLeaveException } from './GroupExceptions';
 import { GroupName } from './GroupName';
 
 /** What a creation says: the name and the currency as typed. */
@@ -26,4 +28,29 @@ export const decideCreateGroup: Decision<NewGroupValues, CreateGroupCommand, nev
   const currency = Currency.create(command.currency);
   if (currency.isFailure()) return currency;
   return decided({ name: name.data, currency: currency.data });
+};
+
+/** What a member leaving says: only who asks for it (the caller). */
+export interface LeaveGroupCommand {
+  by: string;
+}
+
+/** What a leaving is given: the group's owner, and the caller's balance in the group, read from Ledger (MemberBalances). */
+export interface LeavingGroup {
+  ownerId: string;
+  balance: number;
+}
+
+/**
+ * A member leaves a group, as the storm decided it (request 9): the owner never does, and a member does only once their
+ * balance in the group is 0, so that the group's balances still add up to 0 (the balance is read from Ledger before this
+ * decides). It answers no state: the use case takes the member out with `Group.leave`, which records `MemberLeft`.
+ */
+export const decideLeaveGroup: Decision<undefined, LeaveGroupCommand, never, LeavingGroup> = (
+  { ownerId, balance },
+  { by },
+) => {
+  if (by === ownerId) return Result.fail(new OwnerCannotLeaveException());
+  if (balance !== 0) return Result.fail(new BalanceNotZeroException());
+  return decided(undefined);
 };

@@ -1,3 +1,5 @@
+import { IBalanceQueries } from '@Contexts/Ledger/Domain/IBalanceQueries';
+
 /** One member's share, as `GetExpense` answers it. */
 export interface ShareView {
   memberId: string;
@@ -44,7 +46,7 @@ export interface StatementView {
 }
 
 /** The read side of the expenses: read models, never aggregates (QUERY-READ-MODELS). */
-export interface IExpenseQueries {
+export interface IExpenseQueries extends IBalanceQueries {
   /**
    * Every expense of the group that is not deleted, each as `expenseOf` reads it, the latest date first and, on the same
    * date, the most recently recorded first (request 8). An edit does not change when an expense was recorded.
@@ -56,11 +58,11 @@ export interface IExpenseQueries {
    * read, in that order; nothing is stored per entry.
    */
   statementOf(groupId: string, memberId: string): Promise<StatementView>;
+  /**
+   * Whether the member paid an expense of the group that is not deleted, or is in its split: a member who left the group
+   * keeps their statement readable for as long as an expense of theirs is recorded (request 9).
+   */
+  isInvolved(groupId: string, memberId: string): Promise<boolean>;
   /** The expense, if it is recorded. Who may read it is the use case's to say (a member of its group). */
   expenseOf(id: string): Promise<ExpenseView | undefined>;
-  /**
-   * The balance of every member the group's expenses have counted, in no order. A member not in the map has 0. The
-   * whole map is read in one statement, so it is one state of the group, never half of an expense.
-   */
-  balancesOf(groupId: string): Promise<ReadonlyMap<string, number>>;
 }

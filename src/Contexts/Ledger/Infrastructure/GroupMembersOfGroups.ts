@@ -8,10 +8,11 @@ import { IGroupMembers, MemberOfGroup } from '@Contexts/Ledger/Application/IGrou
  * (`Contexts/Ledger/module.local.ts`).
  */
 export class GroupMembersOfGroups implements IGroupMembers {
-  constructor(private readonly groups: Pick<IGroupQueries, 'membersOf'>) {}
+  /** Groups' read model is given as a function, read when a member is asked for and not when the modules are built (ADR 7). */
+  constructor(private readonly groups: () => Pick<IGroupQueries, 'membersOf'>) {}
 
   async membersOf(groupId: string, askedBy: string): Promise<MemberOfGroup[] | undefined> {
-    const members = await this.groups.membersOf(groupId, askedBy);
+    const members = await this.groups().membersOf(groupId, askedBy);
     return members?.map(member => ({ memberId: member.memberId, role: member.role }));
   }
 }

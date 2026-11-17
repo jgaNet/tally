@@ -3,10 +3,11 @@ import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
-import { decideCreateGroup } from '@Contexts/Groups/Domain/Group/Group.decision';
+import { decideCreateGroup, decideLeaveGroup } from '@Contexts/Groups/Domain/Group/Group.decision';
 
 import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/IGroupQueries';
 import { IGroupRepository } from './IGroupRepository';
+import { IMemberBalances } from './IMemberBalances';
 
 /**
  * A signed-in person creates a group in one of the six currencies, fixed for good, and owns it: its owner is its first
@@ -23,6 +24,35 @@ export const createGroup = command(
       await groups.insert(group);
       await publishDomainEvents(group, context);
       return Result.ok(group._id.value);
+    },
+);
+
+/**
+ * A member leaves the group, once its balance in it is 0 (request 9): its balance is read from Ledger when the decision is
+ * made, the owner is refused, and the member is taken out, `MemberLeft` recorded and published after the save. Anyone who is
+ * not a member gets the answer for a group that does not exist. The group is saved at the version it was read at, so a
+ * concurrent change is re-read and decided again (CONC-OPTIMISTIC).
+ */
+export const leaveGroup = command(
+  'LeaveGroup',
+  (groups: IGroupRepository, balances: IMemberBalances, clock: Clock) =>
+    async ({ id }: { id: string }, context) => {
+      const by = callerOf(context);
+      const group = await groups.get(id);
+      if (!group || !group.hasMember(by)) return Result.fail(new NotFoundException('Groups', 'No group is found'));
+
+      const decision = decideLeaveGroup(
+        { ownerId: group.ownerId, balance: await balances.balanceOf(id, by) },
+        { by },
+        clock(),
+      );
+      if (decision.isFailure()) return decision;
+
+      const left = group.leave(by, clock());
+      if (left.isFailure()) return left;
+      await groups.save(group);
+      await publishDomainEvents(group, context);
+      return Result.ok(undefined);
     },
 );
 
