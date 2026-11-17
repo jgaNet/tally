@@ -127,3 +127,13 @@ export class ExpenseNotFoundException extends NotFoundException {
     super(SERVICE, 'No expense is there for you with this id');
   }
 }
+
+/**
+ * The member whose statement is read has never been a member of the group: the same `404` as a statement that does not exist,
+ * for a caller who is in the group (request 8).
+ */
+export class StatementNotFoundException extends NotFoundException {
+  constructor() {
+    super(SERVICE, 'No statement is there for you with this member id');
+  }
+}

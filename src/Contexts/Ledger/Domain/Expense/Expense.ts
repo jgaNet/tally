@@ -27,7 +27,11 @@ export interface EditDraft {
   readonly split: SplitDraft;
 }
 
-/** An expense as the store keeps it: its shares included, in the order they were decided, and the version it is at. */
+/**
+ * An expense as the store keeps it: its shares included, in the order they were decided, the version it is at, and the
+ * moment it was first recorded (`recordedAt`, an ISO instant), which no edit changes (the storm's hot spot: the lists order
+ * by it on the same date).
+ */
 export interface ExpenseSnapshot {
   readonly id: string;
   readonly groupId: string;
@@ -37,6 +41,7 @@ export interface ExpenseSnapshot {
   readonly paidBy: string;
   readonly splitKind: SplitKind;
   readonly shares: readonly Share[];
+  readonly recordedAt: string;
   readonly version: number;
 }
 
@@ -58,6 +63,7 @@ export class Expense extends AggregateRoot {
   #date: string;
   readonly #paidBy: string;
   #split: Split;
+  readonly #recordedAt: string;
 
   private constructor(
     id: Id,
@@ -67,6 +73,7 @@ export class Expense extends AggregateRoot {
     date: string,
     paidBy: string,
     split: Split,
+    recordedAt: string,
     version: number,
   ) {
     super(id, version);
@@ -76,6 +83,7 @@ export class Expense extends AggregateRoot {
     this.#date = date;
     this.#paidBy = paidBy;
     this.#split = split;
+    this.#recordedAt = recordedAt;
   }
 
   /**
@@ -94,7 +102,7 @@ export class Expense extends AggregateRoot {
     if (split.isFailure()) return Result.fail(split.error);
 
     const id = Id.generate();
-    const expense = new Expense(id, groupId, description, amount, date, payerId, split.data, 0);
+    const expense = new Expense(id, groupId, description, amount, date, payerId, split.data, now.toISOString(), 0);
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: id.value,
@@ -127,6 +135,7 @@ export class Expense extends AggregateRoot {
       snapshot.date,
       snapshot.paidBy,
       split,
+      snapshot.recordedAt,
       snapshot.version,
     );
   }
@@ -184,6 +193,7 @@ export class Expense extends AggregateRoot {
       paidBy: this.#paidBy,
       splitKind: this.#split.kind,
       shares: this.#split.shares,
+      recordedAt: this.#recordedAt,
       version: this.version,
     };
   }

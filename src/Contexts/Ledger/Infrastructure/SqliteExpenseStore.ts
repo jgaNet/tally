@@ -1,7 +1,12 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { IExpenseStore, ExpenseView, MemberBalanceView } from '@Contexts/Ledger/Application/IExpenseStore';
+import {
+  IExpenseStore,
+  ExpenseView,
+  MemberBalanceView,
+  StatementRowView,
+} from '@Contexts/Ledger/Application/IExpenseStore';
 import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { Share, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
@@ -23,6 +28,11 @@ import { Share, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
  * edit replaces an expense's rows and a deletion takes them out, in the same transaction. The last statement fills it for
  * the expenses kept before it existed: an expense without rows gets the rows its shares give, once; `INSERT OR IGNORE` and
  * the key keep a second server's run from counting an expense twice.
+ *
+ * `expense_recordings` is when each expense was first recorded (feature 8, the storm's hot spot): one row per expense, written
+ * once with the expense and never changed by an edit, so the lists and the statements order by it on the same date. The
+ * expenses kept before feature 8 have no recorded time, so they are given the midnight (UTC) of their day, once: the best the
+ * ledger knows of them, and the same for every server that opens the file.
  */
 export const ledgerTablesSchema = [
   `CREATE TABLE IF NOT EXISTS expenses (
@@ -64,14 +74,20 @@ export const ledgerTablesSchema = [
      kind TEXT NOT NULL CHECK (kind IN ('equal', 'exact', 'shares'))
    )`,
   `INSERT OR IGNORE INTO expense_splits (expense_id, kind) SELECT id, 'equal' FROM expenses`,
+  `CREATE TABLE IF NOT EXISTS expense_recordings (
+     expense_id TEXT PRIMARY KEY REFERENCES expenses(id),
+     recorded_at TEXT NOT NULL
+   )`,
+  `INSERT OR IGNORE INTO expense_recordings (expense_id, recorded_at) SELECT id, spent_on || 'T00:00:00.000Z' FROM expenses`,
 ];
 
 /**
- * The expenses in SQLite. `add` writes the expense, its shares, its version and the balances it counts inside the command's
- * transaction; `findById` loads the expense as it was last saved; `save` and `remove` write an edited or deleted expense only
- * while it is still at the version it was loaded at (the optimistic check, ADR 8), refusing it with a
- * ConcurrencyConflictException when another writer changed it first; `viewOf` reads the committed data, shares in the order
- * they were decided; `balancesOf` sums the committed balance rows.
+ * The expenses in SQLite. `add` writes the expense, its shares, its version, how it was split, when it was recorded and the
+ * balances it counts inside the command's transaction; `findById` loads the expense as it was last saved; `save` and `remove`
+ * write an edited or deleted expense only while it is still at the version it was loaded at (the optimistic check, ADR 8),
+ * refusing it with a ConcurrencyConflictException when another writer changed it first; `viewOf` and `listOf` read the
+ * committed data, shares in the order they were decided; `statementRowsOf` reads a member's lines in the order of a bank
+ * statement; `balancesOf` sums the committed balance rows.
  */
 export class SqliteExpenseStore implements IExpenseStore {
   constructor(private readonly database: SqliteDatabase) {}
@@ -87,14 +103,17 @@ export class SqliteExpenseStore implements IExpenseStore {
     this.database.writer
       .prepare('INSERT INTO expense_splits (expense_id, kind) VALUES (?, ?)')
       .run(snapshot.id, snapshot.splitKind);
+    this.database.writer
+      .prepare('INSERT INTO expense_recordings (expense_id, recorded_at) VALUES (?, ?)')
+      .run(snapshot.id, snapshot.recordedAt);
     this.#writeShares(snapshot);
     this.#writeBalances(snapshot);
   }
 
   async findById(expenseId: string): Promise<Expense | undefined> {
-    const view = await this.viewOf(expenseId);
-    if (!view) return undefined;
-    return Expense.fromSnapshot(view);
+    const row = this.#rowOf(expenseId);
+    if (!row) return undefined;
+    return Expense.fromSnapshot({ ...this.#viewFrom(row, this.#sharesOf(expenseId)), recordedAt: row.recorded_at });
   }
 
   async save(expense: Expense): Promise<void> {
@@ -119,6 +138,7 @@ export class SqliteExpenseStore implements IExpenseStore {
     this.database.writer.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expense_versions WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expense_splits WHERE expense_id = ?').run(snapshot.id);
+    this.database.writer.prepare('DELETE FROM expense_recordings WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expenses WHERE id = ?').run(snapshot.id);
   }
 
@@ -132,22 +152,87 @@ export class SqliteExpenseStore implements IExpenseStore {
   }
 
   async viewOf(expenseId: string): Promise<ExpenseView | undefined> {
-    const row = this.database.read(db =>
+    const row = this.#rowOf(expenseId);
+    return row && this.#viewFrom(row, this.#sharesOf(expenseId));
+  }
+
+  async listOf(groupId: string): Promise<ExpenseView[]> {
+    const rows = this.database.read(db =>
       db
         .prepare(
-          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind
+          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at
              FROM expenses e
              JOIN expense_versions v ON v.expense_id = e.id
              JOIN expense_splits k ON k.expense_id = e.id
+             JOIN expense_recordings r ON r.expense_id = e.id
+            WHERE e.group_id = ?
+            ORDER BY e.spent_on DESC, r.recorded_at DESC, e.rowid DESC`,
+        )
+        .all(groupId),
+    ) as unknown as ExpenseRow[];
+
+    const shares = this.database.read(db =>
+      db
+        .prepare(
+          `SELECT s.expense_id, s.member_id, s.amount
+             FROM expense_shares s JOIN expenses e ON e.id = s.expense_id
+            WHERE e.group_id = ?
+            ORDER BY s.expense_id, s.position`,
+        )
+        .all(groupId),
+    ) as unknown as (ShareRow & { expense_id: string })[];
+    const sharesByExpense = new Map<string, ShareRow[]>();
+    for (const share of shares) {
+      sharesByExpense.set(share.expense_id, [...(sharesByExpense.get(share.expense_id) ?? []), share]);
+    }
+
+    return rows.map(row => this.#viewFrom(row, sharesByExpense.get(row.id) ?? []));
+  }
+
+  async statementRowsOf(groupId: string, memberId: string): Promise<StatementRowView[]> {
+    const rows = this.database.read(db =>
+      db
+        .prepare(
+          `SELECT e.id, e.spent_on, e.description, e.amount, e.paid_by, s.amount AS share
+             FROM expenses e
+             JOIN expense_recordings r ON r.expense_id = e.id
+             LEFT JOIN expense_shares s ON s.expense_id = e.id AND s.member_id = ?
+            WHERE e.group_id = ? AND (e.paid_by = ? OR s.member_id IS NOT NULL)
+            ORDER BY e.spent_on ASC, r.recorded_at ASC, e.rowid ASC`,
+        )
+        .all(memberId, groupId, memberId),
+    ) as unknown as StatementRow[];
+    return rows.map(row => ({
+      expenseId: row.id,
+      date: row.spent_on,
+      description: row.description,
+      paid: row.paid_by === memberId ? row.amount : 0,
+      share: row.share ?? 0,
+    }));
+  }
+
+  #rowOf(expenseId: string): ExpenseRow | undefined {
+    return this.database.read(db =>
+      db
+        .prepare(
+          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at
+             FROM expenses e
+             JOIN expense_versions v ON v.expense_id = e.id
+             JOIN expense_splits k ON k.expense_id = e.id
+             JOIN expense_recordings r ON r.expense_id = e.id
             WHERE e.id = ?`,
         )
         .get(expenseId),
     ) as ExpenseRow | undefined;
-    if (!row) return undefined;
+  }
 
-    const shares = this.database.read(db =>
+  #sharesOf(expenseId: string): ShareRow[] {
+    return this.database.read(db =>
       db.prepare('SELECT member_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position').all(expenseId),
     ) as unknown as ShareRow[];
+  }
+
+  #viewFrom(row: ExpenseRow, shares: ShareRow[]): ExpenseView {
     return {
       id: row.id,
       groupId: row.group_id,
@@ -201,11 +286,21 @@ interface ExpenseRow {
   paid_by: string;
   version: number;
   kind: SplitKind;
+  recorded_at: string;
 }
 
 interface ShareRow {
   member_id: string;
   amount: number;
+}
+
+interface StatementRow {
+  id: string;
+  spent_on: string;
+  description: string;
+  amount: number;
+  paid_by: string;
+  share: number | null;
 }
 
 interface BalanceRow {
