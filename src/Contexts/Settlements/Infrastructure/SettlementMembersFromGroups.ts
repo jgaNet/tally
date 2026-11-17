@@ -19,4 +19,8 @@ export class SettlementMembersFromGroups implements ISettlementMembers {
   async currencyOf(groupId: string): Promise<string | null> {
     return this.groups().currencyOf(groupId);
   }
+
+  async groupsWithMembers(): Promise<{ groupId: string; memberIds: string[] }[]> {
+    return this.groups().membersOfEveryGroup();
+  }
 }

@@ -21,7 +21,7 @@ describe('Notice', () => {
     const issued = notice.data as Notice;
     expect(issued.recipient.value).toBe('cy');
     expect(issued.groupId.value).toBe('flat');
-    expect(issued.expenseId.value).toBe('groceries');
+    expect(issued.expenseId?.value).toBe('groceries');
     expect(issued.amount).toBe(333);
     expect(issued.at).toEqual(now);
   });
@@ -31,7 +31,7 @@ describe('Notice', () => {
 
     expect(issued._id.value).toEqual(expect.any(String));
     expect(issued.pullDomainEvents()).toEqual([
-      NoticeIssuedEvent.set({ noticeId: issued._id.value, recipientId: 'cy', expenseId: 'groceries' }),
+      NoticeIssuedEvent.set({ noticeId: issued._id.value, recipientId: 'cy', kind: 'expense', expenseId: 'groceries' }),
     ]);
     expect(issued.pullDomainEvents()).toEqual([]);
   });
@@ -41,5 +41,22 @@ describe('Notice', () => {
     expect(made(-1).isFailure()).toBe(true);
     expect(made(1.5).isFailure()).toBe(true);
     expect((made(-1).error as { type: string }).type).toBe('InvalidNoticeAmount');
+  });
+
+  it('a reminder is made for a member, for what they still owe, and names no expense', () => {
+    const reminder = Notice.remind({ recipient: new Id('cy'), groupId: new Id('flat'), amount: 2500, now });
+
+    expect(reminder.isSuccess()).toBe(true);
+    const made = reminder.data as Notice;
+    expect(made.kind).toBe('reminder');
+    expect(made.expenseId).toBeNull();
+    expect(made.amount).toBe(2500);
+    expect(made.pullDomainEvents()).toEqual([
+      NoticeIssuedEvent.set({ noticeId: made._id.value, recipientId: 'cy', kind: 'reminder', expenseId: null }),
+    ]);
+  });
+
+  it('refuses a reminder for an amount that is not a whole positive number', () => {
+    expect(Notice.remind({ recipient: new Id('cy'), groupId: new Id('flat'), amount: 0, now }).isFailure()).toBe(true);
   });
 });

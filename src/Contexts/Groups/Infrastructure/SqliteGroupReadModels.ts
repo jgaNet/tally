@@ -64,6 +64,19 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
       .map(row => row.account_id);
   }
 
+  /** Every group's current members, in join order, read by a query outside any transaction so it waits for one in progress. */
+  async membersOfEveryGroup(): Promise<{ groupId: string; memberIds: string[] }[]> {
+    return this.database.exclusive(() => {
+      const members = new Map<string, string[]>();
+      for (const row of this.database.all<{ group_id: string; account_id: string }>(
+        'SELECT group_id, account_id FROM group_members WHERE left_at IS NULL ORDER BY group_id, position',
+      )) {
+        members.set(row.group_id, [...(members.get(row.group_id) ?? []), row.account_id]);
+      }
+      return [...members].map(([groupId, memberIds]) => ({ groupId, memberIds }));
+    });
+  }
+
   /** Whether the account is a member now: asked by a query, outside any transaction, so it waits for one in progress. */
   async isMemberOf(groupId: string, accountId: string): Promise<boolean> {
     return this.database.exclusive(

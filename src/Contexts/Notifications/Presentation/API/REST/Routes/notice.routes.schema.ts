@@ -3,17 +3,17 @@ const RefusedSchema = {
   properties: { message: { type: 'string' } },
 } as const;
 
-/** A read: the notices made for the signed-in person, the most recent first, and nobody else's. */
+/** A read: the notices made for the signed-in person, the most recent first, and nobody else's. A reminder names no expense (ADR 10). */
 export const GetNoticesResSchema = {
   200: {
     description: 'Success',
     type: 'array',
     items: {
       type: 'object',
-      required: ['id', 'kind', 'groupId', 'expenseId', 'amount', 'at'],
+      required: ['id', 'kind', 'groupId', 'amount', 'at'],
       properties: {
         id: { type: 'string' },
-        kind: { enum: ['expense'] },
+        kind: { enum: ['expense', 'reminder'] },
         groupId: { type: 'string' },
         expenseId: { type: 'string' },
         amount: { type: 'integer' },

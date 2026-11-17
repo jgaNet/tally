@@ -14,6 +14,7 @@ why, what it costs, and when to revisit it.
 | [7](0007-ledger-counts-what-is-settled-and-settlements-decides-on-the-balances.md) | Ledger counts what is settled, and Settlements decides on the balances |
 | [8](0008-a-payment-through-the-provider-is-pending-until-the-provider-says-how-it-ended.md) | A payment through the provider is pending until the provider says how it ended, and only then counted |
 | [9](0009-a-notice-is-made-from-the-expense-recorded-fact.md) | A notice is made from the ExpenseRecorded fact, and nothing else of Ledger's |
+| [10](0010-the-sweep-keeps-debts-through-an-owned-port-and-a-week-is-kept-per-member.md) | The background sweep keeps each debt through an owned port, and a reminder is kept once a week per member and group |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

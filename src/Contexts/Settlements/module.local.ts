@@ -31,6 +31,8 @@ import {
 } from '@Contexts/Settlements/Application/Commands/SetPayoutAccount';
 import { GetPayoutAccountQueryHandler } from '@Contexts/Settlements/Application/Queries/GetPayoutAccount';
 import { ISettledAmountsQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettledAmountsQueries';
+import { IOutstandingDebtsQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/IOutstandingDebtsQueries';
+import { OutstandingDebtsReadModel } from '@Contexts/Settlements/Application/ReadModel/OutstandingDebtsReadModel';
 import { GroupBalancesFromLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesFromLedger';
 import { HmacWebhookSignatures } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignatures';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
@@ -61,6 +63,16 @@ export const webhookSignatures: IWebhookSignatures = new HmacWebhookSignatures()
 const balances = new GroupBalancesFromLedger(() => ledgerMemberBalances);
 const members = new SettlementMembersFromGroups(() => groupsMembers);
 const provider = new HttpPaymentProvider();
+
+/**
+ * What every current member of every group still owes, read by Notifications' sweep (ADR 10): Settlements' read model, exported.
+ * It counts what Ledger counts, and the payments waiting at the provider as paid, as the suggestions do.
+ */
+export const outstandingDebtsQueries: IOutstandingDebtsQueries = new OutstandingDebtsReadModel(
+  balances,
+  members,
+  readModels,
+);
 
 /**
  * The Settlements context: a settlement in cash is decided in its group's book (request 12); a payment through the provider is

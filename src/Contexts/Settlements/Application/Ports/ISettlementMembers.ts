@@ -10,4 +10,6 @@ export interface ISettlementMembers {
   isMemberOf(groupId: string, accountId: string): Promise<boolean>;
   /** The group's currency, or null when there is no such group. */
   currencyOf(groupId: string): Promise<string | null>;
+  /** Every group with a current member, each with its current members in the order they joined (ADR 10). */
+  groupsWithMembers(): Promise<{ groupId: string; memberIds: string[] }[]>;
 }

@@ -23,4 +23,9 @@ export interface IGroupMembersQueries {
   hasBeenMemberOf(groupId: string, accountId: string): Promise<boolean>;
   /** The group's currency, fixed when it was created; null when there is no such group. Read by a command that prices a payment. */
   currencyOf(groupId: string): Promise<string | null>;
+  /**
+   * Every group that has a current member, each with its current members in join order: read by a query outside any
+   * transaction, to say what every member still owes (ADR 10). A group with none is not listed.
+   */
+  membersOfEveryGroup(): Promise<{ groupId: string; memberIds: string[] }[]>;
 }
