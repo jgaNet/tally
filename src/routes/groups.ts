@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { createGroup, findGroupOfMember, groupsOfMember } from '../groups';
+import { createGroup, findGroupOfMember, groupsOfMember, membersOfGroup } from '../groups';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
 
@@ -24,6 +24,18 @@ const GROUP = {
     name: { type: 'string' },
     currency: { type: 'string' },
     ownerId: { type: 'string' },
+  },
+};
+
+/** A member as the members of its group see it. `joinedAt` is an ISO 8601 instant. */
+export const MEMBER = {
+  type: 'object',
+  required: ['memberId', 'name', 'role', 'joinedAt'],
+  properties: {
+    memberId: { type: 'string' },
+    name: { type: 'string' },
+    role: { enum: ['owner', 'member'] },
+    joinedAt: { type: 'string' },
   },
 };
 
@@ -55,4 +67,17 @@ export function registerGroupRoutes(server: FastifyInstance, db: DatabaseSync): 
     const caller = requireCaller(db, request);
     return groupsOfMember(db, caller.id);
   });
+
+  // Only a member sees the members; to anyone else the group does not exist.
+  server.get<{ Params: { id: string } }>(
+    '/groups/:id/members',
+    { schema: { response: { 200: { type: 'array', items: MEMBER } } } },
+    async request => {
+      const caller = requireCaller(db, request);
+      if (!findGroupOfMember(db, caller.id, request.params.id)) {
+        throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+      }
+      return membersOfGroup(db, request.params.id);
+    },
+  );
 }

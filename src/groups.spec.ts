@@ -243,4 +243,66 @@ describe('groups', () => {
       expect((await send(app, 'GET', '/groups/mine', { token: 'not-a-real-token' })).status).toBe(401);
     });
   });
+
+  describe('the members of a group', () => {
+    it('lists the owner alone, first, with the role owner, when nobody else has joined', async () => {
+      const ana = await signedUpAccount(app, { email: 'ana@example.org', name: 'Ana' });
+      const id = await createGroup(ana.token);
+      const reply = await send(app, 'GET', `/groups/${id}/members`, { token: ana.token });
+      expect(reply.status).toBe(200);
+      expect(reply.body).toEqual([{ memberId: ana.id, name: 'Ana', role: 'owner', joinedAt: expect.any(String) }]);
+    });
+
+    it('answers each joinedAt as an ISO 8601 instant', async () => {
+      const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+      const id = await createGroup(ana.token);
+      const reply = await send(app, 'GET', `/groups/${id}/members`, { token: ana.token });
+      const [member] = reply.body as { joinedAt: string }[];
+      expect(member.joinedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?00)$/);
+      expect(new Date(member.joinedAt).toISOString()).toBe(member.joinedAt);
+    });
+
+    it('lists the members in the order they joined, the owner first and the earliest after', async () => {
+      const ana = await signedUpAccount(app, { email: 'ana@example.org', name: 'Ana' });
+      const ben = await signedUpAccount(app, { email: 'ben@example.org', name: 'Ben' });
+      const cleo = await signedUpAccount(app, { email: 'cleo@example.org', name: 'Cleo' });
+      const id = await createGroup(ana.token);
+      addMember(id, cleo.id);
+      addMember(id, ben.id);
+      const reply = await send(app, 'GET', `/groups/${id}/members`, { token: ben.token });
+      expect(reply.body).toEqual([
+        { memberId: ana.id, name: 'Ana', role: 'owner', joinedAt: expect.any(String) },
+        { memberId: cleo.id, name: 'Cleo', role: 'member', joinedAt: expect.any(String) },
+        { memberId: ben.id, name: 'Ben', role: 'member', joinedAt: expect.any(String) },
+      ]);
+    });
+
+    it('answers the members to any member, and the same list to each', async () => {
+      const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+      const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+      const id = await createGroup(ana.token);
+      addMember(id, ben.id);
+      const asOwner = await send(app, 'GET', `/groups/${id}/members`, { token: ana.token });
+      const asMember = await send(app, 'GET', `/groups/${id}/members`, { token: ben.token });
+      expect(asMember.body).toEqual(asOwner.body);
+    });
+
+    it('answers 404 to a signed-in account that is not a member, as if the group did not exist', async () => {
+      const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+      const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+      const id = await createGroup(ana.token);
+      const outsider = await send(app, 'GET', `/groups/${id}/members`, { token: ben.token });
+      const missing = await send(app, 'GET', '/groups/no-such-group/members', { token: ben.token });
+      expect(outsider.status).toBe(404);
+      expect(outsider.body).toMatchObject({ error: 'GroupNotFound' });
+      expect(outsider.body).toEqual(missing.body);
+    });
+
+    it('refuses a request with no token, or an unproven one, with 401', async () => {
+      const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+      const id = await createGroup(ana.token);
+      expect((await send(app, 'GET', `/groups/${id}/members`)).status).toBe(401);
+      expect((await send(app, 'GET', `/groups/${id}/members`, { token: 'not-a-real-token' })).status).toBe(401);
+    });
+  });
 });

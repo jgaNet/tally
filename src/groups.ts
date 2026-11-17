@@ -80,6 +80,38 @@ export function findGroupOfMember(db: DatabaseSync, accountId: string, groupId: 
   return row && groupOf(row);
 }
 
+/** A member of a group, as its members see it: the owner is `owner`, every other member `member`. */
+export interface Member {
+  readonly memberId: string;
+  readonly name: string;
+  readonly role: 'owner' | 'member';
+  readonly joinedAt: string;
+}
+
+interface MemberRow {
+  member_id: string;
+  name: string;
+  role: Member['role'];
+  joined_at: string;
+}
+
+/** The members of a group, the earliest to join first; the owner, who created the group, is first. */
+export function membersOfGroup(db: DatabaseSync, groupId: string): Member[] {
+  const rows = db
+    .prepare(
+      `SELECT m.account_id AS member_id, a.name,
+              CASE WHEN g.owner_id = m.account_id THEN 'owner' ELSE 'member' END AS role,
+              m.joined_at
+       FROM group_members m
+       JOIN groups g ON g.id = m.group_id
+       JOIN accounts a ON a.id = m.account_id
+       WHERE m.group_id = ?
+       ORDER BY m.joined_at ASC, m.rowid ASC`,
+    )
+    .all(groupId) as unknown as MemberRow[];
+  return rows.map(row => ({ memberId: row.member_id, name: row.name, role: row.role, joinedAt: row.joined_at }));
+}
+
 /** The groups `accountId` is a member of, the most recently created first. */
 export function groupsOfMember(db: DatabaseSync, accountId: string): Group[] {
   const rows = db

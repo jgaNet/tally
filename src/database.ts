@@ -43,6 +43,12 @@ const SCHEMA = `
     PRIMARY KEY (group_id, account_id)
   );
   CREATE INDEX IF NOT EXISTS group_members_by_account ON group_members (account_id);
+  CREATE TABLE IF NOT EXISTS invitations (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    created_by TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
 `;
 
 /** How long a connection waits for another server's write lock before it fails, in milliseconds. */

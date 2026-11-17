@@ -73,6 +73,39 @@ describe('what the application knows, kept across restarts', () => {
     await second.stop();
   });
 
+  it('keeps the invitations and the memberships they made across restarts', async () => {
+    const first = await startApplication(directory.databasePath);
+    const ana = await signedUpAccount(first, { email: 'ana@example.org' });
+    const ben = await signedUpAccount(first, { email: 'ben@example.org' });
+    const groupId = (
+      (
+        await send(first, 'POST', '/groups', {
+          token: ana.token,
+          body: { name: 'Flat', currency: 'EUR' },
+        })
+      ).body as { id: string }
+    ).id;
+    const invitationId = (
+      (
+        await send(first, 'POST', `/groups/${groupId}/invitations`, {
+          token: ana.token,
+        })
+      ).body as { id: string }
+    ).id;
+    expect((await send(first, 'POST', `/invitations/${invitationId}/accept`, { token: ben.token })).status).toBe(204);
+    await first.stop();
+
+    const second = await startApplication(directory.databasePath);
+    const invitation = await send(second, 'GET', `/invitations/${invitationId}`, { token: ben.token });
+    expect(invitation.body).toEqual({ id: invitationId, groupId, groupName: 'Flat', invitedBy: ana.id });
+    const members = await send(second, 'GET', `/groups/${groupId}/members`, { token: ana.token });
+    expect(members.body).toEqual([
+      { memberId: ana.id, name: 'Ana', role: 'owner', joinedAt: expect.any(String) },
+      { memberId: ben.id, name: 'Ana', role: 'member', joinedAt: expect.any(String) },
+    ]);
+    await second.stop();
+  });
+
   it('shares the file between applications running at the same time', async () => {
     const first = await startApplication(directory.databasePath);
     const second = await startApplication(directory.databasePath);
