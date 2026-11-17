@@ -23,13 +23,25 @@ export interface Application {
 
 /**
  * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default), and what
- * it knows is kept in the SQLite file at `databasePath` (`DATABASE_PATH`, else `tally.db`).
+ * it knows is kept in the SQLite file at `databasePath` (`DATABASE_PATH`, else `tally.db`). Payment
+ * through the provider is at `providerUrl` (`PROVIDER_URL`) and is refused without it; its webhooks are
+ * signed with `providerWebhookSecret` (`PROVIDER_WEBHOOK_SECRET`).
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
   port = Number(process.env.PORT || 10000),
   databasePath = process.env.DATABASE_PATH || 'tally.db',
-}: { apiPrefix?: string; port?: number; databasePath?: string } = {}): Promise<Application> {
+  providerUrl = process.env.PROVIDER_URL || '',
+  providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || '',
+  providerTimeoutMs = 5000,
+}: {
+  apiPrefix?: string;
+  port?: number;
+  databasePath?: string;
+  providerUrl?: string;
+  providerWebhookSecret?: string;
+  providerTimeoutMs?: number;
+} = {}): Promise<Application> {
   // Types are checked, not converted: a password sent as a number is a body of the wrong type.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
   const db = openDatabase(databasePath);
@@ -60,7 +72,11 @@ export async function createApplication({
       registerExpenseRoutes(routes, db);
       registerBalanceRoutes(routes, db);
       registerStatementRoutes(routes, db);
-      registerSettlementRoutes(routes, db);
+      registerSettlementRoutes(routes, db, {
+        url: providerUrl.replace(/\/+$/, ''),
+        webhookSecret: providerWebhookSecret,
+        timeoutMs: providerTimeoutMs,
+      });
       registerOperationRoutes(routes, db);
     },
     { prefix: `/${apiPrefix}` },

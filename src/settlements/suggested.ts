@@ -1,4 +1,4 @@
-import { type Balance, balancesOf } from '../balances/balances';
+import { type Balance, balancesWithPendingOf } from '../balances/balances';
 import type { Database } from '../database';
 
 export interface Transfer {
@@ -53,5 +53,5 @@ export function suggestedTransfers(balances: readonly Balance[]): Transfer[] {
 
 /** The suggested transfers of `groupId`, from its balances as they stand. Reading changes nothing. */
 export function suggestedTransfersOf(db: Database, groupId: string): Transfer[] {
-  return suggestedTransfers(balancesOf(db, groupId));
+  return suggestedTransfers(balancesWithPendingOf(db, groupId));
 }

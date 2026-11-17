@@ -136,7 +136,8 @@ export function joinGroup(db: Database, groupId: string, accountId: string): voi
 }
 
 /**
- * Makes `accountId` leave `groupId`, once its balance is 0. The owner cannot leave the group they
+ * Makes `accountId` leave `groupId`, once its balance is 0 and no payment through the provider involving
+ * it is waiting. The owner cannot leave the group they
  * created; anyone outside the group is refused with `404`, as for a group that does not exist. The
  * balance is read and the membership removed in one transaction, so no expense lands between them.
  */
@@ -149,6 +150,16 @@ export function leaveGroup(db: Database, groupId: string, accountId: string): vo
     const balance = balancesOf(db, groupId).find(entry => entry.memberId === accountId)?.balance ?? 0;
     if (balance !== 0) {
       throw new Refusal(409, 'BalanceNotZero', 'Your balance in this group must be 0 before you leave it.');
+    }
+    // A payment waiting at the provider would still move a balance once it succeeds: it must end first.
+    const waiting = db
+      .prepare(
+        `SELECT 1 FROM settlements
+          WHERE group_id = ? AND status = 'pending' AND (payer_id = ? OR payee_id = ?)`,
+      )
+      .get(groupId, accountId, accountId);
+    if (waiting) {
+      throw new Refusal(409, 'PaymentPending', 'A payment through the provider is waiting for you: it must end first.');
     }
     db.prepare('DELETE FROM memberships WHERE group_id = ? AND account_id = ?').run(groupId, accountId);
     db.prepare(

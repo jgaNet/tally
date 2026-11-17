@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { requireAccount } from '../auth';
 import type { Database } from '../database';
 import { requireMembership } from '../groups/groups';
+import { Refusal } from '../refusal';
+import { applyProviderStatus, type ProviderConfig, requestProviderSettlement, signatureIsValid } from './provider';
 import { recordCashSettlement, requireSettlement } from './settlements';
 import { suggestedTransfersOf } from './suggested';
 
@@ -24,13 +26,16 @@ const settlementSchema = {
     from: { type: 'string' },
     to: { type: 'string' },
     amount: { type: 'integer' },
-    method: { type: 'string', enum: ['cash'] },
-    status: { type: 'string', enum: ['paid'] },
+    method: { type: 'string', enum: ['cash', 'provider'] },
+    status: { type: 'string', enum: ['pending', 'paid', 'failed'] },
     at: { type: 'string' },
+    payUrl: { type: 'string' },
   },
 };
 
-export function registerSettlementRoutes(app: FastifyInstance, db: Database): void {
+const idSchema = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } };
+
+export function registerSettlementRoutes(app: FastifyInstance, db: Database, provider: ProviderConfig): void {
   app.get<{ Params: { id: string } }>(
     '/groups/:id/settlements/suggested',
     {
@@ -57,7 +62,7 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database): vo
           required: ['from', 'amount'],
           properties: { from: { type: 'string' }, amount: { type: 'number' } },
         },
-        response: { 201: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } } },
+        response: { 201: idSchema },
       },
     },
     async (request, reply) => {
@@ -67,6 +72,34 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database): vo
         from: request.body.from,
         amount: request.body.amount,
       });
+      return reply.code(201).send({ id });
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { to: string; amount: number } }>(
+    '/groups/:id/settlements/provider',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        body: {
+          type: 'object',
+          required: ['to', 'amount'],
+          properties: { to: { type: 'string' }, amount: { type: 'number' } },
+        },
+        response: { 201: idSchema },
+      },
+    },
+    async (request, reply) => {
+      const account = requireAccount(db, request);
+      // The caller is the payer: the member who pays the payee through the provider.
+      const id = await requestProviderSettlement(
+        db,
+        provider,
+        request.params.id,
+        account.id,
+        request.body.to,
+        request.body.amount,
+      );
       return reply.code(201).send({ id });
     },
   );
@@ -84,4 +117,41 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database): vo
       return requireSettlement(db, request.params.id, account.id);
     },
   );
+
+  // The provider's webhooks. The signature is of the body as sent, so the body is kept as bytes and
+  // only read as JSON once it is known to be signed.
+  app.register(async webhooks => {
+    const keepBytes = (_request: unknown, body: Buffer, done: (error: null, body: Buffer) => void) => done(null, body);
+    webhooks.addContentTypeParser('application/json', { parseAs: 'buffer' }, keepBytes);
+    webhooks.addContentTypeParser('*', { parseAs: 'buffer' }, keepBytes);
+
+    webhooks.post('/provider/webhooks', async (request, reply) => {
+      const body = request.body as Buffer | undefined;
+      const signature = request.headers['provider-signature'];
+      if (
+        body === undefined ||
+        !signatureIsValid(provider.webhookSecret, body, typeof signature === 'string' ? signature : undefined)
+      ) {
+        throw new Refusal(401, 'InvalidSignature', 'The webhook is not signed by the payment provider.');
+      }
+      // Once signed, it is acknowledged whatever it says: a body that is not an event changes nothing.
+      const event = parseEvent(body);
+      if (event !== undefined) {
+        applyProviderStatus(db, event.paymentId, event.status);
+      }
+      return reply.code(204).send();
+    });
+  });
+}
+
+function parseEvent(body: Buffer): { paymentId: string; status: string } | undefined {
+  try {
+    const event = JSON.parse(body.toString('utf8')) as { paymentId?: unknown; status?: unknown } | null;
+    if (typeof event?.paymentId === 'string' && typeof event.status === 'string') {
+      return { paymentId: event.paymentId, status: event.status };
+    }
+  } catch {
+    // Not JSON: nothing to apply.
+  }
+  return undefined;
 }
