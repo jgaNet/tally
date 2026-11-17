@@ -10,7 +10,9 @@ import { registerInvitationRoutes } from './invitations';
 import { registerLeaveRoutes } from './leaving';
 import { registerOperationRoutes } from './operations';
 import { registerSettlementRoutes } from './settlements';
+import { type ProviderConfig } from './provider';
 import { Refusal } from './refusal';
+import { registerProviderWebhookRoutes } from './webhooks';
 
 /** The running application: what the server entry point and the tests start and stop. */
 export interface Application {
@@ -24,13 +26,29 @@ export interface Application {
 
 /**
  * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default), and what it
- * knows is kept in the SQLite file at `databasePath`.
+ * knows is kept in the SQLite file at `databasePath`. The payment provider is reached at `providerUrl`, and
+ * its webhooks are signed with `providerWebhookSecret`; `providerTimeoutMs` is how long it may take to answer.
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
   port = Number(process.env.PORT || 10000),
   databasePath = process.env.DATABASE_PATH || 'tally.db',
-}: { apiPrefix?: string; port?: number; databasePath?: string } = {}): Promise<Application> {
+  providerUrl = process.env.PROVIDER_URL || undefined,
+  providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || undefined,
+  providerTimeoutMs = 5000,
+}: {
+  apiPrefix?: string;
+  port?: number;
+  databasePath?: string;
+  providerUrl?: string;
+  providerWebhookSecret?: string;
+  providerTimeoutMs?: number;
+} = {}): Promise<Application> {
+  const provider: ProviderConfig = {
+    url: providerUrl,
+    webhookSecret: providerWebhookSecret,
+    timeoutMs: providerTimeoutMs,
+  };
   const db = openDatabase(databasePath);
   // Only the JSON the requests name is accepted: a value of another type is refused, never coerced.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
@@ -53,7 +71,8 @@ export async function createApplication({
       registerExpenseRoutes(instance, db);
       registerBalanceRoutes(instance, db);
       registerHistoryRoutes(instance, db);
-      registerSettlementRoutes(instance, db);
+      registerSettlementRoutes(instance, db, provider);
+      registerProviderWebhookRoutes(instance, db, provider);
       registerOperationRoutes(instance, db);
     },
     { prefix: `/${apiPrefix}` },

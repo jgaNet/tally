@@ -20,13 +20,29 @@ interface BalanceRow {
  * group owes them, negative when they owe the group, 0 when they are even. Every expense's shares add up
  * to its amount, so the balances of a group always add up to 0.
  *
- * A settlement counts from the moment it is recorded: the payer's balance goes up by its amount, the
- * payee's goes down by it. So the balances still add up to 0.
+ * A settlement counts once it is paid: a cash settlement from the moment it is recorded, one through the
+ * provider once the provider says it succeeded. Then the payer's balance goes up by its amount, the payee's
+ * goes down by it. So the balances still add up to 0.
  *
  * It is one statement, so every balance is of the same snapshot of the database: an expense or a
  * settlement recorded meanwhile is counted in all of them or in none. A read changes nothing.
  */
 export function listBalances(db: DatabaseSync, groupId: string): Balance[] {
+  return balancesCounting(db, groupId, "('paid')");
+}
+
+/**
+ * The balances as they stand once the payments waiting at the provider are counted as paid: what each
+ * member still owes, or is still owed, is what their balance gives, less what is waiting to be paid by
+ * them, or to them. It is what a new settlement is decided on, and what the suggested settlements are made
+ * from. The balances still add up to 0. A read changes nothing.
+ */
+export function listBalancesIncludingWaiting(db: DatabaseSync, groupId: string): Balance[] {
+  return balancesCounting(db, groupId, "('paid', 'pending')");
+}
+
+/** The balances, counting the settlements whose status is one of `statuses`, a SQL list written here, never from input. */
+function balancesCounting(db: DatabaseSync, groupId: string, statuses: "('paid')" | "('paid', 'pending')"): Balance[] {
   const rows = db
     .prepare(
       `SELECT m.account_id AS member_id,
@@ -35,9 +51,9 @@ export function listBalances(db: DatabaseSync, groupId: string): Balance[] {
          - COALESCE((SELECT SUM(s.amount) FROM expense_shares s JOIN expenses e ON e.id = s.expense_id
                      WHERE e.group_id = m.group_id AND s.account_id = m.account_id), 0)
          + COALESCE((SELECT SUM(t.amount) FROM settlements t
-                     WHERE t.group_id = m.group_id AND t.payer_id = m.account_id), 0)
+                     WHERE t.group_id = m.group_id AND t.payer_id = m.account_id AND t.status IN ${statuses}), 0)
          - COALESCE((SELECT SUM(t.amount) FROM settlements t
-                     WHERE t.group_id = m.group_id AND t.payee_id = m.account_id), 0) AS balance
+                     WHERE t.group_id = m.group_id AND t.payee_id = m.account_id AND t.status IN ${statuses}), 0) AS balance
        FROM group_members m
        WHERE m.group_id = ? AND m.left_at IS NULL
        ORDER BY m.joined_order`,

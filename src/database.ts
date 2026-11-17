@@ -118,6 +118,30 @@ const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX settlements_group ON settlements (group_id);
   `,
+  `
+  -- A settlement may also be paid through the payment provider: method 'provider'. It is 'pending' while the
+  -- provider has not decided it, then 'paid' or 'failed'. A settlement through the provider has the provider's
+  -- id of its payment, and the link where the payer pays it; both are null until the provider has answered.
+  -- SQLite cannot change a CHECK constraint, so the table is rebuilt, its rows copied as they are.
+  CREATE TABLE settlements_next (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    payer_id TEXT NOT NULL REFERENCES accounts (id),
+    payee_id TEXT NOT NULL REFERENCES accounts (id),
+    amount INTEGER NOT NULL CHECK (amount >= 1),
+    method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
+    provider_id TEXT,
+    pay_url TEXT,
+    created_at TEXT NOT NULL
+  );
+  INSERT INTO settlements_next (id, group_id, payer_id, payee_id, amount, method, status, created_at)
+    SELECT id, group_id, payer_id, payee_id, amount, method, status, created_at FROM settlements;
+  DROP TABLE settlements;
+  ALTER TABLE settlements_next RENAME TO settlements;
+  CREATE INDEX settlements_group ON settlements (group_id);
+  CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
+  `,
 ];
 
 /**

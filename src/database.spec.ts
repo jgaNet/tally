@@ -97,7 +97,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 8 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 9 });
     } finally {
       db.close();
     }
@@ -209,6 +209,52 @@ describe('the database', () => {
       { memberId: adaId, balance: 500 },
       { memberId: graceId, balance: -500 },
     ]);
+  });
+
+  it('keeps the cash settlements of a file recorded before settlements could go through the provider', () => {
+    openDatabase(database.path).close();
+    // The file as the schema was before provider settlements: the settlements table of version 8, one cash row.
+    const before = new DatabaseSync(database.path);
+    try {
+      before.exec(`
+        DROP TABLE settlements;
+        CREATE TABLE settlements (
+          id TEXT PRIMARY KEY,
+          group_id TEXT NOT NULL REFERENCES groups (id),
+          payer_id TEXT NOT NULL REFERENCES accounts (id),
+          payee_id TEXT NOT NULL REFERENCES accounts (id),
+          amount INTEGER NOT NULL CHECK (amount >= 1),
+          method TEXT NOT NULL CHECK (method IN ('cash')),
+          status TEXT NOT NULL CHECK (status IN ('paid')),
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX settlements_group ON settlements (group_id);
+        INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x'), ('b', 'b@example.com', 'B', 'x');
+        INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
+        INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
+          VALUES ('s', 'g', 'b', 'a', 300, 'cash', 'paid', '2026-11-02T00:00:00.000Z');
+        PRAGMA user_version = 8;
+      `);
+    } finally {
+      before.close();
+    }
+
+    const db = openDatabase(database.path);
+    try {
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 9 });
+      expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
+        { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
+      ]);
+      // The rebuilt table takes the provider's settlements, pending or failed, as it takes cash.
+      db.exec(`INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
+        VALUES ('p', 'g', 'b', 'a', 100, 'provider', 'pending', '2026-11-03T00:00:00.000Z')`);
+      expect(() =>
+        db.exec(`INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
+          VALUES ('x', 'g', 'b', 'a', 100, 'cheque', 'paid', '2026-11-03T00:00:00.000Z')`),
+      ).toThrow();
+    } finally {
+      db.close();
+    }
   });
 
   it('keeps all of a transaction that completes, and none of one that throws', () => {
