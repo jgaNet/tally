@@ -1,10 +1,16 @@
-/** How a settlement was paid: in cash, handed over between the two members (request 12). */
-export type SettlementMethod = 'cash';
+/** How a settlement is paid: in cash, handed over between the two members (request 12), or through the provider (request 13). */
+export type SettlementMethod = 'cash' | 'provider';
 
-/** Where a settlement stands: a cash settlement is paid the moment it is recorded (request 12). */
-export type SettlementStatus = 'paid';
+/**
+ * Where a settlement stands: a cash settlement is paid the moment it is recorded (request 12); a settlement through the provider
+ * is `pending` until the provider says its payment ended, once: `paid` if it succeeded, `failed` if it did not (request 13).
+ */
+export type SettlementStatus = 'pending' | 'paid' | 'failed';
 
-/** A settlement as it is recorded and as `GetSettlement` answers it (request 12). `from` paid `to`, `at` when it was recorded. */
+/**
+ * A settlement as it is recorded and as `GetSettlement` answers it (requests 12 and 13). `from` pays `to`, `at` when it was
+ * recorded. A settlement through the provider has its `payUrl`: the link where the payer pays; a cash one has none.
+ */
 export interface SettlementView {
   id: string;
   groupId: string;
@@ -14,10 +20,21 @@ export interface SettlementView {
   method: SettlementMethod;
   status: SettlementStatus;
   at: string;
+  payUrl?: string;
 }
 
 /** What one member paid and received in the settlements of a group: their balance moves by `paid` less `received`. */
 export interface SettledMember {
+  memberId: string;
+  paid: number;
+  received: number;
+}
+
+/**
+ * What one member is waiting to pay and to receive in the pending settlements of a group (request 13): not yet in the balances,
+ * but counted as if they were, by what a member still owes and what it is still owed.
+ */
+export interface WaitingMember {
   memberId: string;
   paid: number;
   received: number;

@@ -26,8 +26,8 @@ export const recordCashSettlement = command(
   (books: ISettlementBooks, balances: IGroupBalances, members: ISettlementMembers, clock: Clock) =>
     async ({ groupId, from, amount }: RecordCashSettlementInput, context) => {
       const by = callerOf(context);
-      const listed = await members.membersOf(by, groupId);
-      if (!listed) return Result.fail(new NotFoundException('Settlements', 'There is no such group'));
+      const group = await members.groupOf(by, groupId);
+      if (!group) return Result.fail(new NotFoundException('Settlements', 'There is no such group'));
 
       const book = await books.get(groupId);
       const owed = await balances.balancesOf(groupId);
@@ -37,7 +37,7 @@ export const recordCashSettlement = command(
         by,
         from,
         amount,
-        members: listed.map(member => member.memberId),
+        members: group.members.map(member => member.memberId),
         balances: { payer: balanceOf(from), payee: balanceOf(by) },
         at: clock(),
       });
@@ -50,15 +50,15 @@ export const recordCashSettlement = command(
     },
 );
 
-/** Reads a settlement, for the members of its group only: for anyone else it does not exist (request 12). */
+/** Reads a settlement, for the members of its group only: for anyone else it does not exist (requests 12, 13). */
 export const getSettlement = query(
   'GetSettlement',
   (settlements: ISettlementQueries, members: ISettlementMembers) =>
     async ({ id }: { id: string }, context) => {
       const settlement: SettlementView | undefined = await settlements.findSettlement(id);
       if (!settlement) return Result.fail(new NotFoundException('Settlements', 'There is no such settlement'));
-      const listed = await members.membersOf(callerOf(context), settlement.groupId);
-      if (!listed) return Result.fail(new NotFoundException('Settlements', 'There is no such settlement'));
+      const group = await members.groupOf(callerOf(context), settlement.groupId);
+      if (!group) return Result.fail(new NotFoundException('Settlements', 'There is no such settlement'));
       return Result.ok(settlement);
     },
 );

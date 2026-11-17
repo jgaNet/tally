@@ -19,6 +19,7 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
+import { providerWebhookRoutes } from '@Contexts/Settlements/Presentation/providerWebhooks.routes';
 
 /**
  * The composition root of the application (docs/adr/0002). It sets up the transport, which gives each
@@ -28,7 +29,8 @@ import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements
  * relays the outbox every `JOBS_INTERVAL_SECONDS` (60 when unset).
  *
  * Configuration is in the environment: `PORT`, `API_PREFIX` (`v1`), `DATABASE_PATH` (`tally.db`),
- * `JOBS_INTERVAL_SECONDS` (60), `WEB_ORIGINS` (a comma-separated list).
+ * `JOBS_INTERVAL_SECONDS` (60), `WEB_ORIGINS` (a comma-separated list), and for payments through the provider (request 13):
+ * `PROVIDER_URL`, the base of the provider's API without a trailing slash, and `PROVIDER_WEBHOOK_SECRET`, the secret it signs with.
  *
  * A context is added here: its `LiteModule` registered, its routes under its own prefix with `{ module }`, or at the
  * API's root when it serves more than one resource (docs/adr/0003):
@@ -66,6 +68,7 @@ export async function createApplication({
     .registerRoutes('/', invitationRoutes, { module: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { module: localSettlementsModule })
+    .registerRoutes('/', providerWebhookRoutes, { module: localSettlementsModule })
     .registerRoutes('/', operationRoutes, {});
 
   await app.startModules();

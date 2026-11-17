@@ -22,13 +22,27 @@ export class SettlementToSelfException extends Exception {
   }
 }
 
-/** The amount is more than the payer owes or more than the payee is owed when it is recorded (request 12), `422`. */
+/** The amount is more than the payer still owes or more than the payee is still owed when it is decided (requests 12, 13), `422`. */
 export class SettlementExceedsDebtException extends Exception {
   constructor() {
     super({
       service: 'Settlements',
       type: 'SettlementExceedsDebt',
       message: 'A settlement is at most what the payer owes and at most what the payee is owed',
+    });
+  }
+}
+
+/**
+ * The provider gave no payment link for the settlement: it answered other than `201` with an id and a link, did not answer within
+ * 5 seconds, or is not configured (`PROVIDER_URL`). Nothing is kept (request 13); `422`, as a refusal of the operation, never `5xx`.
+ */
+export class ProviderUnavailableException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'ProviderUnavailable',
+      message: 'The payment provider gave no payment link for this settlement',
     });
   }
 }
