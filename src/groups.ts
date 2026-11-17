@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { inTransaction } from './database';
+import { addMember, listMembers } from './members';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
@@ -62,7 +63,7 @@ export function createGroup(db: DatabaseSync, accountId: string, input: NewGroup
       accountId,
       new Date().toISOString(),
     );
-    db.prepare('INSERT INTO group_members (group_id, account_id) VALUES (?, ?)').run(id, accountId);
+    addMember(db, id, accountId);
   });
   return id;
 }
@@ -93,6 +94,17 @@ const idSchema = {
   type: 'object',
   required: ['id'],
   properties: { id: { type: 'string' } },
+};
+
+const memberSchema = {
+  type: 'object',
+  required: ['memberId', 'name', 'role', 'joinedAt'],
+  properties: {
+    memberId: { type: 'string' },
+    name: { type: 'string' },
+    role: { type: 'string', enum: ['owner', 'member'] },
+    joinedAt: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
+  },
 };
 
 const groupSchema = {
@@ -136,4 +148,14 @@ export function registerGroupRoutes(app: FastifyInstance, db: DatabaseSync): voi
     if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
     return group;
   });
+
+  app.get<{ Params: { id: string } }>(
+    '/groups/:id/members',
+    { schema: { response: { 200: { type: 'array', items: memberSchema } } } },
+    request => {
+      const accountId = requireCaller(db, request);
+      if (!findGroupOf(db, accountId, request.params.id)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+      return listMembers(db, request.params.id);
+    },
+  );
 }

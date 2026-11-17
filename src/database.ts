@@ -48,6 +48,17 @@ const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX group_members_account ON group_members (account_id);
   `,
+  `
+  ALTER TABLE group_members ADD COLUMN joined_at TEXT;
+  UPDATE group_members SET joined_at = (SELECT g.created_at FROM groups g WHERE g.id = group_members.group_id);
+
+  CREATE TABLE invitations (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    created_by TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
+  `,
 ];
 
 /**
