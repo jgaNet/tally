@@ -2,13 +2,17 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
-import { findExpenseOfMember, recordExpense } from '../expenses';
+import { deleteExpense, editExpense, findExpenseOfMember, recordExpense } from '../expenses';
 
 interface RecordExpenseBody {
   description: string;
   amount: number;
   date: string;
   splitBetween: string[];
+}
+
+interface EditExpenseBody extends RecordExpenseBody {
+  version: number;
 }
 
 /** Only the shape is checked here (a missing or wrongly typed field is `400`); values are checked by the rules. */
@@ -23,11 +27,21 @@ const RECORD_EXPENSE_BODY = {
   },
 };
 
+/** An edit names the version it was made from: a whole number from 1. */
+const EDIT_EXPENSE_BODY = {
+  type: 'object',
+  required: ['description', 'amount', 'date', 'splitBetween', 'version'],
+  properties: {
+    ...RECORD_EXPENSE_BODY.properties,
+    version: { type: 'integer', minimum: 1 },
+  },
+};
+
 const ID = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } };
 
 const EXPENSE = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'version', 'shares'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -35,6 +49,7 @@ const EXPENSE = {
     amount: { type: 'integer' },
     date: { type: 'string' },
     paidBy: { type: 'string' },
+    version: { type: 'integer', minimum: 1 },
     shares: {
       type: 'array',
       items: {
@@ -72,5 +87,32 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync)
     const expense = findExpenseOfMember(db, caller.id, request.params.id);
     if (!expense) throw new Refusal(404, 'ExpenseNotFound', 'No expense has this id.');
     return expense;
+  });
+
+  // Only the expense's payer or its group's owner edits it, from the version its author read; the edit
+  // answers the expense as it now stands.
+  server.put<{ Params: { id: string }; Body: EditExpenseBody }>(
+    '/expenses/:id',
+    { schema: { body: EDIT_EXPENSE_BODY, response: { 200: EXPENSE } } },
+    async request => {
+      const caller = requireCaller(db, request);
+      const { description, amount, date, splitBetween, version } = request.body;
+      return editExpense(db, {
+        expenseId: request.params.id,
+        editorId: caller.id,
+        description,
+        amount,
+        date,
+        splitBetween,
+        version,
+      });
+    },
+  );
+
+  // Only the expense's payer or its group's owner deletes it.
+  server.delete<{ Params: { id: string } }>('/expenses/:id', async (request, reply) => {
+    const caller = requireCaller(db, request);
+    deleteExpense(db, { expenseId: request.params.id, deleterId: caller.id });
+    return reply.code(204).send();
   });
 }

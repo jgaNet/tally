@@ -32,7 +32,7 @@ export interface Reply {
 /** Sends a JSON request to the application's API, with `token` as its bearer token when given. */
 export async function send(
   app: Application,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   options: { body?: unknown; token?: string; authorization?: string } = {},
 ): Promise<Reply> {

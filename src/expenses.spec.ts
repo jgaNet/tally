@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
 import { openDatabase } from './database';
 import { equalShares } from './expenses';
@@ -376,6 +376,7 @@ describe('expenses', () => {
           amount: 1001,
           date,
           paidBy: ana.id,
+          version: 1,
           shares: [
             { memberId: ana.id, amount: 501 },
             { memberId: ben.id, amount: 500 },
@@ -423,6 +424,384 @@ describe('expenses', () => {
         const second = await send(app, 'GET', `/expenses/${id}`, { token: ana.token });
         expect(second.body).toEqual(first.body);
         expect(storedCounts()).toEqual({ expenses: 1, shares: 1 });
+      });
+    });
+
+    describe('editing and deleting', () => {
+      let directory: TestDirectory;
+      let app: Application;
+      let db: DatabaseSync;
+
+      beforeEach(async () => {
+        directory = testDirectory();
+        app = await startApplication(directory.databasePath);
+        db = openDatabase(directory.databasePath);
+      });
+
+      afterEach(async () => {
+        db.close();
+        await app.stop();
+        directory.remove();
+      });
+
+      async function createGroup(token: string): Promise<string> {
+        const reply = await send(app, 'POST', '/groups', { token, body: { name: 'Flat', currency: 'EUR' } });
+        if (reply.status !== 201) throw new Error(`create answered ${reply.status}`);
+        return (reply.body as { id: string }).id;
+      }
+
+      async function join(ownerToken: string, groupId: string, joinerToken: string): Promise<void> {
+        const invitation = await send(app, 'POST', `/groups/${groupId}/invitations`, { token: ownerToken });
+        const id = (invitation.body as { id: string }).id;
+        const accepted = await send(app, 'POST', `/invitations/${id}/accept`, { token: joinerToken });
+        if (accepted.status !== 204) throw new Error(`accept answered ${accepted.status}`);
+      }
+
+      /** Records an expense in `groupId` as `token`'s account, split between `ids`; answers its id. */
+      async function recordOk(token: string, groupId: string, ids: string[], amount = 1000): Promise<string> {
+        const reply = await send(app, 'POST', `/groups/${groupId}/expenses`, {
+          token,
+          body: { description: 'Groceries', amount, date: utcDay(0), splitBetween: ids },
+        });
+        if (reply.status !== 201) throw new Error(`record answered ${reply.status}`);
+        return (reply.body as { id: string }).id;
+      }
+
+      /** Edits the expense `id` as `token`'s account, the body being a valid edit from version 1 unless overridden. */
+      async function edit(token: string, id: string, fields: Record<string, unknown> = {}) {
+        return send(app, 'PUT', `/expenses/${id}`, {
+          token,
+          body: {
+            description: 'Groceries',
+            amount: 1000,
+            date: utcDay(0),
+            splitBetween: [],
+            version: 1,
+            ...fields,
+          },
+        });
+      }
+
+      async function read(token: string, id: string) {
+        return send(app, 'GET', `/expenses/${id}`, { token });
+      }
+
+      async function balancesOf(token: string, groupId: string): Promise<Record<string, number>> {
+        const reply = await send(app, 'GET', `/groups/${groupId}/balances`, { token });
+        const balances = reply.body as { memberId: string; balance: number }[];
+        return Object.fromEntries(balances.map(balance => [balance.memberId, balance.balance]));
+      }
+
+      function storedCounts(): { expenses: number; shares: number } {
+        const expenses = db.prepare('SELECT COUNT(*) AS n FROM expenses').get() as { n: number };
+        const shares = db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get() as { n: number };
+        return { expenses: expenses.n, shares: shares.n };
+      }
+
+      describe('editing', () => {
+        it('recording gives an expense version 1, and reading it shows the version', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const groupId = await createGroup(ana.token);
+          const id = await recordOk(ana.token, groupId, [ana.id]);
+          expect((await read(ana.token, id)).body).toMatchObject({ version: 1 });
+        });
+
+        it('replaces the expense, whole, as its payer edits it: the new fields, the shares computed again, the next version', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const groupId = await createGroup(ana.token);
+          await join(ana.token, groupId, ben.token);
+          const id = await recordOk(ana.token, groupId, [ana.id, ben.id], 1000);
+          const reply = await edit(ana.token, id, {
+            description: '  Dinner  ',
+            amount: 901,
+            date: utcDay(-1),
+            splitBetween: [ben.id, ana.id],
+          });
+          expect(reply.status).toBe(200);
+          expect(reply.body).toEqual({
+            id,
+            groupId,
+            description: 'Dinner',
+            amount: 901,
+            date: utcDay(-1),
+            paidBy: ana.id,
+            version: 2,
+            shares: [
+              { memberId: ben.id, amount: 450 },
+              { memberId: ana.id, amount: 451 },
+            ],
+          });
+          expect((await read(ben.token, id)).body).toEqual(reply.body);
+        });
+
+        it('lets the payer edit an expense the owner did not pay, and keeps the payer', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const groupId = await createGroup(ana.token);
+          await join(ana.token, groupId, ben.token);
+          const id = await recordOk(ben.token, groupId, [ben.id, ana.id]);
+          const reply = await edit(ben.token, id, { splitBetween: [ben.id] });
+          expect(reply.status).toBe(200);
+          expect(reply.body).toMatchObject({
+            paidBy: ben.id,
+            version: 2,
+            shares: [{ memberId: ben.id, amount: 1000 }],
+          });
+        });
+
+        it('lets the owner edit an expense another member paid, and the payer stays the one who paid', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const groupId = await createGroup(ana.token);
+          await join(ana.token, groupId, ben.token);
+          const id = await recordOk(ben.token, groupId, [ben.id, ana.id]);
+          const reply = await edit(ana.token, id, { amount: 601, splitBetween: [ana.id, ben.id] });
+          expect(reply.status).toBe(200);
+          expect(reply.body).toMatchObject({
+            paidBy: ben.id,
+            amount: 601,
+            version: 2,
+            shares: [
+              { memberId: ana.id, amount: 300 },
+              { memberId: ben.id, amount: 301 },
+            ],
+          });
+        });
+
+        it('refuses an owner edit that leaves the payer out of the split, with 422 PayerNotInSplit', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const groupId = await createGroup(ana.token);
+          await join(ana.token, groupId, ben.token);
+          const id = await recordOk(ben.token, groupId, [ben.id, ana.id]);
+          const before = (await read(ana.token, id)).body;
+          const reply = await edit(ana.token, id, { splitBetween: [ana.id] });
+          expect(reply.status).toBe(422);
+          expect(reply.body).toMatchObject({ error: 'PayerNotInSplit' });
+          expect((await read(ana.token, id)).body).toEqual(before);
+        });
+
+        it('refuses an edit by another member who is neither the payer nor the owner, with 403, and keeps nothing', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const cleo = await signedUpAccount(app, { email: 'cleo@example.org' });
+          const groupId = await createGroup(ana.token);
+          await join(ana.token, groupId, ben.token);
+          await join(ana.token, groupId, cleo.token);
+          const id = await recordOk(ben.token, groupId, [ben.id, ana.id]);
+          const before = (await read(ana.token, id)).body;
+          const reply = await edit(cleo.token, id, { amount: 1 });
+          expect(reply.status).toBe(403);
+          expect(reply.body).toMatchObject({ error: 'NotPayerOrOwner' });
+          expect((await read(ana.token, id)).body).toEqual(before);
+        });
+
+        it('answers 404 to a signed-in account outside the group, as if the expense did not exist', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const groupId = await createGroup(ana.token);
+          const id = await recordOk(ana.token, groupId, [ana.id]);
+          const outsider = await edit(ben.token, id, { splitBetween: [ben.id] });
+          const missing = await edit(ben.token, 'no-such-expense', { splitBetween: [ben.id] });
+          expect(outsider.status).toBe(404);
+          expect(outsider.body).toMatchObject({ error: 'ExpenseNotFound' });
+          expect(outsider.body).toEqual(missing.body);
+        });
+
+        it('refuses an edit made from a version the expense has since left, with 409, and keeps nothing', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const groupId = await createGroup(ana.token);
+          const id = await recordOk(ana.token, groupId, [ana.id]);
+          expect((await edit(ana.token, id, { amount: 700, splitBetween: [ana.id] })).status).toBe(200);
+          const stale = await edit(ana.token, id, { amount: 300, splitBetween: [ana.id], version: 1 });
+          expect(stale.status).toBe(409);
+          expect(stale.body).toMatchObject({ error: 'ExpenseChanged' });
+          expect((await read(ana.token, id)).body).toMatchObject({ amount: 700, version: 2 });
+        });
+
+        it('refuses an edit made from a version the expense has not reached, with 409', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const groupId = await createGroup(ana.token);
+          const id = await recordOk(ana.token, groupId, [ana.id]);
+          const ahead = await edit(ana.token, id, { splitBetween: [ana.id], version: 2 });
+          expect(ahead.status).toBe(409);
+          expect(ahead.body).toMatchObject({ error: 'ExpenseChanged' });
+        });
+
+        it('refuses a version that is not a whole number from 1, with 400', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const groupId = await createGroup(ana.token);
+          const id = await recordOk(ana.token, groupId, [ana.id]);
+          const before = (await read(ana.token, id)).body;
+          for (const version of [undefined, 0, -1, 1.5, '1', null]) {
+            const reply = await edit(ana.token, id, { splitBetween: [ana.id], version });
+            expect(reply.status).toBe(400);
+          }
+          expect((await read(ana.token, id)).body).toEqual(before);
+        });
+
+        // Each case gives the fields of the edit, given the id of the payer, who is the only member.
+        it.each<[string, (payerId: string) => Record<string, unknown>, string]>([
+          ['an empty description', () => ({ description: '' }), 'DescriptionIsInvalid'],
+          ['a description of 101 characters', () => ({ description: 'a'.repeat(101) }), 'DescriptionIsInvalid'],
+          ['an amount of 0', () => ({ amount: 0 }), 'AmountIsInvalid'],
+          ['an amount with pence', () => ({ amount: 10.5 }), 'AmountIsInvalid'],
+          ['a date that is not a real day', () => ({ date: '2026-02-30' }), 'DateIsInvalid'],
+          ['a date after today', () => ({ date: utcDay(1) }), 'DateIsInTheFuture'],
+          ['an empty split', () => ({ splitBetween: [] }), 'SplitIsEmpty'],
+          ['a member listed twice', payer => ({ splitBetween: [payer, payer] }), 'SplitRepeatsAMember'],
+          [
+            'an account outside the group in the split',
+            payer => ({ splitBetween: [payer, 'nobody'] }),
+            'MemberNotInGroup',
+          ],
+        ])('refuses %s with the rule that breaks it, and keeps nothing', async (_label, fieldsFor, rule) => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const groupId = await createGroup(ana.token);
+          const id = await recordOk(ana.token, groupId, [ana.id]);
+          const before = (await read(ana.token, id)).body;
+          const reply = await edit(ana.token, id, { splitBetween: [ana.id], ...fieldsFor(ana.id) });
+          expect(reply.status).toBe(422);
+          expect(reply.body).toMatchObject({ error: rule });
+          expect((await read(ana.token, id)).body).toEqual(before);
+        });
+
+        it('refuses a request with no token, or an unproven one, with 401', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const groupId = await createGroup(ana.token);
+          const id = await recordOk(ana.token, groupId, [ana.id]);
+          const body = { description: 'Groceries', amount: 1000, date: utcDay(0), splitBetween: [ana.id], version: 1 };
+          expect((await send(app, 'PUT', `/expenses/${id}`, { body })).status).toBe(401);
+          expect((await send(app, 'PUT', `/expenses/${id}`, { token: 'not-a-real-token', body })).status).toBe(401);
+          expect((await read(ana.token, id)).body).toMatchObject({ version: 1 });
+        });
+
+        it('keeps one of two edits made from the same version at once, through two servers, and refuses the other with 409', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const groupId = await createGroup(ana.token);
+          await join(ana.token, groupId, ben.token);
+          const id = await recordOk(ana.token, groupId, [ana.id, ben.id], 1000);
+          const second = await startApplication(directory.databasePath);
+          try {
+            const body = (amount: number) => ({
+              description: 'Groceries',
+              amount,
+              date: utcDay(0),
+              splitBetween: [ana.id, ben.id],
+              version: 1,
+            });
+            const [first, other] = await Promise.all([
+              send(app, 'PUT', `/expenses/${id}`, { token: ana.token, body: body(700) }),
+              send(second, 'PUT', `/expenses/${id}`, { token: ana.token, body: body(800) }),
+            ]);
+            expect([first.status, other.status].sort()).toEqual([200, 409]);
+            const kept = first.status === 200 ? 700 : 800;
+            const refused = (first.status === 409 ? first : other).body;
+            expect(refused).toMatchObject({ error: 'ExpenseChanged' });
+            expect((await read(ana.token, id)).body).toMatchObject({ amount: kept, version: 2 });
+            expect(storedCounts()).toEqual({ expenses: 1, shares: 2 });
+            const balances = await balancesOf(ana.token, groupId);
+            expect(Object.values(balances).reduce((sum, balance) => sum + balance, 0)).toBe(0);
+          } finally {
+            await second.stop();
+          }
+        });
+      });
+
+      describe('deleting', () => {
+        it('deletes the expense as its payer deletes it: it is no longer read, and counts in no balance', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const groupId = await createGroup(ana.token);
+          await join(ana.token, groupId, ben.token);
+          const kept = await recordOk(ana.token, groupId, [ana.id, ben.id], 1000);
+          const gone = await recordOk(ben.token, groupId, [ana.id, ben.id], 600);
+          const reply = await send(app, 'DELETE', `/expenses/${gone}`, { token: ben.token });
+          expect(reply.status).toBe(204);
+          expect((await read(ana.token, gone)).status).toBe(404);
+          expect(storedCounts()).toEqual({ expenses: 1, shares: 2 });
+          expect(await balancesOf(ana.token, groupId)).toEqual(
+            expect.objectContaining({ [ana.id]: 500, [ben.id]: -500 }),
+          );
+          expect((await read(ana.token, kept)).status).toBe(200);
+        });
+
+        it('lets the owner delete an expense another member paid', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const groupId = await createGroup(ana.token);
+          await join(ana.token, groupId, ben.token);
+          const id = await recordOk(ben.token, groupId, [ben.id, ana.id]);
+          expect((await send(app, 'DELETE', `/expenses/${id}`, { token: ana.token })).status).toBe(204);
+          expect((await read(ben.token, id)).status).toBe(404);
+          expect(storedCounts()).toEqual({ expenses: 0, shares: 0 });
+        });
+
+        it('refuses a delete by another member who is neither the payer nor the owner, with 403, and keeps the expense', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const cleo = await signedUpAccount(app, { email: 'cleo@example.org' });
+          const groupId = await createGroup(ana.token);
+          await join(ana.token, groupId, ben.token);
+          await join(ana.token, groupId, cleo.token);
+          const id = await recordOk(ben.token, groupId, [ben.id, ana.id]);
+          const reply = await send(app, 'DELETE', `/expenses/${id}`, { token: cleo.token });
+          expect(reply.status).toBe(403);
+          expect(reply.body).toMatchObject({ error: 'NotPayerOrOwner' });
+          expect((await read(ben.token, id)).status).toBe(200);
+        });
+
+        it('answers 404 to an outsider, as if the expense did not exist, and to a second delete of it', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+          const groupId = await createGroup(ana.token);
+          const id = await recordOk(ana.token, groupId, [ana.id]);
+          const outsider = await send(app, 'DELETE', `/expenses/${id}`, { token: ben.token });
+          const missing = await send(app, 'DELETE', '/expenses/no-such-expense', { token: ben.token });
+          expect(outsider.status).toBe(404);
+          expect(outsider.body).toMatchObject({ error: 'ExpenseNotFound' });
+          expect(outsider.body).toEqual(missing.body);
+          expect((await send(app, 'DELETE', `/expenses/${id}`, { token: ana.token })).status).toBe(204);
+          const again = await send(app, 'DELETE', `/expenses/${id}`, { token: ana.token });
+          expect(again.status).toBe(404);
+          expect(again.body).toMatchObject({ error: 'ExpenseNotFound' });
+        });
+
+        it('refuses a request with no token, or an unproven one, with 401, and keeps the expense', async () => {
+          const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+          const groupId = await createGroup(ana.token);
+          const id = await recordOk(ana.token, groupId, [ana.id]);
+          expect((await send(app, 'DELETE', `/expenses/${id}`)).status).toBe(401);
+          expect((await send(app, 'DELETE', `/expenses/${id}`, { token: 'not-a-real-token' })).status).toBe(401);
+          expect((await read(ana.token, id)).status).toBe(200);
+        });
+      });
+
+      it('upgrades an expense file written before versions: its expenses are at version 1', () => {
+        const legacyDirectory = testDirectory();
+        try {
+          const legacy = new DatabaseSync(legacyDirectory.databasePath);
+          legacy.exec(`
+            CREATE TABLE expenses (
+              id TEXT PRIMARY KEY, group_id TEXT NOT NULL, description TEXT NOT NULL, amount INTEGER NOT NULL,
+              spent_on TEXT NOT NULL, paid_by TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            INSERT INTO expenses VALUES ('old', 'group', 'Groceries', 500, '2026-01-02', 'ana', '2026-01-02T00:00:00.000Z');
+          `);
+          legacy.close();
+          const upgraded = openDatabase(legacyDirectory.databasePath);
+          try {
+            expect(upgraded.prepare('SELECT version FROM expenses WHERE id = ?').get('old')).toMatchObject({
+              version: 1,
+            });
+          } finally {
+            upgraded.close();
+          }
+        } finally {
+          legacyDirectory.remove();
+        }
       });
     });
 

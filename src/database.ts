@@ -56,6 +56,7 @@ const SCHEMA = `
     amount      INTEGER NOT NULL,
     spent_on    TEXT NOT NULL,
     paid_by     TEXT NOT NULL REFERENCES accounts (id),
+    version     INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS expense_shares (
@@ -66,6 +67,17 @@ const SCHEMA = `
     PRIMARY KEY (expense_id, position)
   );
 `;
+
+/**
+ * Adds the columns a file written before them lacks: `CREATE TABLE IF NOT EXISTS` never alters a
+ * table that exists. Runs inside the schema's transaction, so only one server does it.
+ */
+function addMissingColumns(db: DatabaseSync): void {
+  const expenseColumns = db.prepare('PRAGMA table_info(expenses)').all() as unknown as { name: string }[];
+  if (!expenseColumns.some(column => column.name === 'version')) {
+    db.exec('ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+  }
+}
 
 /** How long a connection waits for another server's write lock before it fails, in milliseconds. */
 const BUSY_TIMEOUT_MS = 5000;
@@ -87,6 +99,7 @@ export function openDatabase(path: string): DatabaseSync {
     db.exec('BEGIN IMMEDIATE');
     try {
       db.exec(SCHEMA);
+      addMissingColumns(db);
       db.exec('COMMIT');
     } catch (error) {
       db.exec('ROLLBACK');
