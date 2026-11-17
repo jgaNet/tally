@@ -47,11 +47,13 @@ const record = (groupId: string, token: string, body: unknown) =>
   http.request('POST', `/v1/groups/${groupId}/expenses`, { body, token });
 const readBalances = (groupId: string, token?: string) => http.get(`/v1/groups/${groupId}/balances`, { token });
 
-/** Each share of an equal split: rounded down, the remainder whole to the payer (request 4). */
-function sharesOf(amount: number, members: string[], payer: string): Record<string, number> {
+/** Each share of an equal split: rounded down, the remainder whole to the first member listed (request 10). */
+function sharesOf(amount: number, members: string[]): Record<string, number> {
   const each = Math.floor(amount / members.length);
   const shares: Record<string, number> = {};
-  for (const member of members) shares[member] = member === payer ? amount - each * (members.length - 1) : each;
+  members.forEach((member, index) => {
+    shares[member] = index === 0 ? amount - each * (members.length - 1) : each;
+  });
   return shares;
 }
 
@@ -139,7 +141,6 @@ describe('a group’s balances', () => {
       const shares = sharesOf(
         amount,
         members.map(member => member.id),
-        payer.id,
       );
       expected[payer.id] += amount;
       for (const member of members) expected[member.id] -= shares[member.id];

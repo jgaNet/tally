@@ -33,26 +33,22 @@ export type SplitRequest =
  * - shares: each member's shares, at least 1 each; a member's share is the amount times their shares, divided by the
  *   total of the shares, rounded down.
  *
- * In every kind, what the rounding leaves over (less than the number of members) goes whole to the payer's share, so
- * the shares add up to the amount exactly. The members themselves (who may be in a split, the payer among them) are
- * checked by `decide`, the same way for every kind.
+ * In the equal and the shares kinds, what the rounding leaves over (less than the number of members) goes whole to the
+ * share of the member listed first in the split, whoever paid, so the shares add up to the amount exactly. An exact
+ * split has no remainder. The members themselves (who may be in a split, the payer among them) are checked by `decide`,
+ * the same way for every kind.
  */
 export class Split {
-  /** An equal split: the amount divided between the members, the remainder to the payer. Its caller checks the members. */
-  static equally({
-    amount,
-    memberIds,
-    payerId,
-  }: {
-    amount: number;
-    memberIds: string[];
-    payerId: string;
-  }): ExpenseShare[] {
+  /**
+   * An equal split: the amount divided between the members, the remainder to the first member listed. Its caller checks
+   * the members, and that there is at least one.
+   */
+  static equally({ amount, memberIds }: { amount: number; memberIds: string[] }): ExpenseShare[] {
     const base = Math.floor(amount / memberIds.length);
     const remainder = amount - base * memberIds.length;
-    return memberIds.map(memberId => ({
+    return memberIds.map((memberId, index) => ({
       memberId,
-      amount: memberId === payerId ? base + remainder : base,
+      amount: index === 0 ? base + remainder : base,
     }));
   }
 
@@ -78,11 +74,11 @@ export class Split {
 
     switch (request.kind) {
       case 'equal':
-        return Result.ok(Split.equally({ amount, memberIds: request.memberIds, payerId }));
+        return Result.ok(Split.equally({ amount, memberIds: request.memberIds }));
       case 'exact':
         return Split.exact({ amount, amounts: request.amounts });
       case 'shares':
-        return Split.byShares({ amount, shares: request.shares, payerId });
+        return Split.byShares({ amount, shares: request.shares });
     }
   }
 
@@ -105,16 +101,14 @@ export class Split {
 
   /**
    * Shares: each at least 1 and whole. The total is computed in BigInt, so that no product or sum loses precision. The
-   * payer's share takes what the rounding leaves over.
+   * first member listed takes what the rounding leaves over.
    */
   private static byShares({
     amount,
     shares,
-    payerId,
   }: {
     amount: number;
     shares: { memberId: string; shares: number }[];
-    payerId: string;
   }): IResult<ExpenseShare[]> {
     if (shares.some(share => !Number.isSafeInteger(share.shares) || share.shares < 1)) {
       return Result.fail(new InvalidSharesException());
@@ -127,9 +121,9 @@ export class Split {
     const remainder = amount - bases.reduce((sum, share) => sum + share.amount, 0);
 
     return Result.ok(
-      bases.map(share => ({
+      bases.map((share, index) => ({
         memberId: share.memberId,
-        amount: share.memberId === payerId ? share.amount + remainder : share.amount,
+        amount: index === 0 ? share.amount + remainder : share.amount,
       })),
     );
   }

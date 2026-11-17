@@ -114,7 +114,7 @@ describe('Groups → Ledger, editing and deleting', () => {
 });
 
 describe('recording an expense', () => {
-  it('gives the remainder to the payer, so the shares add up to the amount', async () => {
+  it('gives the remainder to the first member listed, whoever paid, so the shares add up to the amount', async () => {
     const ana = await accountOf('ana.remainder@example.com', 'Ana');
     const ben = await accountOf('ben.remainder@example.com', 'Ben');
     const groupId = await groupWith(ana, [ben]);
@@ -129,8 +129,8 @@ describe('recording an expense', () => {
 
     expect(read.body).toMatchObject({
       shares: [
-        { memberId: ben.id, amount: 500 },
-        { memberId: ana.id, amount: 501 },
+        { memberId: ben.id, amount: 501 },
+        { memberId: ana.id, amount: 500 },
       ],
     });
   });
@@ -479,7 +479,7 @@ describe('Ledger: unequal splits (request 7)', () => {
     ]);
   });
 
-  it('records a split by shares, the remainder to the payer, and reads it as shares', async () => {
+  it('records a split by shares, the remainder to the first member listed, and reads it as shares', async () => {
     const ana = await accountOf('ana.shares@example.com', 'Ana');
     const ben = await accountOf('ben.shares@example.com', 'Ben');
     const groupId = await groupWith(ana, [ben]);
@@ -501,8 +501,8 @@ describe('Ledger: unequal splits (request 7)', () => {
       splitKind: 'shares',
       paidBy: ben.id,
       shares: [
-        { memberId: ana.id, amount: 667 },
-        { memberId: ben.id, amount: 334 },
+        { memberId: ana.id, amount: 668 },
+        { memberId: ben.id, amount: 333 },
       ],
     });
   });

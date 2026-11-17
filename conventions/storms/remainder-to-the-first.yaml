@@ -6,7 +6,7 @@ feature: remainder-to-the-first
 intent: >-
   From now on the remainder of an equal split or a split by shares goes whole to the member listed first; earlier expenses keep their shares, and an edited one is split again by the new rule.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where does the change land?

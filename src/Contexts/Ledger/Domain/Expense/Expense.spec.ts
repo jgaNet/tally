@@ -5,13 +5,13 @@ const today = new Date('2026-11-17T12:00:00.000Z');
 const base = { groupId: 'group', description: 'Groceries', amount: 1000, date: '2026-11-16', today };
 
 describe('Split.equally', () => {
-  it('gives each member the amount divided by their number, rounded down, the remainder to the payer', () => {
-    const shares = Split.equally({ amount: 1000, memberIds: ['ben', 'cara', 'ana'], payerId: 'ana' });
+  it('gives each member the amount divided by their number, rounded down, the remainder to the first member listed', () => {
+    const shares = Split.equally({ amount: 1000, memberIds: ['ben', 'cara', 'ana'] });
 
     expect(shares).toEqual([
-      { memberId: 'ben', amount: 333 },
+      { memberId: 'ben', amount: 334 },
       { memberId: 'cara', amount: 333 },
-      { memberId: 'ana', amount: 334 },
+      { memberId: 'ana', amount: 333 },
     ]);
     expect(shares.reduce((sum, share) => sum + share.amount, 0)).toBe(1000);
   });
@@ -248,7 +248,7 @@ describe('Expense.create by shares', () => {
       members: ['ana', 'ben', 'cara'],
     });
 
-  it('gives 1000 by shares of 1, 1 and 1 the equal split of request 4, the remainder to the payer', () => {
+  it('gives 1000 by shares of 1, 1 and 1 the equal split of request 4, the remainder to the first member listed', () => {
     const created = byShares([
       { memberId: 'ben', shares: 1 },
       { memberId: 'cara', shares: 1 },
@@ -260,14 +260,14 @@ describe('Expense.create by shares', () => {
     expect(created.data.toSnapshot()).toMatchObject({
       splitKind: 'shares',
       shares: [
-        { memberId: 'ben', amount: 333 },
+        { memberId: 'ben', amount: 334 },
         { memberId: 'cara', amount: 333 },
-        { memberId: 'ana', amount: 334 },
+        { memberId: 'ana', amount: 333 },
       ],
     });
   });
 
-  it('gives 1001 by shares of 2 and 1, the payer listed second, 667 and 334', () => {
+  it('gives 1001 by shares of 2 and 1, the payer listed second, the first listed 668 and the payer 333', () => {
     const created = byShares(
       [
         { memberId: 'ben', shares: 2 },
@@ -279,8 +279,8 @@ describe('Expense.create by shares', () => {
     expect(created.isSuccess()).toBe(true);
     if (created.isFailure()) return;
     expect(created.data.toSnapshot().shares).toEqual([
-      { memberId: 'ben', amount: 667 },
-      { memberId: 'ana', amount: 334 },
+      { memberId: 'ben', amount: 668 },
+      { memberId: 'ana', amount: 333 },
     ]);
   });
 
