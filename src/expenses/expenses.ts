@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { type Database, inTransaction } from '../database';
 import { leftMembersAmong, requireMembership } from '../groups/groups';
+import { recordExpenseNotices } from '../notices/notices';
 import { Refusal } from '../refusal';
 import { type ExpenseInput, type SplitInput, type SplitKind, validateExpense } from './validation';
 
@@ -78,20 +79,14 @@ export function createExpense(db: Database, groupId: string, payerId: string, in
     requireMembership(db, groupId, payerId);
     const expense = validateExpense(input, memberIdsOf(db, groupId), payerId);
     const id = randomUUID();
+    const at = new Date().toISOString();
     db.prepare(
       `INSERT INTO expenses (id, group_id, description, amount, date, paid_by, version, split_kind, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-    ).run(
-      id,
-      groupId,
-      expense.description,
-      expense.amount,
-      expense.date,
-      payerId,
-      expense.split.kind,
-      new Date().toISOString(),
-    );
-    writeShares(db, id, sharesOf(expense.split, expense.amount));
+    ).run(id, groupId, expense.description, expense.amount, expense.date, payerId, expense.split.kind, at);
+    const shares = sharesOf(expense.split, expense.amount);
+    writeShares(db, id, shares);
+    recordExpenseNotices(db, { id, groupId, paidBy: payerId, shares }, at);
     return id;
   });
 }

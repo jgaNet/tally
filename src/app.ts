@@ -6,6 +6,7 @@ import { openDatabase } from './database';
 import { registerExpenseRoutes } from './expenses/routes';
 import { registerGroupRoutes } from './groups/routes';
 import { registerInvitationRoutes } from './invitations/routes';
+import { registerNoticeRoutes } from './notices/routes';
 import { Refusal } from './refusal';
 import { registerOperationRoutes } from './operations/routes';
 import { registerPayoutAccountRoutes } from './payouts/routes';
@@ -77,6 +78,7 @@ export async function createApplication({
       registerInvitationRoutes(routes, db);
       registerExpenseRoutes(routes, db);
       registerBalanceRoutes(routes, db);
+      registerNoticeRoutes(routes, db);
       registerStatementRoutes(routes, db);
       registerPayoutAccountRoutes(routes, db, provider);
       registerSettlementRoutes(routes, db, provider);

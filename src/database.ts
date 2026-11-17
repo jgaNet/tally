@@ -180,6 +180,22 @@ const migrations: readonly string[] = [
     set_at              TEXT NOT NULL
   );
   `,
+  `
+  -- A notice tells a member of an expense's split, other than its payer, their share of it. It is written in
+  -- the same transaction as the expense, so each member gets one exactly, and it is kept with its member
+  -- even after they leave the group. The expense may be deleted later: the notice is still kept.
+  CREATE TABLE notices (
+    id         TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind       TEXT NOT NULL CHECK (kind IN ('expense')),
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    expense_id TEXT NOT NULL,
+    amount     INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (expense_id, account_id)
+  );
+  CREATE INDEX notices_by_account ON notices (account_id, created_at);
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */
