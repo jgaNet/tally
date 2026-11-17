@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-1",
+  "ref": "28cd32d3e4398444203c2901d0b2d00c4da25322",
+  "commit": "28cd32d3e4398444203c2901d0b2d00c4da25322",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../28cd32d3e439.storms/accounts.yaml is done, but Groups: typescript lacks the command expected by ../28cd32d3e439.storms/accounts.yaml has: SignUp (anyone, POST /accounts, Account → AccountRegistered)",
+          "../28cd32d3e439.storms/accounts.yaml is done, but Groups: typescript has a command expected by ../28cd32d3e439.storms/accounts.yaml does not: SignUp (anyone, POST /accounts, Account → AccountRegistered; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "create-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../28cd32d3e439.storms/create-a-group.yaml is done, but Groups: typescript lacks the command expected by ../28cd32d3e439.storms/create-a-group.yaml has: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated)",
+          "../28cd32d3e439.storms/create-a-group.yaml is done, but Groups: typescript has a command expected by ../28cd32d3e439.storms/create-a-group.yaml does not: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated; answered at once)"
+        ]
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 9306,
+  "workers": 2
+}
