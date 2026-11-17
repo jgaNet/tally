@@ -87,28 +87,30 @@ type Split =
 
 /**
  * The shares of an equal split, in the order the split was given. Each share is the amount divided by
- * the number of members, rounded down; the remainder, less than that number, goes to the payer's share.
+ * the number of members, rounded down; the remainder, less than that number, goes whole to the share of
+ * the member listed first in the split, whoever paid.
  */
-export function equalShares(amount: number, splitBetween: readonly string[], payerId: string): Share[] {
+export function equalShares(amount: number, splitBetween: readonly string[]): Share[] {
   const each = Math.floor(amount / splitBetween.length);
   const remainder = amount - each * splitBetween.length;
-  return splitBetween.map(memberId => ({ memberId, amount: memberId === payerId ? each + remainder : each }));
+  return splitBetween.map((memberId, index) => ({ memberId, amount: index === 0 ? each + remainder : each }));
 }
 
 /**
  * The shares of a split by shares, in the order the split was given. Each member's share is the amount
  * times their shares, divided by the total of the shares, rounded down. The remainder, less than the
- * number of members, goes whole to the payer's share, so the shares add up to the amount exactly. The
- * arithmetic is on arbitrary-size integers, so no number of shares can overflow it.
+ * number of members, goes whole to the share of the member listed first in the split, whoever paid, so
+ * the shares add up to the amount exactly. The arithmetic is on arbitrary-size integers, so no number of
+ * shares can overflow it.
  */
-export function sharesByWeight(amount: number, weights: readonly ShareCount[], payerId: string): Share[] {
+export function sharesByWeight(amount: number, weights: readonly ShareCount[]): Share[] {
   const total = weights.reduce((sum, weight) => sum + BigInt(weight.shares), 0n);
   const shares = weights.map(weight => ({
     memberId: weight.memberId,
     amount: Number((BigInt(amount) * BigInt(weight.shares)) / total),
   }));
   const remainder = amount - shares.reduce((sum, share) => sum + share.amount, 0);
-  return shares.map(share => (share.memberId === payerId ? { ...share, amount: share.amount + remainder } : share));
+  return shares.map((share, index) => (index === 0 ? { ...share, amount: share.amount + remainder } : share));
 }
 
 function refuse(type: string, message: string): never {
@@ -177,12 +179,13 @@ function membersOf(split: Split): string[] {
 
 /**
  * The shares of the split of an amount. An exact split's amounts are 0 or more and add up to the amount,
- * exactly; a split by shares gives each member at least one share. Otherwise the split is refused.
+ * exactly; a split by shares gives each member at least one share. Otherwise the split is refused. The
+ * split has been checked to name members, so the first member of an equal or weighted split exists.
  */
-function sharesOf(split: Split, amount: number, payerId: string): Share[] {
+function sharesOf(split: Split, amount: number): Share[] {
   switch (split.kind) {
     case 'equal':
-      return equalShares(amount, split.members, payerId);
+      return equalShares(amount, split.members);
     case 'exact': {
       if (split.shares.some(share => share.amount < 0)) {
         refuse('InvalidSplit', 'Each amount of the split is 0 or more.');
@@ -196,7 +199,7 @@ function sharesOf(split: Split, amount: number, payerId: string): Share[] {
       if (split.shares.some(share => share.shares < 1)) {
         refuse('InvalidSplit', 'Each member of the split has at least 1 share.');
       }
-      return sharesByWeight(amount, split.shares, payerId);
+      return sharesByWeight(amount, split.shares);
   }
 }
 
@@ -240,7 +243,7 @@ export function createExpense(db: DatabaseSync, accountId: string, groupId: stri
   inTransaction(db, () => {
     const split = splitOf(input);
     checkSplit(db, groupId, accountId, membersOf(split));
-    const shares = sharesOf(split, input.amount, accountId);
+    const shares = sharesOf(split, input.amount);
     db.prepare(
       'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
     ).run(id, groupId, description, input.amount, input.date, accountId, split.kind, new Date().toISOString());
@@ -320,7 +323,7 @@ export function editExpense(db: DatabaseSync, accountId: string, expenseId: stri
     checkDate(edit.date);
     const split = splitOf(edit);
     checkSplit(db, expense.groupId, expense.paidBy, membersOf(split));
-    const shares = sharesOf(split, edit.amount, expense.paidBy);
+    const shares = sharesOf(split, edit.amount);
     db.prepare(
       'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, version = version + 1 WHERE id = ? AND version = ?',
     ).run(description, edit.amount, edit.date, split.kind, expenseId, edit.version);

@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import { Application } from './app';
 import { equalShares, sharesByWeight, todayUtc } from './expenses';
 import { ada, call, startApplication, temporaryDatabase } from './test-support';
@@ -78,24 +79,32 @@ describe('expenses', () => {
   });
 
   describe('the equal split', () => {
-    it('gives 1000 split between three members to the two others 333 each and to the payer 334', () => {
-      expect(equalShares(1000, [graceId, linusId, adaId], adaId)).toEqual([
-        { memberId: graceId, amount: 333 },
-        { memberId: linusId, amount: 333 },
-        { memberId: adaId, amount: 334 },
-      ]);
-    });
-
-    it('gives the remainder to the payer wherever the payer stands in the split', () => {
-      expect(equalShares(1000, [adaId, graceId, linusId], adaId)).toEqual([
-        { memberId: adaId, amount: 334 },
-        { memberId: graceId, amount: 333 },
+    it('gives 1000 split between three members, the payer listed second, 334 to the first and 333 to the others', () => {
+      expect(equalShares(1000, [graceId, adaId, linusId])).toEqual([
+        { memberId: graceId, amount: 334 },
+        { memberId: adaId, amount: 333 },
         { memberId: linusId, amount: 333 },
       ]);
     });
 
-    it('gives the whole amount to a payer who is alone in the split', () => {
-      expect(equalShares(99_999_999, [adaId], adaId)).toEqual([{ memberId: adaId, amount: 99_999_999 }]);
+    it('gives the remainder to the first member of the split, and not to the payer who is listed last', () => {
+      expect(equalShares(1000, [linusId, graceId, adaId])).toEqual([
+        { memberId: linusId, amount: 334 },
+        { memberId: graceId, amount: 333 },
+        { memberId: adaId, amount: 333 },
+      ]);
+    });
+
+    it('gives the remainder to the first member of the split when the payer is first too', () => {
+      expect(equalShares(1000, [adaId, graceId, linusId])).toEqual([
+        { memberId: adaId, amount: 334 },
+        { memberId: graceId, amount: 333 },
+        { memberId: linusId, amount: 333 },
+      ]);
+    });
+
+    it('gives the whole amount to the one member of a split of one', () => {
+      expect(equalShares(99_999_999, [adaId])).toEqual([{ memberId: adaId, amount: 99_999_999 }]);
     });
 
     it.each([
@@ -108,7 +117,7 @@ describe('expenses', () => {
       [99_999_999, 6],
     ])('never loses a unit: %i split between %i members adds up exactly to the amount', (amount, members) => {
       const split = Array.from({ length: members }, (_, index) => `member-${index}`);
-      const shares = equalShares(amount, split, split[members - 1]);
+      const shares = equalShares(amount, split);
       expect(shares.reduce((sum, share) => sum + share.amount, 0)).toBe(amount);
       for (const share of shares) {
         expect(share.amount).toBeGreaterThanOrEqual(Math.floor(amount / members));
@@ -540,19 +549,15 @@ describe('expenses', () => {
   });
 
   describe('the shares of a split by shares', () => {
-    it('gives 1001 by shares of 2 and 1, the payer listed second, 667 and 334', () => {
+    it('gives 1001 by shares of 2 and 1, the payer listed second, 668 to the first and 333 to the payer', () => {
       expect(
-        sharesByWeight(
-          1001,
-          [
-            { memberId: graceId, shares: 2 },
-            { memberId: adaId, shares: 1 },
-          ],
-          adaId,
-        ),
+        sharesByWeight(1001, [
+          { memberId: graceId, shares: 2 },
+          { memberId: adaId, shares: 1 },
+        ]),
       ).toEqual([
-        { memberId: graceId, amount: 667 },
-        { memberId: adaId, amount: 334 },
+        { memberId: graceId, amount: 668 },
+        { memberId: adaId, amount: 333 },
       ]);
     });
 
@@ -562,42 +567,34 @@ describe('expenses', () => {
         sharesByWeight(
           1000,
           members.map(memberId => ({ memberId, shares: 1 })),
-          adaId,
         ),
-      ).toEqual(equalShares(1000, members, adaId));
+      ).toEqual(equalShares(1000, members));
     });
 
-    it('gives the remainder to the payer even when the payer has the fewest shares', () => {
+    it('gives the remainder to the first member even when that member has the fewest shares', () => {
       expect(
-        sharesByWeight(
-          1001,
-          [
-            { memberId: graceId, shares: 3 },
-            { memberId: linusId, shares: 1 },
-            { memberId: adaId, shares: 1 },
-          ],
-          adaId,
-        ),
+        sharesByWeight(1001, [
+          { memberId: linusId, shares: 1 },
+          { memberId: graceId, shares: 3 },
+          { memberId: adaId, shares: 1 },
+        ]),
       ).toEqual([
+        { memberId: linusId, amount: 201 },
         { memberId: graceId, amount: 600 },
-        { memberId: linusId, amount: 200 },
-        { memberId: adaId, amount: 201 },
+        { memberId: adaId, amount: 200 },
       ]);
     });
 
     it('does the arithmetic in whole numbers, so a huge number of shares cannot overflow it', () => {
       expect(
-        sharesByWeight(
-          100_000_000,
-          [
-            { memberId: graceId, shares: 1 },
-            { memberId: adaId, shares: 9_000_000_000_000_000 },
-          ],
-          adaId,
-        ),
+        sharesByWeight(100_000_000, [
+          { memberId: graceId, shares: 1 },
+          { memberId: adaId, shares: 9_000_000_000_000_000 },
+        ]),
       ).toEqual([
-        { memberId: graceId, amount: 0 },
-        { memberId: adaId, amount: 100_000_000 },
+        // Grace's share rounds down to 0, and the remainder of 1 goes to her, the first member of the split.
+        { memberId: graceId, amount: 1 },
+        { memberId: adaId, amount: 99_999_999 },
       ]);
     });
 
@@ -607,7 +604,7 @@ describe('expenses', () => {
       [100_000_000, [7, 1, 1]],
     ])('never loses a unit: %i split by these shares adds up exactly to the amount', (amount, counts) => {
       const weights = counts.map((shares, index) => ({ memberId: `member-${index}`, shares }));
-      const total = sharesByWeight(amount, weights, 'member-0').reduce((sum, share) => sum + share.amount, 0);
+      const total = sharesByWeight(amount, weights).reduce((sum, share) => sum + share.amount, 0);
       expect(total).toBe(amount);
     });
   });
@@ -743,7 +740,7 @@ describe('expenses', () => {
       ...fields,
     });
 
-    it('gives 1001 by shares of 2 and 1, the payer listed second, 667 to the first and 334 to the payer', async () => {
+    it('gives 1001 by shares of 2 and 1, the payer listed second, 668 to the first and 333 to the payer', async () => {
       const id = await recordedExpense(
         byShares(
           [
@@ -756,13 +753,13 @@ describe('expenses', () => {
       expect(await readExpense(id)).toMatchObject({
         splitKind: 'shares',
         shares: [
-          { memberId: graceId, amount: 667 },
-          { memberId: adaId, amount: 334 },
+          { memberId: graceId, amount: 668 },
+          { memberId: adaId, amount: 333 },
         ],
       });
     });
 
-    it('splits 1000 by shares of 1, 1 and 1 as the equal split does', async () => {
+    it('splits 1000 by shares of 1, 1 and 1 as the equal split does, the remainder to the first member', async () => {
       const id = await recordedExpense(
         byShares([
           { memberId: graceId, shares: 1 },
@@ -771,9 +768,9 @@ describe('expenses', () => {
         ]),
       );
       expect((await readExpense(id)).shares).toEqual([
-        { memberId: graceId, amount: 333 },
+        { memberId: graceId, amount: 334 },
         { memberId: linusId, amount: 333 },
-        { memberId: adaId, amount: 334 },
+        { memberId: adaId, amount: 333 },
       ]);
     });
 
@@ -892,9 +889,81 @@ describe('expenses', () => {
         },
         graceToken,
       );
-      // Ada paid 1000 and has shares 700 + 333. Grace paid 1001 and has shares 300 + 668: the payer keeps
-      // the remainder of 1001 split by 2 and 1 shares, 668 and 333. Linus has no share, and is even.
+      // Ada paid 1000 and has shares 700 + 333. Grace paid 1001 and has shares 300 + 668: the first member
+      // of the split, Grace, takes the remainder of 1001 split by 2 and 1 shares, 668 and 333. Linus has no
+      // share, and is even.
       expect((await balancesOf()).map((member: { balance: number }) => member.balance)).toEqual([-33, 33, 0]);
+    });
+  });
+
+  describe('the remainder goes to the first member of the split', () => {
+    it('gives 1000 split equally, the payer listed second, 334 to the first member and 333 to the payer and the third', async () => {
+      const id = await recordedExpense({ splitBetween: [graceId, adaId, linusId] });
+      expect((await readExpense(id)).shares).toEqual([
+        { memberId: graceId, amount: 334 },
+        { memberId: adaId, amount: 333 },
+        { memberId: linusId, amount: 333 },
+      ]);
+    });
+
+    it('gives the remainder of 1000 by shares to the first member, whoever paid', async () => {
+      const id = await recordedExpense({
+        splitBetween: undefined,
+        splitByShares: [
+          { memberId: linusId, shares: 1 },
+          { memberId: graceId, shares: 1 },
+          { memberId: adaId, shares: 1 },
+        ],
+      });
+      expect((await readExpense(id)).shares).toEqual([
+        { memberId: linusId, amount: 334 },
+        { memberId: graceId, amount: 333 },
+        { memberId: adaId, amount: 333 },
+      ]);
+    });
+
+    it('splits an edited expense again by the new rule, as any edit splits it', async () => {
+      const id = await recordedExpense({ splitBetween: [adaId, graceId, linusId] });
+      expect((await change(id, { splitBetween: [graceId, adaId, linusId] })).status).toBe(204);
+      expect((await readExpense(id)).shares).toEqual([
+        { memberId: graceId, amount: 334 },
+        { memberId: adaId, amount: 333 },
+        { memberId: linusId, amount: 333 },
+      ]);
+    });
+
+    it('keeps the shares an expense was recorded with, and does not compute them again at a read', async () => {
+      const id = await recordedExpense({ splitBetween: [graceId, adaId, linusId] });
+      // As an expense recorded before the change: the remainder went to the payer, Ada.
+      const stored = new DatabaseSync(database.path);
+      try {
+        stored
+          .prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND account_id = ?')
+          .run(333, id, graceId);
+        stored
+          .prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND account_id = ?')
+          .run(334, id, adaId);
+      } finally {
+        stored.close();
+      }
+      expect((await readExpense(id)).shares).toEqual([
+        { memberId: graceId, amount: 333 },
+        { memberId: adaId, amount: 334 },
+        { memberId: linusId, amount: 333 },
+      ]);
+    });
+
+    it('does not change the remainder of a split by exact amounts, which has none', async () => {
+      const id = await recordedExpense(
+        byAmounts([
+          { memberId: graceId, amount: 500 },
+          { memberId: adaId, amount: 500 },
+        ]),
+      );
+      expect((await readExpense(id)).shares).toEqual([
+        { memberId: graceId, amount: 500 },
+        { memberId: adaId, amount: 500 },
+      ]);
     });
   });
 });
