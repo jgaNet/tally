@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { checkExpenseFields, insertExpense, type SplitInput } from './expenses';
 import { isCalendarDay } from './days';
 import { findGroupOfMember, membersOfGroup } from './groups';
+import type { Category } from './categories';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
 
@@ -21,6 +22,8 @@ export interface Recurring {
   /** The day of the next expense it will record. */
   readonly next: string;
   readonly split: SplitInput;
+  /** The category of the expenses it records: `other` when it was given none. */
+  readonly category: Category;
 }
 
 interface RecurringRow {
@@ -32,6 +35,7 @@ interface RecurringRow {
   starts_on: string;
   next_on: string;
   split_kind: SplitInput['kind'];
+  category: Category;
 }
 
 interface PartRow {
@@ -40,7 +44,7 @@ interface PartRow {
   value: number | null;
 }
 
-const COLUMNS = 'id, group_id, paid_by, description, amount, starts_on, next_on, split_kind';
+const COLUMNS = 'id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, category';
 
 /** The day `YYYY-MM-DD` of the same day of the following month (the day is from 1 to 28). */
 export function nextMonth(day: string): string {
@@ -68,6 +72,7 @@ function recurringOf(row: RecurringRow, parts: readonly PartRow[]): Recurring {
     startsOn: row.starts_on,
     next: row.next_on,
     split: splitOf(row.split_kind, parts),
+    category: row.category,
   };
 }
 
@@ -85,6 +90,8 @@ export interface SetUpRecurringInput {
   readonly amount: number;
   readonly startsOn: string;
   readonly split: SplitInput;
+  /** The category of the expenses it records, when given; `other` when left out. */
+  readonly category?: string;
   /** Today (UTC) as the application's clock tells it, `YYYY-MM-DD`. */
   readonly today: string;
 }
@@ -114,6 +121,7 @@ export function setUpRecurring(db: DatabaseSync, input: SetUpRecurringInput): st
         amount: { kind: 'group', amount: input.amount },
         date: today,
         split: input.split,
+        category: input.category,
       },
       undefined,
       today,
@@ -129,8 +137,8 @@ export function setUpRecurring(db: DatabaseSync, input: SetUpRecurringInput): st
       throw new Refusal(422, 'StartsOnIsNotEveryMonth', 'The day of the month of startsOn must be from 1 to 28.');
     }
     db.prepare(
-      `INSERT INTO recurring (id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO recurring (id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, category, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       groupId,
@@ -140,6 +148,7 @@ export function setUpRecurring(db: DatabaseSync, input: SetUpRecurringInput): st
       startsOn,
       startsOn,
       input.split.kind,
+      checked.category,
       new Date().toISOString(),
     );
     const insertPart = db.prepare(
@@ -230,7 +239,13 @@ export function recordRecurring(db: DatabaseSync, now: Date): number {
           row.group_id,
           group.currency,
           row.paid_by,
-          { description: row.description, amount: { kind: 'group', amount: row.amount }, date: day, split },
+          {
+            description: row.description,
+            amount: { kind: 'group', amount: row.amount },
+            date: day,
+            split,
+            category: row.category,
+          },
           undefined,
           today,
         );

@@ -220,7 +220,8 @@ describe('reminders', () => {
       kind TEXT NOT NULL CHECK (kind IN ('expense')), group_id TEXT NOT NULL REFERENCES groups (id),
       expense_id TEXT NOT NULL, amount INTEGER NOT NULL, created_at TEXT NOT NULL,
       UNIQUE (kind, expense_id, recipient_id))`);
-    db.exec('INSERT INTO notices SELECT * FROM notices_now');
+    db.exec(`INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
+      SELECT id, recipient_id, kind, group_id, expense_id, amount, created_at FROM notices_now`);
     db.exec('DROP TABLE notices_now');
     db.exec('PRAGMA foreign_keys = ON');
 

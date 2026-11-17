@@ -475,6 +475,7 @@ describe('expenses', () => {
           paidBy: ana.id,
           version: 1,
           splitKind: 'equal',
+          category: 'other',
           shares: [
             { memberId: ana.id, amount: 501 },
             { memberId: ben.id, amount: 500 },
@@ -551,6 +552,7 @@ describe('expenses', () => {
           paidBy: ben.id,
           version: 1,
           splitKind: 'exact',
+          category: 'other',
           shares: [
             { memberId: ana.id, amount: 700 },
             { memberId: ben.id, amount: 300 },
@@ -859,6 +861,7 @@ describe('expenses', () => {
             paidBy: ana.id,
             version: 2,
             splitKind: 'equal',
+            category: 'other',
             shares: [
               { memberId: ben.id, amount: 451 },
               { memberId: ana.id, amount: 450 },

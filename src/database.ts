@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { CATEGORY_SQL_LIST } from './categories';
 
 /**
  * The schema, created when missing. Every table is created with `IF NOT EXISTS`, so several
@@ -65,6 +66,7 @@ const SCHEMA = `
     rate              TEXT,
     recurring_id      TEXT,
     recurring_day     TEXT,
+    category    TEXT NOT NULL DEFAULT 'other' CHECK (category IN (${CATEGORY_SQL_LIST})),
     created_at  TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS expense_shares (
@@ -88,6 +90,7 @@ const SCHEMA = `
     starts_on   TEXT NOT NULL,
     next_on     TEXT NOT NULL,
     split_kind  TEXT NOT NULL CHECK (split_kind IN ('equal', 'exact', 'shares')),
+    category    TEXT NOT NULL DEFAULT 'other' CHECK (category IN (${CATEGORY_SQL_LIST})),
     created_at  TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS recurring_parts (
@@ -113,23 +116,46 @@ const SCHEMA = `
     last_reminded_at TEXT,
     PRIMARY KEY (group_id, account_id)
   );
+  /* The monthly budget of a category of a group. */
+  CREATE TABLE IF NOT EXISTS budgets (
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    category TEXT NOT NULL CHECK (category IN (${CATEGORY_SQL_LIST})),
+    amount   INTEGER NOT NULL CHECK (amount BETWEEN 1 AND 100000000),
+    PRIMARY KEY (group_id, category)
+  );
+  /*
+   * The months of a category of a group whose budget has been noticed as passed: a row once, ever, written in the
+   * transaction that makes the notices, so each month is noticed once.
+   */
+  CREATE TABLE IF NOT EXISTS budget_months_passed (
+    group_id  TEXT NOT NULL REFERENCES groups (id),
+    category  TEXT NOT NULL CHECK (category IN (${CATEGORY_SQL_LIST})),
+    month     TEXT NOT NULL,
+    passed_at TEXT NOT NULL,
+    PRIMARY KEY (group_id, category, month)
+  );
 `;
 
 /**
  * A notice to a member. One about an expense is written in the transaction that records the expense, so it exists
  * exactly when the expense does; it names the expense without a foreign key: deleting the expense keeps it. One
- * per expense and recipient, whatever happens to the server. A reminder (of a lasting debt) has no expense.
+ * per expense and recipient, whatever happens to the server. A reminder (of a lasting debt) has no expense. A budget's
+ * notice names its category, its month (`YYYY-MM`), the budget and what the month spends (its `amount`).
  */
 const NOTICES_TABLE = `
   CREATE TABLE IF NOT EXISTS notices (
     id           TEXT PRIMARY KEY,
     recipient_id TEXT NOT NULL REFERENCES accounts (id),
-    kind         TEXT NOT NULL CHECK (kind IN ('expense', 'reminder')),
+    kind         TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
     group_id     TEXT NOT NULL REFERENCES groups (id),
     expense_id   TEXT,
+    category     TEXT CHECK (category IN (${CATEGORY_SQL_LIST})),
+    month        TEXT,
+    budget       INTEGER,
     amount       INTEGER NOT NULL,
     created_at   TEXT NOT NULL,
     CHECK ((kind = 'expense') = (expense_id IS NOT NULL)),
+    CHECK ((kind = 'budget') = (budget IS NOT NULL AND month IS NOT NULL AND category IS NOT NULL)),
     UNIQUE (kind, expense_id, recipient_id)
   );
 `;
@@ -204,6 +230,7 @@ function addMissingColumns(db: DatabaseSync): void {
   const expenseColumns = db.prepare('PRAGMA table_info(expenses)').all() as unknown as { name: string }[];
   const membershipColumns = db.prepare('PRAGMA table_info(group_members)').all() as unknown as { name: string }[];
   const settlementColumns = db.prepare('PRAGMA table_info(settlements)').all() as unknown as { name: string }[];
+  const recurringColumns = db.prepare('PRAGMA table_info(recurring)').all() as unknown as { name: string }[];
   // A membership written before leaving a group has no `left_at`: every such membership is still current.
   if (!membershipColumns.some(column => column.name === 'left_at')) {
     db.exec('ALTER TABLE group_members ADD COLUMN left_at TEXT');
@@ -240,17 +267,29 @@ function addMissingColumns(db: DatabaseSync): void {
     );
     db.exec('DROP TABLE settlements_before_refund');
   }
-  // A notices table written before reminders lacks their kind, and requires an expense: its rows are kept.
+  // A notices table written before reminders lacks their kind, and requires an expense; one written before budgets
+  // lacks the budget kind and its columns. Either way its rows are kept, as they are.
   const noticesTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notices'`).get() as
     { sql: string } | undefined;
-  if (noticesTable && !noticesTable.sql.includes(`'reminder'`)) {
-    db.exec('ALTER TABLE notices RENAME TO notices_before_reminders');
+  if (noticesTable && !noticesTable.sql.includes(`'budget'`)) {
+    db.exec('ALTER TABLE notices RENAME TO notices_before_budgets');
     db.exec(NOTICES_TABLE);
     db.exec(
       `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
-       SELECT id, recipient_id, kind, group_id, expense_id, amount, created_at FROM notices_before_reminders`,
+       SELECT id, recipient_id, kind, group_id, expense_id, amount, created_at FROM notices_before_budgets`,
     );
-    db.exec('DROP TABLE notices_before_reminders');
+    db.exec('DROP TABLE notices_before_budgets');
+  }
+  // An expense written before categories is in `other`; so is a recurring expense written before them.
+  if (!expenseColumns.some(column => column.name === 'category')) {
+    db.exec(
+      `ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other' CHECK (category IN (${CATEGORY_SQL_LIST}))`,
+    );
+  }
+  if (!recurringColumns.some(column => column.name === 'category')) {
+    db.exec(
+      `ALTER TABLE recurring ADD COLUMN category TEXT NOT NULL DEFAULT 'other' CHECK (category IN (${CATEGORY_SQL_LIST}))`,
+    );
   }
   // An expense written before expenses in another currency is in the group's currency: it has no original amount.
   if (!expenseColumns.some(column => column.name === 'rate')) {
@@ -308,6 +347,8 @@ export function openDatabase(path: string): DatabaseSync {
         'CREATE UNIQUE INDEX IF NOT EXISTS expenses_by_recurring_day ON expenses (recurring_id, recurring_day) WHERE recurring_id IS NOT NULL',
       );
       db.exec('CREATE INDEX IF NOT EXISTS notices_by_recipient ON notices (recipient_id, created_at)');
+      // The month's spending of a category in a group, read for a budget and when it is checked.
+      db.exec('CREATE INDEX IF NOT EXISTS expenses_by_category ON expenses (group_id, category, spent_on)');
       db.exec('COMMIT');
     } catch (error) {
       db.exec('ROLLBACK');

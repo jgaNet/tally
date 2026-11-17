@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import type { Category } from './categories';
 
 /**
  * What a notice tells its recipient. An `expense` notice: an expense of a group, and their share of it. A
- * `reminder`: what they still owe in a group, as a positive amount, with no expense. `at` is when it was made.
+ * `reminder`: what they still owe in a group, as a positive amount, with no expense. A `budget` notice: a category of
+ * a group whose month spends `amount`, over its `budget`, in `month` (`YYYY-MM`). `at` is when it was made.
  */
 export type Notice =
   | {
@@ -20,13 +22,26 @@ export type Notice =
       readonly groupId: string;
       readonly amount: number;
       readonly at: string;
+    }
+  | {
+      readonly id: string;
+      readonly kind: 'budget';
+      readonly groupId: string;
+      readonly category: Category;
+      readonly month: string;
+      readonly budget: number;
+      readonly amount: number;
+      readonly at: string;
     };
 
 interface NoticeRow {
   id: string;
-  kind: 'expense' | 'reminder';
+  kind: 'expense' | 'reminder' | 'budget';
   group_id: string;
   expense_id: string | null;
+  category: Category | null;
+  month: string | null;
+  budget: number | null;
   amount: number;
   created_at: string;
 }
@@ -65,13 +80,25 @@ export function noticeExpense(
 export function noticesOf(db: DatabaseSync, accountId: string): Notice[] {
   const rows = db
     .prepare(
-      `SELECT id, kind, group_id, expense_id, amount, created_at FROM notices
+      `SELECT id, kind, group_id, expense_id, category, month, budget, amount, created_at FROM notices
        WHERE recipient_id = ? ORDER BY created_at DESC, rowid DESC`,
     )
     .all(accountId) as unknown as NoticeRow[];
   return rows.map((row): Notice => {
     if (row.kind === 'reminder') {
       return { id: row.id, kind: 'reminder', groupId: row.group_id, amount: row.amount, at: row.created_at };
+    }
+    if (row.kind === 'budget') {
+      return {
+        id: row.id,
+        kind: 'budget',
+        groupId: row.group_id,
+        category: row.category as Category,
+        month: row.month as string,
+        budget: row.budget as number,
+        amount: row.amount,
+        at: row.created_at,
+      };
     }
     return {
       id: row.id,
@@ -82,6 +109,34 @@ export function noticesOf(db: DatabaseSync, accountId: string): Notice[] {
       at: row.created_at,
     };
   });
+}
+
+/** Makes a budget's notice to `recipientId`: `amount` is what the `month` of `category` spends, over `budget`. */
+export function noticeBudget(
+  db: DatabaseSync,
+  input: {
+    recipientId: string;
+    groupId: string;
+    category: Category;
+    month: string;
+    budget: number;
+    amount: number;
+    at: string;
+  },
+): void {
+  db.prepare(
+    `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, category, month, budget, amount, created_at)
+     VALUES (?, ?, 'budget', ?, NULL, ?, ?, ?, ?, ?)`,
+  ).run(
+    randomUUID(),
+    input.recipientId,
+    input.groupId,
+    input.category,
+    input.month,
+    input.budget,
+    input.amount,
+    input.at,
+  );
 }
 
 /** Makes a reminder to `recipientId` of the `amount` they still owe in `groupId`, made at `at`. */

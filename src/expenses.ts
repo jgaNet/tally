@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { noticeBudgetPassed } from './budgets';
+import { CATEGORIES, DEFAULT_CATEGORY, isCategory, type Category } from './categories';
 import { isCalendarDay, todayInUtc } from './days';
 import { CURRENCIES, findGroupOfMember, membersOfGroup, type Currency, type Group } from './groups';
 import { noticeExpense } from './notices';
@@ -53,6 +55,8 @@ export interface Expense {
   readonly shares: readonly Share[];
   /** What the expense was paid in, when in another currency; absent when it is in the group's currency. */
   readonly original?: OriginalAmount;
+  /** The category of the expense: `other` when it was given none. */
+  readonly category: Category;
 }
 
 interface ExpenseRow {
@@ -67,6 +71,7 @@ interface ExpenseRow {
   original_currency: Currency | null;
   original_amount: number | null;
   rate: string | null;
+  category: Category;
 }
 
 interface ShareRow {
@@ -154,12 +159,16 @@ export type ExpenseAmount =
  */
 export type RateOffer = { readonly offered: string | undefined } | undefined;
 
-/** The fields an expense is given with, when it is recorded or edited. */
+/**
+ * The fields an expense is given with, when it is recorded or edited. `category` is one of the categories, or left out
+ * (`undefined`) for `other`.
+ */
 export interface ExpenseFields {
   readonly description: string;
   readonly amount: ExpenseAmount;
   readonly date: string;
   readonly split: SplitInput;
+  readonly category?: string;
 }
 
 /**
@@ -295,8 +304,8 @@ function sharesOfSplit(amount: number, split: SplitInput): Share[] {
 /**
  * Checks the fields of an expense of `groupId`, in `groupCurrency`, paid by `payerId`, under the rules of recording
  * one, and answers the description trimmed of surrounding spaces, the amount in the group's currency with what it was
- * paid in, and the shares it gives. Refused with `422` (the error names the rule) when a rule is broken. Writes
- * nothing; the caller runs it in its transaction.
+ * paid in, the shares it gives, and its category (`other` when none is given). Refused with `422` (the error names the
+ * rule) when a rule is broken. Writes nothing; the caller runs it in its transaction.
  */
 export function checkExpenseFields(
   db: DatabaseSync,
@@ -306,8 +315,12 @@ export function checkExpenseFields(
   fields: ExpenseFields,
   offer: RateOffer,
   today: string = todayInUtc(),
-): { description: string; amount: number; original: OriginalAmount | undefined; shares: Share[] } {
+): { description: string; amount: number; original: OriginalAmount | undefined; shares: Share[]; category: Category } {
   const { description, date, split } = fields;
+  const category = fields.category ?? DEFAULT_CATEGORY;
+  if (!isCategory(category)) {
+    throw new Refusal(422, 'CategoryIsUnsupported', `The category must be one of ${CATEGORIES.join(', ')}.`);
+  }
   const trimmedDescription = description.trim();
   if (characters(description) > MAX_DESCRIPTION_LENGTH || trimmedDescription.length === 0) {
     throw new Refusal(
@@ -341,7 +354,7 @@ export function checkExpenseFields(
     throw new Refusal(422, 'PayerNotInSplit', 'The payer must be one of the members the expense is split between.');
   }
   checkSplitValues(amount, split);
-  return { description: trimmedDescription, amount, original, shares: sharesOfSplit(amount, split) };
+  return { description: trimmedDescription, amount, original, shares: sharesOfSplit(amount, split), category };
 }
 
 /** Writes the expense's shares, in the order of the split. */
@@ -363,8 +376,9 @@ function originalColumns(original: OriginalAmount | undefined): [Currency | null
 }
 
 /**
- * Writes a checked expense at version 1 with its shares, and tells the members of its split of their shares. The
- * caller's transaction keeps them together. `recurring` names the recurring expense and the day it is recorded for.
+ * Writes a checked expense at version 1 with its shares, and tells the members of its split of their shares; then
+ * notices its month of its category as passed, when it passes the category's budget. The caller's transaction keeps
+ * them together. `recurring` names the recurring expense and the day it is recorded for.
  */
 export function insertExpense(
   db: DatabaseSync,
@@ -374,7 +388,13 @@ export function insertExpense(
     payerId: string;
     date: string;
     split: SplitInput;
-    checked: { description: string; amount: number; original: OriginalAmount | undefined; shares: Share[] };
+    checked: {
+      description: string;
+      amount: number;
+      original: OriginalAmount | undefined;
+      shares: Share[];
+      category: Category;
+    };
     at: string;
     recurring?: string;
   },
@@ -383,8 +403,8 @@ export function insertExpense(
   const [originalCurrency, originalAmount, rate] = originalColumns(checked.original);
   db.prepare(
     `INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind,
-       original_currency, original_amount, rate, recurring_id, recurring_day, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+       original_currency, original_amount, rate, recurring_id, recurring_day, category, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     groupId,
@@ -398,11 +418,13 @@ export function insertExpense(
     rate,
     input.recurring ?? null,
     input.recurring === undefined ? null : date,
+    checked.category,
     at,
   );
   writeShares(db, id, checked.shares);
   // The members of the split are told of their shares in the same transaction: the notices exist with the expense.
   noticeExpense(db, { expenseId: id, groupId, payerId, shares: checked.shares, at });
+  noticeBudgetPassed(db, { groupId, category: checked.category, date, at });
 }
 
 export interface RecordExpenseInput extends ExpenseFields {
@@ -479,6 +501,7 @@ function expenseOf(row: ExpenseRow, shares: readonly ShareRow[]): Expense {
     splitKind: row.split_kind,
     shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
     ...(original ? { original } : {}),
+    category: row.category,
   };
 }
 
@@ -490,7 +513,7 @@ export function findExpenseOfMember(db: DatabaseSync, accountId: string, expense
   const row = db
     .prepare(
       `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, e.version, e.split_kind,
-              e.original_currency, e.original_amount, e.rate FROM expenses e
+              e.original_currency, e.original_amount, e.rate, e.category FROM expenses e
        JOIN group_members m ON m.group_id = e.group_id
        WHERE e.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
@@ -516,7 +539,7 @@ export function expensesOfGroup(db: DatabaseSync, accountId: string, groupId: st
     const rows = db
       .prepare(
         `SELECT id, group_id, description, amount, spent_on, paid_by, version, split_kind,
-                original_currency, original_amount, rate FROM expenses
+                original_currency, original_amount, rate, category FROM expenses
          WHERE group_id = ? ORDER BY spent_on DESC, created_at DESC, rowid DESC`,
       )
       .all(groupId) as unknown as ExpenseRow[];
@@ -606,7 +629,7 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
     const updated = db
       .prepare(
         `UPDATE expenses SET description = ?, amount = ?, spent_on = ?, split_kind = ?,
-                original_currency = ?, original_amount = ?, rate = ?, version = version + 1
+                original_currency = ?, original_amount = ?, rate = ?, category = ?, version = version + 1
          WHERE id = ? AND version = ?`,
       )
       .run(
@@ -617,6 +640,7 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
         originalCurrency,
         originalAmount,
         rate,
+        checked.category,
         expenseId,
         version,
       );
@@ -625,6 +649,13 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
     }
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     writeShares(db, expenseId, checked.shares);
+    // The month the edit leaves the expense in, in its category, is checked against the budget as a record is.
+    noticeBudgetPassed(db, {
+      groupId: expense.groupId,
+      category: checked.category,
+      date,
+      at: new Date().toISOString(),
+    });
     return findExpenseOfMember(db, editorId, expenseId) as Expense;
   });
 }

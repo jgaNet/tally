@@ -4,11 +4,14 @@ import type { SplitInput } from '../expenses';
 import { requireCaller } from '../http';
 import { recurringOfGroup, findRecurringOfMember, setUpRecurring, stopRecurring, type Recurring } from '../recurring';
 import { Refusal } from '../refusal';
+import { CATEGORIES } from '../categories';
 
 interface SetUpBody {
   description: string;
   amount: number;
   startsOn: string;
+  /** The category of the expenses it records; `other` when left out. */
+  category?: string;
   splitBetween?: string[];
   splitExactly?: { memberId: string; amount: number }[];
   splitByShares?: { memberId: string; shares: number }[];
@@ -21,6 +24,7 @@ const SET_UP_BODY = {
     description: { type: 'string' },
     amount: { type: 'number' },
     startsOn: { type: 'string' },
+    category: { type: 'string' },
     splitBetween: { type: 'array', items: { type: 'string' } },
     splitExactly: {
       type: 'array',
@@ -44,7 +48,7 @@ const SET_UP_BODY = {
 
 const RECURRING = {
   type: 'object',
-  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next'],
+  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next', 'category'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -53,6 +57,7 @@ const RECURRING = {
     amount: { type: 'integer' },
     startsOn: { type: 'string' },
     next: { type: 'string' },
+    category: { enum: [...CATEGORIES] },
     splitBetween: { type: 'array', items: { type: 'string' } },
     splitExactly: {
       type: 'array',
@@ -98,13 +103,14 @@ export function registerRecurringRoutes(server: FastifyInstance, db: DatabaseSyn
     },
     async (request, reply) => {
       const caller = requireCaller(db, request);
-      const { description, amount, startsOn } = request.body;
+      const { description, amount, startsOn, category } = request.body;
       const id = setUpRecurring(db, {
         groupId: request.params.id,
         payerId: caller.id,
         description,
         amount,
         startsOn,
+        category,
         split: splitOf(request.body),
         today: clock().toISOString().slice(0, 10),
       });

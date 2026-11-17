@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { requireCaller } from '../http';
+import { CATEGORIES } from '../categories';
 import { CURRENCIES } from '../groups';
 import type { RatesConfig } from '../rates';
 import { Refusal } from '../refusal';
@@ -37,6 +38,8 @@ interface RecordExpenseBody extends SplitBody {
   amount?: number;
   original?: OriginalBody;
   date: string;
+  /** One of the categories; `other` when left out. */
+  category?: string;
 }
 
 interface EditExpenseBody extends RecordExpenseBody {
@@ -79,6 +82,7 @@ const RECORD_EXPENSE_BODY = {
     amount: { type: 'number' },
     original: ORIGINAL,
     date: { type: 'string' },
+    category: { type: 'string' },
     splitBetween: SPLIT_BETWEEN,
     splitExactly: SPLIT_EXACTLY,
     splitByShares: SPLIT_BY_SHARES,
@@ -103,7 +107,7 @@ const ID = { type: 'object', required: ['id'], properties: { id: { type: 'string
 
 const EXPENSE = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'version', 'splitKind', 'shares'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'version', 'splitKind', 'shares', 'category'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -113,6 +117,7 @@ const EXPENSE = {
     paidBy: { type: 'string' },
     version: { type: 'integer', minimum: 1 },
     splitKind: { enum: ['equal', 'exact', 'shares'] },
+    category: { enum: [...CATEGORIES] },
     shares: {
       type: 'array',
       items: {
@@ -165,7 +170,7 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync,
     { schema: { body: RECORD_EXPENSE_BODY, response: { 201: ID } } },
     async (request, reply) => {
       const caller = requireCaller(db, request);
-      const { description, date } = request.body;
+      const { description, date, category } = request.body;
       const id = await recordExpense(db, rates, {
         groupId: request.params.id,
         payerId: caller.id,
@@ -173,6 +178,7 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync,
         amount: amountOf(request.body),
         date,
         split: splitOf(request.body),
+        category,
       });
       return reply.code(201).send({ id });
     },
@@ -203,7 +209,7 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync,
     { schema: { body: EDIT_EXPENSE_BODY, response: { 200: EXPENSE } } },
     async request => {
       const caller = requireCaller(db, request);
-      const { description, date, version } = request.body;
+      const { description, date, version, category } = request.body;
       return editExpense(db, rates, {
         expenseId: request.params.id,
         editorId: caller.id,
@@ -211,6 +217,7 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync,
         amount: amountOf(request.body),
         date,
         split: splitOf(request.body),
+        category,
         version,
       });
     },

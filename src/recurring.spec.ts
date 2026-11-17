@@ -64,6 +64,7 @@ describe('recurring expenses', () => {
       amount: 1001,
       startsOn: '2026-09-05',
       next: '2026-09-05',
+      category: 'other',
       splitBetween: [bob.id, cy.id],
     });
     const exact = await send(app, 'POST', `/groups/${groupId}/recurring`, {
