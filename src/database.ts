@@ -60,6 +60,9 @@ const SCHEMA = `
     paid_by     TEXT NOT NULL REFERENCES accounts (id),
     version     INTEGER NOT NULL DEFAULT 1,
     split_kind  TEXT NOT NULL DEFAULT 'equal' CHECK (split_kind IN ('equal', 'exact', 'shares')),
+    original_currency TEXT,
+    original_amount   INTEGER,
+    rate              TEXT,
     created_at  TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS expense_shares (
@@ -223,6 +226,12 @@ function addMissingColumns(db: DatabaseSync): void {
        SELECT id, recipient_id, kind, group_id, expense_id, amount, created_at FROM notices_before_reminders`,
     );
     db.exec('DROP TABLE notices_before_reminders');
+  }
+  // An expense written before expenses in another currency is in the group's currency: it has no original amount.
+  if (!expenseColumns.some(column => column.name === 'rate')) {
+    db.exec('ALTER TABLE expenses ADD COLUMN original_currency TEXT');
+    db.exec('ALTER TABLE expenses ADD COLUMN original_amount INTEGER');
+    db.exec('ALTER TABLE expenses ADD COLUMN rate TEXT');
   }
   // An expense written before splits by shares or exact amounts was split equally.
   if (!expenseColumns.some(column => column.name === 'split_kind')) {

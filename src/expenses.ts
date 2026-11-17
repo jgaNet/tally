@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { findGroupOfMember, membersOfGroup } from './groups';
+import { CURRENCIES, findGroupOfMember, membersOfGroup, type Currency, type Group } from './groups';
 import { noticeExpense } from './notices';
 import { Refusal } from './refusal';
 import { characters } from './text';
@@ -13,6 +13,8 @@ export const MIN_AMOUNT = 1;
 export const MAX_AMOUNT = 100_000_000;
 
 const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+/** A rate: a decimal number written with at most 6 digits after the point, such as `0.9542`, `1` or `12.5`. */
+const RATE_SHAPE = /^\d+(\.\d{1,6})?$/;
 
 /** How an expense was split: equally between its members, by exact amounts, or by shares. */
 export type SplitKind = 'equal' | 'exact' | 'shares';
@@ -23,11 +25,22 @@ export interface Share {
   readonly amount: number;
 }
 
+/**
+ * What an expense was paid in, when it was paid in another currency: `amount` hundredths of `currency`, at `rate`
+ * (what one of that currency is worth in the group's currency, as the payer stated it, kept as given).
+ */
+export interface OriginalAmount {
+  readonly currency: Currency;
+  readonly amount: number;
+  readonly rate: string;
+}
+
 /** What the application knows of an expense, as a member of its group sees it. `date` is a `YYYY-MM-DD` day. */
 export interface Expense {
   readonly id: string;
   readonly groupId: string;
   readonly description: string;
+  /** The amount in the group's currency: the original amount at its rate, when it was paid in another currency. */
   readonly amount: number;
   readonly date: string;
   readonly paidBy: string;
@@ -37,6 +50,8 @@ export interface Expense {
   readonly splitKind: SplitKind;
   /** The shares, in the order the split was given. */
   readonly shares: readonly Share[];
+  /** What the expense was paid in, when in another currency; absent when it is in the group's currency. */
+  readonly original?: OriginalAmount;
 }
 
 interface ExpenseRow {
@@ -48,6 +63,9 @@ interface ExpenseRow {
   paid_by: string;
   version: number;
   split_kind: SplitKind;
+  original_currency: Currency | null;
+  original_amount: number | null;
+  rate: string | null;
 }
 
 interface ShareRow {
@@ -105,6 +123,21 @@ export function sharesByCount(
   );
 }
 
+/** A rate's digits as a whole number of millionths: `"0.9542"` is 954200, `"12.5"` is 12500000. The rate has the shape already. */
+function millionthsOf(rate: string): bigint {
+  const [whole, fraction = ''] = rate.split('.');
+  return BigInt(`${whole}${fraction.padEnd(6, '0')}`);
+}
+
+/**
+ * The original amount times its rate, rounded to the nearest whole number, a half rounded up: 1234 at `"1.0625"`
+ * is 1311.125, so 1311; 1000 at `"0.9545"` is 954.5, so 955. It is computed in whole numbers (the rate in
+ * millionths), so it is exact. The original amount is a whole number.
+ */
+export function convertedAmount(originalAmount: number, rate: string): number {
+  return Number((BigInt(originalAmount) * millionthsOf(rate) + 500_000n) / 1_000_000n);
+}
+
 /** True when `text` is a real day of the calendar, written `YYYY-MM-DD`. */
 function isCalendarDay(text: string): boolean {
   if (!DATE_SHAPE.test(text)) return false;
@@ -117,12 +150,68 @@ function todayInUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * An expense's amount as it is given: in the group's currency, or in another currency at a rate, which is then
+ * converted (see {@link amountInGroupCurrency}). The currency is not yet checked.
+ */
+export type ExpenseAmount =
+  | { readonly kind: 'group'; readonly amount: number }
+  | { readonly kind: 'original'; readonly currency: string; readonly amount: number; readonly rate: string };
+
 /** The fields an expense is given with, when it is recorded or edited. */
 export interface ExpenseFields {
   readonly description: string;
-  readonly amount: number;
+  readonly amount: ExpenseAmount;
   readonly date: string;
   readonly split: SplitInput;
+}
+
+/**
+ * The amount in the group's currency of an expense given as `input`, with what it was paid in when that is another
+ * currency. Refused with `422` (the error names the rule) when the other currency is not one of Tally's or is the
+ * group's own, when its amount is not a whole number from {@link MIN_AMOUNT} to {@link MAX_AMOUNT}, when the rate is
+ * not a decimal number greater than 0 with at most 6 digits after the point, or when the amount converted is not from
+ * {@link MIN_AMOUNT} to {@link MAX_AMOUNT}.
+ */
+function amountInGroupCurrency(
+  groupCurrency: Currency,
+  input: ExpenseAmount,
+): { amount: number; original: OriginalAmount | undefined } {
+  if (input.kind === 'group') return { amount: input.amount, original: undefined };
+  const { currency, amount, rate } = input;
+  if (!(CURRENCIES as readonly string[]).includes(currency)) {
+    throw new Refusal(422, 'CurrencyIsUnsupported', `The currency must be one of ${CURRENCIES.join(', ')}.`);
+  }
+  if (currency === groupCurrency) {
+    throw new Refusal(
+      422,
+      'CurrencyIsTheGroupsCurrency',
+      `An expense in the group's currency, ${groupCurrency}, is given with its amount, not with another currency.`,
+    );
+  }
+  if (!Number.isSafeInteger(amount) || amount < MIN_AMOUNT || amount > MAX_AMOUNT) {
+    throw new Refusal(
+      422,
+      'OriginalAmountIsInvalid',
+      `The original amount must be a whole number from ${MIN_AMOUNT} to ${MAX_AMOUNT}.`,
+    );
+  }
+  if (!RATE_SHAPE.test(rate) || millionthsOf(rate) === 0n) {
+    throw new Refusal(
+      422,
+      'RateIsInvalid',
+      'The rate must be a decimal number greater than 0, with at most 6 digits after the point.',
+    );
+  }
+  const converted = convertedAmount(amount, rate);
+  if (converted < MIN_AMOUNT || converted > MAX_AMOUNT) {
+    throw new Refusal(
+      422,
+      'AmountIsInvalid',
+      `The original amount at its rate must be a whole number from ${MIN_AMOUNT} to ${MAX_AMOUNT} in the group's currency.`,
+    );
+  }
+  return { amount: converted, original: { currency: currency as Currency, amount, rate } };
 }
 
 /** The members a split names, in the order it names them. */
@@ -167,18 +256,19 @@ function sharesOfSplit(amount: number, split: SplitInput): Share[] {
 }
 
 /**
- * Checks the fields of an expense of `groupId` paid by `payerId`, under the rules of recording one,
- * and answers the description trimmed of surrounding spaces with the shares it gives. Refused with
- * `422` (the error names the rule) when a rule is broken. Writes nothing; the caller runs it in its
- * transaction.
+ * Checks the fields of an expense of `groupId`, in `groupCurrency`, paid by `payerId`, under the rules of recording
+ * one, and answers the description trimmed of surrounding spaces, the amount in the group's currency with what it was
+ * paid in, and the shares it gives. Refused with `422` (the error names the rule) when a rule is broken. Writes
+ * nothing; the caller runs it in its transaction.
  */
 function checkExpenseFields(
   db: DatabaseSync,
   groupId: string,
+  groupCurrency: Currency,
   payerId: string,
   fields: ExpenseFields,
-): { description: string; shares: Share[] } {
-  const { description, amount, date, split } = fields;
+): { description: string; amount: number; original: OriginalAmount | undefined; shares: Share[] } {
+  const { description, date, split } = fields;
   const trimmedDescription = description.trim();
   if (characters(description) > MAX_DESCRIPTION_LENGTH || trimmedDescription.length === 0) {
     throw new Refusal(
@@ -187,6 +277,7 @@ function checkExpenseFields(
       `The description must have 1 to ${MAX_DESCRIPTION_LENGTH} characters and not be only spaces.`,
     );
   }
+  const { amount, original } = amountInGroupCurrency(groupCurrency, fields.amount);
   if (!Number.isInteger(amount) || amount < MIN_AMOUNT || amount > MAX_AMOUNT) {
     throw new Refusal(422, 'AmountIsInvalid', `The amount must be a whole number from ${MIN_AMOUNT} to ${MAX_AMOUNT}.`);
   }
@@ -211,7 +302,7 @@ function checkExpenseFields(
     throw new Refusal(422, 'PayerNotInSplit', 'The payer must be one of the members the expense is split between.');
   }
   checkSplitValues(amount, split);
-  return { description: trimmedDescription, shares: sharesOfSplit(amount, split) };
+  return { description: trimmedDescription, amount, original, shares: sharesOfSplit(amount, split) };
 }
 
 /** Writes the expense's shares, in the order of the split. */
@@ -224,6 +315,14 @@ function writeShares(db: DatabaseSync, expenseId: string, shares: readonly Share
   });
 }
 
+/**
+ * The columns an expense's original amount is kept in, in the order of the columns: all `null` when the expense is in
+ * the group's currency.
+ */
+function originalColumns(original: OriginalAmount | undefined): [Currency | null, number | null, string | null] {
+  return original ? [original.currency, original.amount, original.rate] : [null, null, null];
+}
+
 export interface RecordExpenseInput extends ExpenseFields {
   readonly groupId: string;
   /** The member who records the expense: its payer. */
@@ -233,21 +332,38 @@ export interface RecordExpenseInput extends ExpenseFields {
 /**
  * Records an expense the payer paid in the group, split as `split` gives, and returns its id. Refused
  * with `404` when the payer is not a member of the group; otherwise with `422` when the description,
- * amount, date or split breaks a rule (the error names it). The description is stored trimmed of
- * surrounding spaces. It is recorded at version 1.
+ * amount, its original currency or rate, date or split breaks a rule (the error names it). The description is
+ * stored trimmed of surrounding spaces; an amount in another currency is stored with its rate, converted to the
+ * group's currency. It is recorded at version 1.
  */
 export function recordExpense(db: DatabaseSync, input: RecordExpenseInput): string {
-  const { groupId, payerId, amount, date } = input;
+  const { groupId, payerId, date } = input;
   const id = randomUUID();
   inTransaction(db, () => {
-    if (!findGroupOfMember(db, payerId, groupId)) {
+    const group = findGroupOfMember(db, payerId, groupId);
+    if (!group) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
-    const checked = checkExpenseFields(db, groupId, payerId, input);
+    const checked = checkExpenseFields(db, groupId, group.currency, payerId, input);
     const at = new Date().toISOString();
+    const [originalCurrency, originalAmount, rate] = originalColumns(checked.original);
     db.prepare(
-      'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)',
-    ).run(id, groupId, checked.description, amount, date, payerId, input.split.kind, at);
+      `INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind,
+         original_currency, original_amount, rate, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      groupId,
+      checked.description,
+      checked.amount,
+      date,
+      payerId,
+      input.split.kind,
+      originalCurrency,
+      originalAmount,
+      rate,
+      at,
+    );
     writeShares(db, id, checked.shares);
     // The members of the split are told of their shares in the same transaction: the notices exist with the expense.
     noticeExpense(db, { expenseId: id, groupId, payerId, shares: checked.shares, at });
@@ -255,8 +371,15 @@ export function recordExpense(db: DatabaseSync, input: RecordExpenseInput): stri
   return id;
 }
 
+/** What an expense was paid in, when in another currency; `undefined` when it is in the group's currency. */
+function originalOf(row: ExpenseRow): OriginalAmount | undefined {
+  if (row.original_currency === null || row.original_amount === null || row.rate === null) return undefined;
+  return { currency: row.original_currency, amount: row.original_amount, rate: row.rate };
+}
+
 /** An expense as it reads, given its row and its shares in the order of the split. */
 function expenseOf(row: ExpenseRow, shares: readonly ShareRow[]): Expense {
+  const original = originalOf(row);
   return {
     id: row.id,
     groupId: row.group_id,
@@ -267,6 +390,7 @@ function expenseOf(row: ExpenseRow, shares: readonly ShareRow[]): Expense {
     version: row.version,
     splitKind: row.split_kind,
     shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
+    ...(original ? { original } : {}),
   };
 }
 
@@ -277,7 +401,8 @@ function expenseOf(row: ExpenseRow, shares: readonly ShareRow[]): Expense {
 export function findExpenseOfMember(db: DatabaseSync, accountId: string, expenseId: string): Expense | undefined {
   const row = db
     .prepare(
-      `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, e.version, e.split_kind FROM expenses e
+      `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, e.version, e.split_kind,
+              e.original_currency, e.original_amount, e.rate FROM expenses e
        JOIN group_members m ON m.group_id = e.group_id
        WHERE e.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
@@ -302,7 +427,8 @@ export function expensesOfGroup(db: DatabaseSync, accountId: string, groupId: st
     }
     const rows = db
       .prepare(
-        `SELECT id, group_id, description, amount, spent_on, paid_by, version, split_kind FROM expenses
+        `SELECT id, group_id, description, amount, spent_on, paid_by, version, split_kind,
+                original_currency, original_amount, rate FROM expenses
          WHERE group_id = ? ORDER BY spent_on DESC, created_at DESC, rowid DESC`,
       )
       .all(groupId) as unknown as ExpenseRow[];
@@ -324,16 +450,21 @@ export function expensesOfGroup(db: DatabaseSync, accountId: string, groupId: st
 }
 
 /**
- * The expense `editorId` may change: they must be a member of its group (else `404`, as if it did not
+ * The expense `editorId` may change, with its group: they must be a member of its group (else `404`, as if it did not
  * exist), and its payer or the group's owner (else `403`). An expense whose payer or a member of whose
  * split has left the group cannot be changed (`409`): an expense of a member who left stays as it was. Answers the expense
  * as it is now.
  */
-function expenseChangeableBy(db: DatabaseSync, editorId: string, expenseId: string): Expense {
+function expenseChangeableBy(
+  db: DatabaseSync,
+  editorId: string,
+  expenseId: string,
+): { expense: Expense; group: Group } {
   const expense = findExpenseOfMember(db, editorId, expenseId);
   if (!expense) throw new Refusal(404, 'ExpenseNotFound', 'No expense has this id.');
-  const ownerId = findGroupOfMember(db, editorId, expense.groupId)?.ownerId;
-  if (editorId !== expense.paidBy && editorId !== ownerId) {
+  const group = findGroupOfMember(db, editorId, expense.groupId);
+  if (!group) throw new Refusal(404, 'ExpenseNotFound', 'No expense has this id.');
+  if (editorId !== expense.paidBy && editorId !== group.ownerId) {
     throw new Refusal(403, 'NotPayerOrOwner', 'Only the payer of the expense or the owner of its group may change it.');
   }
   const currentMembers = new Set(membersOfGroup(db, expense.groupId).map(member => member.memberId));
@@ -346,7 +477,7 @@ function expenseChangeableBy(db: DatabaseSync, editorId: string, expenseId: stri
       'The expense concerns a member who has left the group, so it cannot be changed or deleted.',
     );
   }
-  return expense;
+  return { expense, group };
 }
 
 export interface EditExpenseInput extends ExpenseFields {
@@ -360,15 +491,16 @@ export interface EditExpenseInput extends ExpenseFields {
 /**
  * Replaces the expense, whole, from the version the edit was made from, and answers it as it now
  * stands (at the next version). The fields are checked under the rules of recording an expense; the
- * payer stays the one who paid, and the shares and how they were split are replaced. Refused with `404`
- * when the editor is not a member of the expense's group, with `403` when the editor is neither its
- * payer nor the group's owner, with `409` when the expense has changed since the version given. A
- * refused edit keeps nothing: the edit is one transaction, so two edits of one version cannot both be kept.
+ * payer stays the one who paid, and the amount (in the group's currency, or in another one at its rate), the
+ * shares and how they were split are replaced. Refused with `404` when the editor is not a member of the expense's
+ * group, with `403` when the editor is neither its payer nor the group's owner, with `409` when the expense has
+ * changed since the version given. A refused edit keeps nothing: the edit is one transaction, so two edits of one
+ * version cannot both be kept.
  */
 export function editExpense(db: DatabaseSync, input: EditExpenseInput): Expense {
-  const { expenseId, editorId, version, amount, date } = input;
+  const { expenseId, editorId, version, date } = input;
   return inTransaction(db, () => {
-    const expense = expenseChangeableBy(db, editorId, expenseId);
+    const { expense, group } = expenseChangeableBy(db, editorId, expenseId);
     if (expense.version !== version) {
       throw new Refusal(
         409,
@@ -376,12 +508,25 @@ export function editExpense(db: DatabaseSync, input: EditExpenseInput): Expense 
         `The expense has changed since version ${version}: it is at version ${expense.version}. Read it again.`,
       );
     }
-    const checked = checkExpenseFields(db, expense.groupId, expense.paidBy, input);
+    const checked = checkExpenseFields(db, expense.groupId, group.currency, expense.paidBy, input);
+    const [originalCurrency, originalAmount, rate] = originalColumns(checked.original);
     const updated = db
       .prepare(
-        'UPDATE expenses SET description = ?, amount = ?, spent_on = ?, split_kind = ?, version = version + 1 WHERE id = ? AND version = ?',
+        `UPDATE expenses SET description = ?, amount = ?, spent_on = ?, split_kind = ?,
+                original_currency = ?, original_amount = ?, rate = ?, version = version + 1
+         WHERE id = ? AND version = ?`,
       )
-      .run(checked.description, amount, date, input.split.kind, expenseId, version);
+      .run(
+        checked.description,
+        checked.amount,
+        date,
+        input.split.kind,
+        originalCurrency,
+        originalAmount,
+        rate,
+        expenseId,
+        version,
+      );
     if (updated.changes !== 1) {
       throw new Refusal(409, 'ExpenseChanged', 'The expense has changed since it was read. Read it again.');
     }
