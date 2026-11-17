@@ -72,4 +72,26 @@ describe('the application file: transactions and the outbox', () => {
     await second.commitTransaction();
     database.connection.close();
   });
+  it('lets a read the transaction makes of the file through, and keeps every other reader waiting for its turn', async () => {
+    const database = new SqliteDatabase(path);
+    const unitOfWork = new SqliteUnitOfWork(database, new SqliteOutbox(database));
+
+    await unitOfWork.beginTransaction();
+    const own = await unitOfWork.within(() =>
+      database.exclusive(connection => connection.prepare('SELECT 1 AS one').get()),
+    );
+    expect(own).toEqual({ one: 1 });
+
+    let otherRead = false;
+    const other = database.exclusive(() => {
+      otherRead = true;
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(otherRead).toBe(false);
+
+    await unitOfWork.commitTransaction();
+    await other;
+    expect(otherRead).toBe(true);
+    database.connection.close();
+  });
 });

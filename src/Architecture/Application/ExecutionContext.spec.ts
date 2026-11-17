@@ -27,6 +27,9 @@ class FakeUnitOfWork implements UnitOfWork {
   hasActiveTransaction() {
     return this.active;
   }
+  async within<T>(run: () => Promise<T>): Promise<T> {
+    return run();
+  }
   another(): UnitOfWork {
     return new FakeUnitOfWork();
   }

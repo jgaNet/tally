@@ -55,6 +55,13 @@ export interface UnitOfWork {
    * a reaction runs in (ADR 30). With a database, another transaction from the same pool.
    */
   another(): UnitOfWork;
+
+  /**
+   * Runs `run` in the scope of this unit of work's transaction: the reads the transaction makes of the
+   * store while `run` runs are its own, and do not wait for the turn the transaction holds (ADR 4). A unit
+   * of work whose stores have no turn runs `run` as it is.
+   */
+  within<T>(run: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -147,7 +154,9 @@ export class ExecutionContext {
     this.#inTransaction = true;
 
     try {
-      const result = await this.runInUnitOfWork(fn, outermost);
+      const result = await (outermost && this.#unitOfWork
+        ? this.#unitOfWork.within(() => this.runInUnitOfWork(fn, outermost))
+        : this.runInUnitOfWork(fn, outermost));
 
       if (outermost && result.isSuccess()) {
         const callbacks = this.#afterCommit;

@@ -76,6 +76,10 @@ class RecordingUnitOfWork implements UnitOfWork {
   another(): UnitOfWork {
     return new RecordingUnitOfWork();
   }
+
+  async within<T>(run: () => Promise<T>): Promise<T> {
+    return run();
+  }
 }
 
 describe('CommandHandler.anyoneMayAsk()', () => {

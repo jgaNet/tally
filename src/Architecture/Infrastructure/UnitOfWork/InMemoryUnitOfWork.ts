@@ -59,4 +59,9 @@ export class InMemoryUnitOfWork implements UnitOfWork {
   another(): UnitOfWork {
     return new InMemoryUnitOfWork(this.stores, this.outbox);
   }
+
+  /** The stores have no turn to wait for: the scope is `run` as it is. */
+  async within<T>(run: () => Promise<T>): Promise<T> {
+    return run();
+  }
 }

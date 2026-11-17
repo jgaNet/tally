@@ -12,6 +12,7 @@ import { authenticateAccount, localGroupsModule } from '@Contexts/Groups/module.
 import { accountRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/account.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/invitation.routes';
+import { expenseRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
@@ -55,7 +56,8 @@ export async function createApplication({
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule })
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
-    .registerRoutes('/', invitationRoutes, { module: localGroupsModule });
+    .registerRoutes('/', invitationRoutes, { module: localGroupsModule })
+    .registerRoutes('/', expenseRoutes, { module: localLedgerModule });
 
   await app.startModules();
 

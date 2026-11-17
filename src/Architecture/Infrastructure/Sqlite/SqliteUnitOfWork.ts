@@ -65,6 +65,11 @@ export class SqliteUnitOfWork implements UnitOfWork {
     return new SqliteUnitOfWork(this.database, this.outbox);
   }
 
+  /** The transaction's own reads of the file run in its scope, without waiting for the turn it holds (ADR 4). */
+  within<T>(run: () => Promise<T>): Promise<T> {
+    return this.database.within(run);
+  }
+
   #take(action: 'commit' | 'rollback'): () => void {
     const release = this.#release;
     if (!release) {

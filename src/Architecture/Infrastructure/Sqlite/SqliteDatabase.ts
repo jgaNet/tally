@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
 
 /**
@@ -17,6 +18,8 @@ import { DatabaseSync } from 'node:sqlite';
 export class SqliteDatabase {
   readonly connection: DatabaseSync;
   #tail: Promise<void> = Promise.resolve();
+  /** Set for the async work of a transaction, which holds the turn: its own reads do not wait for it (ADR 4). */
+  #holdingTurn = new AsyncLocalStorage<true>();
 
   constructor(path: string) {
     this.connection = new DatabaseSync(path);
@@ -37,8 +40,18 @@ export class SqliteDatabase {
     return previous.then(() => release);
   }
 
-  /** Runs one read or write outside any transaction, after a transaction in progress has ended. */
+  /** Runs `run` in the scope of a transaction that holds the turn: the reads it makes are its own (ADR 4). */
+  within<T>(run: () => Promise<T>): Promise<T> {
+    return this.#holdingTurn.run(true, run);
+  }
+
+  /**
+   * Runs one read or write outside any transaction, after a transaction in progress has ended. Inside the scope of
+   * the transaction that holds the turn, it runs at once on the same connection: that transaction is its own reader.
+   */
   async exclusive<T>(run: (connection: DatabaseSync) => T): Promise<T> {
+    if (this.#holdingTurn.getStore()) return run(this.connection);
+
     const release = await this.acquire();
     try {
       return run(this.connection);
