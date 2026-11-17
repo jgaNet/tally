@@ -32,7 +32,36 @@ const migrations: readonly string[] = [
     created_at    TEXT NOT NULL
   );
   `,
+  `
+  CREATE TABLE groups (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    currency   TEXT NOT NULL CHECK (currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD')),
+    owner_id   TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE memberships (
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    joined_at  TEXT NOT NULL,
+    PRIMARY KEY (group_id, account_id)
+  );
+  CREATE INDEX memberships_by_account ON memberships (account_id);
+  `,
 ];
+
+/** Runs `work` under one write lock: its writes all land, or none does. */
+export function inTransaction<T>(db: Database, work: () => T): T {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = work();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
 
 /**
  * Opens the SQLite file at `path` (or a private in-memory database for `:memory:`), makes sure

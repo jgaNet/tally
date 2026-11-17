@@ -1,4 +1,5 @@
 import { Refusal } from '../refusal';
+import { charLength } from '../text';
 
 export interface Signup {
   /** As typed, trimmed. */
@@ -11,9 +12,6 @@ export interface Signup {
 // Something, an `@`, then something with a dot in it. Deliberately loose: it only has to tell
 // an email from a typo, and a mailbox is the only real test.
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** Length in characters (code points), not UTF-16 units. */
-const charLength = (text: string): number => [...text].length;
 
 /** Checks a sign-up. Refusals are `422`: the body had the right shape, a value is not allowed. */
 export function validateSignup(input: { email: string; password: string; name: string }): Signup {
