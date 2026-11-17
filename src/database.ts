@@ -183,6 +183,15 @@ const MIGRATIONS: readonly string[] = [
   DROP TABLE payment_decisions;
   ALTER TABLE payment_decisions_next RENAME TO payment_decisions;
   `,
+  `
+  -- A member's payout account: the provider's id of the account the provider pays the member on. Setting another
+  -- replaces this one, so a member has at most one. A member without one is not paid through the provider.
+  CREATE TABLE payout_accounts (
+    account_id TEXT PRIMARY KEY REFERENCES accounts (id),
+    provider_account_id TEXT NOT NULL,
+    set_at TEXT NOT NULL
+  );
+  `,
 ];
 
 /**

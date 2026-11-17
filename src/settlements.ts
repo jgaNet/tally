@@ -5,6 +5,7 @@ import { type Balance, listBalancesIncludingWaiting } from './balances';
 import { inTransaction } from './database';
 import { findGroupOf } from './groups';
 import { isMember } from './members';
+import { payoutAccountOf } from './payout-accounts';
 import { Refusal } from './refusal';
 import {
   assertProviderConfigured,
@@ -159,11 +160,11 @@ export function recordCashSettlement(
 
 /**
  * Starts a settlement through the payment provider: the payer `payerId` asks to pay the payee `to` the amount.
- * It is checked as a cash settlement is (the payer is the caller, and the payee another member), and the
- * settlement is kept `pending`, without a payment yet, in the same write transaction, so that the amount is
- * held while the provider is asked. Answers its id and the group's currency; the provider is asked after this,
- * outside the transaction, which is why the caller must finish the settlement with `attachPayment` or
- * `releaseSettlement`.
+ * It is checked as a cash settlement is (the payer is the caller, and the payee another member), and the payee must
+ * have a payout account at the provider, `PayoutAccountRequired` otherwise. The settlement is kept `pending`,
+ * without a payment yet, in the same write transaction, so that the amount is held while the provider is asked.
+ * Answers its id and the group's currency; the provider is asked after this, outside the transaction, which is why
+ * the caller must finish the settlement with `attachPayment` or `releaseSettlement`.
  */
 export function reserveProviderSettlement(
   db: DatabaseSync,
@@ -180,6 +181,9 @@ export function reserveProviderSettlement(
     checkWholeAmount(input.amount);
     if (input.to === payerId || !isMember(db, groupId, input.to)) {
       refuse(422, 'InvalidPayee', 'The payee must be another member of the group.');
+    }
+    if (payoutAccountOf(db, input.to) === undefined) {
+      refuse(409, 'PayoutAccountRequired', 'The payee has no payout account at the payment provider.');
     }
     checkLimits(db, groupId, payerId, input.to, input.amount);
     db.prepare(
@@ -451,10 +455,16 @@ export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync,
       assertProviderConfigured(provider);
       const { id, currency } = reserveProviderSettlement(db, accountId, request.params.id, request.body);
       try {
+        // The payee's payout account as it is at the moment the provider is asked.
+        const payee = payoutAccountOf(db, request.body.to);
+        if (payee === undefined) {
+          refuse(409, 'PayoutAccountRequired', 'The payee has no payout account at the payment provider.');
+        }
         const payment = await createProviderPayment(provider, {
           reference: id,
           amount: request.body.amount,
           currency,
+          payee,
         });
         attachPayment(db, id, payment);
       } catch (error) {

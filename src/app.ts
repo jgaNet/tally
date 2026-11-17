@@ -9,6 +9,7 @@ import { registerHistoryRoutes } from './history';
 import { registerInvitationRoutes } from './invitations';
 import { registerLeaveRoutes } from './leaving';
 import { registerOperationRoutes } from './operations';
+import { registerPayoutAccountRoutes } from './payout-accounts';
 import { registerSettlementRoutes } from './settlements';
 import { type ProviderConfig } from './provider';
 import { Refusal } from './refusal';
@@ -65,6 +66,7 @@ export async function createApplication({
   await server.register(
     async instance => {
       registerAccountRoutes(instance, db);
+      registerPayoutAccountRoutes(instance, db, provider);
       registerGroupRoutes(instance, db);
       registerInvitationRoutes(instance, db);
       registerLeaveRoutes(instance, db);

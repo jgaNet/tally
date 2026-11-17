@@ -97,7 +97,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 11 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
     } finally {
       db.close();
     }
@@ -122,6 +122,7 @@ describe('the database', () => {
     const before = new DatabaseSync(database.path);
     try {
       before.exec('DROP TABLE payment_decisions');
+      before.exec('DROP TABLE payout_accounts');
       before.exec('DROP TABLE settlements');
       before.exec('ALTER TABLE expenses DROP COLUMN split_kind');
       before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
@@ -156,6 +157,7 @@ describe('the database', () => {
     const before = new DatabaseSync(database.path);
     try {
       before.exec('DROP TABLE payment_decisions');
+      before.exec('DROP TABLE payout_accounts');
       before.exec('DROP TABLE settlements');
       before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
       before.exec('ALTER TABLE group_members DROP COLUMN left_at');
@@ -194,6 +196,7 @@ describe('the database', () => {
     const before = new DatabaseSync(database.path);
     try {
       before.exec('DROP TABLE payment_decisions');
+      before.exec('DROP TABLE payout_accounts');
       before.exec('DROP TABLE settlements');
       before.exec('PRAGMA user_version = 7');
     } finally {
@@ -221,6 +224,7 @@ describe('the database', () => {
     try {
       before.exec(`
         DROP TABLE payment_decisions;
+        DROP TABLE payout_accounts;
         DROP TABLE settlements;
         CREATE TABLE settlements (
           id TEXT PRIMARY KEY,
@@ -245,7 +249,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 11 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -268,6 +272,7 @@ describe('the database', () => {
     try {
       before.exec(`
         DROP TABLE payment_decisions;
+        DROP TABLE payout_accounts;
         DROP TABLE settlements;
         CREATE TABLE settlements (
           id TEXT PRIMARY KEY,
@@ -300,7 +305,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 11 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
       expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
         { id: 's', status: 'paid', provider_id: 'pay_9' },
       ]);
@@ -319,6 +324,45 @@ describe('the database', () => {
       expect(() =>
         db.exec(`INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_id, created_at)
           VALUES ('t', 'g', 'b', 'a', 100, 'provider', 'pending', 'pay_9', '2026-11-03T00:00:00.000Z')`),
+      ).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('takes payout accounts on a file at version 11, and keeps the accounts it had', () => {
+    openDatabase(database.path).close();
+    const before = new DatabaseSync(database.path);
+    try {
+      before.exec(`
+        INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
+        DROP TABLE payout_accounts;
+        PRAGMA user_version = 11;
+      `);
+    } finally {
+      before.close();
+    }
+
+    const db = openDatabase(database.path);
+    try {
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+      expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
+      db.exec(
+        "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
+      );
+      expect(db.prepare('SELECT account_id, provider_account_id FROM payout_accounts').all()).toEqual([
+        { account_id: 'a', provider_account_id: 'acct_a' },
+      ]);
+      // A payout account belongs to an account of the database, and a member has one at most.
+      expect(() =>
+        db.exec(
+          "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('nobody', 'acct_n', '2026-11-01T00:00:00.000Z')",
+        ),
+      ).toThrow();
+      expect(() =>
+        db.exec(
+          "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_b', '2026-11-01T00:00:00.000Z')",
+        ),
       ).toThrow();
     } finally {
       db.close();

@@ -7,6 +7,8 @@ const linus = { email: 'linus@example.com', password: 'kernel-1991', name: 'Linu
 const outsiderAccount = { email: 'outsider@example.com', password: 'outside-2000', name: 'Outsider' };
 
 const PAST_DAY = '2026-11-01';
+// The provider's id of Ada's payout account.
+const adaPayout = 'acct_ada';
 const AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?00)$/;
 
 describe('paying through the payment provider: asking for a payment', () => {
@@ -64,6 +66,12 @@ describe('paying through the payment provider: asking for a payment', () => {
     provider = await startFakeProvider();
     app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: 'whsec_test' });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
+    // Ada is paid through the provider, on her payout account. Setting it asks the provider, which is not a payment.
+    expect(
+      (await call(app, 'PUT', '/accounts/me/payout-account', { body: { accountId: adaPayout }, token: adaToken }))
+        .status,
+    ).toBe(204);
+    provider.requests.splice(0);
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
     ({ id: outsiderId, token: outsiderToken } = await accountOf(outsiderAccount));
@@ -101,7 +109,7 @@ describe('paying through the payment provider: asking for a payment', () => {
       expect(answer.status).toBe(201);
       expect(answer.body).toEqual({ id: expect.any(String) });
       expect(provider.requests).toEqual([
-        { path: '/payments', body: { reference: answer.body.id, amount: 1000, currency: 'EUR' } },
+        { path: '/payments', body: { reference: answer.body.id, amount: 1000, currency: 'EUR', payee: adaPayout } },
       ]);
     });
 

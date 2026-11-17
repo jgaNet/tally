@@ -15,6 +15,8 @@ const linus = { email: 'linus@example.com', password: 'kernel-1991', name: 'Linu
 const outsiderAccount = { email: 'outsider@example.com', password: 'outside-2000', name: 'Outsider' };
 
 const PAST_DAY = '2026-11-01';
+// The provider's id of Ada's payout account.
+const adaPayout = 'acct_ada';
 const SECRET = 'whsec_test';
 const AT = '2026-11-20T10:00:00Z';
 
@@ -91,6 +93,12 @@ describe('refunding a settlement paid through the payment provider', () => {
     provider = await startFakeProvider();
     app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
+    // Ada is paid through the provider, on her payout account. Setting it asks the provider, which is not a payment.
+    expect(
+      (await call(app, 'PUT', '/accounts/me/payout-account', { body: { accountId: adaPayout }, token: adaToken }))
+        .status,
+    ).toBe(204);
+    provider.requests.splice(0);
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
     ({ token: outsiderToken } = await accountOf(outsiderAccount));

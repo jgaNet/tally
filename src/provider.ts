@@ -19,9 +19,12 @@ export interface ProviderPayment {
   payUrl: string;
 }
 
-/** A refusal for a payment the provider could not make: the provider did not answer as it should, or in time. */
-function providerUnavailable(): Refusal {
-  return new Refusal(424, 'ProviderUnavailable', 'The payment provider did not answer a payment.');
+/**
+ * A refusal for a request the provider could not answer: it did not answer as it should, or in time. `about` says
+ * what was asked of it.
+ */
+function providerUnavailable(about = 'a payment'): Refusal {
+  return new Refusal(424, 'ProviderUnavailable', `The payment provider did not answer ${about}.`);
 }
 
 /** Refuses, with `409`, a payment through the provider on a server that has no `PROVIDER_URL`. */
@@ -36,13 +39,13 @@ export function assertProviderConfigured(config: ProviderConfig): asserts config
 }
 
 /**
- * Asks the provider for a payment of the amount, in the currency, with the settlement's id as its
- * reference, and answers the provider's payment. Only `201` with an `id` and a `payUrl` is an answer: any
- * other answer, or none within the time allowed, is refused.
+ * Asks the provider for a payment of the amount, in the currency, to the payee's payout account, with the
+ * settlement's id as its reference, and answers the provider's payment. Only `201` with an `id` and a `payUrl` is
+ * an answer: any other answer, or none within the time allowed, is refused.
  */
 export async function createProviderPayment(
   config: ProviderConfig & { url: string },
-  input: { reference: string; amount: number; currency: string },
+  input: { reference: string; amount: number; currency: string; payee: string },
 ): Promise<ProviderPayment> {
   try {
     const response = await fetch(`${config.url}/payments`, {
@@ -68,6 +71,36 @@ export async function createProviderPayment(
   } catch (error) {
     if (error instanceof Refusal) throw error;
     throw providerUnavailable();
+  }
+}
+
+/**
+ * Asks the provider whether it knows the account `accountId`: `200` with that `id` means it does, `404` means it
+ * does not. Any other answer, or none within the time allowed, is refused.
+ */
+export async function isKnownProviderAccount(
+  config: ProviderConfig & { url: string },
+  accountId: string,
+): Promise<boolean> {
+  const about = 'the payout account';
+  try {
+    const response = await fetch(`${config.url}/accounts/${encodeURIComponent(accountId)}`, {
+      signal: AbortSignal.timeout(config.timeoutMs ?? 5000),
+    });
+    if (response.status === 404) {
+      await response.body?.cancel();
+      return false;
+    }
+    if (response.status !== 200) {
+      await response.body?.cancel();
+      throw providerUnavailable(about);
+    }
+    const answer = (await response.json()) as { id?: unknown } | null;
+    if (answer?.id !== accountId) throw providerUnavailable(about);
+    return true;
+  } catch (error) {
+    if (error instanceof Refusal) throw error;
+    throw providerUnavailable(about);
   }
 }
 
