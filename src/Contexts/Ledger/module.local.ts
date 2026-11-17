@@ -22,6 +22,8 @@ import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/Queries/Sq
 import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteBalanceQueries';
 import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteStatementQueries';
 import { GroupsMembership } from '@Contexts/Ledger/Infrastructure/Groups/GroupsMembership';
+import { SettlementsSettledAmounts } from '@Contexts/Ledger/Infrastructure/Settlements/SettlementsSettledAmounts';
+import { settlementQueries } from '@Contexts/Settlements/module.local';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3): the expenses of each group, kept in the application's
@@ -32,7 +34,7 @@ import { GroupsMembership } from '@Contexts/Ledger/Infrastructure/Groups/GroupsM
 const database = applicationDatabase();
 const expenses = new SqliteExpenseRepository(database);
 const expenseQueries = new SqliteExpenseQueries(database);
-const balanceQueries = new SqliteBalanceQueries(database);
+const balanceQueries = new SqliteBalanceQueries(database, new SettlementsSettledAmounts(settlementQueries));
 const statementQueries = new SqliteStatementQueries(database);
 const groupMembers = new GroupsMembership(groupQueries);
 const clock = systemClock;

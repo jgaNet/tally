@@ -12,6 +12,7 @@ why, what it costs, and when to revisit it.
 | [5](0005-groups-asks-ledger-a-members-balance.md) | Groups asks Ledger a member’s balance (the Ledger → Groups link, carried); former members kept; the read model built by the composition root |
 | [6](0006-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
 | [7](0007-settlements-reads-balances-and-members-for-the-suggestion.md) | Settlements asks Ledger the balances and Groups the members (the Ledger → Settlements and Groups → Settlements links, carried) |
+| [8](0008-settlement-book-and-ledger-counts-settlements.md) | A settlement is decided in its group’s book, and Ledger counts the settlements paid (the Settlements → Ledger link, carried) |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
