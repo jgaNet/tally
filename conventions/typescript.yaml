@@ -19,6 +19,8 @@ root: .
 contexts:
   - Groups
   - Ledger
+  - Settlements
+  - Notifications
   - Tracker
 contexts_tree:
   alias: '@Contexts'
