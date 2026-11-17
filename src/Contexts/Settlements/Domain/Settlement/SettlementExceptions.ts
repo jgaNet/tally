@@ -55,3 +55,31 @@ export class ProviderUnavailable extends SettlementsException {
     super('ProviderUnavailable', 'The payment provider did not give a payment link');
   }
 }
+
+/** A refund is asked by the payee of the settlement, and no one else. */
+export class OnlyThePayeeMayRefund extends SettlementsException {
+  constructor() {
+    super('OnlyThePayeeMayRefund', 'Only the payee of a settlement may refund it');
+  }
+}
+
+/** A settlement in cash is not refunded through Tally: the money went from hand to hand. */
+export class CashIsNotRefunded extends SettlementsException {
+  constructor() {
+    super('CashIsNotRefunded', 'A settlement in cash is not refunded through Tally');
+  }
+}
+
+/** Only a settlement that is paid is refunded: a pending, failed, refunding or refunded one is not. */
+export class OnlyAPaidSettlementIsRefunded extends SettlementsException {
+  constructor() {
+    super('OnlyAPaidSettlementIsRefunded', 'Only a settlement that is paid can be refunded');
+  }
+}
+
+/** A refund needs the provider to accept it; when it does not, nothing changes. */
+export class ProviderRefundUnavailable extends SettlementsException {
+  constructor() {
+    super('ProviderRefundUnavailable', 'The payment provider did not accept the refund');
+  }
+}

@@ -19,6 +19,9 @@ let provider: Server;
 /** Every payment link the provider gave, in the order it gave them: the payment's id there, and the settlement it is for. */
 const issued: Array<{ paymentId: string; reference: string; amount: number; currency: string }> = [];
 let refusing = false;
+/** Every refund the provider was asked for, in the order it was asked: the payment, and the settlement it is for. */
+const refunded: Array<{ paymentId: string; reference: string }> = [];
+let refusingRefunds = false;
 let previousEnv: { url?: string; secret?: string };
 
 beforeAll(async () => {
@@ -27,6 +30,17 @@ beforeAll(async () => {
     let text = '';
     request.on('data', chunk => (text += chunk));
     request.on('end', () => {
+      if (request.url?.endsWith('/refunds')) {
+        const { reference } = JSON.parse(text) as { reference: string };
+        if (refusingRefunds) {
+          response.writeHead(500).end();
+          return;
+        }
+        refunded.push({ paymentId: (request.url as string).split('/')[2], reference });
+        response.writeHead(201, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ id: `refund_${refunded.length}` }));
+        return;
+      }
       if (refusing) {
         response.writeHead(500).end();
         return;
@@ -512,5 +526,170 @@ describe('webhooks late, twice or out of order (request 14)', () => {
       else process.env.DATABASE_PATH = previousDatabase;
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+});
+
+/** Asks to refund a settlement, as its payee, and follows the operation of the request; an answer that is not 202 is its status. */
+async function refund(token: string, settlementId: string): Promise<Operation> {
+  const answer = await http.request('POST', `${api}/settlements/${settlementId}/refund`, { token });
+  if (answer.status !== 202) return { status: `HTTP ${answer.status}` } as Operation;
+  return outcome((answer.body as { operationId: string }).operationId, token);
+}
+
+describe('refund through the provider (request 15)', () => {
+  it('asks the provider to refund a paid settlement, keeps it refunding and still counted until the provider says it was refunded', async () => {
+    const { ann, bob, groupId } = await dinnerGroup('rf1');
+    const settlementId = (await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 30 })).result as string;
+    const { paymentId } = lastPayment();
+    expect(await deliver({ id: 'wh_rf1_1', paymentId, status: 'succeeded', at: '2026-11-17T10:00:00Z' })).toMatchObject(
+      {
+        status: 'SUCCESS',
+      },
+    );
+    const settlement = () => http.get(`${api}/settlements/${settlementId}`, { token: ann.token });
+    expect(await settlement()).toMatchObject({ body: { status: 'paid' } });
+
+    // Only the payee may refund, and only a settlement paid through the provider that is still paid.
+    expect(await refund(bob.token, settlementId)).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'OnlyThePayeeMayRefund' },
+    });
+    expect(await refund(bob.token, 'no-such-settlement')).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'NotFound' },
+    });
+    expect(refunded).toHaveLength(0);
+
+    // The provider accepts the refund: the settlement is refunding, the balances still count it, and the provider was asked
+    // for the payment, with the settlement's id as its reference.
+    expect(await refund(ann.token, settlementId)).toMatchObject({ status: 'SUCCESS' });
+    expect(refunded).toEqual([{ paymentId, reference: settlementId }]);
+    expect(await settlement()).toMatchObject({ body: { status: 'refunding' } });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 0 },
+        { memberId: bob.id, balance: 0 },
+      ],
+    });
+    expect(await refund(ann.token, settlementId)).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'OnlyAPaidSettlementIsRefunded' },
+    });
+
+    // The provider says it was refunded: the settlement is refunded, and the balances go back to what they were before it was paid.
+    expect(await deliver({ id: 'wh_rf1_2', paymentId, status: 'refunded', at: '2026-11-17T11:00:00Z' })).toMatchObject({
+      status: 'SUCCESS',
+    });
+    expect(await settlement()).toMatchObject({ body: { status: 'refunded' } });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 30 },
+        { memberId: bob.id, balance: -30 },
+      ],
+    });
+
+    // A refunded said twice counts once, and a succeeded that arrives after it changes nothing.
+    expect(await deliver({ id: 'wh_rf1_3', paymentId, status: 'refunded', at: '2026-11-17T11:00:05Z' })).toMatchObject({
+      status: 'SUCCESS',
+    });
+    expect(await deliver({ id: 'wh_rf1_4', paymentId, status: 'succeeded', at: '2026-11-17T11:00:09Z' })).toMatchObject(
+      {
+        status: 'SUCCESS',
+      },
+    );
+    expect(await settlement()).toMatchObject({ body: { status: 'refunded' } });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 30 },
+        { memberId: bob.id, balance: -30 },
+      ],
+    });
+  });
+
+  it('refuses a refund the provider does not accept, and changes nothing', async () => {
+    const { ann, bob, groupId } = await dinnerGroup('rf2');
+    const settlementId = (await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 30 })).result as string;
+    const { paymentId } = lastPayment();
+    await deliver({ id: 'wh_rf2_1', paymentId, status: 'succeeded', at: '2026-11-17T10:00:00Z' });
+
+    refusingRefunds = true;
+    try {
+      expect(await refund(ann.token, settlementId)).toMatchObject({
+        status: 'ERROR',
+        error: { type: 'ProviderRefundUnavailable' },
+      });
+    } finally {
+      refusingRefunds = false;
+    }
+    expect(await http.get(`${api}/settlements/${settlementId}`, { token: ann.token })).toMatchObject({
+      body: { status: 'paid' },
+    });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 0 },
+        { memberId: bob.id, balance: 0 },
+      ],
+    });
+  });
+
+  it('refuses to refund a settlement in cash, a settlement not yet paid, and one whose payer has left the group', async () => {
+    const { ann, bob, groupId } = await dinnerGroup('rf3');
+    const asked = refunded.length;
+    // Bob owes 30: 10 in cash to Ann, then 20 through the provider, so that his balance is 0 and he may leave.
+    const cash = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      token: ann.token,
+      body: { from: bob.id, amount: 10 },
+    });
+    expect(cash.status).toBe(202);
+    const cashId = (await outcome((cash.body as { operationId: string }).operationId, ann.token)).result as string;
+    expect(await refund(ann.token, cashId)).toMatchObject({ status: 'ERROR', error: { type: 'CashIsNotRefunded' } });
+
+    const paid = (await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 20 })).result as string;
+    expect(await refund(ann.token, paid)).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'OnlyAPaidSettlementIsRefunded' },
+    });
+    const { paymentId } = lastPayment();
+    expect(await deliver({ id: 'wh_rf3_1', paymentId, status: 'succeeded', at: '2026-11-17T10:00:00Z' })).toMatchObject(
+      {
+        status: 'SUCCESS',
+      },
+    );
+
+    // Bob leaves once his balance is 0: his payment through the provider is no longer refunded.
+    const left = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
+    expect(left.status).toBe(202);
+    expect(await outcome((left.body as { operationId: string }).operationId, bob.token)).toMatchObject({
+      status: 'SUCCESS',
+    });
+    expect(await refund(ann.token, paid)).toMatchObject({ status: 'ERROR', error: { type: 'PayerNotAMember' } });
+    expect(refunded).toHaveLength(asked);
+  });
+
+  it('a refunded that overtakes the success of the same payment leaves the settlement refunded, never counted; a refund without a signed-in caller is refused at once', async () => {
+    const { ann, bob, groupId } = await dinnerGroup('rf4');
+    const settlementId = (await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 30 })).result as string;
+    const { paymentId } = lastPayment();
+
+    expect(await deliver({ id: 'wh_rf4_1', paymentId, status: 'refunded', at: '2026-11-17T10:00:00Z' })).toMatchObject({
+      status: 'SUCCESS',
+    });
+    expect(await deliver({ id: 'wh_rf4_2', paymentId, status: 'succeeded', at: '2026-11-17T10:00:02Z' })).toMatchObject(
+      {
+        status: 'SUCCESS',
+      },
+    );
+    expect(await http.get(`${api}/settlements/${settlementId}`, { token: ann.token })).toMatchObject({
+      body: { status: 'refunded' },
+    });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 30 },
+        { memberId: bob.id, balance: -30 },
+      ],
+    });
+
+    // Without a signed-in caller, a refund is refused at the transport, and nothing is asked of the provider.
+    expect(await http.request('POST', `${api}/settlements/${settlementId}/refund`, {})).toMatchObject({ status: 401 });
   });
 });

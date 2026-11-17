@@ -2,6 +2,7 @@ import {
   IPaymentProvider,
   PaymentLink,
   PaymentLinkRequest,
+  RefundRequest,
 } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
 
 /** The provider's limit on an answer, in milliseconds: past it, the request is refused, and nothing is kept. */
@@ -34,6 +35,28 @@ export class HttpPaymentProvider implements IPaymentProvider {
       return { paymentId: body.id, payUrl: body.payUrl };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * `POST {PROVIDER_URL}/payments/{paymentId}/refunds` with `{ reference }`: accepted only as `201 { id }`. Any other answer, or no
+   * answer within the limit, refuses the refund, and nothing is kept.
+   */
+  async requestRefund({ paymentId, reference }: RefundRequest): Promise<boolean> {
+    const base = this.baseUrl();
+    if (!base) return false;
+    try {
+      const response = await fetch(`${base}/payments/${encodeURIComponent(paymentId)}/refunds`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reference }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (response.status !== 201) return false;
+      const body = (await response.json()) as { id?: unknown };
+      return typeof body.id === 'string' && body.id.length > 0;
+    } catch {
+      return false;
     }
   }
 }

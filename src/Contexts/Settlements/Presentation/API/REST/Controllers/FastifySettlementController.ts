@@ -7,6 +7,7 @@ import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/Acce
 import { PayThroughProviderCommandEvent } from '@Contexts/Settlements/Application/Commands/PayThroughProvider';
 import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook';
 import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RecordCashSettlement';
+import { RefundSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
 import {
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
@@ -51,6 +52,10 @@ export class FastifySettlementController {
       this.#module,
       PayThroughProviderCommandEvent.set({ groupId: req.params.id, to, amount }),
     );
+  }
+
+  async refundSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, RefundSettlementCommandEvent.set({ settlementId: req.params.id }));
   }
 
   async receivePaymentWebhook(req: FastifyRequest, reply: FastifyReply) {

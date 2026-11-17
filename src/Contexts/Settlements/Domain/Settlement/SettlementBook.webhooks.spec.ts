@@ -17,9 +17,9 @@ const pendingPayment = (paymentId: string): Settlement =>
     { paymentId, payUrl: `https://pay.example/${paymentId}` },
   );
 
-/** The book as it is read: its version, and the payments waiting in it. */
-const bookWaiting = (...waiting: Settlement[]) =>
-  SettlementBook.fromSnapshot({ id: 'book', groupId: 'group', version: 1, waiting });
+/** The book as it is read: its version, and the group's settlements, the payments waiting among them. */
+const bookWaiting = (...settlements: Settlement[]) =>
+  SettlementBook.fromSnapshot({ id: 'book', groupId: 'group', version: 1, settlements });
 
 describe('SettlementBook.receivePayment (request 14: webhooks twice, late or out of order)', () => {
   it('moves a payment that succeeded to paid once, and a second "succeeded" for it changes nothing and records no fact', () => {
@@ -58,7 +58,7 @@ describe('SettlementBook.receivePayment (request 14: webhooks twice, late or out
 
   it('a payment read after it was decided is not waiting, so a late webhook about it changes nothing', () => {
     // The book read after the payment was paid: the payment is no longer among those waiting.
-    const book = SettlementBook.fromSnapshot({ id: 'book', groupId: 'group', version: 2, waiting: [] });
+    const book = SettlementBook.fromSnapshot({ id: 'book', groupId: 'group', version: 2, settlements: [] });
 
     expect(book.receivePayment('pay_1', 'succeeded')).toBe(false);
     expect(book.receivePayment('pay_1', 'failed')).toBe(false);

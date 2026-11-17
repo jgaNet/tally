@@ -13,7 +13,8 @@ import { SettlementRow } from '@Contexts/Settlements/Infrastructure/SqliteSettle
 
 /**
  * The settlements' read models, in the application's file. `findById` is read outside any transaction, so it waits for the one in
- * progress. `settledOf` counts the paid settlements only: a balance counts a payment once it is paid (the storm's T11). `pendingEffectOf`
+ * progress. `settledOf` counts the paid settlements, and those being refunded, which the money has not left yet (request 15): a
+ * balance counts a payment once it is paid, and stops counting it once it is refunded (the storm's T11). `pendingEffectOf`
  * counts the payments waiting at the provider, which the suggestions count as paid. Neither takes a lock of its own: Ledger reads
  * `settledOf` when it reads a balance, inside a command's transaction (it holds the file already) or inside its own exclusive read.
  */
@@ -34,26 +35,27 @@ export class SqliteSettlementReadModels implements ISettlementQueries, ISettledA
   }
 
   async settledOf(groupId: string): Promise<SettledAmountOf[]> {
-    return this.effectOf(groupId, 'paid');
+    return this.effectOf(groupId, ['paid', 'refunding']);
   }
 
   async pendingEffectOf(groupId: string): Promise<SettledAmountOf[]> {
-    return this.effectOf(groupId, 'pending');
+    return this.effectOf(groupId, ['pending']);
   }
 
-  /** The change the settlements with this status make to each member's balance: up for a payer, down for a payee. */
-  private effectOf(groupId: string, status: SettlementStatus): SettledAmountOf[] {
+  /** The change the settlements with these statuses make to each member's balance: up for a payer, down for a payee. */
+  private effectOf(groupId: string, statuses: SettlementStatus[]): SettledAmountOf[] {
+    const marks = statuses.map(() => '?').join(', ');
     return this.database
       .all<{ member_id: string; amount: number }>(
         `SELECT member_id, SUM(delta) AS amount FROM (
-           SELECT payer AS member_id, amount AS delta FROM settlements WHERE group_id = ? AND status = ?
+           SELECT payer AS member_id, amount AS delta FROM settlements WHERE group_id = ? AND status IN (${marks})
            UNION ALL
-           SELECT payee AS member_id, -amount AS delta FROM settlements WHERE group_id = ? AND status = ?
+           SELECT payee AS member_id, -amount AS delta FROM settlements WHERE group_id = ? AND status IN (${marks})
          ) GROUP BY member_id`,
         groupId,
-        status,
+        ...statuses,
         groupId,
-        status,
+        ...statuses,
       )
       .map(row => ({ memberId: row.member_id, amount: row.amount }));
   }

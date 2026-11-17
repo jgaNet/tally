@@ -17,6 +17,10 @@ import {
   RecordCashSettlementCommandHandler,
 } from '@Contexts/Settlements/Application/Commands/RecordCashSettlement';
 import {
+  RefundSettlementCommandEvent,
+  RefundSettlementCommandHandler,
+} from '@Contexts/Settlements/Application/Commands/RefundSettlement';
+import {
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
@@ -51,7 +55,8 @@ const provider = new HttpPaymentProvider();
 
 /**
  * The Settlements context: a settlement in cash is decided in its group's book (request 12); a payment through the provider is
- * decided there too, and kept pending until the provider's webhook says how it ended (request 13); suggestions are read (request 11).
+ * decided there too, and kept pending until the provider's webhook says how it ended (request 13); a paid one may be refunded
+ * through the provider (request 15); suggestions are read (request 11).
  */
 export const localSettlementsModule = new Module({
   name: 'Settlements',
@@ -63,6 +68,10 @@ export const localSettlementsModule = new Module({
     {
       event: PayThroughProviderCommandEvent,
       handlers: [new PayThroughProviderCommandHandler(books, members, balances, provider, systemClock)],
+    },
+    {
+      event: RefundSettlementCommandEvent,
+      handlers: [new RefundSettlementCommandHandler(books, members, provider)],
     },
     {
       event: ReceivePaymentWebhookCommandEvent,

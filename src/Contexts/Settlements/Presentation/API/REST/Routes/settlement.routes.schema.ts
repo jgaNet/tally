@@ -39,7 +39,7 @@ const SettlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
     method: { enum: ['cash', 'provider'] },
-    status: { enum: ['pending', 'paid', 'failed'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     payUrl: { type: 'string', minLength: 1 },
   },

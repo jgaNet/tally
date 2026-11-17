@@ -35,3 +35,21 @@ export class SettlementFailedEvent extends DomainEvent<{
   payee: string;
   amount: number;
 }> {}
+
+/** A refund of a settlement paid through the provider was asked: the settlement is refunding, and still counted until the provider says so. */
+export class RefundRequestedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}
+
+/** The provider said the payment was refunded: the settlement is refunded, and the balances no longer count it. */
+export class SettlementRefundedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}

@@ -41,6 +41,13 @@ export const settlementRoutes = function (
     controller.payThroughProvider.bind(controller),
   );
 
+  // Answered 202 and read at the operation: a refund of a payment through the provider, asked by its payee (request 15).
+  fastify.post(
+    '/settlements/:id/refund',
+    { schema: { tags: ['settlements'], response: LaterCommandResSchema } },
+    controller.refundSettlement.bind(controller),
+  );
+
   // The provider's webhook: signed over the body as sent, so the signature is checked before the body is validated or decided
   // (a missing or wrong one is a 401, and nothing changes). Anyone may send it: the signature is the proof.
   fastify.post(

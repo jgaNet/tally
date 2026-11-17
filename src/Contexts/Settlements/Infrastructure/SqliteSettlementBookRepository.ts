@@ -28,7 +28,7 @@ export interface SettlementRow {
 
 /**
  * The books, in the application's file. It runs inside the command's transaction, which holds the file, so it takes no lock of
- * its own. A book is read with the payments waiting in it (what the rule counts as paid). A book that is not at the version it was
+ * its own. A book is read with every settlement of its group, as they are kept (a refund and a webhook find theirs in it). A book that is not at the version it was
  * read at, or a group's first settlement that another writer stored first, is a conflict; the command's transaction is rolled back
  * with it, so the book, its settlements and its status changes are stored together or not at all.
  */
@@ -43,14 +43,22 @@ export class SqliteSettlementBookRepository implements ISettlementBookRepository
       groupId.value,
     );
     if (!row) return null;
-    const waiting = this.database
+    const settlements = this.database
       .all<SettlementRow>(
         `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
-         FROM settlements WHERE group_id = ? AND status = 'pending'`,
+         FROM settlements WHERE group_id = ? ORDER BY recorded_at, id`,
         groupId.value,
       )
       .map(toSettlement);
-    return SettlementBook.fromSnapshot({ id: row.id, groupId: row.group_id, version: row.version, waiting });
+    return SettlementBook.fromSnapshot({ id: row.id, groupId: row.group_id, version: row.version, settlements });
+  }
+
+  async findBySettlementId(settlementId: Id): Promise<SettlementBook | null> {
+    const row = this.database.get<{ group_id: string }>(
+      'SELECT group_id FROM settlements WHERE id = ?',
+      settlementId.value,
+    );
+    return row ? this.findByGroupId(new Id(row.group_id)) : null;
   }
 
   async findByProviderPaymentId(paymentId: string): Promise<SettlementBook | null> {
