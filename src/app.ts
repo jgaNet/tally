@@ -1,5 +1,9 @@
 import cors from '@fastify/cors';
 import Fastify, { FastifyInstance } from 'fastify';
+import { openDatabase } from './database';
+import { sendError } from './http';
+import { registerAccountRoutes } from './routes/accounts';
+import { registerOperationRoutes } from './routes/operations';
 
 /** The running application: what the server entry point and the tests start and stop. */
 export interface Application {
@@ -12,18 +16,26 @@ export interface Application {
 }
 
 /**
- * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default). The
- * application has no routes yet: the features add them.
+ * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default). What the
+ * application knows is kept in the SQLite file at `databasePath` (`DATABASE_PATH`, `tally.db` by default).
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
   port = Number(process.env.PORT || 10000),
-}: { apiPrefix?: string; port?: number } = {}): Promise<Application> {
-  const server = Fastify();
+  databasePath = process.env.DATABASE_PATH || 'tally.db',
+}: { apiPrefix?: string; port?: number; databasePath?: string } = {}): Promise<Application> {
+  const db = openDatabase(databasePath);
+  // A body's values are checked by the rules, not coerced: a number where a string is due is a `400`.
+  const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
+  server.addHook('onClose', async () => {
+    db.close();
+  });
+  server.setErrorHandler(sendError);
   await server.register(cors);
   await server.register(
-    async () => {
-      // Routes go here.
+    async api => {
+      registerAccountRoutes(api, db);
+      registerOperationRoutes(api, db);
     },
     { prefix: `/${apiPrefix}` },
   );
