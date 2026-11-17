@@ -1,6 +1,14 @@
 import { createHmac } from 'node:crypto';
 import { Application } from './app';
-import { ada, call, FakeProvider, startApplication, startFakeProvider, temporaryDatabase } from './test-support';
+import {
+  ada,
+  Answer,
+  call,
+  FakeProvider,
+  startApplication,
+  startFakeProvider,
+  temporaryDatabase,
+} from './test-support';
 
 const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
 const linus = { email: 'linus@example.com', password: 'kernel-1991', name: 'Linus Torvalds' };
@@ -259,6 +267,108 @@ describe('paying through the payment provider: the provider’s webhook', () => 
       await decide('pay_1', 'succeeded');
       expect((await call(app, 'POST', '/accounts/login', { body: ada })).status).toBe(200);
       expect((await call(app, 'GET', `/groups/${groupId}/balances`, { token: adaToken })).status).toBe(200);
+    });
+  });
+
+  describe('webhooks that come twice, late, out of order, or at the same moment', () => {
+    const paidBalances = (): Record<string, number> => ({ [adaId]: 1000, [graceId]: 0, [linusId]: -1000 });
+    const unpaidBalances = (): Record<string, number> => ({ [adaId]: 2000, [graceId]: -1000, [linusId]: -1000 });
+
+    it('keeps a payment paid when a pending for it comes after its success', async () => {
+      const settlement = await askGraceToPayAda();
+      await decide('pay_1', 'succeeded');
+      expect((await decide('pay_1', 'pending')).status).toBe(204);
+      expect((await settlementOf(settlement)).status).toBe('paid');
+      expect(await balancesOf()).toEqual(paidBalances());
+    });
+
+    it('keeps a payment failed when a pending for it comes after its failure', async () => {
+      const settlement = await askGraceToPayAda();
+      await decide('pay_1', 'failed');
+      expect((await decide('pay_1', 'pending')).status).toBe(204);
+      expect((await settlementOf(settlement)).status).toBe('failed');
+      expect(await balancesOf()).toEqual(unpaidBalances());
+    });
+
+    it('counts a payment once when two webhooks, under two ids, say it succeeded', async () => {
+      const settlement = await askGraceToPayAda();
+      expect((await decide('pay_1', 'succeeded', 'wh_first')).status).toBe(204);
+      expect((await decide('pay_1', 'succeeded', 'wh_second')).status).toBe(204);
+      expect((await settlementOf(settlement)).status).toBe('paid');
+      expect(await balancesOf()).toEqual(paidBalances());
+      const suggested = await call(app, 'GET', `/groups/${groupId}/settlements/suggested`, { token: adaToken });
+      expect(suggested.body).toEqual([{ from: linusId, to: adaId, amount: 1000 }]);
+    });
+
+    it.each(['succeeded', 'failed'])(
+      'applies a %s that overtakes the provider’s answer to the payment, once the answer is kept',
+      async status => {
+        // The provider sends its webhook before it answers, and the answer comes late: the settlement has no
+        // payment id yet when the webhook arrives.
+        const overtaking = new Promise<Answer>(resolve => {
+          provider.answer = () => {
+            resolve(decide('pay_1', status));
+            return { status: 201, body: { id: 'pay_1', payUrl: 'https://pay.example/pay_1' }, delayMs: 200 };
+          };
+        });
+        const asking = askProvider({ to: adaId, amount: 1000 }, graceToken);
+        expect((await overtaking).status).toBe(204);
+        const answer = await asking;
+        expect(answer.status).toBe(201);
+        const settlement = await settlementOf(answer.body.id);
+        expect(settlement.status).toBe(status === 'succeeded' ? 'paid' : 'failed');
+        expect(await balancesOf()).toEqual(status === 'succeeded' ? paidBalances() : unpaidBalances());
+      },
+    );
+
+    it('changes a payment as it would have on time, when the webhook comes after Tally was stopped and started', async () => {
+      const settlement = await askGraceToPayAda();
+      await app.stop();
+      app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+      expect((await decide('pay_1', 'succeeded')).status).toBe(204);
+      expect((await settlementOf(settlement)).status).toBe('paid');
+      expect(await balancesOf()).toEqual(paidBalances());
+      // Sent again after another restart, the same success changes nothing.
+      await app.stop();
+      app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+      expect((await decide('pay_1', 'succeeded', 'wh_again')).status).toBe(204);
+      expect(await balancesOf()).toEqual(paidBalances());
+    });
+
+    it('counts a payment once when the same webhook reaches two servers on the same database at once', async () => {
+      const second = await startApplication(database.path, {
+        providerUrl: provider.url,
+        providerWebhookSecret: SECRET,
+      });
+      extraApps.push(second);
+      const settlement = await askGraceToPayAda();
+      const { raw, signature } = signed({ id: 'wh_same', paymentId: 'pay_1', status: 'succeeded', at: AT });
+      const answers = await Promise.all([0, 1, 2, 3].map(n => send(raw, signature, n % 2 === 0 ? app : second)));
+      expect(answers.map(answer => answer.status)).toEqual([204, 204, 204, 204]);
+      expect((await settlementOf(settlement)).status).toBe('paid');
+      expect(await balancesOf()).toEqual(paidBalances());
+    });
+
+    it('lets one decision end a payment when a success and a failure reach two servers at once', async () => {
+      const second = await startApplication(database.path, {
+        providerUrl: provider.url,
+        providerWebhookSecret: SECRET,
+      });
+      extraApps.push(second);
+      const settlement = await askGraceToPayAda();
+      const failure = signed({ id: 'wh_failed', paymentId: 'pay_1', status: 'failed', at: AT });
+      const answers = await Promise.all([
+        decide('pay_1', 'succeeded', 'wh_succeeded'),
+        send(failure.raw, failure.signature, second),
+      ]);
+      expect(answers.map(answer => answer.status)).toEqual([204, 204]);
+      const status = (await settlementOf(settlement)).status;
+      expect(['paid', 'failed']).toContain(status);
+      expect(await balancesOf()).toEqual(status === 'paid' ? paidBalances() : unpaidBalances());
+      // The other decision, sent after, changes nothing.
+      await decide('pay_1', status === 'paid' ? 'failed' : 'succeeded', 'wh_contrary');
+      expect((await settlementOf(settlement)).status).toBe(status);
+      expect(await balancesOf()).toEqual(status === 'paid' ? paidBalances() : unpaidBalances());
     });
   });
 

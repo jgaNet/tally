@@ -97,7 +97,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 9 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 10 });
     } finally {
       db.close();
     }
@@ -121,6 +121,7 @@ describe('the database', () => {
     // The file as the schema was before splits could be unequal: no column for the kind of split, version 5.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('DROP TABLE payment_decisions');
       before.exec('DROP TABLE settlements');
       before.exec('ALTER TABLE expenses DROP COLUMN split_kind');
       before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
@@ -154,6 +155,7 @@ describe('the database', () => {
     // The file as the schema was before a membership could end: no column for it, version 6.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('DROP TABLE payment_decisions');
       before.exec('DROP TABLE settlements');
       before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
       before.exec('ALTER TABLE group_members DROP COLUMN left_at');
@@ -191,6 +193,7 @@ describe('the database', () => {
     // The file as the schema was before settlements: no table for them, version 7.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('DROP TABLE payment_decisions');
       before.exec('DROP TABLE settlements');
       before.exec('PRAGMA user_version = 7');
     } finally {
@@ -217,6 +220,7 @@ describe('the database', () => {
     const before = new DatabaseSync(database.path);
     try {
       before.exec(`
+        DROP TABLE payment_decisions;
         DROP TABLE settlements;
         CREATE TABLE settlements (
           id TEXT PRIMARY KEY,
@@ -241,7 +245,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 9 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 10 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);

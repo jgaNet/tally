@@ -142,6 +142,16 @@ const MIGRATIONS: readonly string[] = [
   CREATE INDEX settlements_group ON settlements (group_id);
   CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
   `,
+  `
+  -- The decision the provider made on a payment, 'paid' or 'failed', as the first webhook that decided it carried
+  -- it. A webhook may overtake the provider's answer to the request for its payment: until that answer is kept on
+  -- the settlement, the settlement has no payment id, so the decision waits here and is applied when it is kept.
+  -- A payment ends once, so the first decision is the one kept.
+  CREATE TABLE payment_decisions (
+    payment_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('paid', 'failed'))
+  );
+  `,
 ];
 
 /**

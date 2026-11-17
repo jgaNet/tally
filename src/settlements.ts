@@ -181,13 +181,19 @@ export function reserveProviderSettlement(
   return { id, currency };
 }
 
-/** Keeps the provider's payment and its link on the settlement that asked for it. */
+/**
+ * Keeps the provider's payment and its link on the settlement that asked for it. A decision on the payment that
+ * came before this answer (a webhook may overtake it) is applied at once, so the settlement is not left pending.
+ */
 export function attachPayment(db: DatabaseSync, settlementId: string, payment: { id: string; payUrl: string }): void {
-  db.prepare('UPDATE settlements SET provider_id = ?, pay_url = ? WHERE id = ?').run(
-    payment.id,
-    payment.payUrl,
-    settlementId,
-  );
+  inTransaction(db, () => {
+    db.prepare('UPDATE settlements SET provider_id = ?, pay_url = ? WHERE id = ?').run(
+      payment.id,
+      payment.payUrl,
+      settlementId,
+    );
+    applyKeptDecision(db, payment.id);
+  });
 }
 
 /** Drops a settlement that asked the provider for nothing: the provider did not answer, so nothing is kept. */
@@ -198,17 +204,33 @@ export function releaseSettlement(db: DatabaseSync, settlementId: string): void 
 }
 
 /**
- * Applies the provider's decision on a payment: `succeeded` makes its settlement `paid`, `failed` makes it
- * `failed`. Only a settlement still `pending` changes, so a decision that comes again, or a contrary one
- * after the first, changes nothing: a payment ends once. `pending` and any other status change nothing, and
- * so does a payment Tally does not know.
+ * Applies the provider's decision on a payment: `succeeded` makes it `paid`, `failed` makes it `failed`. The
+ * first decision a payment receives is the one that counts: it is kept with the payment, and applied to its
+ * settlement, if the settlement is still `pending`. So a decision that comes again, or a contrary one after the
+ * first, changes nothing: a payment ends once, however many webhooks say so, and in whatever order they come.
+ * `pending` and any other status change nothing. A decision for a payment Tally has not yet been answered for
+ * is kept, and applied when its answer is kept.
+ *
+ * It is one write transaction, so two servers on the same database that receive the decision at once keep
+ * the first one, and the settlement changes once.
  */
 export function applyPaymentDecision(db: DatabaseSync, paymentId: string, status: string): void {
   const decided = status === 'succeeded' ? 'paid' : status === 'failed' ? 'failed' : undefined;
   if (decided === undefined) return;
+  inTransaction(db, () => {
+    db.prepare('INSERT OR IGNORE INTO payment_decisions (payment_id, status) VALUES (?, ?)').run(paymentId, decided);
+    applyKeptDecision(db, paymentId);
+  });
+}
+
+/** Makes the settlement of the payment `paid` or `failed` as its kept decision says, if it is still pending. */
+function applyKeptDecision(db: DatabaseSync, paymentId: string): void {
+  const kept = db.prepare('SELECT status FROM payment_decisions WHERE payment_id = ?').get(paymentId) as
+    { status: 'paid' | 'failed' } | undefined;
+  if (kept === undefined) return;
   db.prepare(
     "UPDATE settlements SET status = ? WHERE provider_id = ? AND method = 'provider' AND status = 'pending'",
-  ).run(decided, paymentId);
+  ).run(kept.status, paymentId);
 }
 
 /** Whether a settlement waits at the provider for the account, as its payer or as its payee, in the group. */
