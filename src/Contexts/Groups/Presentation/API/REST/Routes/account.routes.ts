@@ -17,17 +17,17 @@ export const accountRoutes = function (
   const controller = new FastifyAccountController({ module: accountsModule });
 
   fastify.post(
-    '/',
+    '/accounts',
     { schema: { tags: ['accounts'], body: SignUpBodySchema, response: SignUpResSchema } },
     controller.signUp.bind(controller),
   );
   fastify.post(
-    '/login',
+    '/accounts/login',
     { schema: { tags: ['accounts'], body: LoginBodySchema, response: LoginResSchema } },
     controller.login.bind(controller),
   );
   fastify.get(
-    '/me',
+    '/accounts/me',
     { schema: { tags: ['accounts'], response: GetMyAccountResSchema } },
     controller.getMyAccount.bind(controller),
   );
