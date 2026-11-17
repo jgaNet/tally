@@ -14,6 +14,7 @@ import { Role } from '@SharedKernel/Domain';
 import { Application, ExecutionContext, Logger } from '@Architecture/Application';
 import { formatOf } from '@Architecture/Presentation/Format';
 import { InMemoryUnitOfWork } from '@Architecture/Infrastructure/UnitOfWork/InMemoryUnitOfWork';
+import { UnitOfWork } from '@Architecture/Application/ExecutionContext';
 
 const ANONYMOUS = { subjectId: '', role: Role.GUEST };
 
@@ -30,6 +31,11 @@ export interface FastifyApplicationOptions {
    * Without one, every caller is anonymous.
    */
   authenticate?(request: FastifyRequest): Promise<void>;
+  /**
+   * The transaction boundary a request runs in: one per request, over the application's database. Without one,
+   * the in-memory unit of work, which keeps nothing past the process.
+   */
+  unitOfWork?: () => UnitOfWork;
 }
 
 /**
@@ -43,13 +49,24 @@ export class FastifyApplication extends Application {
   readonly logger: Logger;
   readonly apiPrefix: string;
   readonly port: number;
+  readonly #unitOfWork: () => UnitOfWork;
+  readonly #closers: (() => void)[] = [];
 
-  constructor({ logger, apiPrefix, port = 0, webOrigins = [], authenticate }: FastifyApplicationOptions) {
+  constructor({
+    logger,
+    apiPrefix,
+    port = 0,
+    webOrigins = [],
+    authenticate,
+    unitOfWork = () => new InMemoryUnitOfWork(),
+  }: FastifyApplicationOptions) {
     super();
     this.logger = logger;
     this.apiPrefix = apiPrefix;
     this.port = port;
-    this.fastify = Fastify({ logger: false });
+    this.#unitOfWork = unitOfWork;
+    // A value of the wrong type is refused, not coerced: a number sent for a name is a 400, not the name "7" (API-BODY-SHAPE).
+    this.fastify = Fastify({ logger: false, ajv: { customOptions: { coerceTypes: false } } });
 
     // Anonymous until the authentication says otherwise; without one, anonymous throughout.
     this.fastify.addHook('onRequest', async request => {
@@ -137,10 +154,17 @@ export class FastifyApplication extends Application {
       traceId,
       auth,
       eventBus: this.getEventBus(),
-      unitOfWork: new InMemoryUnitOfWork(),
+      unitOfWork: this.#unitOfWork(),
       logger: this.logger,
     });
   }
+
+  /** Something to release when the application stops, such as the database its requests write to. */
+  onStop(close: () => void): this {
+    this.#closers.push(close);
+    return this;
+  }
+
   async start(port: number = this.port): Promise<void> {
     await this.fastify.listen({ port, host: '127.0.0.1' });
     await this.fastify.ready();
@@ -149,6 +173,7 @@ export class FastifyApplication extends Application {
 
   async stop(): Promise<void> {
     await this.fastify.close();
+    for (const close of this.#closers.splice(0)) close();
   }
 
   get address(): string {

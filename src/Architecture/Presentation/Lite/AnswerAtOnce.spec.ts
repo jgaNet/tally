@@ -129,7 +129,7 @@ describe('answerAtOnce', () => {
   it('answers a refusal at once, with its status and the rule’s exception', async () => {
     expect((await send('DELETE', '/tasks/t1', 'alice:USER')).status).toBe(403);
     expect(await send('POST', '/tasks', 'alice:USER', { title: ' ' })).toEqual({
-      status: 400,
+      status: 422,
       body: { type: 'BlankTitle', message: 'A task has a title' },
     });
     expect((await send('PUT', '/tasks/none', 'alice:USER', { title: 'x' })).status).toBe(404);

@@ -4,43 +4,62 @@ import { Logger, relayOutbox } from '@Architecture/Application';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
-import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
+import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
+import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { localGroupsModule } from '@Contexts/Groups/module.local';
+import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
+import { groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
- * The composition root an application created Lite starts from (ADR 40): `clean-ddd create --profile
- * lite` gives it as `src/Bootstrap/Fastify/createApplication.ts`. It knows no context, not even the
- * Tracker: a Lite command is answered at once by its use case, so there is no operation to follow.
- * What it sets up is what every context will share — the transport, which gives each request its trace,
- * its caller and its unit of work, and the bus that carries what the contexts tell each other, relayed
- * from the outbox after each commit. Nobody signs in here: every caller is anonymous until a context
- * that owns accounts gives the transport its `authenticate`.
+ * The composition root (ADR 40, ADR 2): it opens the database the application keeps what it knows in, builds each
+ * context's wiring over it, and sets up what every context shares — the transport, which gives each request its trace,
+ * its caller and its unit of work, and the bus that carries what the contexts tell each other, relayed from the outbox
+ * after each commit. The caller of a request is the one the Groups context proves by its bearer token.
  *
- * A context is added here: its `LiteModule` registered, its routes under its own prefix, the module in
- * the routes' options —
+ * A context is added here: its schema given to the database, its wiring built over it, its module registered, its
+ * routes under its own prefix, the module in the routes' options —
  *
- *   .registerModule(localTasksModule)
- *   .registerRoutes('/tasks', taskRoutes, { module: localTasksModule });
+ *   .registerModule(groups.module)
+ *   .registerRoutes('/accounts', accountRoutes, { module: groups.module });
  */
 export async function createApplication({
   logger = new ConsoleLogger({ debug: false }),
   apiPrefix = process.env.API_PREFIX || 'v1',
   port = Number(process.env.PORT || 10000),
+  databasePath = process.env.DATABASE_PATH || 'tally.sqlite',
   webOrigins = String(process.env.WEB_ORIGINS || '')
     .split(',')
     .filter(Boolean),
-}: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
-  const app = new FastifyApplication({ logger, apiPrefix, port, webOrigins })
+}: {
+  logger?: Logger;
+  apiPrefix?: string;
+  port?: number;
+  /** The file the application keeps what it knows in (DATABASE_PATH); every server may share it (ADR 2). */
+  databasePath?: string;
+  webOrigins?: string[];
+} = {}): Promise<FastifyApplication> {
+  const database = SqliteDatabase.open(databasePath, groupsSchema);
+  const groups = await groupsWiring(database);
+
+  const app = new FastifyApplication({
+    logger,
+    apiPrefix,
+    port,
+    webOrigins,
+    authenticate: groups.authenticate,
+    unitOfWork: () => new SqliteUnitOfWork(database),
+  })
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
-    .registerModule(localGroupsModule)
-    .registerModule(localLedgerModule);
+    .registerModule(groups.module)
+    .registerModule(localLedgerModule)
+    .registerRoutes('/accounts', accountRoutes, { module: groups.module })
+    .onStop(() => database.close());
 
   await app.startModules();
-  // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an
-  // in-memory outbox, and the line is where a store's outbox would be relayed.
-  await relayOutbox(InMemoryOutbox.shared, app.getEventBus(), app.executionContext('startup'));
+  // What a previous run made durable and did not publish goes out now (ADR 24): the outbox is the database's.
+  await relayOutbox(new SqliteOutbox(database), app.getEventBus(), app.executionContext('startup'));
   return app;
 }

@@ -44,3 +44,33 @@ export class ConcurrencyConflictException extends Exception {
     });
   }
 }
+
+/**
+ * A rule refused because what it asks for already exists or clashes with what is kept (an email already
+ * registered): a conflict the caller can act on, answered `409` at once by the Lite transport (ADR 4).
+ */
+export class ConflictException extends Exception {
+  constructor(service: string, type: string, message: string, context?: unknown) {
+    super({
+      service: service || 'unknown',
+      type,
+      message,
+      context,
+    });
+  }
+}
+
+/**
+ * The caller's proof was refused: wrong credentials, whoever is asking. Answered `401` on every route, whether
+ * or not the caller is signed in (ADR 4); a `NotAllowedException` is `403` to someone signed in.
+ */
+export class UnauthenticatedException extends Exception {
+  constructor(service: string, type: string, message: string, context?: unknown) {
+    super({
+      service: service || 'unknown',
+      type,
+      message,
+      context,
+    });
+  }
+}

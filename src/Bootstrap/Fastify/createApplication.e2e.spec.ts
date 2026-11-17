@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
 
@@ -12,13 +16,18 @@ import { createApplication } from './createApplication';
 let app: FastifyApplication;
 let http: ReturnType<typeof apiClient>;
 let api: string;
+let directory: string;
 beforeAll(async () => {
-  app = await createApplication();
+  directory = mkdtempSync(join(tmpdir(), 'tally-application-'));
+  app = await createApplication({ databasePath: join(directory, 'tally.sqlite') });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
 });
-afterAll(() => app.stop());
+afterAll(async () => {
+  await app.stop();
+  rmSync(directory, { recursive: true, force: true });
+});
 
 describe('the application a Lite project starts from', () => {
   it('serves under the prefix, with the trace of the request, and no context yet', async () => {
