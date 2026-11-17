@@ -12,6 +12,8 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { localSettlementsModule } from '@Contexts/Settlements/module.local';
+import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 
 /**
@@ -47,6 +49,8 @@ export async function createApplication({
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
+    .registerModule(localSettlementsModule)
+    .registerModule(localNotificationsModule)
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule });
