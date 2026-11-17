@@ -69,16 +69,16 @@ export type SplitInput =
 
 /**
  * Divides `amount` equally between `memberIds`, in their order: each share is the amount divided by
- * their number, rounded down; the remainder, less than their number, goes whole to the payer's share.
- * The shares add up to `amount` exactly. `payerId` is one of `memberIds`.
+ * their number, rounded down; the remainder, less than their number, goes whole to the share of the
+ * first member listed, whoever paid. The shares add up to `amount` exactly.
  */
-export function equalShares(amount: number, memberIds: readonly string[], payerId: string): Share[] {
+export function equalShares(amount: number, memberIds: readonly string[]): Share[] {
   const count = memberIds.length;
   const remainder = amount % count;
   const each = (amount - remainder) / count;
-  return memberIds.map(memberId => ({
+  return memberIds.map((memberId, index) => ({
     memberId,
-    amount: memberId === payerId ? each + remainder : each,
+    amount: index === 0 ? each + remainder : each,
   }));
 }
 
@@ -86,12 +86,12 @@ export function equalShares(amount: number, memberIds: readonly string[], payerI
  * Divides `amount` by shares, in the order given: each member's share is the amount times their shares,
  * divided by the total of the shares, rounded down. It is computed in whole numbers, so it is exact
  * however large the shares. What is left over, less than the number of members, goes whole to the
- * payer's share. The shares add up to `amount` exactly. Each member has at least 1 share.
+ * share of the first member listed, whoever paid. The shares add up to `amount` exactly. Each member
+ * has at least 1 share.
  */
 export function sharesByCount(
   amount: number,
   parts: readonly { readonly memberId: string; readonly shares: number }[],
-  payerId: string,
 ): Share[] {
   const total = parts.reduce((sum, part) => sum + BigInt(part.shares), 0n);
   const floors = parts.map(part => ({
@@ -99,8 +99,8 @@ export function sharesByCount(
     amount: Number((BigInt(amount) * BigInt(part.shares)) / total),
   }));
   const remainder = amount - floors.reduce((sum, share) => sum + share.amount, 0);
-  return floors.map(share =>
-    share.memberId === payerId ? { memberId: share.memberId, amount: share.amount + remainder } : share,
+  return floors.map((share, index) =>
+    index === 0 ? { memberId: share.memberId, amount: share.amount + remainder } : share,
   );
 }
 
@@ -153,15 +153,15 @@ function checkSplitValues(amount: number, split: SplitInput): void {
   }
 }
 
-/** The shares of an expense of `amount` paid by `payerId`, split as given. The split is checked first. */
-function sharesOfSplit(amount: number, split: SplitInput, payerId: string): Share[] {
+/** The shares of an expense of `amount` split as given, the split having been checked first. */
+function sharesOfSplit(amount: number, split: SplitInput): Share[] {
   switch (split.kind) {
     case 'equal':
-      return equalShares(amount, split.memberIds, payerId);
+      return equalShares(amount, split.memberIds);
     case 'exact':
       return split.parts.map(part => ({ memberId: part.memberId, amount: part.amount }));
     case 'shares':
-      return sharesByCount(amount, split.parts, payerId);
+      return sharesByCount(amount, split.parts);
   }
 }
 
@@ -210,7 +210,7 @@ function checkExpenseFields(
     throw new Refusal(422, 'PayerNotInSplit', 'The payer must be one of the members the expense is split between.');
   }
   checkSplitValues(amount, split);
-  return { description: trimmedDescription, shares: sharesOfSplit(amount, split, payerId) };
+  return { description: trimmedDescription, shares: sharesOfSplit(amount, split) };
 }
 
 /** Writes the expense's shares, in the order of the split. */

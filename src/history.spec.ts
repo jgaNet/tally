@@ -162,8 +162,8 @@ describe('the expenses of a group', () => {
       version: 1,
       splitKind: 'shares',
       shares: [
-        { memberId: ana.id, amount: 667 },
-        { memberId: ben.id, amount: 334 },
+        { memberId: ana.id, amount: 668 },
+        { memberId: ben.id, amount: 333 },
       ],
     });
   });

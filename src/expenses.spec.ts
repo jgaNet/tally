@@ -19,24 +19,28 @@ function splitDefault(fields: Record<string, unknown>): Record<string, unknown> 
 
 describe('expenses', () => {
   describe('splitting equally', () => {
-    it('gives the remainder to the payer: 1000 between three, one of them the payer, is 333, 333 and 334', () => {
-      expect(equalShares(1000, ['ana', 'ben', 'cleo'], 'cleo')).toEqual([
-        { memberId: 'ana', amount: 333 },
+    it('gives the remainder to the first member listed: 1000 between three is 334, 333 and 333', () => {
+      expect(equalShares(1000, ['ana', 'ben', 'cleo'])).toEqual([
+        { memberId: 'ana', amount: 334 },
         { memberId: 'ben', amount: 333 },
+        { memberId: 'cleo', amount: 333 },
+      ]);
+    });
+
+    it('gives the remainder to the first member listed, whoever is named second: 1000 between cleo, ben and ana is 334 for cleo', () => {
+      expect(equalShares(1000, ['cleo', 'ben', 'ana'])).toEqual([
         { memberId: 'cleo', amount: 334 },
+        { memberId: 'ben', amount: 333 },
+        { memberId: 'ana', amount: 333 },
       ]);
     });
 
     it('answers the shares in the order of the split', () => {
-      expect(equalShares(1000, ['cleo', 'ben', 'ana'], 'ana').map(share => share.memberId)).toEqual([
-        'cleo',
-        'ben',
-        'ana',
-      ]);
+      expect(equalShares(1000, ['cleo', 'ben', 'ana']).map(share => share.memberId)).toEqual(['cleo', 'ben', 'ana']);
     });
 
     it('gives every member the same share when nothing is left over', () => {
-      expect(equalShares(900, ['ana', 'ben', 'cleo'], 'ben')).toEqual([
+      expect(equalShares(900, ['ana', 'ben', 'cleo'])).toEqual([
         { memberId: 'ana', amount: 300 },
         { memberId: 'ben', amount: 300 },
         { memberId: 'cleo', amount: 300 },
@@ -44,47 +48,42 @@ describe('expenses', () => {
     });
 
     it('gives a lone member the whole amount', () => {
-      expect(equalShares(4321, ['ana'], 'ana')).toEqual([{ memberId: 'ana', amount: 4321 }]);
+      expect(equalShares(4321, ['ana'])).toEqual([{ memberId: 'ana', amount: 4321 }]);
     });
 
-    it('makes the shares add up to the amount exactly, each under the payer’s share, whatever the amount and the number', () => {
+    it('makes the shares add up to the amount exactly, the first member’s share being the only one over the base, whatever the amount and the number', () => {
       const amounts = [1, 2, 3, 7, 99, 100, 101, 999, 1000, 65_537, 99_999_999, 100_000_000];
       for (const amount of amounts) {
         for (let count = 1; count <= 7; count++) {
           const memberIds = Array.from({ length: count }, (_, index) => `m${index}`);
-          for (const payer of memberIds) {
-            const shares = equalShares(amount, memberIds, payer);
-            const total = shares.reduce((sum, share) => sum + share.amount, 0);
-            expect(total).toBe(amount);
-            expect(shares.every(share => Number.isInteger(share.amount) && share.amount >= 0)).toBe(true);
-            const base = Math.floor(amount / count);
-            for (const share of shares) {
-              if (share.memberId === payer) {
-                expect(share.amount - base).toBeLessThan(count);
-              } else {
-                expect(share.amount).toBe(base);
-              }
+          const shares = equalShares(amount, memberIds);
+          const total = shares.reduce((sum, share) => sum + share.amount, 0);
+          expect(total).toBe(amount);
+          expect(shares.every(share => Number.isInteger(share.amount) && share.amount >= 0)).toBe(true);
+          const base = Math.floor(amount / count);
+          shares.forEach((share, index) => {
+            if (index === 0) {
+              expect(share.amount - base).toBeGreaterThanOrEqual(0);
+              expect(share.amount - base).toBeLessThan(count);
+            } else {
+              expect(share.amount).toBe(base);
             }
-          }
+          });
         }
       }
     });
   });
 
   describe('splitting by shares', () => {
-    it('divides 1001 by shares of 2 and 1, the payer listed second, as 667 and 334', () => {
+    it('divides 1001 by shares of 2 and 1, the first member listed being the one with 2, as 668 and 333', () => {
       expect(
-        sharesByCount(
-          1001,
-          [
-            { memberId: 'ana', shares: 2 },
-            { memberId: 'ben', shares: 1 },
-          ],
-          'ben',
-        ),
+        sharesByCount(1001, [
+          { memberId: 'ana', shares: 2 },
+          { memberId: 'ben', shares: 1 },
+        ]),
       ).toEqual([
-        { memberId: 'ana', amount: 667 },
-        { memberId: 'ben', amount: 334 },
+        { memberId: 'ana', amount: 668 },
+        { memberId: 'ben', amount: 333 },
       ]);
     });
 
@@ -94,45 +93,38 @@ describe('expenses', () => {
         sharesByCount(
           1000,
           memberIds.map(memberId => ({ memberId, shares: 1 })),
-          'cleo',
         ),
-      ).toEqual(equalShares(1000, memberIds, 'cleo'));
+      ).toEqual(equalShares(1000, memberIds));
     });
 
-    it('is exact however large the shares: 100 000 000 by shares of 2^53 - 1 and 1 is 99 999 999 and 1', () => {
+    it('is exact however large the shares: 100 000 000 by shares of 1 and 2^53 - 1 is 1 and 99 999 999', () => {
       expect(
-        sharesByCount(
-          100_000_000,
-          [
-            { memberId: 'ana', shares: Number.MAX_SAFE_INTEGER },
-            { memberId: 'ben', shares: 1 },
-          ],
-          'ben',
-        ),
+        sharesByCount(100_000_000, [
+          { memberId: 'ben', shares: 1 },
+          { memberId: 'ana', shares: Number.MAX_SAFE_INTEGER },
+        ]),
       ).toEqual([
-        { memberId: 'ana', amount: 99_999_999 },
         { memberId: 'ben', amount: 1 },
+        { memberId: 'ana', amount: 99_999_999 },
       ]);
     });
 
-    it('makes the shares add up to the amount exactly, each under the payer’s share by less than the number of members', () => {
+    it('makes the shares add up to the amount exactly, the first member’s share being the only one over its floor by less than the number of members', () => {
       const amounts = [1, 2, 3, 7, 99, 100, 101, 999, 65_537, 99_999_999, 100_000_000];
       for (const amount of amounts) {
         for (let count = 1; count <= 5; count++) {
           const memberIds = Array.from({ length: count }, (_, index) => `m${index}`);
           const parts = memberIds.map((memberId, index) => ({ memberId, shares: ((index * 7) % 5) + 1 }));
           const total = parts.reduce((sum, part) => sum + part.shares, 0);
-          for (const payer of memberIds) {
-            const shares = sharesByCount(amount, parts, payer);
-            expect(shares.reduce((sum, share) => sum + share.amount, 0)).toBe(amount);
-            for (const [index, share] of shares.entries()) {
-              const floor = Math.floor((amount * parts[index].shares) / total);
-              if (share.memberId === payer) {
-                expect(share.amount - floor).toBeGreaterThanOrEqual(0);
-                expect(share.amount - floor).toBeLessThan(count);
-              } else {
-                expect(share.amount).toBe(floor);
-              }
+          const shares = sharesByCount(amount, parts);
+          expect(shares.reduce((sum, share) => sum + share.amount, 0)).toBe(amount);
+          for (const [index, share] of shares.entries()) {
+            const floor = Math.floor((amount * parts[index].shares) / total);
+            if (index === 0) {
+              expect(share.amount - floor).toBeGreaterThanOrEqual(0);
+              expect(share.amount - floor).toBeLessThan(count);
+            } else {
+              expect(share.amount).toBe(floor);
             }
           }
         }
@@ -231,7 +223,7 @@ describe('expenses', () => {
         expect(expense.body).toMatchObject({ paidBy: ben.id });
       });
 
-      it('splits the amount equally, the remainder to the payer, in the order given', async () => {
+      it('splits the amount equally, the remainder to the first member listed, the payer not being first', async () => {
         const ana = await signedUpAccount(app, { email: 'ana@example.org' });
         const ben = await signedUpAccount(app, { email: 'ben@example.org' });
         const cleo = await signedUpAccount(app, { email: 'cleo@example.org' });
@@ -242,6 +234,27 @@ describe('expenses', () => {
         const expense = await send(app, 'GET', `/expenses/${id}`, { token: cleo.token });
         expect(expense.body).toMatchObject({
           amount: 1000,
+          shares: [
+            { memberId: ana.id, amount: 334 },
+            { memberId: cleo.id, amount: 333 },
+            { memberId: ben.id, amount: 333 },
+          ],
+        });
+      });
+
+      it('keeps the shares an expense recorded before the remainder moved to the first member: they are not computed again', async () => {
+        const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+        const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+        const cleo = await signedUpAccount(app, { email: 'cleo@example.org' });
+        const groupId = await createGroup(ana.token);
+        await join(ana.token, groupId, ben.token);
+        await join(ana.token, groupId, cleo.token);
+        const id = await recordOk(cleo.token, groupId, [ana.id, cleo.id, ben.id], 1000);
+        // As the expense was stored before the change: the remainder on the payer's share, cleo's, is 334.
+        db.prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND member_id = ?').run(333, id, ana.id);
+        db.prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND member_id = ?').run(334, id, cleo.id);
+        const expense = await send(app, 'GET', `/expenses/${id}`, { token: ana.token });
+        expect(expense.body).toMatchObject({
           shares: [
             { memberId: ana.id, amount: 333 },
             { memberId: cleo.id, amount: 334 },
@@ -566,7 +579,7 @@ describe('expenses', () => {
         });
       });
 
-      it('divides by shares as the request says: 1001 by shares of 2 and 1, the payer listed second, is 667 and 334', async () => {
+      it('divides by shares: 1001 by shares of 2 and 1, the first member listed having 2, is 668 and 333', async () => {
         const ana = await signedUpAccount(app, { email: 'ana@example.org' });
         const ben = await signedUpAccount(app, { email: 'ben@example.org' });
         const groupId = await createGroup(ana.token);
@@ -584,13 +597,13 @@ describe('expenses', () => {
           amount: 1001,
           splitKind: 'shares',
           shares: [
-            { memberId: ana.id, amount: 667 },
-            { memberId: ben.id, amount: 334 },
+            { memberId: ana.id, amount: 668 },
+            { memberId: ben.id, amount: 333 },
           ],
         });
       });
 
-      it('divides 1000 by shares of 1, 1 and 1 as an equal split does, the remainder to the payer', async () => {
+      it('divides 1000 by shares of 1, 1 and 1 as an equal split does, the remainder to the first member listed', async () => {
         const ana = await signedUpAccount(app, { email: 'ana@example.org' });
         const ben = await signedUpAccount(app, { email: 'ben@example.org' });
         const cleo = await signedUpAccount(app, { email: 'cleo@example.org' });
@@ -847,8 +860,8 @@ describe('expenses', () => {
             version: 2,
             splitKind: 'equal',
             shares: [
-              { memberId: ben.id, amount: 450 },
-              { memberId: ana.id, amount: 451 },
+              { memberId: ben.id, amount: 451 },
+              { memberId: ana.id, amount: 450 },
             ],
           });
           expect((await read(ben.token, id)).body).toEqual(reply.body);
@@ -882,8 +895,8 @@ describe('expenses', () => {
             amount: 601,
             version: 2,
             shares: [
-              { memberId: ana.id, amount: 300 },
-              { memberId: ben.id, amount: 301 },
+              { memberId: ana.id, amount: 301 },
+              { memberId: ben.id, amount: 300 },
             ],
           });
         });

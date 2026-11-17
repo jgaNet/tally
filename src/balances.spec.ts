@@ -116,7 +116,7 @@ describe('balances', () => {
     const groupId = await createGroup(ana.token);
     await join(ana.token, groupId, ben.token);
     await join(ana.token, groupId, cleo.token);
-    // Ana pays 1000 split three ways: shares 334 (Ana, the remainder), 333 (Ben), 333 (Cleo).
+    // Ana pays 1000 split three ways: shares 334 (Ana, listed first, the remainder), 333 (Ben), 333 (Cleo).
     await record(app, ana.token, groupId, 1000, [ana.id, ben.id, cleo.id]);
     expect((await balancesAs(ana.token, groupId)).body).toEqual([
       { memberId: ana.id, balance: 666 },
@@ -179,8 +179,8 @@ describe('balances', () => {
     });
     expect(exact.status).toBe(201);
     expect((await balancesAs(cleo.token, groupId)).body).toEqual([
-      { memberId: ana.id, balance: 233 },
-      { memberId: ben.id, balance: 167 },
+      { memberId: ana.id, balance: 232 },
+      { memberId: ben.id, balance: 168 },
       { memberId: cleo.id, balance: -400 },
     ]);
   });
@@ -316,7 +316,7 @@ describe('balances', () => {
       const expected = new Map([ana.id, ben.id, cleo.id].map(id => [id, 0]));
       for (const expense of expenses) {
         expected.set(expense.payer.id, (expected.get(expense.payer.id) ?? 0) + expense.amount);
-        for (const share of equalShares(expense.amount, expense.split, expense.payer.id)) {
+        for (const share of equalShares(expense.amount, expense.split)) {
           expected.set(share.memberId, (expected.get(share.memberId) ?? 0) - share.amount);
         }
       }
