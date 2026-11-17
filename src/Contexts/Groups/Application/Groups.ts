@@ -5,7 +5,7 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { decideCreateGroup } from '@Contexts/Groups/Domain/Group/Group.decision';
 
-import { GroupView, IGroupQueries, MemberView } from './IGroupQueries';
+import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/IGroupQueries';
 import { IGroupRepository } from './IGroupRepository';
 
 /**

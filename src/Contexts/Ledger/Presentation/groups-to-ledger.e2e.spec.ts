@@ -1,0 +1,100 @@
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
+import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { createApplication } from '@Bootstrap/Fastify/createApplication';
+
+/**
+ * Groups → Ledger (ADR 5): Ledger asks Groups who the members of a group are, through its `IGroupMembers` port, over
+ * Groups' read model. Over HTTP: a group made in Groups keeps the id its request answered, and Ledger finds it by that id
+ * when an expense is recorded in it, and a member who has just joined can be in a split at once.
+ */
+let app: FastifyApplication;
+let http: ReturnType<typeof apiClient>;
+let api: string;
+
+beforeAll(async () => {
+  process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-groups-to-ledger-')), 'tally.sqlite');
+  app = await createApplication();
+  await app.start(0);
+  http = apiClient(app.address);
+  api = `/${app.apiPrefix}`;
+});
+afterAll(() => app.stop());
+
+let accountCount = 0;
+async function signedInPerson(name: string): Promise<{ token: string; id: string }> {
+  accountCount += 1;
+  const email = `${name.toLowerCase()}${accountCount}@example.org`;
+  const password = 'a long password';
+  const created = await http.request('POST', `${api}/accounts`, { body: { email, password, name } });
+  const { token } = (await http.request('POST', `${api}/accounts/login`, { body: { email, password } })).body as {
+    token: string;
+  };
+  return { token, id: (created.body as { id: string }).id };
+}
+
+describe('Groups → Ledger', () => {
+  it('finds, by the id Groups answered, the group an expense is recorded in, and a member who has just joined can be in its split', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const linus = await signedInPerson('Linus');
+
+    const created = await http.request('POST', `${api}/groups`, {
+      body: { name: 'Flat', currency: 'EUR' },
+      token: ada.token,
+    });
+    expect(created.status).toBe(201);
+    const { id: groupId } = created.body as { id: string };
+
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as { id: string };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+
+    // Linus joins, and the expense that same moment names him: Ledger reads the members as Groups has them now.
+    const second = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token })).body as {
+      id: string;
+    };
+    await http.request('POST', `${api}/invitations/${second.id}/accept`, { token: linus.token });
+
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: {
+        description: 'Groceries',
+        amount: 300,
+        date: '2020-01-15',
+        splitBetween: [linus.id, ada.id, grace.id],
+      },
+      token: ada.token,
+    });
+    expect(recorded.status).toBe(201);
+    const { id: expenseId } = recorded.body as { id: string };
+
+    const read = await http.request('GET', `${api}/expenses/${expenseId}`, { token: grace.token });
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject({
+      groupId,
+      paidBy: ada.id,
+      shares: [
+        { memberId: linus.id, amount: 100 },
+        { memberId: ada.id, amount: 100 },
+        { memberId: grace.id, amount: 100 },
+      ],
+    });
+  });
+
+  it('does not find a group Groups does not have a member in: Ledger answers it as a group that does not exist', async () => {
+    const ada = await signedInPerson('Ada');
+    const stranger = await signedInPerson('Stranger');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+
+    const answer = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Bread', amount: 5, date: '2020-01-15', splitBetween: [stranger.id] },
+      token: stranger.token,
+    });
+    expect(answer.status).toBe(404);
+  });
+});

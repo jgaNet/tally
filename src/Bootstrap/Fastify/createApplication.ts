@@ -12,6 +12,7 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 
 /**
  * The composition root an application created Lite starts from (ADR 40): `clean-ddd create --profile
@@ -47,7 +48,8 @@ export async function createApplication({
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
-    .registerRoutes('/', groupRoutes, { module: localGroupsModule });
+    .registerRoutes('/', groupRoutes, { module: localGroupsModule })
+    .registerRoutes('/', expenseRoutes, { module: localLedgerModule });
 
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an

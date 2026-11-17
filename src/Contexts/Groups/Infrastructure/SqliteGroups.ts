@@ -1,7 +1,7 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { Group, GroupSnapshot } from '@Contexts/Groups/Domain/Group/Group';
 import { IGroupRepository } from '@Contexts/Groups/Application/IGroupRepository';
-import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Application/IGroupQueries';
+import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/IGroupQueries';
 
 import { GroupsDatabase } from './GroupsDatabase';
 

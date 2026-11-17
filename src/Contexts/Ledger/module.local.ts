@@ -1,7 +1,24 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
+import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
+import { groupsMembersReadModel } from '@Contexts/Groups/module.local';
+import { getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
+import { LedgerDatabase } from '@Contexts/Ledger/Infrastructure/LedgerDatabase';
+import { SqliteExpenses } from '@Contexts/Ledger/Infrastructure/SqliteExpenses';
 
 /**
- * The Ledger context, declared by the strategic session before the first feature (conventions/domain.yaml, ADR 1).
- * It has no use case or reaction yet: the features that need it bring them.
+ * The Ledger context, as data (ADR 1, ADR 5): its expenses in SQLite at `LEDGER_DATABASE_PATH`, or the application's
+ * database file (`DATABASE_PATH`) when that is not set, read when the first request needs it. Ledger asks Groups who the
+ * members of a group are through its own `GroupMembers` port, answered over Groups' read model, which Groups' wiring
+ * exports and nothing else of Groups is reached through.
  */
-export const localLedgerModule = new LiteModule({ name: 'Ledger' });
+const database = new LedgerDatabase(
+  () => process.env.LEDGER_DATABASE_PATH || process.env.DATABASE_PATH || 'tally.sqlite',
+);
+const expenses = new SqliteExpenses(database);
+const groupMembers = new GroupMembersOfGroups(groupsMembersReadModel);
+
+export const localLedgerModule = new LiteModule({
+  name: 'Ledger',
+  useCases: [recordExpense(expenses, groupMembers, systemClock), getExpense(expenses, groupMembers)],
+});

@@ -23,6 +23,12 @@ const passwords = new ScryptPasswordHasher();
 
 export const groupsAccessTokens = new SignedAccessTokens(database);
 
+/**
+ * The read model of the members, which Ledger asks through its own `GroupMembers` port (ADR 5): the one thing of Groups
+ * another context reaches through this file.
+ */
+export const groupsMembersReadModel = groups;
+
 export const localGroupsModule = new LiteModule({
   name: 'Groups',
   useCases: [
