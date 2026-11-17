@@ -1,4 +1,4 @@
-import { ConflictException, Exception, NotFoundException } from '@Architecture/Domain';
+import { ConflictException, Exception, NotAllowedException, NotFoundException } from '@Architecture/Domain';
 
 const SERVICE = 'Groups';
 
@@ -38,5 +38,23 @@ export class GroupNotFoundException extends NotFoundException {
 export class AlreadyMemberException extends ConflictException {
   constructor() {
     super(SERVICE, 'AlreadyMember', 'You are already a member of this group');
+  }
+}
+
+/** The owner of a group asks to leave it: `403`, the owner stays in the group they created (feature 9). */
+export class OwnerCannotLeaveException extends NotAllowedException {
+  constructor() {
+    super(SERVICE, 'The owner of a group cannot leave it');
+  }
+}
+
+/** A member asks to leave a group while their balance in it is not 0: `422`, a rule (feature 9, ADR 4). */
+export class BalanceNotZeroException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'BalanceNotZero',
+      message: 'You can leave a group once your balance in it is 0',
+    });
   }
 }

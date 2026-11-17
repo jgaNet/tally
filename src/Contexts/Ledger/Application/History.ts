@@ -60,7 +60,10 @@ export const getMemberStatement = query(
       if (!members || !members.some(member => member.memberId === callerOf(context))) {
         return Result.fail(new GroupNotFoundException());
       }
-      if (!members.some(member => member.memberId === memberId)) {
+      if (
+        !members.some(member => member.memberId === memberId) &&
+        !(await groupMembers.hasBeenMember(groupId, memberId))
+      ) {
         return Result.fail(new StatementNotFoundException());
       }
 

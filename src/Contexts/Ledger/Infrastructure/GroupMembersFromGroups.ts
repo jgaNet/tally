@@ -15,4 +15,8 @@ export class GroupMembersFromGroups implements IGroupMembers {
   membersOf(groupId: string): Promise<GroupMemberRole[] | undefined> {
     return this.roster.membersOf(groupId);
   }
+
+  hasBeenMember(groupId: string, memberId: string): Promise<boolean> {
+    return this.roster.hasBeenMember(groupId, memberId);
+  }
 }

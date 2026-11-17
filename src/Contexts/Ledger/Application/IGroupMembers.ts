@@ -15,4 +15,9 @@ export interface GroupMemberRole {
  */
 export interface IGroupMembers {
   membersOf(groupId: string): Promise<GroupMemberRole[] | undefined>;
+  /**
+   * Whether the account is, or has ever been, a member of the group (feature 9): a member who left keeps the statement of their
+   * expenses, which the group's members still read. Answered over the same roster.
+   */
+  hasBeenMember(groupId: string, memberId: string): Promise<boolean>;
 }

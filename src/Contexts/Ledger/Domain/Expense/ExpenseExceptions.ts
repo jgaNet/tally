@@ -98,6 +98,20 @@ export class InvalidSplitSharesException extends Exception {
 }
 
 /**
+ * The expense concerns a member who has left the group, as its payer or in its split: `422`. It can no longer be edited or
+ * deleted, so that the member's balance stays 0 and the group's balances still add up to 0 (feature 9, ADR 4).
+ */
+export class ExpenseConcernsFormerMemberException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'ExpenseConcernsFormerMember',
+      message: 'An expense that concerns a member who has left the group can no longer be changed',
+    });
+  }
+}
+
+/**
  * The expense changed since the version the edit was made from: `409`. The author reads it again and decides (ADR 8): two
  * edits from one version, one of them is kept and the other is refused by this name.
  */

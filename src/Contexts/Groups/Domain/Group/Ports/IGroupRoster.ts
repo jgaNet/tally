@@ -6,6 +6,8 @@
  */
 export interface IGroupRoster {
   membersOf(groupId: string): Promise<RosterMember[] | undefined>;
+  /** Whether the account is, or has been, a member of the group: a member who left keeps their statement (feature 9). */
+  hasBeenMember(groupId: string, accountId: string): Promise<boolean>;
 }
 
 /** A member of a group as the roster answers it: the account, and its role in the group (the owner, or a member). */

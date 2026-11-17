@@ -176,7 +176,7 @@ describe('Expense.edit', () => {
 describe('Expense.delete', () => {
   it('records ExpenseDeleted', () => {
     const expense = Expense.fromSnapshot({ ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 1 });
-    expense.delete(now);
+    expect(expense.delete(members, now).isSuccess()).toBe(true);
     expect(expense.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseDeletedEvent']);
   });
 });

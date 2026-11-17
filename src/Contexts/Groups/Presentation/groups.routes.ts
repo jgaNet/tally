@@ -9,6 +9,7 @@ import {
   getGroup,
   getGroupMembers,
   getMyGroups,
+  leaveGroup,
 } from '@Contexts/Groups/Application/Groups';
 
 /**
@@ -43,6 +44,10 @@ export const groupRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fasti
 
   fastify.get<{ Params: { id: string } }>('/groups/:id/members', (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getGroupMembers), req.params.id),
+  );
+
+  fastify.post<{ Params: { id: string } }>('/groups/:id/leave', (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(leaveGroup), req.params.id),
   );
 
   done();

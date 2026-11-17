@@ -3,7 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
-import { GroupCreatedEvent, MemberJoinedEvent } from '@Contexts/Groups/Domain/Group/Group';
+import { GroupCreatedEvent, MemberJoinedEvent, MemberLeftEvent } from '@Contexts/Groups/Domain/Group/Group';
 
 /** A group's creation, its name and currency as the domain keeps them, and the fact it records (ADR 5). */
 const now = new Date('2026-05-01T10:00:00.000Z');
@@ -22,6 +22,7 @@ describe('Group.register', () => {
       currency: 'EUR',
       ownerId: owner,
       members: [{ accountId: owner, joinedAt: '2026-05-01T10:00:00.000Z' }],
+      formerMembers: [],
       createdAt: '2026-05-01T10:00:00.000Z',
       version: 0,
     });
@@ -108,6 +109,7 @@ describe('Group.fromSnapshot', () => {
       currency: 'GBP',
       ownerId: owner,
       members: [{ accountId: owner, joinedAt: now.toISOString() }],
+      formerMembers: [],
       createdAt: now.toISOString(),
       version: 3,
     };
@@ -126,9 +128,81 @@ describe('Group.fromSnapshot', () => {
         currency: 'GBP',
         ownerId: owner,
         members: [{ accountId: 'someone-else', joinedAt: now.toISOString() }],
+        formerMembers: [],
         createdAt: now.toISOString(),
         version: 0,
       }),
     ).toThrow(/corrupted/);
+  });
+});
+
+describe('Group.leave', () => {
+  const later = new Date('2026-05-02T09:30:00.000Z');
+  const latest = new Date('2026-05-03T18:00:00.000Z');
+  const bob = 'account-bob';
+
+  /** A group with the owner and Bob, who joined at `later`; its recorded facts taken away. */
+  const withBob = () => {
+    const group = Group.register(draft, now).data!;
+    group.join(bob, later);
+    group.pullDomainEvents();
+    return group;
+  };
+
+  it('takes a member with a balance of 0 out of the members, keeps them as a former member, and records MemberLeft', () => {
+    const group = withBob();
+
+    expect(group.leave(bob, 0, latest).isSuccess()).toBe(true);
+    expect(group.members().map(member => member.accountId)).toEqual([owner]);
+    expect(group.hasMember(bob)).toBe(false);
+    expect(group.formerMembers()).toEqual([
+      { accountId: bob, joinedAt: later.toISOString(), leftAt: latest.toISOString() },
+    ]);
+    const [recorded] = group.pullDomainEvents();
+    expect(recorded).toBeInstanceOf(MemberLeftEvent);
+    expect(recorded.payload).toEqual({
+      groupId: group.toSnapshot().id,
+      accountId: bob,
+      at: latest.toISOString(),
+    });
+  });
+
+  it('refuses a member whose balance is not 0, with BalanceNotZero, and changes nothing', () => {
+    const group = withBob();
+
+    const refused = group.leave(bob, -250, latest);
+    expect(refused.isFailure() && refused.error.type).toBe('BalanceNotZero');
+    expect(group.hasMember(bob)).toBe(true);
+    expect(group.formerMembers()).toEqual([]);
+    expect(group.pullDomainEvents()).toEqual([]);
+  });
+
+  it('refuses the owner, whatever the balance, with OwnerCannotLeave', () => {
+    const group = withBob();
+
+    const refused = group.leave(owner, 0, latest);
+    expect(refused.isFailure() && refused.error.type).toBe('NotAllowed');
+    expect(group.hasMember(owner)).toBe(true);
+  });
+
+  it('refuses an account that is not a member, as the group is not there for it', () => {
+    const group = withBob();
+
+    const refused = group.leave('account-carol', 0, latest);
+    expect(refused.isFailure() && refused.error.type).toBe('NotFound');
+  });
+
+  it('makes a member who joined again the last of the members, with the time they joined again', () => {
+    const group = withBob();
+    group.leave(bob, 0, latest);
+    group.pullDomainEvents();
+    const again = new Date('2026-05-04T08:00:00.000Z');
+
+    expect(group.join(bob, again).isSuccess()).toBe(true);
+    expect(group.members()).toEqual([
+      { accountId: owner, joinedAt: now.toISOString() },
+      { accountId: bob, joinedAt: again.toISOString() },
+    ]);
+    expect(group.formerMembers()).toEqual([]);
   });
 });

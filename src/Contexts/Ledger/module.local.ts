@@ -5,7 +5,9 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import { getGroupBalances } from '@Contexts/Ledger/Application/Balances';
 import { getGroupExpenses, getMemberStatement } from '@Contexts/Ledger/Application/History';
 import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import { IBalanceRoster } from '@Contexts/Ledger/Domain/Expense/Ports/IBalanceRoster';
 import { GroupMembersFromGroups, GroupRoster } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
+import { SqliteBalanceRoster } from '@Contexts/Ledger/Infrastructure/SqliteBalanceRoster';
 import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseStore';
 
 /**
@@ -15,6 +17,14 @@ import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrast
  * no part of Groups but the roster's type. The module lists each use case once.
  */
 export const ledgerSchema = ledgerTablesSchema;
+
+/**
+ * The balances of a group's members, as Ledger's read model gives them to Groups when a member asks to leave (feature 9). It
+ * is over the database alone, so the composition root can build it before Ledger's own wiring, which needs Groups' roster.
+ */
+export function ledgerBalanceRoster(database: SqliteDatabase): IBalanceRoster {
+  return new SqliteBalanceRoster(database);
+}
 
 /** The Ledger module, over the database and the roster of Groups. */
 export function ledgerWiring(database: SqliteDatabase, roster: GroupRoster): LiteModule {

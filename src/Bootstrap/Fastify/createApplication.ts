@@ -12,11 +12,12 @@ import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
+import { MemberBalancesFromLedger } from '@Contexts/Groups/Infrastructure/MemberBalancesFromLedger';
 import { groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
-import { ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
+import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 
 /**
  * The composition root (ADR 40, ADR 2): it opens the database the application keeps what it knows in, builds each
@@ -52,7 +53,9 @@ export async function createApplication({
   webOrigins?: string[];
 } = {}): Promise<FastifyApplication> {
   const database = SqliteDatabase.open(databasePath, [...groupsSchema, ...ledgerSchema]);
-  const groups = await groupsWiring(database);
+  // Groups asks a member's balance over Ledger's read model, and Ledger asks Groups' roster: each read model is built over
+  // the database alone, so neither wiring needs the other's module to exist (ADR 1 T3, T5).
+  const groups = await groupsWiring(database, new MemberBalancesFromLedger(ledgerBalanceRoster(database)));
   const ledger = ledgerWiring(database, groups.roster);
 
   const app = new FastifyApplication({

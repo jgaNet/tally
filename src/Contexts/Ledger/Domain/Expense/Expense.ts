@@ -3,6 +3,7 @@ import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/D
 import { Share, Split, SplitDraft, SplitKind, memberIdsOf } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
   ExpenseChangedException,
+  ExpenseConcernsFormerMemberException,
   InvalidExpenseAmountException,
   InvalidExpenseDateException,
   InvalidExpenseDescriptionException,
@@ -144,10 +145,13 @@ export class Expense extends AggregateRoot {
    * An edit: the expense is given again whole, under the rules of a recording, with the members of its group (`members`) and
    * the payer it has. It is refused with `ExpenseChanged` when it changed since the version the edit was made from
    * (`fromVersion`), before anything else is looked at: the author reads it again and decides. The shares are computed again
-   * from what the edit gives, in whichever of the three ways it splits them. Records `ExpenseEdited`; the time is `now`. Pure.
+   * from what the edit gives, in whichever of the three ways it splits them. An expense that concerns a member who has left the
+   * group (its payer, or one of its split) is refused with `ExpenseConcernsFormerMember` (feature 9). Records `ExpenseEdited`;
+   * the time is `now`. Pure.
    */
   edit(draft: EditDraft, members: readonly string[], fromVersion: number, now: Date): IResult<void> {
     if (fromVersion !== this.version) return Result.fail(new ExpenseChangedException());
+    if (!this.#concernsOnly(members)) return Result.fail(new ExpenseConcernsFormerMemberException());
 
     const split = checkDraft({ ...draft, payerId: this.#paidBy }, members, now);
     if (split.isFailure()) return Result.fail(split.error);
@@ -171,15 +175,30 @@ export class Expense extends AggregateRoot {
 
   /**
    * A deletion: the expense is no longer there for anyone (the store takes its rows, and its balances, out in the same
-   * transaction). Who may delete it is the use case's to say. Records `ExpenseDeleted`; the time is `now`.
+   * transaction). Who may delete it is the use case's to say. An expense that concerns a member who has left the group is
+   * refused with `ExpenseConcernsFormerMember` (feature 9), given the group's current members (`members`). Records
+   * `ExpenseDeleted`; the time is `now`.
    */
-  delete(now: Date): void {
+  delete(members: readonly string[], now: Date): IResult<void> {
+    if (!this.#concernsOnly(members)) return Result.fail(new ExpenseConcernsFormerMemberException());
+
     this.record(
       ExpenseDeletedEvent.set({
         expenseId: this._id.value,
         groupId: this.#groupId,
         at: now.toISOString(),
       }),
+    );
+    return Result.ok(undefined);
+  }
+
+  /**
+   * Whether the payer and each member of the split are still members of the group (`members`, its current members): an
+   * expense of a member who left keeps its shares, and can no longer change, so the group's balances still add up to 0.
+   */
+  #concernsOnly(members: readonly string[]): boolean {
+    return [this.#paidBy, ...this.#split.shares.map(share => share.memberId)].every(memberId =>
+      members.includes(memberId),
     );
   }
 

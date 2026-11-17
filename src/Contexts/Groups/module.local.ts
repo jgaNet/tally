@@ -3,7 +3,8 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
-import { createGroup, getGroup, getGroupMembers, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import { IMemberBalances } from '@Contexts/Groups/Application/IMemberBalances';
+import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
@@ -23,9 +24,11 @@ export const groupsSchema = [...accountsSchema, ...groupsTablesSchema, ...invita
 
 /**
  * The Groups module, the authentication the transport gives every request (named exports, ADR 2), and the roster of
- * groups other contexts read (`roster`, the read-model port of ADR 6, for Ledger's split).
+ * groups other contexts read (`roster`, the read-model port of ADR 6, for Ledger's split). Leaving (feature 9) asks a
+ * member's balance through `balances`, the port Groups owns (ADR 1 T5): the composition root gives it, over Ledger's read
+ * model, so this file imports no other context.
  */
-export async function groupsWiring(database: SqliteDatabase) {
+export async function groupsWiring(database: SqliteDatabase, balances: IMemberBalances) {
   const accounts = new SqliteAccountStore(database);
   const passwords = new ScryptPasswordHasher();
   const tokens = await SignedSessionTokens.open(database);
@@ -45,6 +48,7 @@ export async function groupsWiring(database: SqliteDatabase) {
       getInvitation(invitations),
       acceptInvitation(groups, invitations, systemClock),
       getGroupMembers(groups, accounts),
+      leaveGroup(groups, balances, systemClock),
     ],
   });
   return { module, authenticate: authenticateWith(tokens), roster: groups };

@@ -102,9 +102,13 @@ export const deleteExpense = command(
     async (expenseId: string, context): Promise<IResult<void>> => {
       const found = await changeable(expenses, groupMembers, expenseId, context);
       if (found.isFailure()) return Result.fail(found.error);
-      const { expense } = found.data;
+      const { expense, members } = found.data;
 
-      expense.delete(clock());
+      const deleted = expense.delete(
+        members.map(member => member.memberId),
+        clock(),
+      );
+      if (deleted.isFailure()) return Result.fail(deleted.error);
       await expenses.remove(expense);
       await publishDomainEvents(expense, context);
       return Result.ok(undefined);

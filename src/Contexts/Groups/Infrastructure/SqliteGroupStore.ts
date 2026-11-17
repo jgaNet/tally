@@ -2,13 +2,15 @@ import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { GroupView, IGroupStore } from '@Contexts/Groups/Application/IGroupStore';
-import { Group, GroupMember, GroupSnapshot } from '@Contexts/Groups/Domain/Group/Group';
+import { FormerMember, Group, GroupMember, GroupSnapshot } from '@Contexts/Groups/Domain/Group/Group';
 import { IGroupRoster, RosterMember } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
 
 /**
  * The groups' tables (ADR 2, ADR 5). A group's members are rows of `group_members`, in the order they joined (`position`,
- * the owner first) with the time each joined (feature 3). A group's `version` is the one the aggregate is stored at
- * (ADR 8). `created_at` is an ISO 8601 UTC string, so it sorts as time does.
+ * the owner first) with the time each joined (feature 3). A member who left (feature 9) is a row of `group_former_members`
+ * instead, with the time they left: the group's roster reads only the members now, and `hasBeenMember` reads both. A
+ * group's `version` is the one the aggregate is stored at (ADR 8). `created_at` is an ISO 8601 UTC string, so it sorts as
+ * time does.
  */
 export const groupsTablesSchema = [
   `CREATE TABLE IF NOT EXISTS groups (
@@ -27,15 +29,22 @@ export const groupsTablesSchema = [
      PRIMARY KEY (group_id, account_id)
    )`,
   'CREATE INDEX IF NOT EXISTS group_members_by_account ON group_members (account_id)',
+  `CREATE TABLE IF NOT EXISTS group_former_members (
+     group_id TEXT NOT NULL REFERENCES groups(id),
+     account_id TEXT NOT NULL,
+     joined_at TEXT NOT NULL,
+     left_at TEXT NOT NULL,
+     PRIMARY KEY (group_id, account_id)
+   )`,
 ];
 
 /**
  * The groups in SQLite. Its reads go to the committed data, and its writes to the transaction that holds the writer (the
  * command adds or saves a group inside its transaction). A member sees a group only through its membership row, so the
- * join is what decides who may see it.
+ * join is what decides who may see it, and a member who left has none (feature 9).
  *
  * `save` is the optimistic check the way SQL makes it atomic (ADR 8, as the reference does it): the group's row is
- * updated only while it is still at the version the aggregate was loaded at, and the members are added after that. A
+ * updated only while it is still at the version the aggregate was loaded at, and the members are written after that. A
  * group that another writer changed first is refused with a ConcurrencyConflictException.
  */
 export class SqliteGroupStore implements IGroupStore, IGroupRoster {
@@ -46,7 +55,7 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     this.database.writer
       .prepare('INSERT INTO groups (id, name, currency, owner_id, created_at, version) VALUES (?, ?, ?, ?, ?, ?)')
       .run(snapshot.id, snapshot.name, snapshot.currency, snapshot.ownerId, snapshot.createdAt, snapshot.version + 1);
-    this.#addMembers(snapshot);
+    this.#saveMembers(snapshot);
   }
 
   async findById(groupId: string): Promise<Group | undefined> {
@@ -58,12 +67,18 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     const members = this.database.read(db =>
       db.prepare('SELECT account_id, joined_at FROM group_members WHERE group_id = ? ORDER BY position').all(groupId),
     ) as unknown as MemberRow[];
+    const formerMembers = this.database.read(db =>
+      db
+        .prepare('SELECT account_id, joined_at, left_at FROM group_former_members WHERE group_id = ? ORDER BY left_at')
+        .all(groupId),
+    ) as unknown as FormerMemberRow[];
     return Group.fromSnapshot({
       id: row.id,
       name: row.name,
       currency: row.currency,
       ownerId: row.owner_id,
       members: members.map(toMember),
+      formerMembers: formerMembers.map(toFormerMember),
       createdAt: row.created_at,
       version: row.version,
     });
@@ -77,7 +92,7 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     if (changes === 0) {
       throw new ConcurrencyConflictException('Groups', 'The group changed since it was read: read it again');
     }
-    this.#addMembers(snapshot);
+    this.#saveMembers(snapshot);
   }
 
   async viewFor(groupId: string, memberId: string): Promise<GroupView | undefined> {
@@ -120,12 +135,47 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     return rows.length > 0 ? rows.map(row => ({ memberId: row.account_id, role: row.role })) : undefined;
   }
 
-  /** Adds the members that are not stored yet: the ones already there keep the row they were given (`position` is theirs). */
-  #addMembers(snapshot: GroupSnapshot): void {
+  async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {
+    const row = this.database.read(db =>
+      db
+        .prepare(
+          `SELECT 1 AS found FROM group_members WHERE group_id = ? AND account_id = ?
+           UNION ALL
+           SELECT 1 AS found FROM group_former_members WHERE group_id = ? AND account_id = ?
+           LIMIT 1`,
+        )
+        .get(groupId, accountId, groupId, accountId),
+    );
+    return row !== undefined;
+  }
+
+  /**
+   * Writes the members as the aggregate holds them now. Each member now is a row of `group_members` at its place in the
+   * order (a member who joined again leaves its former row); each former member is a row of `group_former_members` and
+   * no longer one of `group_members`. Idempotent: what is stored already is written again as it is.
+   */
+  #saveMembers(snapshot: GroupSnapshot): void {
     snapshot.members.forEach((member: GroupMember, position) => {
       this.database.writer
-        .prepare('INSERT OR IGNORE INTO group_members (group_id, account_id, position, joined_at) VALUES (?, ?, ?, ?)')
+        .prepare('DELETE FROM group_former_members WHERE group_id = ? AND account_id = ?')
+        .run(snapshot.id, member.accountId);
+      this.database.writer
+        .prepare(
+          `INSERT INTO group_members (group_id, account_id, position, joined_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT (group_id, account_id) DO UPDATE SET position = excluded.position, joined_at = excluded.joined_at`,
+        )
         .run(snapshot.id, member.accountId, position, member.joinedAt);
+    });
+    snapshot.formerMembers.forEach((member: FormerMember) => {
+      this.database.writer
+        .prepare('DELETE FROM group_members WHERE group_id = ? AND account_id = ?')
+        .run(snapshot.id, member.accountId);
+      this.database.writer
+        .prepare(
+          `INSERT INTO group_former_members (group_id, account_id, joined_at, left_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT (group_id, account_id) DO UPDATE SET joined_at = excluded.joined_at, left_at = excluded.left_at`,
+        )
+        .run(snapshot.id, member.accountId, member.joinedAt, member.leftAt);
     });
   }
 }
@@ -156,6 +206,12 @@ interface MemberRow {
   joined_at: string;
 }
 
+interface FormerMemberRow {
+  account_id: string;
+  joined_at: string;
+  left_at: string;
+}
+
 const toView = (row: GroupViewRow): GroupView => ({
   id: row.id,
   name: row.name,
@@ -164,3 +220,9 @@ const toView = (row: GroupViewRow): GroupView => ({
 });
 
 const toMember = (row: MemberRow): GroupMember => ({ accountId: row.account_id, joinedAt: row.joined_at });
+
+const toFormerMember = (row: FormerMemberRow): FormerMember => ({
+  accountId: row.account_id,
+  joinedAt: row.joined_at,
+  leftAt: row.left_at,
+});
