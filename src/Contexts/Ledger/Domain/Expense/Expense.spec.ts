@@ -355,3 +355,64 @@ describe('Expense.create by shares', () => {
     expect(Expense.fromSnapshot(edited.data.toSnapshot()).splitKind).toBe('shares');
   });
 });
+
+describe('Expense of a former member', () => {
+  const recorded = () => {
+    const created = Expense.create({
+      ...base,
+      paidBy: 'ben',
+      split: { kind: 'equal', memberIds: ['ben', 'ana'] },
+      members: ['ana', 'ben', 'cara'],
+    });
+    if (created.isFailure()) throw created.error;
+    return Expense.fromSnapshot({ ...created.data.toSnapshot(), version: 1 });
+  };
+  // Ben left the group: the expense concerns him as its payer.
+  const withoutBen = [
+    { memberId: 'ana', role: 'owner' as const },
+    { memberId: 'cara', role: 'member' as const },
+  ];
+  // Ana left the group: the expense concerns her in its split, so not even its payer may change it.
+  const withoutAna = [
+    { memberId: 'ben', role: 'member' as const },
+    { memberId: 'cara', role: 'member' as const },
+  ];
+
+  it('refuses an edit or a deletion whoever asks, once its payer or a member of its split has left', () => {
+    const editedByOwner = recorded().edit({
+      editedBy: 'ana',
+      members: withoutBen,
+      version: 1,
+      description: 'Groceries, again',
+      amount: 1000,
+      date: '2026-11-16',
+      split: { kind: 'equal', memberIds: ['ben', 'ana'] },
+      today,
+    });
+    const deletedByOwner = recorded().delete({ deletedBy: 'ana', members: withoutBen });
+    const editedByPayer = recorded().edit({
+      editedBy: 'ben',
+      members: withoutAna,
+      version: 1,
+      description: 'Groceries, again',
+      amount: 1000,
+      date: '2026-11-16',
+      split: { kind: 'equal', memberIds: ['ben', 'cara'] },
+      today,
+    });
+
+    expect(editedByOwner.isFailure() && editedByOwner.error.type).toBe('ExpenseOfFormerMember');
+    expect(deletedByOwner.isFailure() && deletedByOwner.error.type).toBe('ExpenseOfFormerMember');
+    expect(editedByPayer.isFailure() && editedByPayer.error.type).toBe('ExpenseOfFormerMember');
+  });
+
+  it('lets the expense change again when its former member joins again', () => {
+    const rejoined = [
+      { memberId: 'ana', role: 'owner' as const },
+      { memberId: 'ben', role: 'member' as const },
+      { memberId: 'cara', role: 'member' as const },
+    ];
+
+    expect(recorded().delete({ deletedBy: 'ana', members: rejoined }).isSuccess()).toBe(true);
+  });
+});

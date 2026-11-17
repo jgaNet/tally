@@ -24,8 +24,8 @@ const SELECT_GROUPS = `
 
 /**
  * The read side of groups over the same file. Membership is part of every statement: a group is read only through
- * a row that names the caller as a member, so nothing is filtered after the read. Reads take the file's turn, so
- * they never see a transaction still in progress.
+ * a row that names the caller as a current member, so nothing is filtered after the read, and a former member finds
+ * no group. Reads take the file's turn, so they never see a transaction still in progress.
  */
 export class SqliteGroupQueries implements IGroupQueries {
   constructor(private database: SqliteDatabase) {
@@ -71,6 +71,24 @@ export class SqliteGroupQueries implements IGroupQueries {
         role: row.account_id === row.owner_id ? 'owner' : 'member',
         joinedAt: row.joined_at,
       }));
+    });
+  }
+
+  hasBeenMemberOf(askedBy: string, groupId: string, accountId: string): Promise<boolean | null> {
+    return this.database.exclusive(connection => {
+      const isMember = connection
+        .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ?')
+        .get(groupId, askedBy);
+      if (!isMember) return null;
+
+      const has = connection
+        .prepare(
+          `SELECT 1 FROM group_members WHERE group_id = :group AND account_id = :account
+           UNION ALL
+           SELECT 1 FROM former_members WHERE group_id = :group AND account_id = :account`,
+        )
+        .get({ group: groupId, account: accountId });
+      return has !== undefined;
     });
   }
 }

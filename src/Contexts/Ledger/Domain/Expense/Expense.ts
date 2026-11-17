@@ -4,7 +4,10 @@ import { IExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { ExpenseAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
-import { ExpenseChangedException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
+import {
+  ExpenseChangedException,
+  ExpenseOfFormerMemberException,
+} from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import {
   ExpenseDeletedEvent,
   ExpenseEditedEvent,
@@ -22,7 +25,8 @@ import { ExpenseShare, Split, SplitKind, SplitRequest } from '@Contexts/Ledger/D
  *
  * Its behaviours: its creation records ExpenseRecorded; an edit, from the version its author read, gives the expense
  * again whole and records ExpenseEdited; its deletion records ExpenseDeleted. The payer is who paid, and an edit never
- * changes it. Only the payer and the group's owner may change an expense.
+ * changes it. Only the payer and the group's owner may change an expense, and only while the payer and every member of
+ * its split are still members of the group: an expense that concerns a member who left is kept as it was.
  */
 export class Expense extends AggregateRoot {
   readonly #groupId: string;
@@ -125,6 +129,7 @@ export class Expense extends AggregateRoot {
     today: Date;
   }): IResult<Expense> {
     if (!this.mayChange(editedBy, members)) return Result.fail(notAllowed());
+    if (this.concernsFormerMember(members)) return Result.fail(new ExpenseOfFormerMemberException());
     if (version !== this.version) return Result.fail(new ExpenseChangedException());
 
     const decided = Expense.decide({
@@ -166,6 +171,7 @@ export class Expense extends AggregateRoot {
    */
   delete({ deletedBy, members }: { deletedBy: string; members: GroupMember[] }): IResult {
     if (!this.mayChange(deletedBy, members)) return Result.fail(notAllowed());
+    if (this.concernsFormerMember(members)) return Result.fail(new ExpenseOfFormerMemberException());
 
     this.record(ExpenseDeletedEvent.set({ expenseId: this._id.value, groupId: this.#groupId }));
     return Result.ok();
@@ -231,6 +237,15 @@ export class Expense extends AggregateRoot {
   /** The payer, and the group's owner, may change the expense; no other member may. */
   private mayChange(memberId: string, members: GroupMember[]): boolean {
     return memberId === this.#paidBy || members.some(member => member.memberId === memberId && member.role === 'owner');
+  }
+
+  /**
+   * Whether the payer or a member of the split is no longer a member of the group: such an expense can no longer change,
+   * so that its member's balance stays 0 and the group's balances still add up to 0 (request 9).
+   */
+  private concernsFormerMember(members: GroupMember[]): boolean {
+    const current = new Set(members.map(member => member.memberId));
+    return [this.#paidBy, ...this.#shares.map(share => share.memberId)].some(memberId => !current.has(memberId));
   }
 
   /** The values of an expense, validated as the rules say and its shares computed; refused as a failed Result. */

@@ -109,3 +109,14 @@ export class InvalidSharesException extends Exception {
     });
   }
 }
+
+/** The expense concerns a member who left the group (as its payer or in its split): it can no longer change (request 9). */
+export class ExpenseOfFormerMemberException extends ConflictException {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'ExpenseOfFormerMember',
+      message: 'The expense concerns a member who left the group, so it can no longer change',
+    });
+  }
+}

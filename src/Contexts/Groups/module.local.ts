@@ -2,6 +2,8 @@ import { Module } from '@Architecture/Application';
 import { applicationDatabase } from '@Architecture/Infrastructure/Sqlite/ApplicationDatabase';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
+import { ledgerBalanceQueries } from '@Bootstrap/Fastify/readModels';
+
 import {
   AcceptInvitationCommandEvent,
   AcceptInvitationCommandHandler,
@@ -9,6 +11,8 @@ import {
   CreateGroupCommandHandler,
   CreateInvitationCommandEvent,
   CreateInvitationCommandHandler,
+  LeaveGroupCommandEvent,
+  LeaveGroupCommandHandler,
   SignUpCommandEvent,
   SignUpCommandHandler,
 } from '@Contexts/Groups/Application/Commands';
@@ -28,12 +32,14 @@ import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/Queries/Sqli
 import { SqliteInvitationQueries } from '@Contexts/Groups/Infrastructure/Queries/SqliteInvitationQueries';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/Services/ScryptPasswordHasher';
 import { HmacAccessTokens } from '@Contexts/Groups/Infrastructure/Services/HmacAccessTokens';
+import { LedgerBalances } from '@Contexts/Groups/Infrastructure/Ledger/LedgerBalances';
 import { bearerAuthentication } from '@Contexts/Groups/Presentation/API/REST/Middlewares/BearerAuthentication';
 
 /**
  * The Groups context (conventions/domain.yaml, ADR 1, ADR 2): accounts, groups and their invitations. Its state is in the
  * application's SQLite file; its tokens are signed with a key that file keeps. The application's one clock is
- * passed to what decides a time: a group's creation and a join.
+ * passed to what decides a time: a group's creation and a join. A leave asks Ledger a member's balance through
+ * its own port (ADR 5).
  */
 const database = applicationDatabase();
 const accounts = new SqliteAccountRepository(database);
@@ -45,6 +51,8 @@ const invitationQueries = new SqliteInvitationQueries(database);
 const hasher = new ScryptPasswordHasher();
 const tokens = new HmacAccessTokens(database.secret('access-token-key'));
 const clock = systemClock;
+/** Ledger's balance of a member, asked when a member leaves: the Ledger's read model, passed by the composition root (ADR 5). */
+const memberBalances = new LedgerBalances(ledgerBalanceQueries);
 
 /** Who is calling, from the bearer token: the transport's `authenticate`, given by the composition root. */
 export const authenticateAccount = bearerAuthentication(tokens);
@@ -59,6 +67,7 @@ export const localGroupsModule = new Module({
       event: AcceptInvitationCommandEvent,
       handlers: [new AcceptInvitationCommandHandler(groups, invitations, clock)],
     },
+    { event: LeaveGroupCommandEvent, handlers: [new LeaveGroupCommandHandler(groups, memberBalances)] },
   ],
   queries: [
     new GetMyAccountQueryHandler(accountQueries),

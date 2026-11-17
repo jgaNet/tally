@@ -13,8 +13,8 @@ import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembe
  * A signed-in member reads the statement of any member of their group, themselves included (request 8): the expenses the
  * member paid or is in the split of, in the order of a bank statement, each with the balance once it is counted, from 0.
  * The statement's balance is the last entry's, which is the balance the group's balances give the member. To anyone who
- * is not a member the group does not exist; a member the group has never had does not exist either. Membership is asked
- * of Groups, through the port.
+ * is not a member the group does not exist; a member the group has never had does not exist either, while a former
+ * member's statement is read as it was (request 9). Membership is asked of Groups, through the port.
  */
 export class GetMemberStatementQueryHandler extends QueryHandler<
   IStatementQueries,
@@ -37,7 +37,8 @@ export class GetMemberStatementQueryHandler extends QueryHandler<
 
     const members = await this.groupMembers.membersOf(groupId, caller.data.value);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
-    if (!members.some(member => member.memberId === memberId)) {
+    const current = members.some(member => member.memberId === memberId);
+    if (!current && !(await this.groupMembers.hasBeenMember(groupId, memberId, caller.data.value))) {
       return Result.fail(new NotFoundException('Ledger', 'Member not found'));
     }
 

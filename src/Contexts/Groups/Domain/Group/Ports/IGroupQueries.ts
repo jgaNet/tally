@@ -28,4 +28,9 @@ export interface IGroupQueries {
    * otherwise (as if the group did not exist).
    */
   listMembersOf(memberId: string, groupId: string): Promise<MemberView[] | null>;
+  /**
+   * Whether the account has ever been a member of the group, a former member included, when `askedBy` is one of its
+   * current members; null otherwise, as if the group did not exist (request 9: a former member's statement is read).
+   */
+  hasBeenMemberOf(askedBy: string, groupId: string, accountId: string): Promise<boolean | null>;
 }

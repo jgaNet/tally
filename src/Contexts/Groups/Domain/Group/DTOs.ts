@@ -11,8 +11,10 @@ export interface IGroupSnapshot {
   name: string;
   currency: string;
   ownerId: string;
-  /** The members in the order they joined: the owner first. */
+  /** The current members in the order they joined: the owner first. */
   members: IGroupMemberSnapshot[];
+  /** The accounts that were members and left, in the order they left. */
+  formerMembers: IGroupMemberSnapshot[];
   /** When the group was created, as an ISO 8601 string. */
   createdAt: string;
   version: number;

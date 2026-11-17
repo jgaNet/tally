@@ -5,3 +5,6 @@ export class GroupCreatedEvent extends DomainEvent<{ groupId: string; ownerId: s
 
 /** An account joined a group by an invitation: the group, and the account that is now one of its members. */
 export class MemberJoinedEvent extends DomainEvent<{ groupId: string; accountId: string }> {}
+
+/** A member left a group once its balance was 0: the group, and the account that is no longer one of its members. */
+export class MemberLeftEvent extends DomainEvent<{ groupId: string; accountId: string }> {}

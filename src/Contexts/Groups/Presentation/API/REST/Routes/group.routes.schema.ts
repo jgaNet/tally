@@ -82,3 +82,17 @@ export const GetGroupMembersResSchema = {
   401: RefusalSchema,
   404: RefusalSchema,
 } as const;
+
+/** Leaving answers at once, as a creation does: the id of the group left, or the refusal (request 9). */
+export const LeaveGroupResSchema = {
+  201: IdSchema,
+  202: {
+    type: 'object',
+    required: ['operationId'],
+    properties: { operationId: { type: 'string' } },
+  },
+  400: RefusalSchema,
+  401: RefusalSchema,
+  404: RefusalSchema,
+  409: RefusalSchema,
+} as const;

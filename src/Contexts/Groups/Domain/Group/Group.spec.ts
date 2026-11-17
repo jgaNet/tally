@@ -3,7 +3,11 @@ import { IResult } from '@Architecture/Domain';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
-import { GroupCreatedEvent, MemberJoinedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import {
+  GroupCreatedEvent,
+  MemberJoinedEvent,
+  MemberLeftEvent,
+} from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 
 const valueOf = <T>(result: IResult<T>): T => {
   if (result.isFailure()) throw result.error;
@@ -109,5 +113,68 @@ describe('Group', () => {
       { accountId: 'ana', joinedAt: AT.toISOString() },
       { accountId: 'ben', joinedAt: '2026-11-02T09:00:00.000Z' },
     ]);
+  });
+});
+
+describe('Group.leave', () => {
+  const JOINED = new Date('2026-11-02T09:00:00.000Z');
+  const withBen = () => {
+    const group = created();
+    valueOf(group.join({ accountId: 'ben', joinedAt: JOINED }));
+    group.pullDomainEvents();
+    return group;
+  };
+
+  it('lets a member with a balance of 0 leave, and records MemberLeft', () => {
+    const group = withBen();
+
+    expect(group.leave({ accountId: 'ben', balance: 0 }).isSuccess()).toBe(true);
+
+    expect(group.members.map(member => member.accountId)).toEqual(['ana']);
+    expect(group.isMember('ben')).toBe(false);
+    const events = group.pullDomainEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toBeInstanceOf(MemberLeftEvent);
+    expect(events[0].payload).toEqual({ groupId: group._id.value, accountId: 'ben' });
+  });
+
+  it('refuses the owner, always, and keeps the group as it was', () => {
+    const group = withBen();
+
+    const refused = group.leave({ accountId: 'ana', balance: 0 });
+
+    expect(refused.isFailure() && refused.error.type).toBe('OwnerCannotLeave');
+    expect(group.isMember('ana')).toBe(true);
+    expect(group.pullDomainEvents()).toEqual([]);
+  });
+
+  it('refuses a balance that is not 0, owed or owing, as BalanceNotZero', () => {
+    const group = withBen();
+
+    expect(group.leave({ accountId: 'ben', balance: 500 }).isFailure()).toBe(true);
+    const refused = group.leave({ accountId: 'ben', balance: -1 });
+    expect(refused.isFailure() && refused.error.type).toBe('BalanceNotZero');
+    expect(group.isMember('ben')).toBe(true);
+  });
+
+  it('refuses an account that is not a member as a group that does not exist', () => {
+    const refused = withBen().leave({ accountId: 'zoe', balance: 0 });
+
+    expect(refused.isFailure() && refused.error.type).toBe('NotFound');
+  });
+
+  it('keeps the former member in the snapshot, and a member who joins again is last, from that moment', () => {
+    const group = withBen();
+    group.leave({ accountId: 'ben', balance: 0 });
+    const rebuilt = Group.fromSnapshot(group.toSnapshot());
+
+    expect(rebuilt.toSnapshot().formerMembers).toEqual([{ accountId: 'ben', joinedAt: JOINED.toISOString() }]);
+    const REJOINED = new Date('2026-11-20T08:00:00.000Z');
+    valueOf(rebuilt.join({ accountId: 'cara', joinedAt: REJOINED }));
+    valueOf(rebuilt.join({ accountId: 'ben', joinedAt: REJOINED }));
+
+    expect(rebuilt.members.map(member => member.accountId)).toEqual(['ana', 'cara', 'ben']);
+    expect(rebuilt.members[2].joinedAt).toEqual(REJOINED);
+    expect(rebuilt.formerMembers).toEqual([]);
   });
 });

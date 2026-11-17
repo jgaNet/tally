@@ -17,4 +17,9 @@ export interface IGroupMembers {
    * otherwise, as if the group did not exist.
    */
   membersOf(groupId: string, askedBy: string): Promise<GroupMember[] | null>;
+  /**
+   * Whether the account has ever been a member of the group, one who left included, when `askedBy` is a current member;
+   * null otherwise, as if the group did not exist. A former member's statement is read through it (request 9).
+   */
+  hasBeenMember(groupId: string, accountId: string, askedBy: string): Promise<boolean | null>;
 }

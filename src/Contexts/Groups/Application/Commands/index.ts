@@ -6,3 +6,5 @@ export * from '@Contexts/Groups/Application/Commands/CreateInvitation/CreateInvi
 export * from '@Contexts/Groups/Application/Commands/CreateInvitation/CreateInvitationCommandHandler';
 export * from '@Contexts/Groups/Application/Commands/AcceptInvitation/AcceptInvitationCommandEvent';
 export * from '@Contexts/Groups/Application/Commands/AcceptInvitation/AcceptInvitationCommandHandler';
+export * from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandEvent';
+export * from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandHandler';

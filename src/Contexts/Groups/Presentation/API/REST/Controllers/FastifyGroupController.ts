@@ -8,6 +8,7 @@ import {
   CreateGroupCommandEvent,
   CreateGroupPayload,
   CreateInvitationCommandEvent,
+  LeaveGroupCommandEvent,
 } from '@Contexts/Groups/Application/Commands';
 import {
   GetGroupMembersQueryHandler,
@@ -43,6 +44,10 @@ export class FastifyGroupController {
 
   createInvitation(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     return acceptCommandAtOnce(req, reply, this.#module, CreateInvitationCommandEvent.set({ groupId: req.params.id }));
+  }
+
+  leaveGroup(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommandAtOnce(req, reply, this.#module, LeaveGroupCommandEvent.set({ groupId: req.params.id }));
   }
 
   async getGroupMembers(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

@@ -88,8 +88,7 @@ relationships:
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       A member leaves a group only with a balance of zero, and only Ledger knows the balances. Groups asks through a
       port it owns (MemberBalances) when it decides: two ports in opposite directions, each in the asking side's
-      words, and no domain imports the other (T5).
+      words, and no domain imports the other (T5). Carried since request 9 (ADR 5).
