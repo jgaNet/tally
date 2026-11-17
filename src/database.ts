@@ -73,6 +73,22 @@ const SCHEMA = `
     provider_account_id TEXT NOT NULL,
     set_at              TEXT NOT NULL
   );
+  /*
+   * A notice to a member about an expense: written in the transaction that records the expense, so it exists
+   * exactly when the expense does. It names the expense without a foreign key: deleting the expense keeps it.
+   * One per expense and recipient, whatever happens to the server.
+   */
+  CREATE TABLE IF NOT EXISTS notices (
+    id           TEXT PRIMARY KEY,
+    recipient_id TEXT NOT NULL REFERENCES accounts (id),
+    kind         TEXT NOT NULL CHECK (kind IN ('expense')),
+    group_id     TEXT NOT NULL REFERENCES groups (id),
+    expense_id   TEXT NOT NULL,
+    amount       INTEGER NOT NULL,
+    created_at   TEXT NOT NULL,
+    UNIQUE (kind, expense_id, recipient_id)
+  );
+  CREATE INDEX IF NOT EXISTS notices_by_recipient ON notices (recipient_id, created_at);
 `;
 
 /**

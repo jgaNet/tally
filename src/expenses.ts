@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { findGroupOfMember, membersOfGroup } from './groups';
+import { noticeExpense } from './notices';
 import { Refusal } from './refusal';
 import { characters } from './text';
 import { inReadSnapshot, inTransaction } from './transactions';
@@ -243,10 +244,13 @@ export function recordExpense(db: DatabaseSync, input: RecordExpenseInput): stri
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
     const checked = checkExpenseFields(db, groupId, payerId, input);
+    const at = new Date().toISOString();
     db.prepare(
       'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)',
-    ).run(id, groupId, checked.description, amount, date, payerId, input.split.kind, new Date().toISOString());
+    ).run(id, groupId, checked.description, amount, date, payerId, input.split.kind, at);
     writeShares(db, id, checked.shares);
+    // The members of the split are told of their shares in the same transaction: the notices exist with the expense.
+    noticeExpense(db, { expenseId: id, groupId, payerId, shares: checked.shares, at });
   });
   return id;
 }
