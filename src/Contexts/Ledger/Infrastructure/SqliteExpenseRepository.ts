@@ -59,7 +59,9 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     const { id, groupId, description, amount, date, paidBy, splitKind, shares, version } = expense.toSnapshot();
     if (version === 0) {
       this.database.run(
-        'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, split_kind, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        // The recording order is set once, here: the next position after every expense stored so far. An edit never sets it.
+        `INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, split_kind, version, recorded_seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM expenses))`,
         id,
         groupId,
         description,

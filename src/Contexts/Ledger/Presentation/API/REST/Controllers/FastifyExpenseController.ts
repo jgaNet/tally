@@ -7,7 +7,7 @@ import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/Acce
 import { DeleteExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/DeleteExpense';
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense';
-import { GetExpenseQueryHandler } from '@Contexts/Ledger/Application/Queries';
+import { GetExpenseQueryHandler, GetGroupExpensesQueryHandler } from '@Contexts/Ledger/Application/Queries';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** Exactly one of the three ways to split, as a body gives it (request 7). */
@@ -67,6 +67,14 @@ export class FastifyExpenseController {
     const result = await this.#module
       .getQuery(GetExpenseQueryHandler)
       .handle({ id: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  async getGroupExpenses(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetGroupExpensesQueryHandler)
+      .handle({ groupId: req.params.id }, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }

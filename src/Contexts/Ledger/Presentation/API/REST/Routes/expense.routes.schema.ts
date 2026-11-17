@@ -93,3 +93,10 @@ export const GetExpenseResSchema = {
   401: RefusedSchema,
   404: RefusedSchema,
 } as const;
+
+/** A read (request 8): the group's expenses that have not been deleted, the latest date first, to a member of the group only. */
+export const GetGroupExpensesResSchema = {
+  200: { description: 'Success', type: 'array', items: ExpenseSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;

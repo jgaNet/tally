@@ -15,16 +15,22 @@ export function createLedgerTables(database: SqliteDatabase): void {
     spent_on TEXT NOT NULL,
     paid_by TEXT NOT NULL,
     version INTEGER NOT NULL DEFAULT 1,
-    split_kind TEXT NOT NULL DEFAULT 'equal'
+    split_kind TEXT NOT NULL DEFAULT 'equal',
+    recorded_seq INTEGER NOT NULL DEFAULT 0
   )`);
   // A file made before expenses had a version: each of them is at version 1, the one it was recorded at. A file made before
-  // splits had kinds: each of them was split equally.
+  // splits had kinds: each of them was split equally. A file made before expenses had a recording order: each is ordered by
+  // the position it was stored at, which is the order it was recorded in.
   const columns = database.all<{ name: string }>('PRAGMA table_info(expenses)');
   if (!columns.some(column => column.name === 'version')) {
     database.exec('ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
   }
   if (!columns.some(column => column.name === 'split_kind')) {
     database.exec("ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
+  }
+  if (!columns.some(column => column.name === 'recorded_seq')) {
+    database.exec('ALTER TABLE expenses ADD COLUMN recorded_seq INTEGER NOT NULL DEFAULT 0');
+    database.exec('UPDATE expenses SET recorded_seq = rowid');
   }
   database.exec('CREATE INDEX IF NOT EXISTS expenses_by_group ON expenses (group_id)');
   database.exec(`CREATE TABLE IF NOT EXISTS expense_shares (

@@ -6,6 +6,7 @@ import { FastifyExpenseController } from '@Contexts/Ledger/Presentation/API/REST
 import {
   EditExpenseBodySchema,
   GetExpenseResSchema,
+  GetGroupExpensesResSchema,
   LaterCommandResSchema,
   RecordExpenseBodySchema,
 } from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes.schema';
@@ -35,6 +36,13 @@ export const expenseRoutes = function (
     '/expenses/:id',
     { schema: { tags: ['expenses'], response: LaterCommandResSchema } },
     controller.deleteExpense.bind(controller),
+  );
+
+  // The group's expenses, the latest date first (request 8). A whole path, like the group's other expense routes.
+  fastify.get(
+    '/groups/:id/expenses',
+    { schema: { tags: ['expenses'], response: GetGroupExpensesResSchema } },
+    controller.getGroupExpenses.bind(controller),
   );
 
   fastify.get(

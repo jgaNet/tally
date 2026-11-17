@@ -11,7 +11,7 @@ import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { authenticate, localGroupsModule } from '@Contexts/Groups/module.local';
 import { accountRoutes, groupRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
-import { balanceRoutes, expenseRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
+import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
  * The composition root an application starts from (ADR 27): `clean-ddd create` gives it as
@@ -52,6 +52,7 @@ export async function createApplication({
     .registerRoutes('/', groupRoutes, { groupsModule: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule })
     .registerRoutes('/tracker/operations', operationRoutes, { operationsModule: localTrackerModule });
 
