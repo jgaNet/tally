@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-1",
+  "ref": "1d95c721aca158f0f4df22dc11e6e454addb1ba9",
+  "commit": "1d95c721aca158f0f4df22dc11e6e454addb1ba9",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": [],
+        "together": {
+          "failed": [
+            "accounts › keeps every account when the server is killed and started again on the same file"
+          ],
+          "tests": "1 failed, 7 passed, 8 total"
+        }
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "create-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": [],
+        "together": {
+          "failed": [
+            "create a group › lists a person's groups, the most recently created first"
+          ],
+          "tests": "1 failed, 5 passed, 6 total"
+        }
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "invite-and-join",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "record-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": [],
+        "together": {
+          "failed": [
+            "record an expense › records an expense split equally, its shares in the order given, read whole by the members only",
+            "record an expense › gives the remainder of an equal split whole to the payer, and the shares add up to the amount",
+            "record an expense › refuses an expense whose values or split are not allowed",
+            "record an expense › refuses an expense to anyone who is not a member",
+            "record an expense › refuses an expense of the wrong shape at once with 400"
+          ],
+          "tests": "5 failed, 5 total"
+        }
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "balances",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": [],
+        "together": {
+          "failed": [
+            "a group's balances › gives each member what they paid minus their shares, in the order they joined, adding up to zero",
+            "a group's balances › keeps the zero sum after every expense, whatever the remainders",
+            "a group's balances › reads the balances to the members only",
+            "a group's balances › counts once each of twenty expenses sent at once to two servers on one database, and keeps the zero sum"
+          ],
+          "tests": "4 failed, 4 total"
+        }
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "edit-and-delete-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "unequal-splits",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "history-and-statement",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "leave-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 75724,
+  "workers": 2
+}
