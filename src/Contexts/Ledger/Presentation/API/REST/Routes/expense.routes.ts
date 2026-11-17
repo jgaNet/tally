@@ -1,0 +1,31 @@
+import { FastifyInstance } from 'fastify';
+import { Module } from '@Architecture/Application';
+import { FastifyExpenseController } from '@Contexts/Ledger/Presentation/API/REST/Controllers/FastifyExpenseController';
+import {
+  GetExpenseResSchema,
+  RecordExpenseBodySchema,
+  RecordExpenseResSchema,
+} from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes.schema';
+
+export const expenseRoutes = function (
+  fastify: FastifyInstance,
+  { ledgerModule }: { ledgerModule: Module },
+  done: () => void,
+) {
+  const controller = new FastifyExpenseController({ module: ledgerModule });
+
+  fastify.post(
+    '/groups/:id/expenses',
+    {
+      schema: { tags: ['expenses'], body: RecordExpenseBodySchema, response: RecordExpenseResSchema },
+    },
+    controller.recordExpense.bind(controller),
+  );
+  fastify.get(
+    '/expenses/:id',
+    { schema: { tags: ['expenses'], response: GetExpenseResSchema } },
+    controller.getExpense.bind(controller),
+  );
+
+  done();
+};

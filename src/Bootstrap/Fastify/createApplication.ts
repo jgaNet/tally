@@ -10,6 +10,7 @@ import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { authenticate, localGroupsModule } from '@Contexts/Groups/module.local';
 import { accountRoutes, groupRoutes, invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { expenseRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
  * The composition root: the transport, the one event bus (which records every operation), the
@@ -43,6 +44,7 @@ export async function createApplication({
     .registerRoutes('/', accountRoutes, { accountsModule: localGroupsModule })
     .registerRoutes('/', groupRoutes, { groupsModule: localGroupsModule })
     .registerRoutes('/', invitationRoutes, { groupsModule: localGroupsModule })
+    .registerRoutes('/', expenseRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule });
 
   await app.startModules();

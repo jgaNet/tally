@@ -1,5 +1,6 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { IGroupQueries } from '@Contexts/Groups/Application/Ports/IGroupQueries';
+import { IGroupMembership } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembership';
 import { GroupReadModel } from '@Contexts/Groups/Application/ReadModel/GroupReadModel';
 import { MemberReadModel } from '@Contexts/Groups/Application/ReadModel/MemberReadModel';
 import { GROUP_STATEMENTS } from '@Contexts/Groups/Infrastructure/groups.schema';
@@ -10,7 +11,7 @@ const READ_MODEL = 'SELECT g.id, g.name, g.currency, g.owner_id AS ownerId FROM 
  * What the screens read of the groups, from the SQLite file, outside any transaction. Membership is the join: a
  * group an account is not in is not read at all, so the answer for it is the answer for a group that does not exist.
  */
-export class SqliteGroupQueries implements IGroupQueries {
+export class SqliteGroupQueries implements IGroupQueries, IGroupMembership {
   constructor(private readonly database: SqliteDatabase) {
     database.migrate(GROUP_STATEMENTS);
   }
@@ -35,6 +36,11 @@ export class SqliteGroupQueries implements IGroupQueries {
           .all(accountId) as unknown,
     );
     return rows as GroupReadModel[];
+  }
+
+  async listMemberIds(groupId: string): Promise<string[]> {
+    const members = await this.listMembers(groupId);
+    return members.map(member => member.memberId);
   }
 
   async listMembers(groupId: string): Promise<MemberReadModel[]> {

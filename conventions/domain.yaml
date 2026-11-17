@@ -80,11 +80,11 @@ relationships:
     downstream: Ledger
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       Only a member of the group may be in a split, and only Groups knows who is a member now, in which order, with
       which role, and who has ever been one. Ledger asks in its own words, through a port it owns (GroupMembers), when
-      it decides, so that a member who has just joined can be in a split at once (T3).
+      it decides, so that a member who has just joined can be in a split at once (T3). Carried since request 4, its
+      answer read over Groups' read model that Groups' wiring exports (ADR 3).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]

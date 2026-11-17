@@ -28,6 +28,8 @@ import { SqliteInvitationQueries } from '@Contexts/Groups/Infrastructure/SqliteI
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
 import { HmacTokens } from '@Contexts/Groups/Infrastructure/HmacTokens';
 import { authenticateWith } from '@Contexts/Groups/Presentation/API/REST/authenticate';
+import { IGroupMembership } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembership';
+import { SqliteGroupMembership } from '@Contexts/Groups/Infrastructure/SqliteGroupMembership';
 
 /**
  * The Groups context (conventions/domain.yaml, ADR 1): accounts (signing up, signing in, reading one's own account)
@@ -41,6 +43,14 @@ const groupQueries = new SqliteGroupQueries(database);
 const invitationQueries = new SqliteInvitationQueries(database);
 
 export const tokens = new HmacTokens(database);
+
+/**
+ * The members of a group as another context reads them (ADR 3), exported as what it needs of Groups and nothing of
+ * Groups' application beyond it: `groupMembership` for its queries (outside a transaction), and
+ * `groupMembershipInCommand` for its commands (inside the command's transaction, ADR 2).
+ */
+export const groupMembership: IGroupMembership = groupQueries;
+export const groupMembershipInCommand: IGroupMembership = new SqliteGroupMembership(database);
 
 /** Says who is calling, for the transport: the context that owns accounts provides it. */
 export const authenticate = authenticateWith(tokens);
