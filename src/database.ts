@@ -209,6 +209,35 @@ const MIGRATIONS: readonly string[] = [
   CREATE UNIQUE INDEX notices_expense_account ON notices (expense_id, account_id);
   CREATE INDEX notices_account ON notices (account_id, created_at);
   `,
+  `
+  -- A reminder is a notice of its own kind, with no expense: the table is rebuilt so expense_id may be null and
+  -- kind may be 'reminder', its rows copied in the order they were written. debt_notes keeps, for each member
+  -- of a group the background job sees owing more than 2000, the run it noted that from, and when it last
+  -- reminded them; a member it no longer sees owing that has no row.
+  CREATE TABLE notices_next (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder')),
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    expense_id TEXT,
+    amount INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  INSERT INTO notices_next (id, account_id, kind, group_id, expense_id, amount, created_at)
+    SELECT id, account_id, kind, group_id, expense_id, amount, created_at FROM notices ORDER BY rowid;
+  DROP TABLE notices;
+  ALTER TABLE notices_next RENAME TO notices;
+  CREATE UNIQUE INDEX notices_expense_account ON notices (expense_id, account_id);
+  CREATE INDEX notices_account ON notices (account_id, created_at);
+
+  CREATE TABLE debt_notes (
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    noted_at TEXT NOT NULL,
+    reminded_at TEXT,
+    PRIMARY KEY (group_id, account_id)
+  );
+  `,
 ];
 
 /**

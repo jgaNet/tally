@@ -14,6 +14,7 @@ import { registerPayoutAccountRoutes } from './payout-accounts';
 import { registerSettlementRoutes } from './settlements';
 import { type ProviderConfig } from './provider';
 import { Refusal } from './refusal';
+import { DEFAULT_REMINDER_PERIOD_SECONDS, runReminders } from './reminders';
 import { registerProviderWebhookRoutes } from './webhooks';
 
 /** The running application: what the server entry point and the tests start and stop. */
@@ -22,8 +23,15 @@ export interface Application {
   readonly apiPrefix: string;
   /** `http://host:port` once started. */
   readonly address: string;
+  /** One run of the background job, at `now` (the present by default). The server runs it by itself every `JOBS_INTERVAL_SECONDS`. */
+  runJobs(now?: Date): void;
   start(port?: number): Promise<void>;
   stop(): Promise<void>;
+}
+
+function positiveNumber(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return value !== undefined && value !== '' && Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /**
@@ -38,6 +46,8 @@ export async function createApplication({
   providerUrl = process.env.PROVIDER_URL || undefined,
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || undefined,
   providerTimeoutMs = 5000,
+  jobsIntervalSeconds = positiveNumber(process.env.JOBS_INTERVAL_SECONDS, 60),
+  reminderPeriodSeconds = positiveNumber(process.env.REMINDER_PERIOD_SECONDS, DEFAULT_REMINDER_PERIOD_SECONDS),
 }: {
   apiPrefix?: string;
   port?: number;
@@ -45,6 +55,8 @@ export async function createApplication({
   providerUrl?: string;
   providerWebhookSecret?: string;
   providerTimeoutMs?: number;
+  jobsIntervalSeconds?: number;
+  reminderPeriodSeconds?: number;
 } = {}): Promise<Application> {
   const provider: ProviderConfig = {
     url: providerUrl,
@@ -83,16 +95,33 @@ export async function createApplication({
   );
 
   let address = '';
+  let timer: NodeJS.Timeout | undefined;
+  let stopped = false;
+  const runJobs = (now?: Date): void => {
+    if (stopped) return;
+    runReminders(db, reminderPeriodSeconds * 1000, now);
+  };
   return {
     server,
     apiPrefix,
     get address() {
       return address;
     },
+    runJobs,
     async start(listenOn = port) {
       address = await server.listen({ port: listenOn, host: '127.0.0.1' });
+      timer ??= setInterval(() => {
+        try {
+          runJobs();
+        } catch (error) {
+          server.log.error(error);
+        }
+      }, jobsIntervalSeconds * 1000);
+      timer.unref();
     },
     async stop() {
+      stopped = true;
+      if (timer) clearInterval(timer);
       try {
         await server.close();
       } finally {

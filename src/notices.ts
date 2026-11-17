@@ -3,21 +3,24 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { requireCaller } from './sessions';
 
-/** A notice: the member `expenseId` concerns, other than its payer, and their share of it, in hundredths. */
+/**
+ * A notice: of an expense, to a member it concerns other than its payer, with their share of it; or a reminder, with
+ * no expense, of what the member still owes. Amounts are in hundredths.
+ */
 export interface Notice {
   id: string;
-  kind: 'expense';
+  kind: 'expense' | 'reminder';
   groupId: string;
-  expenseId: string;
+  expenseId?: string;
   amount: number;
   at: string;
 }
 
 interface NoticeRow {
   id: string;
-  kind: 'expense';
+  kind: 'expense' | 'reminder';
   group_id: string;
-  expense_id: string;
+  expense_id: string | null;
   amount: number;
   created_at: string;
 }
@@ -57,7 +60,7 @@ export function listNoticesOf(db: DatabaseSync, accountId: string): Notice[] {
     id: row.id,
     kind: row.kind,
     groupId: row.group_id,
-    expenseId: row.expense_id,
+    ...(row.expense_id === null ? {} : { expenseId: row.expense_id }),
     amount: row.amount,
     at: row.created_at,
   }));
@@ -65,10 +68,10 @@ export function listNoticesOf(db: DatabaseSync, accountId: string): Notice[] {
 
 const noticeSchema = {
   type: 'object',
-  required: ['id', 'kind', 'groupId', 'expenseId', 'amount', 'at'],
+  required: ['id', 'kind', 'groupId', 'amount', 'at'],
   properties: {
     id: { type: 'string' },
-    kind: { enum: ['expense'] },
+    kind: { enum: ['expense', 'reminder'] },
     groupId: { type: 'string' },
     expenseId: { type: 'string' },
     amount: { type: 'integer' },
