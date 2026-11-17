@@ -8,6 +8,7 @@ import {
   OnlyAPaidSettlementIsRefunded,
   OnlyThePayeeMayRefund,
   PaidToSelf,
+  PayeeHasNoPayoutAccount,
   PayeeNotAMember,
   PayerNotAMember,
   ProviderRefundUnavailable,
@@ -38,7 +39,10 @@ export interface Decision {
   payeeBalance: number;
 }
 
-/** A payment through the provider, decided and named, not yet recorded: its id is the reference the provider is given. */
+/**
+ * A payment through the provider, decided and named, not yet recorded: its id is the reference the provider is given, and
+ * `payeeAccount` is the payee's payout account at the provider, the account the payment is made to (request 16).
+ */
 export interface PlannedPayment {
   readonly id: Id;
   readonly groupId: Id;
@@ -46,6 +50,7 @@ export interface PlannedPayment {
   readonly payee: Id;
   readonly amount: number;
   readonly at: Date;
+  readonly payeeAccount: string;
 }
 
 /** A refund decided and named, not yet recorded: the provider's id for the payment it refunds, and the settlement it is for. */
@@ -150,11 +155,17 @@ export class SettlementBook extends AggregateRoot {
 
   /**
    * First half of a payment through the provider: the rules decided now, and the id the payment is kept under, which the provider
-   * is given as its reference. Nothing is recorded: when the provider gives no link, nothing was kept.
+   * is given as its reference. A payee with no payout account (`payeeAccount` null) is refused here, before the provider is asked
+   * (request 16). Nothing is recorded: when the provider gives no link, nothing was kept.
    */
-  planPayment({ now, ...decision }: Decision & { now: Date }): IResult<PlannedPayment> {
+  planPayment({
+    now,
+    payeeAccount,
+    ...decision
+  }: Decision & { now: Date; payeeAccount: string | null }): IResult<PlannedPayment> {
     const decided = this.decide(decision);
     if (decided.isFailure()) return decided;
+    if (payeeAccount === null) return Result.fail(new PayeeHasNoPayoutAccount());
 
     return Result.ok({
       id: Id.generate(),
@@ -163,6 +174,7 @@ export class SettlementBook extends AggregateRoot {
       payee: decision.payee,
       amount: decision.amount,
       at: now,
+      payeeAccount,
     });
   }
 

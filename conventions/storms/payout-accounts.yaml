@@ -5,7 +5,7 @@ feature: payout-accounts
 intent: >-
   A person sets the payout account the provider pays them on, which the provider must know; from now on a member is paid through the provider only with one.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where does a payout account live — on the account, in Groups, or in Settlements?

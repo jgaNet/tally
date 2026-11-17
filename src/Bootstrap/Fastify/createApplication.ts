@@ -13,7 +13,7 @@ import { accountRoutes, groupRoutes } from '@Contexts/Groups/Presentation/API/RE
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 import { localSettlementsModule, webhookSignatures } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
-import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
+import { payoutAccountRoutes, settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
 import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
@@ -59,6 +59,7 @@ export async function createApplication({
     .registerRoutes('/', balanceRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { settlementsModule: localSettlementsModule, webhookSignatures })
+    .registerRoutes('/', payoutAccountRoutes, { settlementsModule: localSettlementsModule })
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule })
     .registerRoutes('/tracker/operations', operationRoutes, { operationsModule: localTrackerModule });
 

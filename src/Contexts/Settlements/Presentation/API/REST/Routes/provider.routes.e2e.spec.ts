@@ -17,11 +17,15 @@ let http: ReturnType<typeof apiClient>;
 let api: string;
 let provider: Server;
 /** Every payment link the provider gave, in the order it gave them: the payment's id there, and the settlement it is for. */
-const issued: Array<{ paymentId: string; reference: string; amount: number; currency: string }> = [];
+const issued: Array<{ paymentId: string; reference: string; amount: number; currency: string; payee: string }> = [];
 let refusing = false;
 /** Every refund the provider was asked for, in the order it was asked: the payment, and the settlement it is for. */
 const refunded: Array<{ paymentId: string; reference: string }> = [];
 let refusingRefunds = false;
+/** The payout accounts the provider does not know: asked for, it answers `404`. */
+const unknownAccounts = new Set<string>();
+/** Whether the provider refuses to answer about payout accounts at all (`500`). */
+let refusingAccounts = false;
 let previousEnv: { url?: string; secret?: string };
 
 beforeAll(async () => {
@@ -30,6 +34,20 @@ beforeAll(async () => {
     let text = '';
     request.on('data', chunk => (text += chunk));
     request.on('end', () => {
+      if (request.method === 'GET' && request.url?.startsWith('/accounts/')) {
+        const accountId = decodeURIComponent(request.url.slice('/accounts/'.length));
+        if (refusingAccounts) {
+          response.writeHead(500).end();
+          return;
+        }
+        if (unknownAccounts.has(accountId)) {
+          response.writeHead(404).end();
+          return;
+        }
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ id: accountId }));
+        return;
+      }
       if (request.url?.endsWith('/refunds')) {
         const { reference } = JSON.parse(text) as { reference: string };
         if (refusingRefunds) {
@@ -45,7 +63,7 @@ beforeAll(async () => {
         response.writeHead(500).end();
         return;
       }
-      const body = JSON.parse(text) as { reference: string; amount: number; currency: string };
+      const body = JSON.parse(text) as { reference: string; amount: number; currency: string; payee: string };
       const paymentId = `pay_${issued.length + 1}`;
       issued.push({ paymentId, ...body });
       response.writeHead(201, { 'content-type': 'application/json' });
@@ -87,8 +105,24 @@ async function outcome(operationId: string, token?: string): Promise<Operation> 
   throw new Error('The operation never ended');
 }
 
-/** Signs someone up and in, under the name given: their account's id, and the token that names it. */
-async function signedIn(email: string, name = 'Alice'): Promise<{ id: string; token: string }> {
+/** The provider's id for a person's payout account, which the provider knows: the person's account id, prefixed. */
+const payoutOf = (accountId: string) => `payout_${accountId}`;
+
+/** Sets the caller's payout account, and follows the operation of the request. */
+async function setPayoutAccount(token: string, accountId: string): Promise<Operation> {
+  const answer = await http.request('PUT', `${api}/accounts/me/payout-account`, { token, body: { accountId } });
+  return outcome((answer.body as { operationId: string }).operationId, token);
+}
+
+/**
+ * Signs someone up and in, under the name given: their account's id, and the token that names it. Unless `payoutAccount` is false,
+ * they also set the payout account the provider knows for them (request 16), so that they can be paid through the provider.
+ */
+async function signedIn(
+  email: string,
+  name = 'Alice',
+  { payoutAccount = true }: { payoutAccount?: boolean } = {},
+): Promise<{ id: string; token: string }> {
   const signUp = await http.request('POST', `${api}/accounts`, {
     body: { email, password: 'correct horse', name },
   });
@@ -96,7 +130,10 @@ async function signedIn(email: string, name = 'Alice'): Promise<{ id: string; to
   const login = await http.request('POST', `${api}/accounts/login`, {
     body: { email, password: 'correct horse' },
   });
-  return { id: operation.result as string, token: (login.body as { token: string }).token };
+  const person = { id: operation.result as string, token: (login.body as { token: string }).token };
+  if (payoutAccount)
+    expect(await setPayoutAccount(person.token, payoutOf(person.id))).toMatchObject({ status: 'SUCCESS' });
+  return person;
 }
 
 async function createGroup(token: string, name: string): Promise<string> {
@@ -176,7 +213,13 @@ describe('pay through the provider (request 13)', () => {
     expect(paid).toMatchObject({ status: 'SUCCESS' });
     const settlementId = paid.result as string;
     const { paymentId } = lastPayment();
-    expect(lastPayment()).toEqual({ paymentId, reference: settlementId, amount: 30, currency: 'EUR' });
+    expect(lastPayment()).toEqual({
+      paymentId,
+      reference: settlementId,
+      amount: 30,
+      currency: 'EUR',
+      payee: payoutOf(ann.id),
+    });
 
     expect(await http.get(`${api}/settlements/${settlementId}`, { token: bob.token })).toMatchObject({
       status: 200,
@@ -312,6 +355,120 @@ describe('pay through the provider (request 13)', () => {
     expect(
       await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, { body: { to: ann.id, amount: 1 } }),
     ).toMatchObject({ status: 401 });
+  });
+});
+
+describe('payout accounts (request 16)', () => {
+  it('sets the account a person is paid on to the one the provider knows, reads it back to that person only, and replaces it when set again', async () => {
+    const ann = await signedIn('pa-ann@example.com', 'Ann', { payoutAccount: false });
+    const bob = await signedIn('pa-bob@example.com', 'Bob', { payoutAccount: false });
+    const read = (token?: string) => http.get(`${api}/accounts/me/payout-account`, { token });
+
+    expect(await read(ann.token)).toMatchObject({ status: 404 });
+    expect(await setPayoutAccount(ann.token, 'payout_first')).toMatchObject({ status: 'SUCCESS' });
+    expect(await read(ann.token)).toMatchObject({ status: 200, body: { accountId: 'payout_first' } });
+
+    expect(await setPayoutAccount(ann.token, 'payout_second')).toMatchObject({ status: 'SUCCESS' });
+    expect(await read(ann.token)).toMatchObject({ status: 200, body: { accountId: 'payout_second' } });
+
+    // Bob has set none: Ann's account is not his, and an anonymous caller is refused.
+    expect(await read(bob.token)).toMatchObject({ status: 404 });
+    expect(await read()).toMatchObject({ status: 401 });
+  });
+
+  it('refuses an account the provider does not know, when it answers anything else, when it is not configured, and keeps the account the person had', async () => {
+    const ann = await signedIn('pa2-ann@example.com', 'Ann');
+    const before = await http.get(`${api}/accounts/me/payout-account`, { token: ann.token });
+    expect(before).toMatchObject({ body: { accountId: payoutOf(ann.id) } });
+
+    unknownAccounts.add('payout_stranger');
+    try {
+      expect(await setPayoutAccount(ann.token, 'payout_stranger')).toMatchObject({
+        status: 'ERROR',
+        error: { type: 'UnknownPayoutAccount' },
+      });
+    } finally {
+      unknownAccounts.delete('payout_stranger');
+    }
+
+    refusingAccounts = true;
+    try {
+      expect(await setPayoutAccount(ann.token, 'payout_flaky')).toMatchObject({
+        status: 'ERROR',
+        error: { type: 'UnknownPayoutAccount' },
+      });
+    } finally {
+      refusingAccounts = false;
+    }
+
+    const url = process.env.PROVIDER_URL;
+    delete process.env.PROVIDER_URL;
+    try {
+      expect(await setPayoutAccount(ann.token, 'payout_unconfigured')).toMatchObject({
+        status: 'ERROR',
+        error: { type: 'UnknownPayoutAccount' },
+      });
+    } finally {
+      restoreEnv('PROVIDER_URL', url);
+    }
+
+    expect(await http.get(`${api}/accounts/me/payout-account`, { token: ann.token })).toMatchObject({
+      body: { accountId: payoutOf(ann.id) },
+    });
+  });
+
+  it('refuses a payment to a member with no payout account, by the name of its rule, and asks the provider nothing', async () => {
+    const ann = await signedIn('pa3-ann@example.com', 'Ann');
+    const bob = await signedIn('pa3-bob@example.com', 'Bob', { payoutAccount: false });
+    const groupId = await createGroup(bob.token, 'Payouts');
+    await join(bob.token, groupId, ann.token);
+    expect(
+      await record(bob.token, groupId, {
+        description: 'Taxi',
+        amount: 60,
+        date: PAST_DAY,
+        splitBetween: [ann.id, bob.id],
+      }),
+    ).toMatchObject({ status: 'SUCCESS' });
+
+    const asked = issued.length;
+    expect(await payThroughProvider(ann.token, groupId, { to: bob.id, amount: 30 })).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'PayeeHasNoPayoutAccount' },
+    });
+    expect(issued).toHaveLength(asked);
+    expect(await suggested(ann.token, groupId)).toMatchObject({ body: [{ from: ann.id, to: bob.id, amount: 30 }] });
+
+    // The same payee, once Bob has an account: the provider is asked, and the money goes to the account he set.
+    expect(await setPayoutAccount(bob.token, payoutOf(bob.id))).toMatchObject({ status: 'SUCCESS' });
+    expect(await payThroughProvider(ann.token, groupId, { to: bob.id, amount: 30 })).toMatchObject({
+      status: 'SUCCESS',
+    });
+    expect(lastPayment()).toMatchObject({ amount: 30, payee: payoutOf(bob.id) });
+  });
+
+  it('records a settlement in cash to a member with no payout account, since a settlement in cash needs none', async () => {
+    const ann = await signedIn('pa4-ann@example.com', 'Ann');
+    const bob = await signedIn('pa4-bob@example.com', 'Bob', { payoutAccount: false });
+    const groupId = await createGroup(bob.token, 'Cash');
+    await join(bob.token, groupId, ann.token);
+    expect(
+      await record(bob.token, groupId, {
+        description: 'Taxi',
+        amount: 60,
+        date: PAST_DAY,
+        splitBetween: [ann.id, bob.id],
+      }),
+    ).toMatchObject({ status: 'SUCCESS' });
+
+    const answer = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      token: bob.token,
+      body: { from: ann.id, amount: 30 },
+    });
+    expect(await outcome((answer.body as { operationId: string }).operationId, bob.token)).toMatchObject({
+      status: 'SUCCESS',
+    });
+    expect(await balances(bob.token, groupId)).toMatchObject({ body: [{ balance: 0 }, { balance: 0 }] });
   });
 });
 

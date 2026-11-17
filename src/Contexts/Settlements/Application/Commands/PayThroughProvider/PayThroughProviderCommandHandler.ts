@@ -8,17 +8,20 @@ import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPayme
 import { ISettlementMembers } from '@Contexts/Settlements/Application/Ports/ISettlementMembers';
 import { Decision, SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
+import { IPayoutAccountRepository } from '@Contexts/Settlements/Domain/PayoutAccount/Ports/IPayoutAccountRepository';
 
 /**
  * A signed-in member of a group asks to pay another member through the provider: the caller is the payer, and the operation answers
- * the settlement's id. The book decides the rules first, so that a payment the rules refuse never reaches the provider; then the
- * provider is asked for a link, with the settlement's id as its reference; then the book decides again, on the balances read after
- * the provider answered, and keeps the payment pending with the link. A provider that does not answer with a link refuses the
- * request, and nothing is kept. For anyone who is not a member the group does not exist.
+ * the settlement's id. The book decides the rules first, and the payee must have a payout account (request 16), so that a payment the
+ * rules refuse never reaches the provider; then the provider is asked for a link, with the settlement's id as its reference and the
+ * payee's payout account as the payee; then the book decides again, on the balances read after the provider answered, and keeps the
+ * payment pending with the link. A provider that does not answer with a link refuses the request, and nothing is kept. For anyone who
+ * is not a member the group does not exist.
  */
 export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughProviderCommandEvent> {
   constructor(
     private books: ISettlementBookRepository,
+    private payoutAccounts: IPayoutAccountRepository,
     private members: ISettlementMembers,
     private balances: IGroupBalances,
     private provider: IPaymentProvider,
@@ -39,14 +42,16 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
 
     const book = (await this.books.findByGroupId(groupId)) ?? SettlementBook.open(groupId);
     const decision = await this.decide(payload.groupId, caller.data.value, payload.to, payload.amount, members);
+    const payee = await this.payoutAccounts.findByOwner(new Id(payload.to));
 
-    const planned = book.planPayment({ ...decision, now: this.clock() });
+    const planned = book.planPayment({ ...decision, now: this.clock(), payeeAccount: payee?.accountId ?? null });
     if (planned.isFailure()) return planned;
 
     const link = await this.provider.requestPaymentLink({
       reference: planned.data.id.value,
       amount: payload.amount,
       currency,
+      payee: planned.data.payeeAccount,
     });
 
     const recorded = book.recordPayment(

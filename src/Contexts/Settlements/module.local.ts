@@ -25,11 +25,18 @@ import {
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
 import { IWebhookSignatures } from '@Contexts/Settlements/Application/Ports/IWebhookSignatures';
+import {
+  SetPayoutAccountCommandEvent,
+  SetPayoutAccountCommandHandler,
+} from '@Contexts/Settlements/Application/Commands/SetPayoutAccount';
+import { GetPayoutAccountQueryHandler } from '@Contexts/Settlements/Application/Queries/GetPayoutAccount';
 import { ISettledAmountsQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettledAmountsQueries';
 import { GroupBalancesFromLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesFromLedger';
 import { HmacWebhookSignatures } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignatures';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
 import { SettlementMembersFromGroups } from '@Contexts/Settlements/Infrastructure/SettlementMembersFromGroups';
+import { SqlitePayoutAccountReadModels } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountReadModels';
+import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountRepository';
 import { SqliteSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBookRepository';
 import { SqliteSettlementReadModels } from '@Contexts/Settlements/Infrastructure/SqliteSettlementReadModels';
 
@@ -42,6 +49,8 @@ import { SqliteSettlementReadModels } from '@Contexts/Settlements/Infrastructure
 const database = sharedDatabase();
 const books = new SqliteSettlementBookRepository(database);
 const readModels = new SqliteSettlementReadModels(database);
+const payoutAccounts = new SqlitePayoutAccountRepository(database);
+const payoutAccountReadModels = new SqlitePayoutAccountReadModels(database);
 
 /** What has been settled in a group, read by Ledger when it reads a balance (ADR 7): Settlements' read model, exported. */
 export const settledAmounts: ISettledAmountsQueries = readModels;
@@ -67,7 +76,7 @@ export const localSettlementsModule = new Module({
     },
     {
       event: PayThroughProviderCommandEvent,
-      handlers: [new PayThroughProviderCommandHandler(books, members, balances, provider, systemClock)],
+      handlers: [new PayThroughProviderCommandHandler(books, payoutAccounts, members, balances, provider, systemClock)],
     },
     {
       event: RefundSettlementCommandEvent,
@@ -77,9 +86,14 @@ export const localSettlementsModule = new Module({
       event: ReceivePaymentWebhookCommandEvent,
       handlers: [new ReceivePaymentWebhookCommandHandler(books)],
     },
+    {
+      event: SetPayoutAccountCommandEvent,
+      handlers: [new SetPayoutAccountCommandHandler(payoutAccounts, provider)],
+    },
   ],
   queries: [
     new GetSuggestedSettlementsQueryHandler(balances, members, readModels),
     new GetSettlementQueryHandler(readModels, members),
+    new GetPayoutAccountQueryHandler(payoutAccountReadModels),
   ],
 });

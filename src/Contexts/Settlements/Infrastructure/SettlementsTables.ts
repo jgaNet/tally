@@ -29,4 +29,11 @@ export function createSettlementsTables(database: SqliteDatabase): void {
   database.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id)',
   );
+  // A person's payout account at the provider (request 16): one row per person, unique by owner, at its version.
+  database.exec(`CREATE TABLE IF NOT EXISTS payout_accounts (
+    id TEXT PRIMARY KEY,
+    owner TEXT NOT NULL UNIQUE,
+    account_id TEXT NOT NULL,
+    version INTEGER NOT NULL
+  )`);
 }

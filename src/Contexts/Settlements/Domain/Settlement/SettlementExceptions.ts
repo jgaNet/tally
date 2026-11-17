@@ -77,6 +77,13 @@ export class OnlyAPaidSettlementIsRefunded extends SettlementsException {
   }
 }
 
+/** A payment through the provider is paid to a member who has a payout account: one the provider knows, set by the member. */
+export class PayeeHasNoPayoutAccount extends SettlementsException {
+  constructor() {
+    super('PayeeHasNoPayoutAccount', 'The payee has no payout account at the payment provider');
+  }
+}
+
 /** A refund needs the provider to accept it; when it does not, nothing changes. */
 export class ProviderRefundUnavailable extends SettlementsException {
   constructor() {
