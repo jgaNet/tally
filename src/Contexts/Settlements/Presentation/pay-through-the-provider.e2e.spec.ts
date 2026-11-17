@@ -28,6 +28,12 @@ let received: { reference: string; amount: number; currency: string }[] = [];
 
 beforeAll(async () => {
   provider = createServer((request: IncomingMessage, response: ServerResponse) => {
+    // The provider knows every account asked about (request 16): a `GET /accounts/{id}` answers `200 { id }`.
+    if (request.method === 'GET' && request.url?.startsWith('/accounts/')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ id: decodeURIComponent(request.url.slice('/accounts/'.length)) }));
+      return;
+    }
     let body = '';
     request.on('data', chunk => (body += chunk));
     request.on('end', () => {
@@ -67,7 +73,9 @@ async function signedInPerson(name: string): Promise<{ token: string; id: string
   const { token } = (await http.request('POST', `${api}/accounts/login`, { body: { email, password } })).body as {
     token: string;
   };
-  return { token, id: (created.body as { id: string }).id };
+  const id = (created.body as { id: string }).id;
+  await http.request('PUT', `${api}/accounts/me/payout-account`, { body: { accountId: `acct_${id}` }, token });
+  return { token, id };
 }
 
 /** A group of an owner and two members who joined, with the owner's expense of 60 split between the owner and `payer`: `payer` owes 30. */
@@ -119,7 +127,7 @@ describe('Payment through the provider (request 13)', () => {
     });
     expect(asked.status).toBe(201);
     const { id } = asked.body as { id: string };
-    expect(received.at(-1)).toEqual({ reference: id, amount: 30, currency: 'EUR' });
+    expect(received.at(-1)).toEqual({ reference: id, amount: 30, currency: 'EUR', payee: `acct_${ada.id}` });
 
     const read = await http.request('GET', `${api}/settlements/${id}`, { token: grace.token });
     expect(read.status).toBe(200);

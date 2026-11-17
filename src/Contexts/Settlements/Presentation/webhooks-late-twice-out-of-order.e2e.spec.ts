@@ -26,6 +26,12 @@ const started: FastifyApplication[] = [];
 
 beforeAll(async () => {
   provider = createServer((request: IncomingMessage, response: ServerResponse) => {
+    // The provider knows every account asked about (request 16): a `GET /accounts/{id}` answers `200 { id }`.
+    if (request.method === 'GET' && request.url?.startsWith('/accounts/')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ id: decodeURIComponent(request.url.slice('/accounts/'.length)) }));
+      return;
+    }
     let body = '';
     request.on('data', chunk => (body += chunk));
     request.on('end', () => {
@@ -79,7 +85,12 @@ async function signedInPerson(server: Running, name: string): Promise<Person> {
     body: { email, password: PASSWORD, name },
   });
   const token = await tokenOf(server, email);
-  return { token, email, id: (created.body as { id: string }).id };
+  const id = (created.body as { id: string }).id;
+  await server.http.request('PUT', `${server.api}/accounts/me/payout-account`, {
+    body: { accountId: `acct_${id}` },
+    token,
+  });
+  return { token, email, id };
 }
 
 /** Signs in an account of the database, as a person does after Tally was started again. */

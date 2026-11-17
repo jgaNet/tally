@@ -14,8 +14,10 @@ import { GroupBalancesOfLedger } from '@Contexts/Settlements/Infrastructure/Grou
 import { PaymentProviderOverHttp } from '@Contexts/Settlements/Infrastructure/PaymentProviderOverHttp';
 import { SettlementMembersOfGroups } from '@Contexts/Settlements/Infrastructure/SettlementMembersOfGroups';
 import { isSignedByProvider } from '@Contexts/Settlements/Infrastructure/ProviderSignature';
+import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { SettlementsDatabase } from '@Contexts/Settlements/Infrastructure/SettlementsDatabase';
 import { SqliteSettlements } from '@Contexts/Settlements/Infrastructure/SqliteSettlements';
+import { SqlitePayoutAccounts } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccounts';
 
 /**
  * The Settlements context, as data (ADR 9, ADR 10, ADR 11, ADR 12). Its settlement books and settlements are in SQLite at
@@ -34,6 +36,7 @@ export const settlementsReadModel = new SqliteSettlements(database);
 const groupBalances = new GroupBalancesOfLedger(() => ledgerBalancesReadModel);
 const settlementMembers = new SettlementMembersOfGroups(() => groupsMembersReadModel);
 const paymentProvider = new PaymentProviderOverHttp(() => process.env.PROVIDER_URL);
+const payoutAccounts = new SqlitePayoutAccounts(database);
 
 /**
  * Whether a webhook is signed by the payment provider under the secret Tally and the provider share, `PROVIDER_WEBHOOK_SECRET`, read when a
@@ -47,7 +50,16 @@ export const localSettlementsModule = new LiteModule({
   useCases: [
     getSuggestedSettlements(groupBalances, settlementMembers, settlementsReadModel),
     recordCashSettlement(settlementsReadModel, groupBalances, settlementMembers, systemClock),
-    payThroughProvider(settlementsReadModel, groupBalances, settlementMembers, paymentProvider, systemClock),
+    setPayoutAccount(payoutAccounts, paymentProvider, systemClock),
+    getPayoutAccount(payoutAccounts),
+    payThroughProvider(
+      settlementsReadModel,
+      groupBalances,
+      settlementMembers,
+      payoutAccounts,
+      paymentProvider,
+      systemClock,
+    ),
     refundSettlement(settlementsReadModel, settlementsReadModel, settlementMembers, paymentProvider, systemClock),
     receivePaymentWebhook(settlementsReadModel),
     getSettlement(settlementsReadModel, settlementMembers),

@@ -1,4 +1,4 @@
-import { decideRequestProviderPayment, providerOutcomeOf } from './SettlementBook.decision';
+import { decideRequestProviderPayment, ProviderPaymentGiven, providerOutcomeOf } from './SettlementBook.decision';
 import { SettlementBook } from './SettlementBook';
 
 const members = ['ada', 'grace', 'linus'];
@@ -7,15 +7,25 @@ const balances = new Map([
   ['grace', -30],
 ]);
 const now = new Date('2026-01-01T00:00:00Z');
-const request = (payer: string, to: string, amount: number, given = { memberIds: members, balances }) =>
-  decideRequestProviderPayment(given, { payer, to, amount }, now);
+const request = (
+  payer: string,
+  to: string,
+  amount: number,
+  given: ProviderPaymentGiven = { memberIds: members, balances, payeeAccount: 'acct_ada' },
+) => decideRequestProviderPayment(given, { payer, to, amount }, now);
 const typeOf = (decision: { error?: unknown }) => (decision.error as { type: string }).type;
 
 describe('decideRequestProviderPayment (request 13)', () => {
   it('allows a payment no more than the payer owes, to a member no more than is owed, and gives the settlement its own id', () => {
     const decision = request('grace', 'ada', 30);
     expect(decision.isFailure()).toBe(false);
-    expect(decision.data!.state).toEqual({ id: expect.any(String), from: 'grace', to: 'ada', amount: 30 });
+    expect(decision.data!.state).toEqual({
+      id: expect.any(String),
+      from: 'grace',
+      to: 'ada',
+      amount: 30,
+      payeeAccount: 'acct_ada',
+    });
     expect(decision.data!.state.id).not.toBe(request('grace', 'ada', 30).data!.state.id);
   });
 
@@ -25,13 +35,28 @@ describe('decideRequestProviderPayment (request 13)', () => {
       ['ada', 5],
       ['grace', -30],
     ]);
-    expect(typeOf(request('grace', 'ada', 10, { memberIds: members, balances: thinPayee }))).toBe(
-      'SettlementMoreThanIsOwed',
-    );
+    expect(
+      typeOf(request('grace', 'ada', 10, { memberIds: members, balances: thinPayee, payeeAccount: 'acct_ada' })),
+    ).toBe('SettlementMoreThanIsOwed');
     expect(typeOf(request('grace', 'zed', 1))).toBe('SettlementPayeeNotMember');
     expect(typeOf(request('grace', 'grace', 1))).toBe('SettlementToSelf');
     expect(typeOf(request('grace', 'ada', 0))).toBe('InvalidSettlementAmount');
     expect(typeOf(request('zed', 'ada', 1))).toBe('SettlementPayerNotMember');
+  });
+});
+
+describe("decideRequestProviderPayment, the payee's payout account (request 16)", () => {
+  it("gives the provider the payee's account, and refuses a payee with none by its name, before any provider is asked", () => {
+    const allowed = request('grace', 'ada', 30);
+    expect(allowed.data!.state).toEqual({
+      id: expect.any(String),
+      from: 'grace',
+      to: 'ada',
+      amount: 30,
+      payeeAccount: 'acct_ada',
+    });
+    const none = request('grace', 'ada', 30, { memberIds: members, balances, payeeAccount: undefined });
+    expect(typeOf(none)).toBe('PayeeHasNoPayoutAccount');
   });
 });
 

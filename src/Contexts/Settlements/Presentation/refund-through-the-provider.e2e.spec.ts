@@ -28,6 +28,12 @@ let api: string;
 
 beforeAll(async () => {
   provider = createServer((request: IncomingMessage, response: ServerResponse) => {
+    // The provider knows every account asked about (request 16): a `GET /accounts/{id}` answers `200 { id }`.
+    if (request.method === 'GET' && request.url?.startsWith('/accounts/')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ id: decodeURIComponent(request.url.slice('/accounts/'.length)) }));
+      return;
+    }
     let body = '';
     request.on('data', chunk => (body += chunk));
     request.on('end', () => {
@@ -82,7 +88,10 @@ async function signedInPerson(name: string): Promise<Person> {
   const email = `${name.toLowerCase()}${accountCount}@example.org`;
   const created = await http.request('POST', `${api}/accounts`, { body: { email, password: PASSWORD, name } });
   const login = await http.request('POST', `${api}/accounts/login`, { body: { email, password: PASSWORD } });
-  return { id: (created.body as { id: string }).id, email, token: (login.body as { token: string }).token };
+  const id = (created.body as { id: string }).id;
+  const token = (login.body as { token: string }).token;
+  await http.request('PUT', `${api}/accounts/me/payout-account`, { body: { accountId: `acct_${id}` }, token });
+  return { id, email, token };
 }
 
 /** A group of an owner and two members who joined, with an expense of 60 split between the owner and `grace`: `grace` owes 30. */

@@ -19,6 +19,7 @@ export class PaymentProviderOverHttp implements IPaymentProvider {
     reference: string;
     amount: number;
     currency: string;
+    payee: string;
   }): Promise<PaymentLink | undefined> {
     const base = this.baseUrl();
     if (!base) return undefined;
@@ -34,6 +35,25 @@ export class PaymentProviderOverHttp implements IPaymentProvider {
       if (typeof body.id !== 'string' || body.id === '') return undefined;
       if (typeof body.payUrl !== 'string' || body.payUrl === '') return undefined;
       return { id: body.id, payUrl: body.payUrl };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * `GET {PROVIDER_URL}/accounts/{id}` (request 16): `200 { id }` is the account the provider knows, answered with its id. Any other
+   * answer, a timeout, a network failure, an empty id, or no `PROVIDER_URL` is no account (`undefined`).
+   */
+  async payoutAccountOf(accountId: string): Promise<string | undefined> {
+    const base = this.baseUrl();
+    if (!base || accountId === '') return undefined;
+    try {
+      const response = await fetch(`${base}/accounts/${encodeURIComponent(accountId)}`, {
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (response.status !== 200) return undefined;
+      const body = (await response.json()) as { id?: unknown };
+      return typeof body.id === 'string' && body.id !== '' ? body.id : undefined;
     } catch {
       return undefined;
     }

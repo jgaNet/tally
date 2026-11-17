@@ -13,10 +13,16 @@ import {
   RecordCashSettlementInput,
   refundSettlement,
 } from '@Contexts/Settlements/Application/Settlements';
+import {
+  getPayoutAccount,
+  setPayoutAccount,
+  SetPayoutAccountInput,
+} from '@Contexts/Settlements/Application/PayoutAccounts';
 
 const SHAPE_REFUSAL = 'The body must have from (the payer account id, a string) and amount (a whole number)';
 const PROVIDER_SHAPE_REFUSAL = 'The body must have to (the payee account id, a string) and amount (a whole number)';
 const WEBHOOK_SHAPE_REFUSAL = 'The body must have id, paymentId, status and at, each a string';
+const PAYOUT_ACCOUNT_SHAPE_REFUSAL = 'The body must have accountId, the provider id of the payout account, a string';
 /** Whether a webhook's body, as sent, is signed by the provider under the header given: composed at the root, where the secret is read. */
 export type ProviderSignatureCheck = (body: Buffer, header: string | undefined) => boolean;
 
@@ -34,6 +40,12 @@ const hasProviderShape = (body: unknown): boolean => {
   if (typeof body !== 'object' || body === null) return false;
   const { to, amount } = body as Record<string, unknown>;
   return typeof to === 'string' && Number.isInteger(amount);
+};
+
+/** A payout account's body: the provider's id of the account, a string (request 16). */
+const hasPayoutAccountShape = (body: unknown): boolean => {
+  if (typeof body !== 'object' || body === null) return false;
+  return typeof (body as Record<string, unknown>).accountId === 'string';
 };
 
 /** A webhook's body: the provider's four strings, of their types (its status is the domain's to read, and any value is acknowledged). */
@@ -136,6 +148,29 @@ export const settlementRoutes: FastifyPluginCallback<{
   // The payee refunds a settlement paid through the provider; answered at once, `204` (request 15).
   fastify.post('/settlements/:id/refund', { schema: { tags: ['settlements'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(refundSettlement), { id: (req.params as { id: string }).id }),
+  );
+
+  // A member sets the account the provider pays them on, `204` (request 16); the caller is the owner of the account.
+  fastify.put(
+    '/accounts/me/payout-account',
+    {
+      schema: { tags: ['settlements'] },
+      preValidation: async (request, reply) => {
+        if (!hasPayoutAccountShape(request.body))
+          return reply.code(400).send({ message: PAYOUT_ACCOUNT_SHAPE_REFUSAL });
+        return undefined;
+      },
+    },
+    (req, reply) => {
+      const body = req.body as { accountId: string };
+      return answerAtOnce(req, reply, module.useCase(setPayoutAccount), {
+        accountId: body.accountId,
+      } as SetPayoutAccountInput);
+    },
+  );
+
+  fastify.get('/accounts/me/payout-account', { schema: { tags: ['settlements'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getPayoutAccount), undefined),
   );
 
   fastify.get('/settlements/:id', { schema: { tags: ['settlements'] } }, (req, reply) =>

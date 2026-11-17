@@ -18,6 +18,7 @@ import {
 
 import { IGroupBalances } from './IGroupBalances';
 import { IPaymentProvider } from './IPaymentProvider';
+import { IPayoutAccounts } from './IPayoutAccounts';
 import { ISettlementBooks } from './ISettlementBooks';
 import { ISettlementMembers } from './ISettlementMembers';
 
@@ -90,7 +91,8 @@ export interface PayThroughProviderInput {
  * the group's currency, within its limit; when it gives none, the request is refused and nothing is kept. Otherwise the book records the
  * settlement pending, with the link, and the save checks that nothing else was decided since the book was read: a payment that two
  * requests at once would make too much is refused by the same rule, and its orphan payment at the provider is never paid. Answers the
- * settlement's id, which the payer's link carries.
+ * settlement's id, which the payer's link carries. The payee must have a payout account at the provider, read when the request comes (request 16):
+ * without one it is refused by its name before the provider is asked, and the provider is given that account as the payee.
  */
 export const payThroughProvider = command(
   'PayThroughProvider',
@@ -98,6 +100,7 @@ export const payThroughProvider = command(
     books: ISettlementBooks,
     groupBalances: IGroupBalances,
     members: ISettlementMembers,
+    payoutAccounts: IPayoutAccounts,
     provider: IPaymentProvider,
     clock: Clock,
   ) =>
@@ -111,12 +114,13 @@ export const payThroughProvider = command(
       // As the cash settlement: the book is read before the balances, so a decision made on a state another request changed is refused at save.
       const book = await books.bookOf(groupId);
       const balances = book.stillOwed(await groupBalances.balancesOf(groupId));
+      const payeeAccount = (await payoutAccounts.ofOwner(to))?.accountId;
       const now = clock();
-      const decision = decideRequestProviderPayment({ memberIds, balances }, { payer, to, amount }, now);
+      const decision = decideRequestProviderPayment({ memberIds, balances, payeeAccount }, { payer, to, amount }, now);
       if (decision.isFailure()) return decision;
 
-      const payment = decision.data.state;
-      const link = await provider.paymentLinkFor({ reference: payment.id, amount: payment.amount, currency });
+      const { payeeAccount: payee, ...payment } = decision.data.state;
+      const link = await provider.paymentLinkFor({ reference: payment.id, amount: payment.amount, currency, payee });
       if (!link) return Result.fail(new ProviderUnavailableException());
 
       // The book records the payment with the link in hand; the save refuses it if the book moved since it was read.

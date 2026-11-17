@@ -37,6 +37,12 @@ export class SettlementsDatabase {
           pay_url TEXT
         );
         CREATE INDEX IF NOT EXISTS settlements_by_group ON settlements (group_id);
+        CREATE TABLE IF NOT EXISTS payout_accounts (
+          id TEXT PRIMARY KEY,
+          owner_id TEXT NOT NULL UNIQUE,
+          account_id TEXT NOT NULL,
+          version INTEGER NOT NULL
+        );
       `);
       // A database request 12 made has the table without the provider's columns: they are added, once, before anything reads them.
       const columns = (connection.prepare('PRAGMA table_info(settlements)').all() as { name: string }[]).map(

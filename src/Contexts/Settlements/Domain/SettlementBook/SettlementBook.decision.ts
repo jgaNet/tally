@@ -4,6 +4,7 @@ import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
 import type { SettlementMethod, SettlementStatus } from './SettlementBook';
 import {
   InvalidSettlementAmountException,
+  PayeeHasNoPayoutAccountException,
   RefundPartyNotMemberException,
   SettlementMoreThanIsOwedException,
   SettlementMoreThanOwedException,
@@ -46,9 +47,21 @@ export interface NewSettlementValues {
   amount: number;
 }
 
-/** The values of a payment through the provider once allowed: its settlement's id (the provider's reference), who paid whom, how much. */
+/**
+ * What a payment through the provider is given: the settlement rules' givens, and the payee's payout account at the provider, `undefined`
+ * when the payee has none (request 16).
+ */
+export interface ProviderPaymentGiven extends SettlementGiven {
+  payeeAccount: string | undefined;
+}
+
+/**
+ * The values of a payment through the provider once allowed: its settlement's id (the provider's reference), who paid whom, how much,
+ * and the payee's payout account the provider pays them on (request 16).
+ */
 export interface NewProviderPaymentValues extends NewSettlementValues {
   id: string;
+  payeeAccount: string;
 }
 
 /**
@@ -86,7 +99,8 @@ export const decideRecordCashSettlement: Decision<
 };
 
 /**
- * Asking to pay through the provider (request 13, ADR 12): the rules of `refuseSettlement`, the payer being the caller. The settlement's
+ * Asking to pay through the provider (request 13, ADR 12, request 16): the rules of `refuseSettlement`, the payer being the caller, and the
+ * payee must have a payout account at the provider, or the payment is refused by its name and the provider is not asked. The settlement's
  * id is generated here, once (DOMAIN-IDENTITY): it is the reference the provider is given, so the payment can be found again from the
  * book when the provider's webhook says how it ended. Answers the values; the use case asks the provider for a link with them, then
  * records the settlement pending in the book with that link.
@@ -95,11 +109,12 @@ export const decideRequestProviderPayment: Decision<
   NewProviderPaymentValues,
   RequestProviderPaymentCommand,
   never,
-  SettlementGiven
+  ProviderPaymentGiven
 > = (given, { payer, to, amount }) => {
   const refusal = refuseSettlement(given, { from: payer, to, amount });
   if (refusal) return Result.fail(refusal);
-  return decided({ id: Id.generate().value, from: payer, to, amount });
+  if (!given.payeeAccount) return Result.fail(new PayeeHasNoPayoutAccountException());
+  return decided({ id: Id.generate().value, from: payer, to, amount, payeeAccount: given.payeeAccount });
 };
 
 /** What the provider's webhook says a payment is, once it has moved: paid, failed, or refunded (request 15). */

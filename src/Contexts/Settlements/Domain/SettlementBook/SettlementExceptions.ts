@@ -80,6 +80,17 @@ export class ProviderUnavailableException extends Exception {
   }
 }
 
+/** The payee has no payout account at the provider, so a payment to them through it is refused and nothing is asked of the provider (request 16). */
+export class PayeeHasNoPayoutAccountException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'PayeeHasNoPayoutAccount',
+      message: 'The payee has no payout account, so they cannot be paid through the provider',
+    });
+  }
+}
+
 /** A refund is asked of a settlement paid in cash: only a settlement paid through the provider is refunded through Tally (request 15). */
 export class SettlementNotThroughProviderException extends Exception {
   constructor() {
