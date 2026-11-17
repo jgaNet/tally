@@ -13,6 +13,7 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
 import { groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
+import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 
@@ -30,7 +31,8 @@ import { ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
  *   .registerRoutes('/', accountRoutes, { module: groups.module })
  *   .registerRoutes('/', groupRoutes, { module: groups.module })
  *   .registerRoutes('/', invitationRoutes, { module: groups.module })
- *   .registerRoutes('/', expenseRoutes, { module: ledger });
+ *   .registerRoutes('/', expenseRoutes, { module: ledger })
+ *   .registerRoutes('/', balanceRoutes, { module: ledger });
  */
 export async function createApplication({
   logger = new ConsoleLogger({ debug: false }),
@@ -67,6 +69,7 @@ export async function createApplication({
     .registerRoutes('/', groupRoutes, { module: groups.module })
     .registerRoutes('/', invitationRoutes, { module: groups.module })
     .registerRoutes('/', expenseRoutes, { module: ledger })
+    .registerRoutes('/', balanceRoutes, { module: ledger })
     .onStop(() => database.close());
 
   await app.startModules();

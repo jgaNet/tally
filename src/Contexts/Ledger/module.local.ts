@@ -2,6 +2,7 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
+import { getGroupBalances } from '@Contexts/Ledger/Application/Balances';
 import { getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
 import { GroupMembersFromGroups, GroupRoster } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseStore';
@@ -21,6 +22,10 @@ export function ledgerWiring(database: SqliteDatabase, roster: GroupRoster): Lit
 
   return new LiteModule({
     name: 'Ledger',
-    useCases: [recordExpense(expenses, groupMembers, systemClock), getExpense(expenses, groupMembers)],
+    useCases: [
+      recordExpense(expenses, groupMembers, systemClock),
+      getExpense(expenses, groupMembers),
+      getGroupBalances(expenses, groupMembers),
+    ],
   });
 }
