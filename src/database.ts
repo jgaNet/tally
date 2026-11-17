@@ -171,6 +171,15 @@ const migrations: readonly string[] = [
   CREATE INDEX settlements_by_group ON settlements (group_id);
   CREATE INDEX settlements_by_provider_payment ON settlements (provider_payment_id);
   `,
+  `
+  -- A member's payout account: the provider's id of the account it pays them on. Setting another replaces
+  -- it. A member has at most one, so the account is the key.
+  CREATE TABLE payout_accounts (
+    account_id          TEXT PRIMARY KEY REFERENCES accounts (id),
+    provider_account_id TEXT NOT NULL CHECK (provider_account_id <> ''),
+    set_at              TEXT NOT NULL
+  );
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

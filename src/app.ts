@@ -8,6 +8,7 @@ import { registerGroupRoutes } from './groups/routes';
 import { registerInvitationRoutes } from './invitations/routes';
 import { Refusal } from './refusal';
 import { registerOperationRoutes } from './operations/routes';
+import { registerPayoutAccountRoutes } from './payouts/routes';
 import { registerSettlementRoutes } from './settlements/routes';
 import { registerStatementRoutes } from './statements/routes';
 
@@ -45,6 +46,11 @@ export async function createApplication({
   // Types are checked, not converted: a password sent as a number is a body of the wrong type.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
   const db = openDatabase(databasePath);
+  const provider = {
+    url: providerUrl.replace(/\/+$/, ''),
+    webhookSecret: providerWebhookSecret,
+    timeoutMs: providerTimeoutMs,
+  };
   server.addHook('onClose', async () => {
     db.close();
   });
@@ -72,11 +78,8 @@ export async function createApplication({
       registerExpenseRoutes(routes, db);
       registerBalanceRoutes(routes, db);
       registerStatementRoutes(routes, db);
-      registerSettlementRoutes(routes, db, {
-        url: providerUrl.replace(/\/+$/, ''),
-        webhookSecret: providerWebhookSecret,
-        timeoutMs: providerTimeoutMs,
-      });
+      registerPayoutAccountRoutes(routes, db, provider);
+      registerSettlementRoutes(routes, db, provider);
       registerOperationRoutes(routes, db);
     },
     { prefix: `/${apiPrefix}` },

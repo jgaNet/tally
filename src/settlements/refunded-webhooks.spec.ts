@@ -5,6 +5,7 @@ import {
   type FakeProvider,
   joinThroughInvitation,
   send,
+  setPayoutAccount,
   signedUpAccount,
   startFakeProvider,
   temporaryDatabasePath,
@@ -72,6 +73,7 @@ describe('the provider’s refunded webhooks', () => {
     });
     const groupId = created.json<{ id: string }>().id;
     await joinThroughInvitation(app, ada.token, grace.token, groupId);
+    await setPayoutAccount(app, grace.token, 'acct-grace');
     const expense = await send(app, 'POST', `/groups/${groupId}/expenses`, {
       token: grace.token,
       payload: { description: 'Dinner', amount: 1000, date: todayInUtc(), splitBetween: [ada.id, grace.id] },

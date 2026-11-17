@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { type Database, inTransaction } from '../database';
 import { requireMembership } from '../groups/groups';
+import { payoutAccountOf } from '../payouts/payout-accounts';
 import { Refusal } from '../refusal';
 import { checkNewSettlement } from './settlements';
 
@@ -18,10 +19,11 @@ export interface ProviderConfig {
  * Asks the provider for a payment of `amount` in `groupId`'s currency, `payerId` paying `payeeId`, and
  * answers the settlement's id. The settlement is kept `pending` with the provider's `payUrl`.
  *
- * The rules are those of a cash settlement, with a payment waiting at the provider counting as paid.
- * The settlement is first held in a transaction, so a second request sees it; the provider is then asked
- * outside the transaction. When the provider does not answer `201 { id, payUrl }` in time, the hold is
- * removed and the request is refused: nothing is kept.
+ * The rules are those of a cash settlement, with a payment waiting at the provider counting as paid. The
+ * payee must have a payout account, which the provider is told: a payee with none is refused before the
+ * provider is asked. The settlement is first held in a transaction, so a second request sees it; the
+ * provider is then asked outside the transaction. When the provider does not answer `201 { id, payUrl }`
+ * in time, the hold is removed and the request is refused: nothing is kept.
  */
 export async function requestProviderSettlement(
   db: Database,
@@ -37,12 +39,21 @@ export async function requestProviderSettlement(
       throw new Refusal(409, 'ProviderNotConfigured', 'Payment through the provider is not set up on this server.');
     }
     checkNewSettlement(db, groupId, payerId, payeeId, amount);
+    // The payee's account as it is now: a payment asked for goes to the account set at that moment.
+    const payee = payoutAccountOf(db, payeeId);
+    if (payee === undefined) {
+      throw new Refusal(
+        409,
+        'NoPayoutAccount',
+        'The payee has no payout account at the payment provider: they must set one before they are paid through it.',
+      );
+    }
     const id = randomUUID();
     db.prepare(
       `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?)`,
     ).run(id, groupId, payerId, payeeId, amount, new Date().toISOString());
-    return { id, currency: group.currency };
+    return { id, currency: group.currency, payee };
   });
 
   let payment: ProviderPayment;
@@ -51,6 +62,7 @@ export async function requestProviderSettlement(
       reference: held.id,
       amount,
       currency: held.currency,
+      payee: held.payee,
     });
   } catch {
     db.prepare('DELETE FROM settlements WHERE id = ?').run(held.id);
@@ -79,7 +91,7 @@ interface ProviderPayment {
 /** `POST {url}/payments`. Anything but `201` with an `id` and a `payUrl` is an error. */
 async function createProviderPayment(
   provider: ProviderConfig,
-  body: { reference: string; amount: number; currency: string },
+  body: { reference: string; amount: number; currency: string; payee: string },
 ): Promise<ProviderPayment> {
   const response = await fetch(`${provider.url}/payments`, {
     method: 'POST',

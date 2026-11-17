@@ -74,7 +74,12 @@ export interface ProviderPaymentRequest {
   reference: string;
   amount: number;
   currency: string;
+  /** The provider's id of the payee's payout account. */
+  payee: string;
 }
+
+/** How the fake provider answers `GET /accounts/{id}` for a known account: `200 { id }`, or as `mode` says. */
+export type ProviderAccountMode = 'accept' | 'refuse' | 'malformed' | 'hang' | 'other';
 
 export interface FakeProvider {
   /** The base URL, as `PROVIDER_URL` gives it: no trailing slash. */
@@ -89,10 +94,17 @@ export interface FakeProvider {
   refunds: { paymentId: string; reference: string }[];
   /** How it answers the next requests for a refund, as `mode` does for a payment. */
   refundMode: 'accept' | 'refuse' | 'malformed' | 'hang';
+  /** Every account asked about by `GET /accounts/{id}`, in the order asked. */
+  accountRequests: string[];
+  /** The accounts it does not know: a `404` for each. Every other account is known. */
+  unknownAccounts: string[];
+  /** How it answers the next requests about a known account: `accept` (`200 { id }`), `refuse` (a `500`), `malformed`, `hang` or `other` (another id). */
+  accountMode: ProviderAccountMode;
   close(): Promise<void>;
 }
 
 const REFUND_PATH = /^\/payments\/([^/]+)\/refunds$/;
+const ACCOUNT_PATH = /^\/accounts\/([^/]+)$/;
 
 /**
  * A provider on the loopback interface, answering `POST /payments` as `mode` says, and
@@ -102,11 +114,44 @@ export async function startFakeProvider(): Promise<FakeProvider> {
   const requests: ProviderPaymentRequest[] = [];
   const payments: { id: string; payUrl: string; reference: string }[] = [];
   const refunds: { paymentId: string; reference: string }[] = [];
-  const provider = { requests, payments, refunds, mode: 'accept', refundMode: 'accept' } as FakeProvider;
+  const accountRequests: string[] = [];
+  const provider = {
+    requests,
+    payments,
+    refunds,
+    accountRequests,
+    unknownAccounts: [] as string[],
+    mode: 'accept',
+    refundMode: 'accept',
+    accountMode: 'accept',
+  } as FakeProvider;
   const server = createServer((request, response) => {
     let raw = '';
     request.on('data', chunk => (raw += chunk));
     request.on('end', () => {
+      const account = ACCOUNT_PATH.exec(request.url ?? '');
+      if (request.method === 'GET' && account) {
+        const id = decodeURIComponent(account[1]);
+        accountRequests.push(id);
+        if (provider.unknownAccounts.includes(id)) {
+          response.writeHead(404).end('{}');
+          return;
+        }
+        if (provider.accountMode === 'hang') {
+          return;
+        }
+        if (provider.accountMode === 'refuse') {
+          response.writeHead(500).end('{}');
+          return;
+        }
+        if (provider.accountMode === 'malformed') {
+          response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ known: true }));
+          return;
+        }
+        const answered = provider.accountMode === 'other' ? 'someone-else' : id;
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ id: answered }));
+        return;
+      }
       const refund = REFUND_PATH.exec(request.url ?? '');
       if (request.method === 'POST' && refund) {
         const body = JSON.parse(raw) as { reference: string };
@@ -159,4 +204,12 @@ export async function startFakeProvider(): Promise<FakeProvider> {
       server.close(() => resolve());
     });
   return provider;
+}
+
+/** Sets the payout account of the signed-in `token` to `accountId` at the provider, which knows it. */
+export async function setPayoutAccount(app: Application, token: string, accountId: string): Promise<void> {
+  const response = await send(app, 'PUT', '/accounts/me/payout-account', { token, payload: { accountId } });
+  if (response.statusCode !== 204) {
+    throw new Error(`setting the payout account failed: ${response.statusCode} ${response.body}`);
+  }
 }

@@ -4,6 +4,7 @@ import {
   type FakeProvider,
   joinThroughInvitation,
   send,
+  setPayoutAccount,
   signedUpAccount,
   startFakeProvider,
   temporaryDatabasePath,
@@ -47,15 +48,19 @@ describe('paying through the provider', () => {
 
   /**
    * Ada owns a group with Grace and Linus in it, in that order. Grace paid 1000 split between Ada and
-   * Grace, so Ada owes Grace 500: Ada's balance is -500, Grace's 500, Linus's 0.
+   * Grace, so Ada owes Grace 500: Ada's balance is -500, Grace's 500, Linus's 0. Grace's payout account
+   * is `acct-grace`, unless `graceSetsPayoutAccount` is false.
    */
-  async function adaOwesGrace() {
+  async function adaOwesGrace({ graceSetsPayoutAccount = true } = {}) {
     const ada = await signedUpAccount(app);
     const grace = await signedUpAccount(app, { email: 'grace@example.com', name: 'Grace' });
     const linus = await signedUpAccount(app, { email: 'linus@example.com', name: 'Linus' });
     const groupId = await createdGroup(ada.token);
     await joinThroughInvitation(app, ada.token, grace.token, groupId);
     await joinThroughInvitation(app, ada.token, linus.token, groupId);
+    if (graceSetsPayoutAccount) {
+      await setPayoutAccount(app, grace.token, 'acct-grace');
+    }
     const expense = await send(app, 'POST', `/groups/${groupId}/expenses`, {
       token: grace.token,
       payload: { description: 'Dinner', amount: 1000, date: todayInUtc(), splitBetween: [ada.id, grace.id] },
@@ -70,7 +75,9 @@ describe('paying through the provider', () => {
       const response = await payThroughProvider(ada.token, groupId, { to: grace.id, amount: 300 });
       expect(response.statusCode).toBe(201);
       expect(response.json()).toEqual({ id: expect.any(String) });
-      expect(provider.requests).toEqual([{ reference: response.json().id, amount: 300, currency: 'EUR' }]);
+      expect(provider.requests).toEqual([
+        { reference: response.json().id, amount: 300, currency: 'EUR', payee: 'acct-grace' },
+      ]);
     });
 
     it('answers the settlement as pending, through the provider, with the link where the payer pays', async () => {
@@ -150,13 +157,50 @@ describe('paying through the provider', () => {
     });
 
     it('refuses when the provider is not set up on this server, and keeps nothing', async () => {
-      await app.stop();
-      app = await createApplication({ databasePath: temporaryDatabasePath() });
       const { ada, grace, groupId } = await adaOwesGrace();
+      await app.stop();
+      app = await createApplication({ databasePath });
       const response = await payThroughProvider(ada.token, groupId, { to: grace.id, amount: 300 });
       expect(response.statusCode).toBe(409);
       expect(response.json().type).toBe('ProviderNotConfigured');
       expect((await balancesOf(ada.token, groupId))[0].balance).toBe(-500);
+    });
+  });
+
+  describe('the payee’s payout account', () => {
+    it('is the account the provider is told the payment goes to, as it is when the payment is asked', async () => {
+      const { ada, grace, groupId } = await adaOwesGrace();
+      const first = await payThroughProvider(ada.token, groupId, { to: grace.id, amount: 100 });
+      expect(first.statusCode).toBe(201);
+      await setPayoutAccount(app, grace.token, 'acct-grace-2');
+      const second = await payThroughProvider(ada.token, groupId, { to: grace.id, amount: 100 });
+      expect(second.statusCode).toBe(201);
+      expect(provider.requests.map(request => request.payee)).toEqual(['acct-grace', 'acct-grace-2']);
+      // The payment asked for before goes on as it was: still pending, at the same link.
+      const earlier = await send(app, 'GET', `/settlements/${first.json().id}`, { token: ada.token });
+      expect(earlier.json()).toEqual(
+        expect.objectContaining({ status: 'pending', payUrl: provider.payments[0].payUrl }),
+      );
+    });
+
+    it('refuses a payee with no payout account with 409, by the name of the rule, and asks the provider nothing', async () => {
+      const { ada, grace, groupId } = await adaOwesGrace({ graceSetsPayoutAccount: false });
+      const response = await payThroughProvider(ada.token, groupId, { to: grace.id, amount: 300 });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toEqual({ type: 'NoPayoutAccount', message: expect.any(String) });
+      expect(provider.requests).toHaveLength(0);
+      expect((await balancesOf(ada.token, groupId))[0].balance).toBe(-500);
+      // Nothing is held: the same payment is refused the same way, and cash still settles it.
+      expect((await payThroughProvider(ada.token, groupId, { to: grace.id, amount: 300 })).json().type).toBe(
+        'NoPayoutAccount',
+      );
+      expect((await settleInCash(grace.token, groupId, { from: ada.id, amount: 500 })).statusCode).toBe(201);
+    });
+
+    it('is checked after the rules of a cash settlement, so an amount owed is still refused as such', async () => {
+      const { ada, grace, groupId } = await adaOwesGrace({ graceSetsPayoutAccount: false });
+      const response = await payThroughProvider(ada.token, groupId, { to: grace.id, amount: 501 });
+      expect(response.json().type).toBe('MoreThanIsOwed');
     });
   });
 

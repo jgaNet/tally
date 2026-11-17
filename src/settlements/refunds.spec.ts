@@ -5,6 +5,7 @@ import {
   type FakeProvider,
   joinThroughInvitation,
   send,
+  setPayoutAccount,
   signedUpAccount,
   startFakeProvider,
   temporaryDatabasePath,
@@ -80,6 +81,7 @@ describe('refunding a payment through the provider', () => {
     const grace = await signedUpAccount(app, { email: `grace${scenarios}@example.com`, name: 'Grace' });
     const groupId = await createdGroup(grace.token);
     await joinThroughInvitation(app, grace.token, ada.token, groupId);
+    await setPayoutAccount(app, grace.token, 'acct-grace');
     const expense = await send(app, 'POST', `/groups/${groupId}/expenses`, {
       token: grace.token,
       payload: { description: 'Dinner', amount: 1000, date: todayInUtc(), splitBetween: [ada.id, grace.id] },
