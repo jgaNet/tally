@@ -1,6 +1,6 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
 
-import { Share, Split } from '@Contexts/Ledger/Domain/Expense/Split';
+import { Share, Split, SplitDraft, SplitKind, memberIdsOf } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
   ExpenseChangedException,
   InvalidExpenseAmountException,
@@ -16,7 +16,7 @@ export interface ExpenseDraft {
   readonly amount: number;
   readonly date: string;
   readonly payerId: string;
-  readonly splitBetween: readonly string[];
+  readonly split: SplitDraft;
 }
 
 /** What a member asks to put in an expense's place: the whole of it, the payer and the group staying as they are. */
@@ -24,7 +24,7 @@ export interface EditDraft {
   readonly description: string;
   readonly amount: number;
   readonly date: string;
-  readonly splitBetween: readonly string[];
+  readonly split: SplitDraft;
 }
 
 /** An expense as the store keeps it: its shares included, in the order they were decided, and the version it is at. */
@@ -35,6 +35,7 @@ export interface ExpenseSnapshot {
   readonly amount: number;
   readonly date: string;
   readonly paidBy: string;
+  readonly splitKind: SplitKind;
   readonly shares: readonly Share[];
   readonly version: number;
 }
@@ -80,16 +81,16 @@ export class Expense extends AggregateRoot {
   /**
    * A recording: the description is 1 to 100 characters and not only spaces, the amount a whole number from 1 to 100 000 000,
    * the date a real day of the calendar not after today in UTC (`now`), and the split one the members of the group
-   * (`members`, the group's current members) may be in, each once, the payer among them. The shares are the `Split`'s, equal
-   * with the remainder to the payer. The identity is generated here (DOMAIN-IDENTITY), and the recording records
+   * (`members`, the group's current members) may be in, each once, the payer among them. The shares are the `Split`'s, decided
+   * the way the split is given (equally, by exact amounts, or by shares), the remainder to the payer. The identity is generated here (DOMAIN-IDENTITY), and the recording records
    * `ExpenseRecorded`. Pure: the members and the time are given, nothing is read.
    */
   static register(
-    { groupId, description, amount, date, payerId, splitBetween }: ExpenseDraft,
+    { groupId, description, amount, date, payerId, split: draft }: ExpenseDraft,
     members: readonly string[],
     now: Date,
   ): IResult<Expense> {
-    const split = checkDraft({ description, amount, date, payerId, splitBetween }, members, now);
+    const split = checkDraft({ description, amount, date, payerId, split: draft }, members, now);
     if (split.isFailure()) return Result.fail(split.error);
 
     const id = Id.generate();
@@ -100,6 +101,7 @@ export class Expense extends AggregateRoot {
         groupId,
         paidBy: payerId,
         amount,
+        splitKind: split.data.kind,
         at: now.toISOString(),
       }),
     );
@@ -111,7 +113,12 @@ export class Expense extends AggregateRoot {
    * nothing; throws on a snapshot that is not an expense the domain keeps.
    */
   static fromSnapshot(snapshot: ExpenseSnapshot): Expense {
-    const split = Split.kept({ amount: snapshot.amount, payerId: snapshot.paidBy, shares: snapshot.shares });
+    const split = Split.kept({
+      kind: snapshot.splitKind,
+      amount: snapshot.amount,
+      payerId: snapshot.paidBy,
+      shares: snapshot.shares,
+    });
     return new Expense(
       new Id(snapshot.id),
       snapshot.groupId,
@@ -128,7 +135,7 @@ export class Expense extends AggregateRoot {
    * An edit: the expense is given again whole, under the rules of a recording, with the members of its group (`members`) and
    * the payer it has. It is refused with `ExpenseChanged` when it changed since the version the edit was made from
    * (`fromVersion`), before anything else is looked at: the author reads it again and decides. The shares are computed again
-   * from what the edit gives. Records `ExpenseEdited`; the time is `now`. Pure.
+   * from what the edit gives, in whichever of the three ways it splits them. Records `ExpenseEdited`; the time is `now`. Pure.
    */
   edit(draft: EditDraft, members: readonly string[], fromVersion: number, now: Date): IResult<void> {
     if (fromVersion !== this.version) return Result.fail(new ExpenseChangedException());
@@ -146,6 +153,7 @@ export class Expense extends AggregateRoot {
         groupId: this.#groupId,
         paidBy: this.#paidBy,
         amount: this.#amount,
+        splitKind: this.#split.kind,
         at: now.toISOString(),
       }),
     );
@@ -174,6 +182,7 @@ export class Expense extends AggregateRoot {
       amount: this.#amount,
       date: this.#date,
       paidBy: this.#paidBy,
+      splitKind: this.#split.kind,
       shares: this.#split.shares,
       version: this.version,
     };
@@ -181,21 +190,22 @@ export class Expense extends AggregateRoot {
 }
 
 /**
- * What a recording and an edit both must hold (the storm's split and the rules of request 4): the description, the amount, the
- * date, and the split the group's members may be in, the payer among them. Returns the split the shares are decided by.
+ * What a recording and an edit both must hold (the storm's split and the rules of requests 4 and 7): the description, the
+ * amount, the date, and the split the group's members may be in, the payer among them. Returns the split the shares are
+ * decided by, in the way it was given.
  */
 const checkDraft = (
-  { description, amount, date, payerId, splitBetween }: Omit<ExpenseDraft, 'groupId'>,
+  { description, amount, date, payerId, split }: Omit<ExpenseDraft, 'groupId'>,
   members: readonly string[],
   now: Date,
 ): IResult<Split> => {
   if (!isDescription(description)) return Result.fail(new InvalidExpenseDescriptionException());
   if (!isAmount(amount)) return Result.fail(new InvalidExpenseAmountException());
   if (!isSpentBy(date, now)) return Result.fail(new InvalidExpenseDateException());
-  if (!splitBetween.every(memberId => members.includes(memberId))) {
+  if (!memberIdsOf(split).every(memberId => members.includes(memberId))) {
     return Result.fail(new SplitMemberNotInGroupException());
   }
-  return Split.equally({ amount, payerId, memberIds: splitBetween });
+  return Split.decide({ amount, payerId, split });
 };
 
 /** The description is 1 to 100 characters (counted as characters, not bytes), and not only spaces. */
@@ -215,8 +225,22 @@ const isSpentBy = (raw: string, now: Date): boolean => {
   return raw <= now.toISOString().slice(0, 10);
 };
 
-export type ExpenseRecordedPayload = { expenseId: string; groupId: string; paidBy: string; amount: number; at: string };
-export type ExpenseEditedPayload = { expenseId: string; groupId: string; paidBy: string; amount: number; at: string };
+export type ExpenseRecordedPayload = {
+  expenseId: string;
+  groupId: string;
+  paidBy: string;
+  amount: number;
+  splitKind: SplitKind;
+  at: string;
+};
+export type ExpenseEditedPayload = {
+  expenseId: string;
+  groupId: string;
+  paidBy: string;
+  amount: number;
+  splitKind: SplitKind;
+  at: string;
+};
 export type ExpenseDeletedPayload = { expenseId: string; groupId: string; at: string };
 
 /**

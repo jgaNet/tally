@@ -1,5 +1,5 @@
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
-import { Share } from '@Contexts/Ledger/Domain/Expense/Split';
+import { Share, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** What a screen shows of one expense: a read model, never the aggregate (QUERY-READ-MODELS). Its version is the one it is at. */
 export interface ExpenseView {
@@ -9,6 +9,7 @@ export interface ExpenseView {
   readonly amount: number;
   readonly date: string;
   readonly paidBy: string;
+  readonly splitKind: SplitKind;
   readonly shares: readonly Share[];
   readonly version: number;
 }

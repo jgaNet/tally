@@ -94,6 +94,7 @@ describe('Groups → Ledger', () => {
       amount: 1000,
       date: PAST_DAY,
       paidBy: ann.id,
+      splitKind: 'equal',
       shares: [
         { memberId: ann.id, amount: 334 },
         { memberId: bob.id, amount: 333 },

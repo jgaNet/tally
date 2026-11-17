@@ -1,7 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { Expense, ExpenseDraft } from '@Contexts/Ledger/Domain/Expense/Expense';
-import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
+import { EditDraft, Expense, ExpenseDraft } from '@Contexts/Ledger/Domain/Expense/Expense';
 
 const now = new Date('2026-11-17T12:00:00Z');
 const members = ['ann', 'bob', 'carol'];
@@ -11,35 +10,8 @@ const draft = (overrides: Partial<ExpenseDraft> = {}): ExpenseDraft => ({
   amount: 1000,
   date: '2026-11-17',
   payerId: 'ann',
-  splitBetween: ['ann', 'bob', 'carol'],
+  split: { kind: 'equal', memberIds: ['ann', 'bob', 'carol'] },
   ...overrides,
-});
-
-describe('Split', () => {
-  it('divides the amount equally, the remainder whole to the payer, and the shares add up to the amount', () => {
-    const split = Split.equally({ amount: 1000, payerId: 'ann', memberIds: ['ann', 'bob', 'carol'] });
-    expect(split.data?.shares).toEqual([
-      { memberId: 'ann', amount: 334 },
-      { memberId: 'bob', amount: 333 },
-      { memberId: 'carol', amount: 333 },
-    ]);
-  });
-
-  it('gives the remainder to a payer who is not first, and keeps the order given', () => {
-    const split = Split.equally({ amount: 10, payerId: 'bob', memberIds: ['carol', 'bob', 'ann'] });
-    expect(split.data?.shares).toEqual([
-      { memberId: 'carol', amount: 3 },
-      { memberId: 'bob', amount: 4 },
-      { memberId: 'ann', amount: 3 },
-    ]);
-  });
-
-  it('refuses a member listed twice, and a split without its payer', () => {
-    expect(Split.equally({ amount: 10, payerId: 'ann', memberIds: ['ann', 'ann'] }).error?.type).toBe(
-      'DuplicateSplitMember',
-    );
-    expect(Split.equally({ amount: 10, payerId: 'ann', memberIds: ['bob'] }).error?.type).toBe('PayerNotInSplit');
-  });
 });
 
 describe('Expense.register', () => {
@@ -47,14 +19,79 @@ describe('Expense.register', () => {
     const expense = Expense.register(draft(), members, now);
     expect(expense.isFailure()).toBe(false);
     const snapshot = expense.data!.toSnapshot();
-    expect(snapshot).toMatchObject({ groupId: 'flat', amount: 1000, date: '2026-11-17', paidBy: 'ann' });
+    expect(snapshot).toMatchObject({
+      groupId: 'flat',
+      amount: 1000,
+      date: '2026-11-17',
+      paidBy: 'ann',
+      splitKind: 'equal',
+    });
     expect(snapshot.shares.reduce((sum, share) => sum + share.amount, 0)).toBe(1000);
     expect(expense.data!.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseRecordedEvent']);
   });
 
+  it('records an expense split by shares with its kind, and its ExpenseRecorded says how it was split', () => {
+    const expense = Expense.register(
+      draft({
+        amount: 1001,
+        payerId: 'bob',
+        split: {
+          kind: 'shares',
+          shares: [
+            { memberId: 'ann', shares: 2 },
+            { memberId: 'bob', shares: 1 },
+          ],
+        },
+      }),
+      members,
+      now,
+    );
+    expect(expense.isFailure()).toBe(false);
+    expect(expense.data!.toSnapshot()).toMatchObject({
+      splitKind: 'shares',
+      shares: [
+        { memberId: 'ann', amount: 667 },
+        { memberId: 'bob', amount: 334 },
+      ],
+    });
+    const [event] = expense.data!.pullDomainEvents() as unknown as { payload: { splitKind: string } }[];
+    expect(event.payload.splitKind).toBe('shares');
+  });
+
   it('refuses a member of the split who is not a member of the group', () => {
-    const refused = Expense.register(draft({ splitBetween: ['ann', 'dana'] }), members, now);
+    const refused = Expense.register(draft({ split: { kind: 'equal', memberIds: ['ann', 'dana'] } }), members, now);
     expect(refused.error?.type).toBe('SplitMemberNotInGroup');
+  });
+
+  it('refuses a split by exact amounts that names a member of the group twice, or not of it', () => {
+    const twice = Expense.register(
+      draft({
+        split: {
+          kind: 'exact',
+          amounts: [
+            { memberId: 'ann', amount: 500 },
+            { memberId: 'ann', amount: 500 },
+          ],
+        },
+      }),
+      members,
+      now,
+    );
+    expect(twice.error?.type).toBe('DuplicateSplitMember');
+    const stranger = Expense.register(
+      draft({
+        split: {
+          kind: 'exact',
+          amounts: [
+            { memberId: 'ann', amount: 500 },
+            { memberId: 'dana', amount: 500 },
+          ],
+        },
+      }),
+      members,
+      now,
+    );
+    expect(stranger.error?.type).toBe('SplitMemberNotInGroup');
   });
 
   it.each([
@@ -92,7 +129,12 @@ describe('Expense.edit', () => {
   const recorded = () => Expense.register(draft(), members, now).data!;
   /** The expense as the store would have loaded it: at version 1, as a recording stores it. */
   const loaded = () => Expense.fromSnapshot({ ...recorded().toSnapshot(), version: 1 });
-  const edit = { description: 'Dinner', amount: 900, date: '2026-11-16', splitBetween: ['ann', 'bob'] };
+  const edit: EditDraft = {
+    description: 'Dinner',
+    amount: 900,
+    date: '2026-11-16',
+    split: { kind: 'equal', memberIds: ['ann', 'bob'] },
+  };
 
   it('gives the expense again whole, its shares computed again, the payer kept, and records ExpenseEdited', () => {
     const expense = loaded();
@@ -117,15 +159,17 @@ describe('Expense.edit', () => {
 
   it('applies the rules of a recording to what it gives: a split without the payer is refused and nothing changes', () => {
     const expense = loaded();
-    expect(expense.edit({ ...edit, splitBetween: ['bob'] }, members, 1, now).error?.type).toBe('PayerNotInSplit');
+    expect(expense.edit({ ...edit, split: { kind: 'equal', memberIds: ['bob'] } }, members, 1, now).error?.type).toBe(
+      'PayerNotInSplit',
+    );
     expect(expense.toSnapshot().amount).toBe(1000);
     expect(expense.pullDomainEvents()).toEqual([]);
   });
 
   it('refuses a member of the split who is not a member of the group', () => {
-    expect(loaded().edit({ ...edit, splitBetween: ['ann', 'dana'] }, members, 1, now).error?.type).toBe(
-      'SplitMemberNotInGroup',
-    );
+    expect(
+      loaded().edit({ ...edit, split: { kind: 'equal', memberIds: ['ann', 'dana'] } }, members, 1, now).error?.type,
+    ).toBe('SplitMemberNotInGroup');
   });
 });
 

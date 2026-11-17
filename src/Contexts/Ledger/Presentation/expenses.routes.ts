@@ -4,31 +4,62 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
 import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
+
+/** The three ways a body may split an expense (request 7): exactly one of them, its shape only. */
+type SplitBody =
+  | { readonly splitBetween: string[] }
+  | { readonly splitExactly: { memberId: string; amount: number }[] }
+  | { readonly splitByShares: { memberId: string; shares: number }[] };
 
 /** The body of a recording: its shape only; the payer is the caller, and the group is the URL's. */
-interface RecordExpenseBody {
-  readonly description: string;
-  readonly amount: number;
-  readonly date: string;
-  readonly splitBetween: string[];
-}
+type RecordExpenseBody = { readonly description: string; readonly amount: number; readonly date: string } & SplitBody;
 
 /** The body of an edit: the expense given again whole, and the version its author read (request 6). */
-interface EditExpenseBody {
-  readonly description: string;
-  readonly amount: number;
-  readonly date: string;
-  readonly splitBetween: string[];
-  readonly version: number;
-}
+type EditExpenseBody = RecordExpenseBody & { readonly version: number };
 
 /**
- * The expenses' routes (feature 4, the API's fragment 5, and feature 6's fragment 7): a member records an expense they paid,
- * split between the members they name; a member of its group reads it; its payer or the group's owner edits it from the
- * version they read, or deletes it. Each answers its use case at once. The paths are whole, mounted at the root
- * beside the groups' (ADR 5: a context has one mount). The body's schema says its shape only: a missing field or one of the
- * wrong type is `400` before any use case runs; whether the description fits, the amount is in range, the date is a real day
- * and the split is the group's members is the domain's to say (`422`).
+ * The schema of a split in a body (request 4's `splitBetween`, request 7's `splitExactly` and `splitByShares`): exactly one of
+ * the three keys, each of the shape it names. Whether an amount is 0 or more, or the shares are at least 1, is the domain's.
+ */
+const splitProperties = {
+  splitBetween: { type: 'array', items: { type: 'string' } },
+  splitExactly: {
+    type: 'array',
+    items: {
+      type: 'object',
+      required: ['memberId', 'amount'],
+      properties: { memberId: { type: 'string' }, amount: { type: 'integer' } },
+    },
+  },
+  splitByShares: {
+    type: 'array',
+    items: {
+      type: 'object',
+      required: ['memberId', 'shares'],
+      properties: { memberId: { type: 'string' }, shares: { type: 'integer' } },
+    },
+  },
+};
+const exactlyOneSplit = {
+  oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
+};
+
+/** The split a body gives, in the domain's words. The schema has let through exactly one of the three keys. */
+const splitOf = (body: SplitBody): SplitDraft => {
+  if ('splitBetween' in body) return { kind: 'equal', memberIds: body.splitBetween };
+  if ('splitExactly' in body) return { kind: 'exact', amounts: body.splitExactly };
+  return { kind: 'shares', shares: body.splitByShares };
+};
+
+/**
+ * The expenses' routes (feature 4, the API's fragment 5, feature 6's fragment 7, and feature 7's fragment 8): a member records an
+ * expense they paid, split equally, by exact amounts or by shares; a member of its group reads it, with how it was split; its
+ * payer or the group's owner edits it from the version they read, the same ways, or deletes it. Each answers its use case at
+ * once. The paths are whole, mounted at the root beside the groups' (ADR 5: a context has one mount). The body's schema says its
+ * shape only: a missing field, one of the wrong type, or not exactly one of the three splits is `400` before any use case runs;
+ * whether the description fits, the amount is in range, the date is a real day, the split is the group's members, the amounts
+ * add up and the shares are at least 1 is the domain's to say (`422`).
  */
 export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fastify, { module }, done) => {
   fastify.post<{ Params: { id: string }; Body: RecordExpenseBody }>(
@@ -37,13 +68,14 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
       schema: {
         body: {
           type: 'object',
-          required: ['description', 'amount', 'date', 'splitBetween'],
+          required: ['description', 'amount', 'date'],
           properties: {
             description: { type: 'string' },
             amount: { type: 'integer' },
             date: { type: 'string' },
-            splitBetween: { type: 'array', items: { type: 'string' } },
+            ...splitProperties,
           },
+          ...exactlyOneSplit,
         },
       },
     },
@@ -52,7 +84,13 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         req,
         reply,
         module.useCase(recordExpense),
-        { groupId: req.params.id, ...req.body },
+        {
+          groupId: req.params.id,
+          description: req.body.description,
+          amount: req.body.amount,
+          date: req.body.date,
+          split: splitOf(req.body),
+        },
         { created: true },
       ),
   );
@@ -67,18 +105,27 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
       schema: {
         body: {
           type: 'object',
-          required: ['description', 'amount', 'date', 'splitBetween', 'version'],
+          required: ['description', 'amount', 'date', 'version'],
           properties: {
             description: { type: 'string' },
             amount: { type: 'integer' },
             date: { type: 'string' },
-            splitBetween: { type: 'array', items: { type: 'string' } },
             version: { type: 'integer' },
+            ...splitProperties,
           },
+          ...exactlyOneSplit,
         },
       },
     },
-    (req, reply) => answerAtOnce(req, reply, module.useCase(editExpense), { expenseId: req.params.id, ...req.body }),
+    (req, reply) =>
+      answerAtOnce(req, reply, module.useCase(editExpense), {
+        expenseId: req.params.id,
+        description: req.body.description,
+        amount: req.body.amount,
+        date: req.body.date,
+        split: splitOf(req.body),
+        version: req.body.version,
+      }),
   );
 
   fastify.delete<{ Params: { id: string } }>('/expenses/:id', (req, reply) =>

@@ -11,6 +11,7 @@ import {
   GroupNotFoundException,
   NotThePayerOrOwnerException,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
+import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** An expense as the request carries it: the group it is in, and the rest of the draft; the payer is the caller. */
 export interface RecordExpenseInput {
@@ -18,7 +19,7 @@ export interface RecordExpenseInput {
   readonly description: string;
   readonly amount: number;
   readonly date: string;
-  readonly splitBetween: readonly string[];
+  readonly split: SplitDraft;
 }
 
 /**
@@ -30,7 +31,7 @@ export interface EditExpenseInput {
   readonly description: string;
   readonly amount: number;
   readonly date: string;
-  readonly splitBetween: readonly string[];
+  readonly split: SplitDraft;
   readonly version: number;
 }
 

@@ -111,6 +111,7 @@ describe('editing an expense', () => {
       amount: 900,
       date: PAST_DAY,
       paidBy: bob.id,
+      splitKind: 'equal',
       shares: [
         { memberId: bob.id, amount: 450 },
         { memberId: carol.id, amount: 450 },

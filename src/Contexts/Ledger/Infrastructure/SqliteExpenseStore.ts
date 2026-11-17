@@ -3,12 +3,15 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import { IExpenseStore, ExpenseView, MemberBalanceView } from '@Contexts/Ledger/Application/IExpenseStore';
 import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expense';
-import { Share } from '@Contexts/Ledger/Domain/Expense/Split';
+import { Share, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /**
  * The ledger's tables. An expense is a row of `expenses` (feature 4), and its shares are rows of `expense_shares`, in the
  * order the split was given (`position`), kept as they were decided. The group an expense is in is a group of Groups; the
  * ledger reads the membership through its port, not this table, so the foreign key only names the group's id.
+ *
+ * `expense_splits` is the way each expense was split, `equal`, `exact` or `shares` (feature 7): one row per expense, written with
+ * the expense, and backfilled as `equal` for the expenses kept before feature 7, which were all split equally.
  *
  * `expense_versions` is the version each expense is stored at (feature 6, ADR 8): one row per expense, 1 when it is recorded
  * and one more at each edit, updated only while it is still at the version the aggregate was loaded at. It is a table of its
@@ -56,6 +59,11 @@ export const ledgerTablesSchema = [
      version INTEGER NOT NULL
    )`,
   `INSERT OR IGNORE INTO expense_versions (expense_id, version) SELECT id, 1 FROM expenses`,
+  `CREATE TABLE IF NOT EXISTS expense_splits (
+     expense_id TEXT PRIMARY KEY REFERENCES expenses(id),
+     kind TEXT NOT NULL CHECK (kind IN ('equal', 'exact', 'shares'))
+   )`,
+  `INSERT OR IGNORE INTO expense_splits (expense_id, kind) SELECT id, 'equal' FROM expenses`,
 ];
 
 /**
@@ -76,6 +84,9 @@ export class SqliteExpenseStore implements IExpenseStore {
     this.database.writer
       .prepare('INSERT INTO expense_versions (expense_id, version) VALUES (?, ?)')
       .run(snapshot.id, snapshot.version + 1);
+    this.database.writer
+      .prepare('INSERT INTO expense_splits (expense_id, kind) VALUES (?, ?)')
+      .run(snapshot.id, snapshot.splitKind);
     this.#writeShares(snapshot);
     this.#writeBalances(snapshot);
   }
@@ -92,6 +103,9 @@ export class SqliteExpenseStore implements IExpenseStore {
     this.database.writer
       .prepare('UPDATE expenses SET description = ?, amount = ?, spent_on = ? WHERE id = ?')
       .run(snapshot.description, snapshot.amount, snapshot.date, snapshot.id);
+    this.database.writer
+      .prepare('INSERT OR REPLACE INTO expense_splits (expense_id, kind) VALUES (?, ?)')
+      .run(snapshot.id, snapshot.splitKind);
     this.database.writer.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(snapshot.id);
     this.#writeShares(snapshot);
     this.database.writer.prepare('DELETE FROM expense_balances WHERE expense_id = ?').run(snapshot.id);
@@ -104,6 +118,7 @@ export class SqliteExpenseStore implements IExpenseStore {
     this.database.writer.prepare('DELETE FROM expense_balances WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expense_versions WHERE expense_id = ?').run(snapshot.id);
+    this.database.writer.prepare('DELETE FROM expense_splits WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expenses WHERE id = ?').run(snapshot.id);
   }
 
@@ -120,8 +135,10 @@ export class SqliteExpenseStore implements IExpenseStore {
     const row = this.database.read(db =>
       db
         .prepare(
-          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version
-             FROM expenses e JOIN expense_versions v ON v.expense_id = e.id
+          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind
+             FROM expenses e
+             JOIN expense_versions v ON v.expense_id = e.id
+             JOIN expense_splits k ON k.expense_id = e.id
             WHERE e.id = ?`,
         )
         .get(expenseId),
@@ -138,6 +155,7 @@ export class SqliteExpenseStore implements IExpenseStore {
       amount: row.amount,
       date: row.spent_on,
       paidBy: row.paid_by,
+      splitKind: row.kind,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       version: row.version,
     };
@@ -182,6 +200,7 @@ interface ExpenseRow {
   spent_on: string;
   paid_by: string;
   version: number;
+  kind: SplitKind;
 }
 
 interface ShareRow {

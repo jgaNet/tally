@@ -64,6 +64,39 @@ export class PayerNotInSplitException extends Exception {
   }
 }
 
+/** An exact amount of a split that is not a whole number of 0 or more: `422` (request 7). */
+export class InvalidSplitAmountException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'InvalidSplitAmount',
+      message: 'Each exact amount of a split is a whole number, 0 or more',
+    });
+  }
+}
+
+/** The exact amounts of a split that do not add up to the expense's amount, exactly: `422` (request 7). */
+export class SplitAmountsDoNotAddUpException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'SplitAmountsDoNotAddUp',
+      message: 'The exact amounts of a split add up to the amount of the expense',
+    });
+  }
+}
+
+/** A member of a split with shares that are not a whole number of 1 or more: `422` (request 7). */
+export class InvalidSplitSharesException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'InvalidSplitShares',
+      message: 'Each member of a split has a whole number of shares, at least 1',
+    });
+  }
+}
+
 /**
  * The expense changed since the version the edit was made from: `409`. The author reads it again and decides (ADR 8): two
  * edits from one version, one of them is kept and the other is refused by this name.
