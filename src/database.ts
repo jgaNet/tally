@@ -49,6 +49,22 @@ const SCHEMA = `
     created_by TEXT NOT NULL REFERENCES accounts (id),
     created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS expenses (
+    id          TEXT PRIMARY KEY,
+    group_id    TEXT NOT NULL REFERENCES groups (id),
+    description TEXT NOT NULL,
+    amount      INTEGER NOT NULL,
+    spent_on    TEXT NOT NULL,
+    paid_by     TEXT NOT NULL REFERENCES accounts (id),
+    created_at  TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS expense_shares (
+    expense_id TEXT NOT NULL REFERENCES expenses (id),
+    position   INTEGER NOT NULL,
+    member_id  TEXT NOT NULL REFERENCES accounts (id),
+    amount     INTEGER NOT NULL,
+    PRIMARY KEY (expense_id, position)
+  );
 `;
 
 /** How long a connection waits for another server's write lock before it fails, in milliseconds. */
