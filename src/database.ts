@@ -97,6 +97,22 @@ const migrations: readonly string[] = [
     PRIMARY KEY (group_id, account_id)
   );
   `,
+  `
+  -- A settlement moves money between two members of a group, and is never edited. The amount is in
+  -- hundredths of the group's currency. Only cash is kept so far, and a settlement is paid when recorded.
+  CREATE TABLE settlements (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    payer_id   TEXT NOT NULL REFERENCES accounts (id),
+    payee_id   TEXT NOT NULL REFERENCES accounts (id),
+    amount     INTEGER NOT NULL CHECK (amount >= 1),
+    method     TEXT NOT NULL CHECK (method IN ('cash')),
+    status     TEXT NOT NULL CHECK (status IN ('paid')),
+    created_at TEXT NOT NULL,
+    CHECK (payer_id <> payee_id)
+  );
+  CREATE INDEX settlements_by_group ON settlements (group_id);
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

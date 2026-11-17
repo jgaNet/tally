@@ -3,8 +3,9 @@ import type { Database } from '../database';
 export interface Balance {
   memberId: string;
   /**
-   * What the member paid for the group's expenses, minus their shares in them, in hundredths of
-   * the group's currency. Positive: the group owes them. Negative: they owe the group.
+   * What the member paid for the group's expenses, minus their shares in them, plus what they paid
+   * in settlements, minus what they were paid in settlements, in hundredths of the group's currency.
+   * Positive: the group owes them. Negative: they owe the group.
    */
   balance: number;
 }
@@ -34,7 +35,15 @@ export function balancesOf(db: Database, groupId: string): Balance[] {
                  FROM expense_shares
                  JOIN expenses ON expenses.id = expense_shares.expense_id
                 WHERE expenses.group_id = memberships.group_id
-                  AND expense_shares.member_id = memberships.account_id) AS balance
+                  AND expense_shares.member_id = memberships.account_id)
+            + (SELECT COALESCE(SUM(settlements.amount), 0)
+                 FROM settlements
+                WHERE settlements.group_id = memberships.group_id
+                  AND settlements.payer_id = memberships.account_id)
+            - (SELECT COALESCE(SUM(settlements.amount), 0)
+                 FROM settlements
+                WHERE settlements.group_id = memberships.group_id
+                  AND settlements.payee_id = memberships.account_id) AS balance
          FROM memberships
         WHERE memberships.group_id = ?
         ORDER BY memberships.joined_at, memberships.rowid`,
