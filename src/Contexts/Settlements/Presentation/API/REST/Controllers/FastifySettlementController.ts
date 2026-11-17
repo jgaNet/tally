@@ -7,6 +7,7 @@ import { acceptCommandAtOnce, notAllowedStatus } from '@Architecture/Presentatio
 import {
   PayThroughProviderCommandEvent,
   RecordCashSettlementCommandEvent,
+  RefundSettlementCommandEvent,
 } from '@Contexts/Settlements/Application/Commands';
 import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook/ReceivePaymentWebhookCommandEvent';
 import {
@@ -19,7 +20,7 @@ import {
   RecordCashSettlementBody,
 } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
 
-/** The routes of settlements: a member reads the suggested transfers of their group (request 11), records a cash settlement and reads one (request 12), pays through the provider and takes its webhook (request 13). */
+/** The routes of settlements: a member reads the suggested transfers of their group (request 11), records a cash settlement and reads one (request 12), pays through the provider and takes its webhook (request 13), and refunds a payment through the provider (request 15). */
 export class FastifySettlementController {
   #module: Module;
 
@@ -58,6 +59,15 @@ export class FastifySettlementController {
       reply,
       this.#module,
       PayThroughProviderCommandEvent.set({ groupId: req.params.id, to, amount }),
+    );
+  }
+
+  refundSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommandAtOnce(
+      req,
+      reply,
+      this.#module,
+      RefundSettlementCommandEvent.set({ settlementId: req.params.id }),
     );
   }
 

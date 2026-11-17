@@ -6,7 +6,7 @@ export interface SettlementView {
   to: string;
   amount: number;
   method: 'cash' | 'provider';
-  status: 'paid' | 'pending' | 'failed';
+  status: 'paid' | 'pending' | 'failed' | 'refunding' | 'refunded';
   at: string;
   payUrl?: string;
 }
@@ -33,7 +33,7 @@ export interface WaitingSettlement {
 export interface ISettlementQueries {
   /** The settlement with this id, or null if there is none. */
   findById(id: string): Promise<SettlementView | null>;
-  /** Every settlement of the group that is paid, in the order they were recorded. */
+  /** Every settlement of the group the balances count, in the order they were recorded: paid, or refunding (the money has not gone back yet). */
   paidIn(groupId: string): Promise<PaidSettlement[]>;
   /** Every payment of the group that waits at the provider, in the order they were requested. */
   waitingIn(groupId: string): Promise<WaitingSettlement[]>;

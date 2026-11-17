@@ -3,9 +3,11 @@ export type SettlementMethod = 'cash' | 'provider';
 
 /**
  * Where a settlement stands: `pending` while a payment waits at the provider (not counted, but still owed-less), `paid` when
- * it counts, `failed` when the provider said it did not go through (never counted, nothing held).
+ * it counts, `failed` when the provider said it did not go through (never counted, nothing held). `refunding` is a paid
+ * settlement the payee asked the provider to refund: the money has not gone back yet, so it still counts. `refunded` is one
+ * the provider says it refunded: it is no longer counted, and it ends there.
  */
-export type SettlementStatus = 'pending' | 'paid' | 'failed';
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
 
 /** A settlement as a book records it: the id the domain generated, the group, the payer, the payee, the amount and when. */
 export interface ISettlementSnapshot {

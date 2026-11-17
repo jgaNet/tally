@@ -7,8 +7,8 @@ import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Applica
 /**
  * The provider's webhook about a payment (request 13): the signature is the proof, checked at the transport over the body as
  * sent, before anything is decided, so anyone may ask for this command (the storm `pay-through-the-provider`, API-CALLER-AT-TRANSPORT).
- * The book holding the payment takes the provider's word: a pending payment succeeds or fails, once. A payment Tally does not know
- * changes nothing, and a signed webhook is acknowledged whatever it says. The book is saved, and what it recorded is published,
+ * The book holding the payment takes the provider's word: a pending payment succeeds or fails, once; a `refunded` moves a payment on
+ * to refunded, once (request 15). A payment Tally does not know changes nothing, and a signed webhook is acknowledged whatever it says. The book is saved, and what it recorded is published,
  * only when it moved.
  */
 export class ReceivePaymentWebhookCommandHandler extends CommandHandler<ReceivePaymentWebhookCommandEvent> {

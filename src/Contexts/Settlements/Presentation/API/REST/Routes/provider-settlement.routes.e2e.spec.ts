@@ -7,8 +7,8 @@ import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
- * Settling up through the payment provider, end to end (request 13): the application booted in this process, spoken to over HTTP,
- * every answer held to api/13-pay-through-the-provider.yaml by the client. The provider is a fake one, a server in this process,
+ * Settling up through the payment provider, end to end (requests 13 to 15): the application booted in this process, spoken to over HTTP,
+ * every answer held to api/13-pay-through-the-provider.yaml, and api/15-refund-through-the-provider.yaml, by the client. The provider is a fake one, a server in this process,
  * started before the application is, so PROVIDER_URL and PROVIDER_WEBHOOK_SECRET are the ones the application reads at its start.
  */
 const SECRET = 'whsec_test';
@@ -28,6 +28,10 @@ const nextPaymentId = (): string => {
   issued.push(`pay_${issuedCount}`);
   return issued[issued.length - 1];
 };
+/** What the fake provider answers its next refund request with: accepted, refused, or no answer in time (request 15). */
+let refundAnswer: 'accept' | 'refuse' | 'slow' = 'accept';
+/** The refund requests the fake provider received, in order: the path asked, and the body sent. */
+let refunds: { path: string; body: { reference: string } }[] = [];
 let provider: Server;
 let providerUrl: string;
 
@@ -39,6 +43,17 @@ beforeAll(async () => {
     let text = '';
     req.on('data', chunk => (text += chunk));
     req.on('end', () => {
+      if (req.url?.endsWith('/refunds')) {
+        refunds.push({ path: req.url, body: JSON.parse(text) as { reference: string } });
+        if (refundAnswer === 'refuse') return void res.writeHead(500).end();
+        const refunded = () => {
+          res.writeHead(201, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ id: `rf_${refunds.length}` }));
+        };
+        if (refundAnswer === 'slow') setTimeout(refunded, 5500);
+        else refunded();
+        return;
+      }
       const body = JSON.parse(text) as { reference: string; amount: number; currency: string };
       requested.push(body);
       if (answer === 'refuse') return void res.writeHead(500).end();
@@ -70,6 +85,8 @@ beforeEach(() => {
   answer = 'link';
   requested = [];
   issued = [];
+  refundAnswer = 'accept';
+  refunds = [];
 });
 
 async function accountOf(email: string, name: string): Promise<{ token: string; id: string }> {
@@ -110,6 +127,11 @@ async function operationOutcome(operationId: string, token: string) {
   }
   throw new Error('the operation did not end');
 }
+
+const refundSettlement = (settlementId: string, token?: string) =>
+  http.request('POST', `/v1/settlements/${settlementId}/refund`, { token });
+const readSettlement = async (settlementId: string, token: string) =>
+  (await http.get(`/v1/settlements/${settlementId}`, { token })).body as { status: string };
 
 const balancesOf = async (groupId: string, token: string) =>
   (await http.get(`/v1/groups/${groupId}/balances`, { token })).body as { memberId: string; balance: number }[];
@@ -388,5 +410,130 @@ describe('webhooks late, twice or out of order (request 14)', () => {
     expectAcknowledged(await webhook({ id: 'wh_1', paymentId, status: 'succeeded' }));
     expectAcknowledged(await webhook({ id: 'wh_1', paymentId, status: 'succeeded' }));
     expect(await suggestedOf(groupId, ann.token)).toEqual([]);
+  });
+});
+
+describe('a refund through the provider (request 15)', () => {
+  it('refunds a paid payment asked by its payee, and the balances go back once the provider says it is refunded', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    const paymentId = lastPayment();
+    expectAcknowledged(await webhook({ paymentId, status: 'succeeded' }));
+
+    const refund = await refundSettlement(id, ann.token);
+    expect(refund.status).toBe(201);
+    expect(refunds).toEqual([{ path: `/payments/${paymentId}/refunds`, body: { reference: id } }]);
+
+    // The money has not gone back yet: the settlement is refunding, and the balances still count it.
+    expect(await readSettlement(id, bob.token)).toMatchObject({ status: 'refunding' });
+    expect(await balancesOf(groupId, ann.token)).toEqual([
+      { memberId: ann.id, balance: 0 },
+      { memberId: bob.id, balance: 0 },
+    ]);
+
+    expectAcknowledged(await webhook({ paymentId, status: 'refunded' }));
+    expect(await readSettlement(id, bob.token)).toMatchObject({ status: 'refunded' });
+    expect(await balancesOf(groupId, ann.token)).toEqual([
+      { memberId: ann.id, balance: 30 },
+      { memberId: bob.id, balance: -30 },
+    ]);
+    expect(await suggestedOf(groupId, ann.token)).toEqual([{ from: bob.id, to: ann.id, amount: 30 }]);
+
+    // A refunded settlement is refunded once: a second refund is refused, and nothing is sent to the provider.
+    expect((await refundSettlement(id, ann.token)).status).toBe(400);
+    expect(refunds).toHaveLength(1);
+  });
+
+  it('is refused, and the provider is not asked, when the caller is not the payee, is not signed in, or is not a member', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    expectAcknowledged(await webhook({ paymentId: lastPayment(), status: 'succeeded' }));
+    const stranger = await accountOf('cy.refund@example.com', 'Cy');
+
+    expect((await refundSettlement(id, bob.token)).status).toBe(403);
+    expect((await refundSettlement(id)).status).toBe(401);
+    expect((await refundSettlement(id, stranger.token)).status).toBe(404);
+    expect(refunds).toEqual([]);
+    expect(await readSettlement(id, bob.token)).toMatchObject({ status: 'paid' });
+  });
+
+  it('is refused, with nothing sent to the provider, for a payment still waiting or a settlement in cash', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const waiting = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const waitingId = (waiting.body as { id: string }).id;
+
+    const refusedWaiting = await refundSettlement(waitingId, ann.token);
+    expect(refusedWaiting.status).toBe(400);
+    expect(refusedWaiting.body).toEqual({ type: 'SettlementNotRefundable', message: expect.any(String) });
+
+    // What is waiting at the provider counts as paid, so the cash settlement is made in a group where nothing waits.
+    const other = await annAndBobOwing();
+    const cash = await settleInCash(other.groupId, other.ann.token, { from: other.bob.id, amount: 30 });
+    expect(cash.status).toBe(201);
+    const refusedCash = await refundSettlement((cash.body as { id: string }).id, ann.token);
+    expect(refusedCash.body).toEqual({ type: 'SettlementNotRefundable', message: expect.any(String) });
+    expect(refunds).toEqual([]);
+  });
+
+  it('is refused once one of the two has left the group, so that the balances still add up to 0', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    expectAcknowledged(await webhook({ paymentId: lastPayment(), status: 'succeeded' }));
+    expect((await http.request('POST', `/v1/groups/${groupId}/leave`, { token: bob.token })).status).toBe(201);
+
+    const refused = await refundSettlement(id, ann.token);
+    expect(refused.body).toEqual({ type: 'SettlementNotRefundable', message: expect.any(String) });
+    expect(refunds).toEqual([]);
+    expect(await balancesOf(groupId, ann.token)).toEqual([{ memberId: ann.id, balance: 0 }]);
+  });
+
+  it('is refused as the provider refused it, and nothing moves, when the provider does not accept the refund', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    expectAcknowledged(await webhook({ paymentId: lastPayment(), status: 'succeeded' }));
+    refundAnswer = 'refuse';
+
+    const refused = await refundSettlement(id, ann.token);
+    expect(refused.status).toBe(400);
+    expect(refused.body).toEqual({ type: 'ProviderUnavailable', message: expect.any(String) });
+    expect(await readSettlement(id, bob.token)).toMatchObject({ status: 'paid' });
+    expect(await balancesOf(groupId, ann.token)).toEqual([
+      { memberId: ann.id, balance: 0 },
+      { memberId: bob.id, balance: 0 },
+    ]);
+  });
+
+  it('is refused when the provider does not answer the refund within 5 seconds, and nothing moves', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    expectAcknowledged(await webhook({ paymentId: lastPayment(), status: 'succeeded' }));
+    refundAnswer = 'slow';
+
+    const asking = await refundSettlement(id, ann.token);
+    const operationId = (asking.body as { operationId?: string }).operationId;
+    const refused = operationId ? await operationOutcome(operationId, ann.token) : asking;
+    expect(refused.body).toEqual({ type: 'ProviderUnavailable', message: expect.any(String) });
+    expect(await readSettlement(id, bob.token)).toMatchObject({ status: 'paid' });
+  }, 20000);
+
+  it('counts a refunded webhook that overtakes the success of the same payment: refunded, and never counted', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    const paymentId = lastPayment();
+
+    expectAcknowledged(await webhook({ id: 'wh_refund_first', paymentId, status: 'refunded' }));
+    expectAcknowledged(await webhook({ id: 'wh_success_late', paymentId, status: 'succeeded' }));
+
+    expect(await readSettlement(id, bob.token)).toMatchObject({ status: 'refunded' });
+    expect(await balancesOf(groupId, ann.token)).toEqual([
+      { memberId: ann.id, balance: 30 },
+      { memberId: bob.id, balance: -30 },
+    ]);
   });
 });

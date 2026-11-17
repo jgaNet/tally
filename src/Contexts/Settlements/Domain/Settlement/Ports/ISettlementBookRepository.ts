@@ -13,5 +13,7 @@ export interface ISettlementBookRepository {
   findByGroupId(groupId: string): Promise<SettlementBook | null>;
   /** The book holding the settlement paid through the provider under this provider's payment id, or null when none holds it. */
   findByPaymentId(paymentId: string): Promise<SettlementBook | null>;
+  /** The book holding the settlement with this id, or null when none holds it. */
+  findBySettlementId(settlementId: string): Promise<SettlementBook | null>;
   save(book: SettlementBook): Promise<IResult>;
 }

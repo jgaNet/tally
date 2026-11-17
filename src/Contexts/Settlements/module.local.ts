@@ -15,6 +15,8 @@ import {
   ReceivePaymentWebhookCommandHandler,
   RecordCashSettlementCommandEvent,
   RecordCashSettlementCommandHandler,
+  RefundSettlementCommandEvent,
+  RefundSettlementCommandHandler,
 } from '@Contexts/Settlements/Application/Commands';
 import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/Ledger/LedgerGroupBalances';
 import { GroupsSettlementMembers } from '@Contexts/Settlements/Infrastructure/Groups/GroupsSettlementMembers';
@@ -52,6 +54,10 @@ export const localSettlementsModule = new Module({
     {
       event: ReceivePaymentWebhookCommandEvent,
       handlers: [new ReceivePaymentWebhookCommandHandler(books)],
+    },
+    {
+      event: RefundSettlementCommandEvent,
+      handlers: [new RefundSettlementCommandHandler(settlementMembers, books, paymentProvider)],
     },
   ],
   queries: [

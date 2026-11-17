@@ -20,3 +20,9 @@ export class SettlementPaidEvent extends DomainEvent<SettlementFacts> {}
 
 /** A payment through the provider failed: the settlement is failed, never counted, and no longer waiting. */
 export class SettlementFailedEvent extends DomainEvent<SettlementFacts> {}
+
+/** A refund of a settlement paid through the provider was asked: the settlement is refunding, and still counted until the provider says it is refunded. */
+export class RefundRequestedEvent extends DomainEvent<SettlementFacts> {}
+
+/** The provider says a settlement was refunded: it is refunded, and the balances no longer count it, once. */
+export class SettlementRefundedEvent extends DomainEvent<SettlementFacts> {}

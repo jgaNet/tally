@@ -48,10 +48,21 @@ const SettlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
     method: { enum: ['cash', 'provider'] },
-    status: { enum: ['paid', 'pending', 'failed'] },
+    status: { enum: ['paid', 'pending', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },
   },
+} as const;
+
+/** A refund asked at once: the settlement's id (request 15). A refusal is the rule's, named by its type (400, 401, 403, 404, 409). */
+export const RefundSettlementResSchema = {
+  201: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+  202: { type: 'object', required: ['operationId'], properties: { operationId: { type: 'string' } } },
+  400: RefusalSchema,
+  401: RefusalSchema,
+  403: RefusalSchema,
+  404: RefusalSchema,
+  409: RefusalSchema,
 } as const;
 
 export const GetSettlementResSchema = {

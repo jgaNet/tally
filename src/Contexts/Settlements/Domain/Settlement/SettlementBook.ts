@@ -1,4 +1,4 @@
-import { AggregateRoot, IResult, Id, Result } from '@Architecture/Domain';
+import { AggregateRoot, IResult, Id, NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
 
 import {
   ISettlementBookSnapshot,
@@ -9,14 +9,17 @@ import {
   InvalidSettlementAmountException,
   ProviderUnavailableException,
   SettlementExceedsBalanceException,
+  SettlementNotRefundableException,
   SettlementPayerNotMemberException,
   SettlementToSelfException,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 import {
   PaymentRequestedEvent,
+  RefundRequestedEvent,
   SettlementFailedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
+  SettlementRefundedEvent,
 } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
 
 /** A balance as the decision reads it: the member's balance in the group, positive when owed, negative when owing. */
@@ -35,7 +38,23 @@ export interface SettlementRequest {
   balances: BalanceOfMember[];
 }
 
-/** What the provider says of a payment in a webhook: `pending`, `succeeded` or `failed`; any other word changes nothing. */
+/**
+ * A refund asked of the book: the settlement, the member who asks for it, and the members of its group as the membership port
+ * says them now (request 9: a settlement whose payer or payee has left is not refunded).
+ */
+export interface RefundRequest {
+  settlementId: string;
+  asker: string;
+  members: string[];
+}
+
+/** A refund decided, before the provider is asked: the settlement and the provider's id of its payment, which the provider is asked to refund. */
+export interface RefundProposal {
+  readonly settlementId: string;
+  readonly paymentId: string;
+}
+
+/** What the provider says of a payment in a webhook: `pending`, `succeeded`, `failed` or `refunded`; any other word changes nothing. */
 export interface ProviderPaymentUpdate {
   paymentId: string;
   status: string;
@@ -52,8 +71,8 @@ export interface PaymentProposal {
 
 /**
  * SettlementBook is the aggregate root of the settlements of one group, the one place they are decided in, so that two
- * settlements decided at once cannot pay more than is owed (request 12 and 13, the storms `settle-in-cash` and
- * `pay-through-the-provider`, ADR 8).
+ * settlements decided at once cannot pay more than is owed (request 12, 13 and 15, the storms `settle-in-cash`,
+ * `pay-through-the-provider` and `refund-through-the-provider`, ADR 8).
  *
  * A settlement is one transfer from a payer to a payee of the group, paid in cash or through the payment provider. It is
  * decided against the balances as they are when it is decided, which the handler reads through the port Settlements owns
@@ -66,7 +85,13 @@ export interface PaymentProposal {
  * A settlement through the provider is decided in two steps, so that the provider is asked only for a payment the rules allow:
  * `proposePayment()` decides it and names it; once the provider has answered a link, `keepPayment()` decides it again with the
  * link in hand and keeps it, pending. A settlement that is never kept is never paid. The provider's webhook reaches the book
- * through `receiveProviderUpdate()`: a pending payment becomes paid or failed, once; any other webhook changes nothing.
+ * through `receiveProviderUpdate()`: a pending payment becomes paid or failed, once; a `refunded` moves a payment that is
+ * pending, paid or refunding to refunded, once, and nothing else moves it (request 14: forward only, refunded last).
+ *
+ * A paid settlement through the provider is refunded in the same two steps: `proposeRefund()` decides it, the payee asking
+ * and both members still in the group, and `keepRefund()` moves it to refunding once the provider has accepted the refund. A
+ * refunding settlement still counts, since the money has not gone back; the balances stop counting it when the provider says
+ * it is refunded.
  *
  * The book's version is the check (CONC-OPTIMISTIC): a save is refused when another writer saved first, and the command
  * handler re-reads the book and the balances and decides again. The book records what it decides and publishes nothing itself.
@@ -181,31 +206,68 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /**
-   * Takes the provider's word on a payment of this book: a pending payment becomes paid when the provider says it succeeded, and
-   * failed when it says it failed, each once. A payment that already ended, a status that is `pending` or unknown, and a payment
-   * this book does not hold change nothing; the answer is a success either way, as the provider needs.
+   * Takes the provider's word on a payment of this book, moving forward only, each step once: a pending payment becomes paid when the
+   * provider says it succeeded, and failed when it says it failed; a pending, paid or refunding payment becomes refunded when it says
+   * so, and then counts for nothing. Any other step, a status that is `pending` or unknown, and a payment this book does not hold
+   * change nothing. The answer is a success either way, as the provider needs.
    */
   receiveProviderUpdate({ paymentId, status }: ProviderPaymentUpdate): IResult<void> {
     const settlement = [...this.#settlements.values()].find(
       ({ method, providerPaymentId }) => method === 'provider' && providerPaymentId === paymentId,
     );
-    if (!settlement || settlement.status !== 'pending') return Result.ok();
+    if (!settlement) return Result.ok();
 
-    const facts = {
-      settlementId: settlement._id,
-      groupId: this.#groupId,
-      from: settlement.from,
-      to: settlement.to,
-      amount: settlement.amount,
-    };
-    if (status === 'succeeded') {
+    const facts = this.#factsOf(settlement);
+    if (status === 'succeeded' && settlement.status === 'pending') {
       this.#moveStatus(settlement, 'paid');
       this.record(SettlementPaidEvent.set(facts));
-    } else if (status === 'failed') {
+    } else if (status === 'failed' && settlement.status === 'pending') {
       this.#moveStatus(settlement, 'failed');
       this.record(SettlementFailedEvent.set(facts));
+    } else if (status === 'refunded' && ['pending', 'paid', 'refunding'].includes(settlement.status)) {
+      this.#moveStatus(settlement, 'refunded');
+      this.record(SettlementRefundedEvent.set(facts));
     }
     return Result.ok();
+  }
+
+  /** The group the book is of: a settlement's group is the book's. */
+  get groupId(): string {
+    return this.#groupId;
+  }
+
+  /**
+   * Decides a refund, before the provider is asked: only the payee of a settlement paid through the provider may refund it, while
+   * it is still `paid`, and only while both its payer and its payee are members of the group. Records nothing.
+   */
+  proposeRefund({ settlementId, asker, members }: RefundRequest): IResult<RefundProposal> {
+    const settlement = this.#settlements.get(settlementId);
+    if (!settlement) return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));
+    if (settlement.to !== asker) {
+      return Result.fail(new NotAllowedException('Settlements', 'Only the payee of a settlement may refund it'));
+    }
+    if (settlement.method !== 'provider' || settlement.status !== 'paid' || !settlement.providerPaymentId) {
+      return Result.fail(new SettlementNotRefundableException());
+    }
+    if (!members.includes(settlement.from) || !members.includes(settlement.to)) {
+      return Result.fail(new SettlementNotRefundableException());
+    }
+    return Result.ok({ settlementId, paymentId: settlement.providerPaymentId });
+  }
+
+  /**
+   * Keeps a proposed refund once the provider has answered: `accepted` is whether it accepted the refund. A refund the provider did
+   * not accept is refused as ProviderUnavailable and nothing moves. A settlement that stopped being paid while the provider was asked
+   * is refused as not refundable. Otherwise the settlement is refunding, and records `RefundRequested`.
+   */
+  keepRefund(proposal: RefundProposal, accepted: boolean): IResult<ISettlementSnapshot> {
+    if (!accepted) return Result.fail(new ProviderUnavailableException());
+    const settlement = this.#settlements.get(proposal.settlementId);
+    if (!settlement || settlement.status !== 'paid') return Result.fail(new SettlementNotRefundableException());
+
+    this.#moveStatus(settlement, 'refunding');
+    this.record(RefundRequestedEvent.set(this.#factsOf(settlement)));
+    return Result.ok({ ...settlement });
   }
 
   /** Whether the book moved since it was read: a settlement decided, or a status the provider moved. */
@@ -274,6 +336,16 @@ export class SettlementBook extends AggregateRoot {
     this.#settlements.set(kept._id, kept);
     this.#recorded.push(kept._id);
     return kept;
+  }
+
+  #factsOf(settlement: ISettlementSnapshot) {
+    return {
+      settlementId: settlement._id,
+      groupId: this.#groupId,
+      from: settlement.from,
+      to: settlement.to,
+      amount: settlement.amount,
+    };
   }
 
   #moveStatus(settlement: ISettlementSnapshot, status: ISettlementSnapshot['status']): void {

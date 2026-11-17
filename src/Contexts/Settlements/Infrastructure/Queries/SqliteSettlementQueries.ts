@@ -40,7 +40,7 @@ export class SqliteSettlementQueries implements ISettlementQueries {
     return this.database.exclusive(connection => {
       const rows = connection
         .prepare(
-          "SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND status = 'paid' ORDER BY recorded_seq",
+          "SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND status IN ('paid', 'refunding') ORDER BY recorded_seq",
         )
         .all(groupId) as unknown as { payer: string; payee: string; amount: number }[];
       return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));

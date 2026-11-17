@@ -54,3 +54,14 @@ export class ProviderUnavailableException extends Exception {
     });
   }
 }
+
+/** The settlement cannot be refunded: it is not a payment through the provider, it is not paid, or its payer or payee is no longer a member. */
+export class SettlementNotRefundableException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementNotRefundable',
+      message: 'Only a payment through the provider that is paid, between two members of the group, is refunded',
+    });
+  }
+}
