@@ -17,18 +17,22 @@ export const accountRoutes = function (fastify: FastifyInstance, { module }: { m
   const tags = ['accounts'];
 
   fastify.post<{ Body: SignUpPayload }>(
-    '/',
+    '/accounts',
     { schema: { tags, body: SignUpReqBodySchema, response: SignUpResSchema } },
     controller.signUp.bind(controller),
   );
 
   fastify.post<{ Body: { email: string; password: string } }>(
-    '/login',
+    '/accounts/login',
     { schema: { tags, body: SignInReqBodySchema, response: SignInResSchema } },
     controller.signIn.bind(controller),
   );
 
-  fastify.get('/me', { schema: { tags, response: AccountResSchema } }, controller.getMyAccount.bind(controller));
+  fastify.get(
+    '/accounts/me',
+    { schema: { tags, response: AccountResSchema } },
+    controller.getMyAccount.bind(controller),
+  );
 
   done();
 };

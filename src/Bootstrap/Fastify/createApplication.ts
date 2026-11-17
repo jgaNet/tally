@@ -10,6 +10,7 @@ import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes'
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { authenticateAccount, localGroupsModule } from '@Contexts/Groups/module.local';
 import { accountRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/account.routes';
+import { groupRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
@@ -18,7 +19,7 @@ import { localLedgerModule } from '@Contexts/Ledger/module.local';
  * together (ADR 24, ADR 2). Callers are signed in with the bearer token the Groups context issues; the Tracker
  * records every operation, so a client answered `202 { operationId }` follows it at `GET /v1/operations/:id`.
  *
- * A context is added here: its module after the Tracker's, its routes under its own prefix.
+ * A context is added here: its module after the Tracker's, its routes mounted once at the root (each route file names its full paths).
  */
 export async function createApplication({
   logger = new ConsoleLogger({ debug: false }),
@@ -51,7 +52,8 @@ export async function createApplication({
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule })
-    .registerRoutes('/accounts', accountRoutes, { module: localGroupsModule });
+    .registerRoutes('/', accountRoutes, { module: localGroupsModule })
+    .registerRoutes('/', groupRoutes, { module: localGroupsModule });
 
   await app.startModules();
 
