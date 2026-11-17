@@ -167,6 +167,8 @@ export function leaveGroup(db: Database, groupId: string, accountId: string): vo
       );
     }
     db.prepare('DELETE FROM memberships WHERE group_id = ? AND account_id = ?').run(groupId, accountId);
+    // A debt noted before the member left is not carried over: one who joins again is noted afresh.
+    db.prepare('DELETE FROM noted_debts WHERE group_id = ? AND account_id = ?').run(groupId, accountId);
     db.prepare(
       `INSERT INTO former_members (group_id, account_id, left_at) VALUES (?, ?, ?)
        ON CONFLICT (group_id, account_id) DO UPDATE SET left_at = excluded.left_at`,

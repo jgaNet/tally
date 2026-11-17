@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from '../database';
 
-export interface Notice {
+/** A notice of an expense: to a member of its split but its payer, with their share of it. */
+export interface ExpenseNotice {
   id: string;
   kind: 'expense';
   groupId: string;
@@ -12,11 +13,24 @@ export interface Notice {
   at: string;
 }
 
+/** A reminder to a member who has owed too much for too long: what they still owe, in the group. */
+export interface ReminderNotice {
+  id: string;
+  kind: 'reminder';
+  groupId: string;
+  /** What the member still owes, in hundredths of the group's currency: more than 2000. */
+  amount: number;
+  /** When the background job made the reminder. */
+  at: string;
+}
+
+export type Notice = ExpenseNotice | ReminderNotice;
+
 interface NoticeRow {
   id: string;
-  kind: 'expense';
+  kind: 'expense' | 'reminder';
   group_id: string;
-  expense_id: string;
+  expense_id: string | null;
   amount: number;
   created_at: string;
 }
@@ -53,12 +67,20 @@ export function noticesOf(db: Database, accountId: string): Notice[] {
         ORDER BY created_at DESC, rowid DESC`,
     )
     .all(accountId) as unknown as NoticeRow[];
-  return rows.map(row => ({
+  return rows.map(toNotice);
+}
+
+/** The notice as it is answered: a reminder names no expense, so it has no `expenseId`. */
+function toNotice(row: NoticeRow): Notice {
+  if (row.kind === 'reminder') {
+    return { id: row.id, kind: 'reminder', groupId: row.group_id, amount: row.amount, at: row.created_at };
+  }
+  return {
     id: row.id,
-    kind: row.kind,
+    kind: 'expense',
     groupId: row.group_id,
-    expenseId: row.expense_id,
+    expenseId: row.expense_id as string, // an expense's notice always names its expense (see the schema)
     amount: row.amount,
     at: row.created_at,
-  }));
+  };
 }

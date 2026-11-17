@@ -196,6 +196,38 @@ const migrations: readonly string[] = [
   );
   CREATE INDEX notices_by_account ON notices (account_id, created_at);
   `,
+  `
+  -- A member who owes more than 2000 in a group is noted from the background job's run that first sees it,
+  -- and is no longer noted at a run that sees them owe 2000 or less. Only the members of the group are kept.
+  CREATE TABLE noted_debts (
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    noted_at   TEXT NOT NULL,
+    PRIMARY KEY (group_id, account_id)
+  );
+  `,
+  `
+  -- A reminder is a notice of its own kind: it names no expense, and its amount is what the member still
+  -- owes, more than 2000. SQLite cannot widen a CHECK or drop a NOT NULL, so the table is rebuilt and every
+  -- row copied; the rows before this step are expense notices, which name their expense.
+  CREATE TABLE notices_next (
+    id         TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind       TEXT NOT NULL CHECK (kind IN ('expense', 'reminder')),
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    expense_id TEXT,
+    amount     INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (expense_id, account_id),
+    CHECK ((kind = 'expense' AND expense_id IS NOT NULL) OR (kind = 'reminder' AND expense_id IS NULL)),
+    CHECK (kind <> 'reminder' OR amount > 2000)
+  );
+  INSERT INTO notices_next (id, account_id, kind, group_id, expense_id, amount, created_at)
+    SELECT id, account_id, kind, group_id, expense_id, amount, created_at FROM notices;
+  DROP TABLE notices;
+  ALTER TABLE notices_next RENAME TO notices;
+  CREATE INDEX notices_by_account ON notices (account_id, created_at);
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

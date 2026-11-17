@@ -10,6 +10,7 @@ import { registerNoticeRoutes } from './notices/routes';
 import { Refusal } from './refusal';
 import { registerOperationRoutes } from './operations/routes';
 import { registerPayoutAccountRoutes } from './payouts/routes';
+import { sweepDebts } from './reminders/reminders';
 import { registerSettlementRoutes } from './settlements/routes';
 import { registerStatementRoutes } from './statements/routes';
 
@@ -19,15 +20,24 @@ export interface Application {
   readonly apiPrefix: string;
   /** `http://host:port` once started. */
   readonly address: string;
+  /**
+   * Starts listening, and the background job, which runs every `jobsIntervalSeconds`. Nothing runs in the
+   * background until it is started.
+   */
   start(port?: number): Promise<void>;
+  /** Stops the background job and the server. */
   stop(): Promise<void>;
+  /** One run of the background job, as of `at` (now, when not given). The job runs this on its schedule. */
+  runJobs(at?: Date): void;
 }
 
 /**
  * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default), and what
  * it knows is kept in the SQLite file at `databasePath` (`DATABASE_PATH`, else `tally.db`). Payment
  * through the provider is at `providerUrl` (`PROVIDER_URL`) and is refused without it; its webhooks are
- * signed with `providerWebhookSecret` (`PROVIDER_WEBHOOK_SECRET`).
+ * signed with `providerWebhookSecret` (`PROVIDER_WEBHOOK_SECRET`). The background job runs every
+ * `jobsIntervalSeconds` (`JOBS_INTERVAL_SECONDS`, 60), and a week of debt is `reminderPeriodSeconds`
+ * (`REMINDER_PERIOD_SECONDS`, 604800).
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
@@ -36,6 +46,8 @@ export async function createApplication({
   providerUrl = process.env.PROVIDER_URL || '',
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || '',
   providerTimeoutMs = 5000,
+  jobsIntervalSeconds = Number(process.env.JOBS_INTERVAL_SECONDS || 60),
+  reminderPeriodSeconds = Number(process.env.REMINDER_PERIOD_SECONDS || 604800),
 }: {
   apiPrefix?: string;
   port?: number;
@@ -43,6 +55,8 @@ export async function createApplication({
   providerUrl?: string;
   providerWebhookSecret?: string;
   providerTimeoutMs?: number;
+  jobsIntervalSeconds?: number;
+  reminderPeriodSeconds?: number;
 } = {}): Promise<Application> {
   // Types are checked, not converted: a password sent as a number is a body of the wrong type.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
@@ -87,6 +101,10 @@ export async function createApplication({
     { prefix: `/${apiPrefix}` },
   );
 
+  const reminderPeriodMs = reminderPeriodSeconds * 1000;
+  const runJobs = (at: Date = new Date()) => sweepDebts(db, at, reminderPeriodMs);
+  let job: NodeJS.Timeout | undefined;
+
   let address = '';
   return {
     server,
@@ -96,9 +114,20 @@ export async function createApplication({
     },
     async start(listenOn = port) {
       address = await server.listen({ port: listenOn, host: '127.0.0.1' });
+      job = setInterval(() => {
+        try {
+          runJobs();
+        } catch (error) {
+          // A failed run changes nothing (it is one transaction); the next run tries again.
+          server.log.error(error);
+        }
+      }, jobsIntervalSeconds * 1000);
     },
     async stop() {
+      clearInterval(job);
+      job = undefined;
       await server.close();
     },
+    runJobs,
   };
 }
