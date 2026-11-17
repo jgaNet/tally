@@ -10,8 +10,14 @@ import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { authenticate, groupsModuleWith } from '@Contexts/Groups/module.local';
 import { LedgerMemberBalances } from '@Contexts/Groups/Infrastructure/LedgerMemberBalances';
 import { accountRoutes, groupRoutes, invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
-import { localLedgerModule, memberBalanceSumsInCommand } from '@Contexts/Ledger/module.local';
-import { localSettlementsModule } from '@Contexts/Settlements/module.local';
+import {
+  groupBalanceSums,
+  groupBalanceSumsInCommand,
+  localLedgerModule,
+  memberBalanceSumsInCommand,
+} from '@Contexts/Ledger/module.local';
+import { settlementsModuleWith } from '@Contexts/Settlements/module.local';
+import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/LedgerGroupBalances';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
@@ -36,6 +42,13 @@ export async function createApplication({
   // Groups asks Ledger a member's balance when one leaves (ADR 4): the two wirings do not import each other, so the
   // composition root gives Groups the port over Ledger's read.
   const localGroupsModule = groupsModuleWith(new LedgerMemberBalances(memberBalanceSumsInCommand));
+  // Settlements decides on the balances Ledger reads (GroupBalances, ADR 5, ADR 7), outside a transaction for its
+  // queries and inside the command's for its command; Ledger in turn reads what Settlements paid. Neither wiring imports
+  // the other's module, so the composition root gives Settlements the balances.
+  const localSettlementsModule = settlementsModuleWith(
+    new LedgerGroupBalances(groupBalanceSums),
+    new LedgerGroupBalances(groupBalanceSumsInCommand),
+  );
   const app = new FastifyApplication({
     logger,
     apiPrefix,

@@ -1,21 +1,23 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { IBalanceQueries } from '@Contexts/Ledger/Application/Ports/IBalanceQueries';
+import { ISettledAmounts } from '@Contexts/Ledger/Domain/Expense/Ports/ISettledAmounts';
 import { EXPENSE_STATEMENTS } from '@Contexts/Ledger/Infrastructure/expenses.schema';
+import { entrySumsOf, withSettled } from '@Contexts/Ledger/Infrastructure/BalanceEntries';
 
-/** What the screens read of the balances, from the SQLite file's balance entries, outside any transaction. */
+/**
+ * What the screens read of the balances, outside any transaction: the expenses' entries, and what the settlements paid
+ * (SettledAmounts, ADR 7), read as the settlements' own read side answers it.
+ */
 export class SqliteBalanceQueries implements IBalanceQueries {
-  constructor(private readonly database: SqliteDatabase) {
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly settled: ISettledAmounts,
+  ) {
     database.migrate(EXPENSE_STATEMENTS);
   }
 
-  sumsByMember(groupId: string): Promise<Map<string, number>> {
-    return this.database.exclusive(connection => {
-      const rows = connection
-        .prepare(
-          'SELECT member_id AS memberId, SUM(amount) AS balance FROM ledger_balance_entries WHERE group_id = ? GROUP BY member_id',
-        )
-        .all(groupId) as { memberId: string; balance: number }[];
-      return new Map(rows.map(row => [row.memberId, Number(row.balance)]));
-    });
+  async sumsByMember(groupId: string): Promise<Map<string, number>> {
+    const entries = await this.database.exclusive(connection => entrySumsOf(connection, groupId));
+    return withSettled(entries, await this.settled.settledByMember(groupId));
   }
 }

@@ -19,3 +19,41 @@ export const GetSuggestedSettlementsResSchema = {
   401: RefusedSchema,
   404: RefusedSchema,
 } as const;
+
+/** The shape of a cash settlement: the payer's account id and the amount. Whether the amount is allowed is the domain's. */
+export const RecordCashSettlementBodySchema = {
+  type: 'object',
+  required: ['from', 'amount'],
+  properties: {
+    from: { type: 'string' },
+    amount: { type: 'integer' },
+  },
+} as const;
+
+export const RecordCashSettlementResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  400: RefusedSchema,
+  401: RefusedSchema,
+} as const;
+
+const SettlementSchema = {
+  type: 'object',
+  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at'],
+  properties: {
+    id: { type: 'string' },
+    groupId: { type: 'string' },
+    from: { type: 'string' },
+    to: { type: 'string' },
+    amount: { type: 'integer', minimum: 1 },
+    method: { enum: ['cash'] },
+    status: { enum: ['paid'] },
+    at: { type: 'string' },
+  },
+} as const;
+
+/** A settlement as a member of its group reads it. */
+export const GetSettlementResSchema = {
+  200: SettlementSchema,
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;

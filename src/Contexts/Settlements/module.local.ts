@@ -1,22 +1,64 @@
 import { Module } from '@Architecture/Application';
-import { groupMembership } from '@Contexts/Groups/module.local';
-import { groupBalanceSums } from '@Contexts/Ledger/module.local';
-import { GetSuggestedSettlementsQueryHandler } from '@Contexts/Settlements/Application/Queries';
+import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
+import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
+import { ISettlementEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementEffects';
+import { IGroupBalances } from '@Contexts/Settlements/Domain/Settlement/Ports/IGroupBalances';
+import {
+  GetSettlementQueryHandler,
+  GetSuggestedSettlementsQueryHandler,
+} from '@Contexts/Settlements/Application/Queries';
+import {
+  RecordCashSettlementCommandEvent,
+  RecordCashSettlementCommandHandler,
+} from '@Contexts/Settlements/Application/Commands';
 import { GroupsSettlementMembers } from '@Contexts/Settlements/Infrastructure/GroupsSettlementMembers';
-import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/LedgerGroupBalances';
+import { SqliteSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBookRepository';
+import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/SqliteSettlementQueries';
+import { SqliteSettlementEffects } from '@Contexts/Settlements/Infrastructure/SqliteSettlementEffects';
 
 /**
- * The Settlements context (conventions/domain.yaml, ADR 5). Its first request is the suggestion (feature 11): the
- * transfers that would bring every balance of a group to 0, read through two ports it owns. Its balances come from
- * Ledger's read side and its members, in their join order, from Groups' read side; the composition root does not
- * need to pass either, as this wiring imports only what those wirings export.
+ * The Settlements context (conventions/domain.yaml, ADR 5, ADR 6, ADR 7), kept in the application's SQLite file. Its
+ * balances come from Ledger and its members from Groups; neither is imported here beyond the read it exports. Ledger
+ * imports this wiring for what was settled (`settlementEffects`), so this wiring does not import Ledger's: the composition
+ * root gives it Ledger's balances (`settlementsModuleWith`), and the two wirings do not import each other.
  */
-export const localSettlementsModule = new Module({
-  name: 'Settlements',
-  queries: [
-    new GetSuggestedSettlementsQueryHandler(
-      new LedgerGroupBalances(groupBalanceSums),
-      new GroupsSettlementMembers(groupMembership),
-    ),
-  ],
-});
+const database = SqliteDatabase.shared();
+
+/**
+ * What the settlements paid, as Ledger reads it (SettledAmounts, ADR 7), exported for a query (outside any transaction)
+ * and for a command (inside the asking command's transaction).
+ */
+export const settlementEffects: ISettlementEffects = new SqliteSettlementEffects(database, false);
+export const settlementEffectsInCommand: ISettlementEffects = new SqliteSettlementEffects(database, true);
+
+/**
+ * The Settlements module, given the balances it decides on: `balances` for its queries (outside a transaction) and
+ * `balancesInCommand` for its command (inside the command's transaction, so that two settlements decided at once see each
+ * other, ADR 7). The composition root gives both, read from Ledger.
+ */
+export function settlementsModuleWith(balances: IGroupBalances, balancesInCommand: IGroupBalances): Module {
+  return new Module({
+    name: 'Settlements',
+    commands: [
+      {
+        event: RecordCashSettlementCommandEvent,
+        handlers: [
+          new RecordCashSettlementCommandHandler(
+            new SqliteSettlementBookRepository(database),
+            balancesInCommand,
+            new GroupsSettlementMembers(groupMembershipInCommand),
+            systemClock,
+          ),
+        ],
+      },
+    ],
+    queries: [
+      new GetSuggestedSettlementsQueryHandler(balances, new GroupsSettlementMembers(groupMembership)),
+      new GetSettlementQueryHandler(
+        new SqliteSettlementQueries(database),
+        new GroupsSettlementMembers(groupMembership),
+      ),
+    ],
+  });
+}
