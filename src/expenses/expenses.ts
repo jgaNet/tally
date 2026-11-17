@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { type Database, inTransaction } from '../database';
 import { requireMembership } from '../groups/groups';
 import { Refusal } from '../refusal';
-import { type ExpenseInput, validateExpense } from './validation';
+import { type ExpenseInput, type SplitInput, type SplitKind, validateExpense } from './validation';
 
 export interface Share {
   memberId: string;
@@ -20,6 +20,8 @@ export interface Expense {
   paidBy: string;
   /** 1 when recorded, and one more at each edit. */
   version: number;
+  /** How it was split: equally, by exact amounts, or by shares. */
+  splitKind: SplitKind;
   /** In the order of the split. */
   shares: Share[];
 }
@@ -39,7 +41,41 @@ export function equalShares(amount: number, splitBetween: readonly string[], pay
 }
 
 /**
- * Records an expense of `groupId` that `payerId` paid, split equally. `payerId` must be a member of
+ * Each member's share of `amount` as their `splitByShares` say: the amount times their shares, divided
+ * by the total of the shares, rounded down. The remainder goes whole to the payer's share, so the
+ * shares add up to the amount exactly. Computed in integers of any size, so no product overflows.
+ */
+export function sharesByCount(
+  amount: number,
+  splitByShares: readonly { memberId: string; shares: number }[],
+  payerId: string,
+): Share[] {
+  const total = splitByShares.reduce((sum, split) => sum + BigInt(split.shares), 0n);
+  const parts = splitByShares.map(split => ({
+    memberId: split.memberId,
+    amount: (BigInt(amount) * BigInt(split.shares)) / total,
+  }));
+  const remainder = BigInt(amount) - parts.reduce((sum, part) => sum + part.amount, 0n);
+  return parts.map(part => ({
+    memberId: part.memberId,
+    amount: Number(part.memberId === payerId ? part.amount + remainder : part.amount),
+  }));
+}
+
+/** The shares of an expense of `amount` split as `split` says, in the order of the split. */
+export function sharesOf(split: SplitInput, amount: number, payerId: string): Share[] {
+  switch (split.kind) {
+    case 'equal':
+      return equalShares(amount, split.splitBetween, payerId);
+    case 'exact':
+      return split.splitExactly.map(share => ({ memberId: share.memberId, amount: share.amount }));
+    case 'shares':
+      return sharesByCount(amount, split.splitByShares, payerId);
+  }
+}
+
+/**
+ * Records an expense of `groupId` that `payerId` paid, split as its input says. `payerId` must be a member of
  * the group, or the group is refused as not there. The expense and its shares are written together,
  * or not at all.
  */
@@ -49,10 +85,19 @@ export function createExpense(db: Database, groupId: string, payerId: string, in
     const expense = validateExpense(input, memberIdsOf(db, groupId), payerId);
     const id = randomUUID();
     db.prepare(
-      `INSERT INTO expenses (id, group_id, description, amount, date, paid_by, version, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-    ).run(id, groupId, expense.description, expense.amount, expense.date, payerId, new Date().toISOString());
-    writeShares(db, id, equalShares(expense.amount, expense.splitBetween, payerId));
+      `INSERT INTO expenses (id, group_id, description, amount, date, paid_by, version, split_kind, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    ).run(
+      id,
+      groupId,
+      expense.description,
+      expense.amount,
+      expense.date,
+      payerId,
+      expense.split.kind,
+      new Date().toISOString(),
+    );
+    writeShares(db, id, sharesOf(expense.split, expense.amount, payerId));
     return id;
   });
 }
@@ -83,6 +128,7 @@ interface ExpenseRow {
   date: string;
   paid_by: string;
   version: number;
+  split_kind: SplitKind;
 }
 
 interface ShareRow {
@@ -98,7 +144,7 @@ export function findExpense(db: Database, expenseId: string, accountId: string):
   const row = db
     .prepare(
       `SELECT expenses.id, expenses.group_id, expenses.description, expenses.amount, expenses.date,
-              expenses.paid_by, expenses.version
+              expenses.paid_by, expenses.version, expenses.split_kind
          FROM expenses JOIN memberships ON memberships.group_id = expenses.group_id
         WHERE expenses.id = ? AND memberships.account_id = ?`,
     )
@@ -117,6 +163,7 @@ export function findExpense(db: Database, expenseId: string, accountId: string):
     date: row.date,
     paidBy: row.paid_by,
     version: row.version,
+    splitKind: row.split_kind,
     shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
   };
 }
@@ -168,14 +215,15 @@ export function updateExpense(
     // The version is checked again in the write itself: it is the same check, made atomically.
     const written = db
       .prepare(
-        'UPDATE expenses SET description = ?, amount = ?, date = ?, version = version + 1 WHERE id = ? AND version = ?',
+        `UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, version = version + 1
+          WHERE id = ? AND version = ?`,
       )
-      .run(expense.description, expense.amount, expense.date, expenseId, version);
+      .run(expense.description, expense.amount, expense.date, expense.split.kind, expenseId, version);
     if (written.changes !== 1) {
       throw staleVersion();
     }
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
-    writeShares(db, expenseId, equalShares(expense.amount, expense.splitBetween, current.paidBy));
+    writeShares(db, expenseId, sharesOf(expense.split, expense.amount, current.paidBy));
   });
 }
 

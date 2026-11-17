@@ -185,6 +185,7 @@ describe('editing and deleting an expense', () => {
         date,
         paidBy: ada.id,
         version: 2,
+        splitKind: 'equal',
         shares: [
           { memberId: grace.id, amount: 450 },
           { memberId: ada.id, amount: 450 },

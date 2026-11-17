@@ -82,6 +82,11 @@ const migrations: readonly string[] = [
   -- made from; an expense recorded before this step is version 1.
   ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1);
   `,
+  `
+  -- How an expense is split. An expense recorded before this step was split equally.
+  ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'
+    CHECK (split_kind IN ('equal', 'exact', 'shares'));
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */
