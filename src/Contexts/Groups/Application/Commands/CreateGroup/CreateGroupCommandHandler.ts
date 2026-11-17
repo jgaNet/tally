@@ -3,8 +3,6 @@ import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Applicati
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
-import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
-import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
 import { CreateGroupCommandEvent } from '@Contexts/Groups/Application/Commands/CreateGroup/CreateGroupCommandEvent';
 
@@ -25,18 +23,14 @@ export class CreateGroupCommandHandler extends CommandHandler<CreateGroupCommand
     const caller = requireSignedIn(context, 'Groups');
     if (caller.isFailure()) return Result.fail(caller.error);
 
-    const name = GroupName.create(event.payload.name);
-    if (name.isFailure()) return Result.fail(name.error);
-
-    const currency = Currency.create(event.payload.currency);
-    if (currency.isFailure()) return Result.fail(currency.error);
-
-    const group = Group.create({
-      name: name.data,
-      currency: currency.data,
+    const founded = Group.found({
+      name: event.payload.name,
+      currency: event.payload.currency,
       ownerId: caller.data.value,
       createdAt: this.clock(),
     });
+    if (founded.isFailure()) return Result.fail(founded.error);
+    const group = founded.data;
 
     const saved = await this.groups.save(group);
     if (saved.isFailure()) return Result.fail(saved.error);

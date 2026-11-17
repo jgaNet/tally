@@ -12,13 +12,7 @@ const valueOf = <T>(result: IResult<T>): T => {
 
 const AT = new Date('2026-11-01T10:00:00.000Z');
 
-const created = () =>
-  Group.create({
-    name: valueOf(GroupName.create('The flat')),
-    currency: valueOf(Currency.create('EUR')),
-    ownerId: 'ana',
-    createdAt: AT,
-  });
+const created = () => valueOf(Group.found({ name: 'The flat', currency: 'EUR', ownerId: 'ana', createdAt: AT }));
 
 describe('Currency', () => {
   it('accepts the six currencies and refuses any other', () => {
@@ -41,7 +35,14 @@ describe('GroupName', () => {
 });
 
 describe('Group', () => {
-  it('creates a group whose owner is its first member, and records its creation', () => {
+  it('refuses a name or a currency that is not allowed', () => {
+    const at = { ownerId: 'ana', createdAt: AT };
+
+    expect(Group.found({ name: '   ', currency: 'EUR', ...at }).isFailure()).toBe(true);
+    expect(Group.found({ name: 'Trip', currency: 'JPY', ...at }).isFailure()).toBe(true);
+  });
+
+  it('founds a group whose owner is its first member, and records its creation', () => {
     const group = created();
 
     expect(group.ownerId).toBe('ana');

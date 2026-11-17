@@ -1,4 +1,4 @@
-import { AggregateRoot, Id } from '@Architecture/Domain';
+import { AggregateRoot, IResult, Id, Result } from '@Architecture/Domain';
 
 import { IGroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
@@ -38,23 +38,32 @@ export class Group extends AggregateRoot {
   }
 
   /**
-   * Opens a new group: its id is generated here, its owner is its first member, and the creation is recorded.
-   * The time is the one the application passes; there is no default (DOMAIN-ONE-CLOCK).
+   * Founds a new group: the name and the currency are validated here, its id is generated, its owner is its first
+   * member, and the creation is recorded. Refused with the value's own exception when a value is not allowed. The
+   * time is the one the application passes; there is no default (DOMAIN-ONE-CLOCK).
+   *
+   * Named `found`, not `create`: the storm reader attributes a create call to any aggregate of the context, so the
+   * Account aggregate would be named the owner of this command. The behaviour is a creation all the same.
    */
-  static create({
+  static found({
     name,
     currency,
     ownerId,
     createdAt,
   }: {
-    name: GroupName;
-    currency: Currency;
+    name: string;
+    currency: string;
     ownerId: string;
     createdAt: Date;
-  }): Group {
-    const group = new Group(Id.generate(), name, currency, ownerId, [ownerId], createdAt, 0);
+  }): IResult<Group> {
+    const validName = GroupName.create(name);
+    if (validName.isFailure()) return Result.fail(validName.error);
+    const validCurrency = Currency.create(currency);
+    if (validCurrency.isFailure()) return Result.fail(validCurrency.error);
+
+    const group = new Group(Id.generate(), validName.data, validCurrency.data, ownerId, [ownerId], createdAt, 0);
     group.record(GroupCreatedEvent.set({ groupId: group._id.value, ownerId }));
-    return group;
+    return Result.ok(group);
   }
 
   /** Rebuilds a group from what was persisted. Nothing is recorded: nothing new happened. */
