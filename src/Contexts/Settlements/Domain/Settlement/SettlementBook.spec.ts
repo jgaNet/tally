@@ -1,3 +1,4 @@
+import { ISettlementSnapshot } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 
 const AT = new Date('2026-11-17T10:00:00.000Z');
@@ -36,6 +37,10 @@ describe('SettlementBook', () => {
       to: ANN,
       amount: 30,
       at: '2026-11-17T10:00:00.000Z',
+      method: 'cash',
+      status: 'paid',
+      providerPaymentId: null,
+      payUrl: null,
     });
     const events = book.pullDomainEvents();
     expect(events).toHaveLength(1);
@@ -48,7 +53,7 @@ describe('SettlementBook', () => {
       const refused = recordCash(book, { amount });
       expect(refused.isFailure() && refused.error.type).toBe('InvalidSettlementAmount');
       expect(book.pullDomainEvents()).toEqual([]);
-      expect(book.toSnapshot().settlements).toEqual([]);
+      expect(book.toSnapshot().recorded).toEqual([]);
     }
   });
 
@@ -82,9 +87,139 @@ describe('SettlementBook', () => {
   });
 
   it('rebuilds from a snapshot at the version it was read at, recording nothing', () => {
-    const book = SettlementBook.fromSnapshot({ _id: 'book-1', groupId: 'group-1', version: 4 });
+    const book = SettlementBook.fromSnapshot({ _id: 'book-1', groupId: 'group-1', version: 4, settlements: [] });
     expect(book.version).toBe(4);
     expect(book._id.value).toBe('book-1');
     expect(book.pullDomainEvents()).toEqual([]);
+  });
+});
+
+const PAYMENT_LINK = { id: 'pay_1', payUrl: 'https://provider.example/pay/pay_1' };
+const proposePayment = (
+  book: SettlementBook,
+  overrides: Partial<Parameters<SettlementBook['proposePayment']>[0]> = {},
+) =>
+  book.proposePayment({
+    payer: BOB,
+    payee: ANN,
+    amount: 30,
+    at: AT,
+    members: MEMBERS,
+    balances: BALANCES,
+    ...overrides,
+  });
+
+/** A book that holds one payment through the provider from Bob to Ann of 30, waiting. */
+function bookWithPendingPayment(): { book: SettlementBook; settlementId: string } {
+  const book = SettlementBook.open('group-1');
+  const proposal = proposePayment(book);
+  if (proposal.isFailure()) throw new Error('the proposal should be decided');
+  const kept = book.keepPayment(proposal.data, PAYMENT_LINK);
+  if (kept.isFailure()) throw new Error('the payment should be kept');
+  return { book, settlementId: kept.data._id };
+}
+
+/** Rebuilds the book from its snapshot, as the store does when a later writer reads it. */
+function reread(book: SettlementBook, settlements: ISettlementSnapshot[]): SettlementBook {
+  const snapshot = book.toSnapshot();
+  return SettlementBook.fromSnapshot({ _id: snapshot._id, groupId: snapshot.groupId, version: 1, settlements });
+}
+
+describe('SettlementBook, a payment through the provider (request 13)', () => {
+  it('asks for a payment the rules allow, and keeps it pending with the provider link, recording PaymentRequested', () => {
+    const book = SettlementBook.open('group-1');
+    const proposal = proposePayment(book);
+    expect(proposal.isSuccess()).toBe(true);
+    expect(book.pullDomainEvents()).toEqual([]);
+
+    const kept = book.keepPayment(proposal.isSuccess() ? proposal.data : (undefined as never), PAYMENT_LINK);
+    expect(kept.isSuccess() && kept.data).toEqual({
+      _id: proposal.isSuccess() ? proposal.data.settlementId : '',
+      groupId: 'group-1',
+      from: BOB,
+      to: ANN,
+      amount: 30,
+      at: '2026-11-17T10:00:00.000Z',
+      method: 'provider',
+      status: 'pending',
+      providerPaymentId: 'pay_1',
+      payUrl: 'https://provider.example/pay/pay_1',
+    });
+    const events = book.pullDomainEvents();
+    expect(events.map(event => event.name)).toEqual(['PaymentRequestedEvent']);
+  });
+
+  it('refuses a payment the rules refuse before the provider is asked, and keeps nothing', () => {
+    const refused = proposePayment(SettlementBook.open('group-1'), { amount: 31 });
+    expect(refused.isFailure() && refused.error.type).toBe('SettlementExceedsBalance');
+  });
+
+  it('keeps nothing, and is ProviderUnavailable, when the provider gave no link or a link that is not one', () => {
+    for (const link of [null, { id: '', payUrl: 'https://provider.example/pay' }, { id: 'pay_1', payUrl: '' }]) {
+      const book = SettlementBook.open('group-1');
+      const proposal = proposePayment(book);
+      if (proposal.isFailure()) throw new Error('the proposal should be decided');
+      const refused = book.keepPayment(proposal.data, link);
+      expect(refused.isFailure() && refused.error.type).toBe('ProviderUnavailable');
+      expect(book.pullDomainEvents()).toEqual([]);
+      expect(book.toSnapshot().recorded).toEqual([]);
+    }
+  });
+
+  it('counts a pending payment as paid for what is still owed: a second payment cannot pay what is waiting', () => {
+    const { book } = bookWithPendingPayment();
+    // Bob owes 30 and 30 is waiting: he owes nothing still, and Ann is owed nothing still.
+    const again = proposePayment(book, { amount: 1 });
+    expect(again.isFailure() && again.error.type).toBe('SettlementExceedsBalance');
+    const cash = recordCash(book, { amount: 1 });
+    expect(cash.isFailure() && cash.error.type).toBe('SettlementExceedsBalance');
+  });
+
+  it('pays a settlement when the provider says it succeeded, once, and records SettlementPaid', () => {
+    const { book } = bookWithPendingPayment();
+    book.pullDomainEvents();
+    const received = book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' });
+    expect(received.isSuccess()).toBe(true);
+    expect(book.hasChanges()).toBe(true);
+    expect(book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementPaidEvent']);
+
+    // A repeated success, or a later failure, changes nothing: the payment ended once.
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' });
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' });
+    expect(book.pullDomainEvents()).toEqual([]);
+  });
+
+  it('fails a settlement when the provider says it failed, and frees what it held', () => {
+    const { book } = bookWithPendingPayment();
+    book.pullDomainEvents();
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' });
+    expect(book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementFailedEvent']);
+
+    // What was waiting is free again: Bob may pay Ann the 30 once more.
+    expect(proposePayment(book).isSuccess()).toBe(true);
+  });
+
+  it('changes nothing for a pending status, an unknown status or a payment the book does not hold', () => {
+    const { book } = bookWithPendingPayment();
+    // Read back, as a later writer reads it: nothing has moved since.
+    const reader = reread(book, book.toSnapshot().recorded);
+    reader.receiveProviderUpdate({ paymentId: 'pay_1', status: 'pending' });
+    reader.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' });
+    reader.receiveProviderUpdate({ paymentId: 'pay_unknown', status: 'succeeded' });
+    expect(reader.hasChanges()).toBe(false);
+    expect(reader.pullDomainEvents()).toEqual([]);
+  });
+
+  it('keeps the status a later reader of the book sees, and reports only what moved since it was read', () => {
+    const { book, settlementId } = bookWithPendingPayment();
+    const first = book.toSnapshot();
+    expect(first.recorded.map(settlement => settlement._id)).toEqual([settlementId]);
+    expect(first.changed).toEqual([]);
+
+    const reader = reread(book, first.recorded);
+    reader.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' });
+    const moved = reader.toSnapshot();
+    expect(moved.recorded).toEqual([]);
+    expect(moved.changed).toEqual([expect.objectContaining({ _id: settlementId, status: 'paid' })]);
   });
 });

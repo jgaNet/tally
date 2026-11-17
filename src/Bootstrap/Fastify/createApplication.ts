@@ -67,7 +67,10 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { module: localLedgerModule })
     .registerRoutes('/', statementRoutes, { module: localLedgerModule })
-    .registerRoutes('/', settlementRoutes, { module: localSettlementsModule });
+    .registerRoutes('/', settlementRoutes, {
+      module: localSettlementsModule,
+      providerWebhookSecret: process.env.PROVIDER_WEBHOOK_SECRET ?? '',
+    });
 
   await app.startModules();
 

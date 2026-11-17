@@ -4,14 +4,22 @@ import { Exception, NotAllowedException, NotFoundException } from '@Architecture
 import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommandAtOnce, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
-import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands';
+import {
+  PayThroughProviderCommandEvent,
+  RecordCashSettlementCommandEvent,
+} from '@Contexts/Settlements/Application/Commands';
+import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook/ReceivePaymentWebhookCommandEvent';
 import {
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
-import { RecordCashSettlementBody } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
+import {
+  PayThroughProviderBody,
+  ProviderWebhookBody,
+  RecordCashSettlementBody,
+} from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
 
-/** The routes of settlements: a member reads the suggested transfers of their group (request 11), records a cash settlement and reads one (request 12). */
+/** The routes of settlements: a member reads the suggested transfers of their group (request 11), records a cash settlement and reads one (request 12), pays through the provider and takes its webhook (request 13). */
 export class FastifySettlementController {
   #module: Module;
 
@@ -38,6 +46,24 @@ export class FastifySettlementController {
       this.#module,
       RecordCashSettlementCommandEvent.set({ groupId: req.params.id, from, amount }),
     );
+  }
+
+  payThroughProvider(
+    req: FastifyRequest<{ Params: { id: string }; Body: PayThroughProviderBody }>,
+    reply: FastifyReply,
+  ) {
+    const { to, amount } = req.body;
+    return acceptCommandAtOnce(
+      req,
+      reply,
+      this.#module,
+      PayThroughProviderCommandEvent.set({ groupId: req.params.id, to, amount }),
+    );
+  }
+
+  receiveProviderWebhook(req: FastifyRequest<{ Body: ProviderWebhookBody }>, reply: FastifyReply) {
+    const { paymentId, status } = req.body;
+    return acceptCommandAtOnce(req, reply, this.#module, ReceivePaymentWebhookCommandEvent.set({ paymentId, status }));
   }
 
   async getSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

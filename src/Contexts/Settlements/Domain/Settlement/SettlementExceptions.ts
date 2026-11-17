@@ -43,3 +43,14 @@ export class SettlementExceedsBalanceException extends Exception {
     });
   }
 }
+
+/** The payment provider did not answer a payment link: it answered another way, did not answer within 5 seconds, or is not configured. */
+export class ProviderUnavailableException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'ProviderUnavailable',
+      message: 'The payment provider did not give a payment link',
+    });
+  }
+}
