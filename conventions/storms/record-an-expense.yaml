@@ -5,7 +5,7 @@ feature: record-an-expense
 intent: >-
   A member records an expense they paid, split equally between members of the group in an order they choose, the payer among them; the shares add up to the amount and the remainder goes to the payer.
 
-done: false
+done: true
 
 hotSpots:
   - question: How does Ledger know who may be in a split, and who the payer is?

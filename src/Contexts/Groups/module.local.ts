@@ -1,5 +1,5 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
-import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { SqliteDatabase, sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
@@ -28,6 +28,13 @@ const groups = new SqliteGroupRepository(sharedDatabase);
 const groupQueries = new SqliteGroupQueries(sharedDatabase);
 const invitations = new SqliteInvitationRepository(sharedDatabase);
 const invitationQueries = new SqliteInvitationQueries(sharedDatabase);
+
+/**
+ * The groups' read model, for Ledger to ask while its own transaction is open (docs/adr/0004). It reads on a connection of
+ * its own: the shared one holds the file's turn for the whole transaction, and a read on it would wait for itself. A
+ * connection of its own reads what is committed, which is what a membership is.
+ */
+export const groupsReadModel = new SqliteGroupQueries(new SqliteDatabase());
 
 export const localGroupsModule = new LiteModule({
   name: 'Groups',

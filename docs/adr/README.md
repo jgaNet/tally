@@ -8,6 +8,7 @@ why, what it costs, and when to revisit it.
 | [1](0001-groups-and-ledger-and-how-they-relate.md) | Groups and Ledger, and how they relate |
 | [2](0002-accounts-in-sqlite-with-its-aggregate-and-its-token.md) | Accounts: SQLite, the Account aggregate, and signed tokens |
 | [3](0003-a-context-with-two-resources-mounts-at-the-root.md) | A context with two resources mounts its routes at the root, each with its full path |
+| [4](0004-ledger-records-an-expense-split-by-the-groups-members.md) | Ledger records an expense split by the members Groups names, and how it reads them inside its transaction |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
