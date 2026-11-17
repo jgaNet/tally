@@ -8,6 +8,7 @@ import {
   StatementEntryView,
 } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
+import { ISettledAmounts } from '@Contexts/Ledger/Domain/Expense/Ports/ISettledAmounts';
 import { prepareLedgerSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 
 type ExpenseRow = {
@@ -34,7 +35,10 @@ type StatementRow = {
 
 /** The read side of the expenses over SQLite: reads of the file, taken alone, outside any transaction (docs/adr/0004). */
 export class SqliteExpenseQueries implements IExpenseQueries {
-  constructor(private readonly database: SqliteDatabase) {
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly settled: ISettledAmounts,
+  ) {
     database.prepare(prepareLedgerSchema);
   }
 
@@ -55,8 +59,11 @@ export class SqliteExpenseQueries implements IExpenseQueries {
   }
 
   async balancesOf(groupId: string): Promise<BalanceView[]> {
-    // One statement, so one snapshot: what a member paid, less their shares, over the group's expenses (docs/adr/0005).
-    return this.database.exclusive(() => {
+    // What is settled is read first, outside the file's turn: a settlement is Settlements' rows, read on its own connection.
+    // The expenses are one statement, so one snapshot: what a member paid, less their shares, over the group's expenses (docs/adr/0005).
+    // Each member's balance then moves by what they settled (docs/adr/0013): a settlement paid moves the payer's balance up by its amount.
+    const settled = await this.settled.settledOf(groupId);
+    const expenses = await this.database.exclusive(() => {
       const rows = this.database.connection
         .prepare(
           `SELECT member_id, SUM(amount) AS balance FROM (
@@ -68,6 +75,10 @@ export class SqliteExpenseQueries implements IExpenseQueries {
         .all(groupId, groupId) as BalanceRow[];
       return rows.map((row): BalanceView => ({ memberId: String(row.member_id), balance: Number(row.balance) }));
     });
+
+    const balances = new Map<string, number>(expenses.map(({ memberId, balance }) => [memberId, balance]));
+    for (const { memberId, amount } of settled) balances.set(memberId, (balances.get(memberId) ?? 0) + amount);
+    return [...balances].map(([memberId, balance]): BalanceView => ({ memberId, balance }));
   }
 
   async expensesOf(groupId: string): Promise<ExpenseView[]> {

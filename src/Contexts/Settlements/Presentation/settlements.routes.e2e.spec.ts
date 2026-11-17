@@ -188,3 +188,164 @@ describe('Ledger → Settlements', () => {
     }
   });
 });
+
+const settle = (token: string, groupId: string, body: unknown) =>
+  http.request('POST', `${api}/groups/${groupId}/settlements/cash`, { body, token });
+const readSettlement = (id: string, token?: string) => http.request('GET', `${api}/settlements/${id}`, { token });
+const leave = (token: string, groupId: string) => http.request('POST', `${api}/groups/${groupId}/leave`, { token });
+
+describe('a settlement in cash', () => {
+  /** Ann paid 60 split equally with Bob: Ann is owed 30, Bob owes 30. Cy is in the group and owes nothing. */
+  async function settledUpFrom(): Promise<{
+    ann: { token: string; id: string };
+    bob: { token: string; id: string };
+    cy: { token: string; id: string };
+    cyOutside: { token: string };
+    groupId: string;
+  }> {
+    const tag = randomUUID();
+    const ann = await signedIn(`cash-ann-${tag}@example.com`, 'Ann');
+    const bob = await signedIn(`cash-bob-${tag}@example.com`, 'Bob');
+    const cy = await signedIn(`cash-cy-${tag}@example.com`, 'Cy');
+    const cyOutside = await signedIn(`cash-out-${tag}@example.com`, 'Out');
+    const groupId = await groupWith(ann, [bob, cy]);
+    await record(ann.token, groupId, {
+      description: 'Dinner',
+      amount: 60,
+      date: PAST,
+      splitBetween: [ann.id, bob.id],
+    });
+    return { ann, bob, cy, cyOutside, groupId };
+  }
+
+  it('is recorded by its payee, counted by the balances at once, and leaves them even', async () => {
+    const { ann, bob, groupId } = await settledUpFrom();
+
+    const recorded = await settle(ann.token, groupId, { from: bob.id, amount: 30 });
+    expect(recorded.status).toBe(201);
+    const id = (recorded.body as { id: string }).id;
+
+    const balances = await readBalances(groupId, ann.token);
+    expect(balances.body).toEqual([
+      { memberId: ann.id, balance: 0 },
+      { memberId: bob.id, balance: 0 },
+      { memberId: expect.any(String), balance: 0 },
+    ]);
+
+    const read = await readSettlement(id, ann.token);
+    expect(read.status).toBe(200);
+    expect(read.body).toEqual({
+      id,
+      groupId,
+      from: bob.id,
+      to: ann.id,
+      amount: 30,
+      method: 'cash',
+      status: 'paid',
+      at: expect.any(String),
+    });
+  });
+
+  it('is read by the members of its group only: anyone else does not find it', async () => {
+    const { ann, bob, cy, cyOutside, groupId } = await settledUpFrom();
+    const id = (await settle(ann.token, groupId, { from: bob.id, amount: 10 })).body as { id: string };
+
+    expect((await readSettlement(id.id, cy.token)).status).toBe(200);
+    expect((await readSettlement(id.id, cyOutside.token)).status).toBe(404);
+    expect((await readSettlement(id.id)).status).toBe(401);
+  });
+
+  it('is refused when it is more than the payer owes, and nothing changes', async () => {
+    const { ann, bob, groupId } = await settledUpFrom();
+
+    const refused = await settle(ann.token, groupId, { from: bob.id, amount: 31 });
+    expect(refused.status).toBe(422);
+    expect(refused.body).toMatchObject({ type: 'SettlementExceedsDebt' });
+    expect((await readBalances(groupId, ann.token)).body).toEqual([
+      { memberId: ann.id, balance: 30 },
+      { memberId: bob.id, balance: -30 },
+      { memberId: expect.any(String), balance: 0 },
+    ]);
+  });
+
+  it('is refused when it is not a whole amount of at least 1, or not a member, or a member paying itself', async () => {
+    const { ann, bob, cyOutside, groupId } = await settledUpFrom();
+
+    expect((await settle(ann.token, groupId, { from: bob.id, amount: 0 })).status).toBe(422);
+    expect((await settle(ann.token, groupId, { from: bob.id, amount: 1.5 })).status).toBe(400);
+    expect((await settle(ann.token, groupId, { from: cyOutside.token, amount: 5 })).status).toBe(404);
+    expect((await settle(ann.token, groupId, { from: ann.id, amount: 5 })).status).toBe(422);
+    expect((await settle(ann.token, groupId, { amount: 5 })).status).toBe(400);
+  });
+
+  it('is refused to a caller who is not signed in, and to one who is not a member of the group', async () => {
+    const { bob, cyOutside, groupId } = await settledUpFrom();
+    expect((await settle(bob.token, groupId, { from: bob.id, amount: 5 })).status).toBe(422);
+    expect((await settle(cyOutside.token, groupId, { from: bob.id, amount: 5 })).status).toBe(404);
+    expect(
+      (await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, { body: { from: bob.id, amount: 5 } }))
+        .status,
+    ).toBe(401);
+  });
+
+  it('decides two at once on the balances as the other left them: one is kept, the other refused', async () => {
+    const { ann, bob, groupId } = await settledUpFrom();
+
+    const [first, second] = await Promise.all([
+      settle(ann.token, groupId, { from: bob.id, amount: 30 }),
+      settle(ann.token, groupId, { from: bob.id, amount: 30 }),
+    ]);
+    expect([first.status, second.status].sort()).toEqual([201, 422]);
+    expect((await readBalances(groupId, ann.token)).body).toEqual([
+      { memberId: ann.id, balance: 0 },
+      { memberId: bob.id, balance: 0 },
+      { memberId: expect.any(String), balance: 0 },
+    ]);
+  });
+
+  it('is counted by leaving and by the suggestions, and not by the statement, which lists expenses only', async () => {
+    const { ann, bob, groupId } = await settledUpFrom();
+    expect((await leave(bob.token, groupId)).status).toBeGreaterThanOrEqual(400);
+    expect((await suggest(groupId, ann.token)).body).toEqual([{ from: bob.id, to: ann.id, amount: 30 }]);
+
+    await settle(ann.token, groupId, { from: bob.id, amount: 30 });
+
+    expect((await leave(bob.token, groupId)).status).toBeLessThan(300);
+    expect((await suggest(groupId, ann.token)).body).toEqual([]);
+    const statement = await http.request('GET', `${api}/groups/${groupId}/members/${bob.id}/statement`, {
+      token: ann.token,
+    });
+    expect((statement.body as { balance: number }).balance).toBe(-30);
+  });
+});
+
+describe('Settlements → Ledger', () => {
+  it('counts the settlement the recording answered, by its id, in the balances Ledger reads through the API, at once', async () => {
+    const tag = randomUUID();
+    const ann = await signedIn(`sl-ann-${tag}@example.com`, 'Ann');
+    const bob = await signedIn(`sl-bob-${tag}@example.com`, 'Bob');
+    const groupId = await groupWith(ann, [bob]);
+    await record(ann.token, groupId, { description: 'Dinner', amount: 60, date: PAST, splitBetween: [ann.id, bob.id] });
+
+    // Ledger's balances before: Ann is owed 30, Bob owes 30.
+    const before = (await readBalances(groupId, ann.token)).body as Array<{ memberId: string; balance: number }>;
+    expect(before).toEqual([
+      { memberId: ann.id, balance: 30 },
+      { memberId: bob.id, balance: -30 },
+    ]);
+
+    // Ann records the 30 Bob paid her: the id the request answered is the settlement's, and it is read by that id.
+    const recorded = await settle(ann.token, groupId, { from: bob.id, amount: 30 });
+    expect(recorded.status).toBe(201);
+    const settlementId = (recorded.body as { id: string }).id;
+    const settlement = await readSettlement(settlementId, ann.token);
+    expect(settlement.body).toMatchObject({ id: settlementId, from: bob.id, to: ann.id, amount: 30 });
+
+    // Ledger's balances after: each moved by exactly that settlement's amount, the payer up and the payee down.
+    const after = (await readBalances(groupId, ann.token)).body as Array<{ memberId: string; balance: number }>;
+    expect(after).toEqual([
+      { memberId: ann.id, balance: 0 },
+      { memberId: bob.id, balance: 0 },
+    ]);
+  });
+});

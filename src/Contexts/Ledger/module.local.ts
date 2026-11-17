@@ -2,7 +2,7 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { groupsReadModel } from '@Bootstrap/Fastify/readModels';
+import { groupsReadModel, settledAmountsOfSettlements } from '@Bootstrap/Fastify/readModels';
 import {
   deleteExpense,
   editExpense,
@@ -22,7 +22,7 @@ import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteE
  * exports for this purpose; its clock is the system's, given to the use case that records a time.
  */
 const expenses = new SqliteExpenseRepository(sharedDatabase);
-const expenseQueries = new SqliteExpenseQueries(sharedDatabase);
+const expenseQueries = new SqliteExpenseQueries(sharedDatabase, settledAmountsOfSettlements);
 const groupMembers = new GroupMembersOfGroups(groupsReadModel);
 
 export const localLedgerModule = new LiteModule({

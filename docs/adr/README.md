@@ -17,6 +17,7 @@ why, what it costs, and when to revisit it.
 | [10](0010-the-remainder-of-a-split-goes-to-the-first-member-listed.md) | The remainder of an equal or shares split goes to the first member listed, whoever paid |
 | [11](0011-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
 | [12](0012-suggested-settlements-are-read-from-the-balances-and-the-members.md) | A suggestion of settlements is read from the balances and the members, and recorded nowhere |
+| [13](0013-a-cash-settlement-is-recorded-in-the-groups-book-and-counted-by-the-balances.md) | A cash settlement is recorded in the group's book, and the balances count it at once |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

@@ -2,6 +2,8 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/SqliteGroupQueries';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
+import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
+import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/SqliteSettlementQueries';
 
 /**
  * The read models one context asks of another while its own transaction is open (docs/adr/0004, docs/adr/0009). Each is
@@ -13,4 +15,8 @@ import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpe
  * Ledger asks Groups' members, so each wiring file would import the other, and the two modules would load in a cycle.
  */
 export const groupsReadModel = new SqliteGroupQueries(new SqliteDatabase());
-export const ledgerReadModel = new SqliteExpenseQueries(new SqliteDatabase());
+/** Settlements' read model, which Ledger reads what was settled through (docs/adr/0013). */
+export const settlementsReadModel = new SqliteSettlementQueries(new SqliteDatabase());
+/** Ledger's SettledAmounts: the settlements, counted by every balance Ledger reads. */
+export const settledAmountsOfSettlements = new SettledAmountsOfSettlements(settlementsReadModel);
+export const ledgerReadModel = new SqliteExpenseQueries(new SqliteDatabase(), settledAmountsOfSettlements);

@@ -5,9 +5,10 @@ export interface IExpenseQueries {
   /** The expense, with its shares in the order of the split, or undefined when there is no such expense. */
   findExpense(expenseId: string): Promise<ExpenseView | undefined>;
   /**
-   * What each member of the group paid, less what their shares of its expenses are, one read of the group's expenses
-   * (docs/adr/0005). Only a member who paid or has a share is listed; the rest of the group is 0. Over all of them the
-   * balances add up to 0, since every expense's shares add up to its amount.
+   * What each member of the group paid, less what their shares of its expenses are, moved by what they settled in the group
+   * (docs/adr/0005, docs/adr/0013). Only a member who paid, has a share or settled is listed; the rest of the group is 0.
+   * Over all of them the balances add up to 0: every expense's shares add up to its amount, and a settlement moves a payer
+   * up as much as its payee goes down.
    */
   balancesOf(groupId: string): Promise<BalanceView[]>;
   /**

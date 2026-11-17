@@ -5,7 +5,7 @@ feature: settle-in-cash
 intent: >-
   The payee of a payment in cash records it; it never pays more than is owed, two at once are decided one after the other, and the balances count it at once.
 
-done: false
+done: true
 
 hotSpots:
   - question: What keeps "no overpayment" when two settlements are recorded at once?
