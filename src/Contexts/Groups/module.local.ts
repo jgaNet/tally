@@ -2,7 +2,7 @@ import { Module } from '@Architecture/Application';
 import { applicationDatabase } from '@Architecture/Infrastructure/Sqlite/ApplicationDatabase';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
-import { ledgerBalanceQueries } from '@Bootstrap/Fastify/readModels';
+import { ledgerBalanceQueries, settlementReadModel } from '@Bootstrap/Fastify/readModels';
 
 import {
   AcceptInvitationCommandEvent,
@@ -33,6 +33,7 @@ import { SqliteInvitationQueries } from '@Contexts/Groups/Infrastructure/Queries
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/Services/ScryptPasswordHasher';
 import { HmacAccessTokens } from '@Contexts/Groups/Infrastructure/Services/HmacAccessTokens';
 import { LedgerBalances } from '@Contexts/Groups/Infrastructure/Ledger/LedgerBalances';
+import { SettlementsWaitingPayments } from '@Contexts/Groups/Infrastructure/Settlements/SettlementsWaitingPayments';
 import { bearerAuthentication } from '@Contexts/Groups/Presentation/API/REST/Middlewares/BearerAuthentication';
 
 /**
@@ -53,6 +54,8 @@ const tokens = new HmacAccessTokens(database.secret('access-token-key'));
 const clock = systemClock;
 /** Ledger's balance of a member, asked when a member leaves: the Ledger's read model, passed by the composition root (ADR 5). */
 const memberBalances = new LedgerBalances(ledgerBalanceQueries);
+/** Whether a payment of a member waits at the provider, asked when a member leaves: Settlements' read model, passed by the composition root (ADR 11). */
+const waitingPayments = new SettlementsWaitingPayments(settlementReadModel);
 
 /** Who is calling, from the bearer token: the transport's `authenticate`, given by the composition root. */
 export const authenticateAccount = bearerAuthentication(tokens);
@@ -67,7 +70,10 @@ export const localGroupsModule = new Module({
       event: AcceptInvitationCommandEvent,
       handlers: [new AcceptInvitationCommandHandler(groups, invitations, clock)],
     },
-    { event: LeaveGroupCommandEvent, handlers: [new LeaveGroupCommandHandler(groups, memberBalances)] },
+    {
+      event: LeaveGroupCommandEvent,
+      handlers: [new LeaveGroupCommandHandler(groups, memberBalances, waitingPayments)],
+    },
   ],
   queries: [
     new GetMyAccountQueryHandler(accountQueries),

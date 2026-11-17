@@ -565,6 +565,38 @@ describe('a refund through the provider (request 15)', () => {
   });
 });
 
+describe('Settlements → Groups', () => {
+  it('refuses a member whose payment through the provider is pending, or refunding, as PaymentWaiting, for the settlement that was answered, and lets them leave once it has ended (request 20)', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    expect(asked.status).toBe(201);
+    const id = (asked.body as { id: string }).id;
+    const paymentId = lastPayment();
+
+    // The settlement answered by its id is the one Settlements keeps pending, and the one that keeps Bob in the group.
+    const whilePending = await http.request('POST', `/v1/groups/${groupId}/leave`, { token: bob.token });
+    expect(whilePending.status).toBe(409);
+    expect(whilePending.body).toEqual({ type: 'PaymentWaiting', message: expect.any(String) });
+    expect(await readSettlement(id, bob.token)).toMatchObject({ status: 'pending' });
+    expect((await http.get(`/v1/groups/${groupId}`, { token: bob.token })).status).toBe(200);
+
+    expectAcknowledged(await webhook({ paymentId, status: 'succeeded' }));
+    expect((await refundSettlement(id, ann.token)).status).toBe(201);
+    expect(await readSettlement(id, bob.token)).toMatchObject({ status: 'refunding' });
+
+    const whileRefunding = await http.request('POST', `/v1/groups/${groupId}/leave`, { token: bob.token });
+    expect(whileRefunding.status).toBe(409);
+    expect(whileRefunding.body).toEqual({ type: 'PaymentWaiting', message: expect.any(String) });
+
+    expectAcknowledged(await webhook({ paymentId, status: 'refunded' }));
+    expect(await readSettlement(id, bob.token)).toMatchObject({ status: 'refunded' });
+    expect((await http.request('POST', `/v1/groups/${groupId}/leave`, { token: bob.token })).status).toBe(201);
+
+    // Bob owed 30 once refunded: it passed to Ann, who is the only member left, at 0.
+    expect(await balancesOf(groupId, ann.token)).toEqual([{ memberId: ann.id, balance: 0 }]);
+  });
+});
+
 describe('Payout accounts (request 16)', () => {
   it('sets the account the provider knows, replaces it, and only its owner reads it', async () => {
     const ann = await accountOf('payout.ann@example.com', 'Ann');

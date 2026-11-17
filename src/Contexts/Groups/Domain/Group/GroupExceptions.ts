@@ -44,13 +44,13 @@ export class OwnerCannotLeaveException extends Exception {
   }
 }
 
-/** The member's balance in the group is not 0: it leaves only once even. */
-export class BalanceNotZeroException extends ConflictException {
+/** A payment the member makes or receives through the provider is still waiting: it leaves once the payment has ended. */
+export class PaymentWaitingException extends ConflictException {
   constructor() {
     super({
       service: 'Groups',
-      type: 'BalanceNotZero',
-      message: 'You can leave the group once your balance in it is 0',
+      type: 'PaymentWaiting',
+      message: 'You can leave the group once the payments you make or receive through the provider have ended',
     });
   }
 }

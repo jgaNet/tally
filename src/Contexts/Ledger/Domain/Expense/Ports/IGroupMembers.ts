@@ -8,10 +8,26 @@ export interface GroupMember {
 }
 
 /**
- * Ledger's own port onto Groups: who may be in a split, and who may change an expense. Ledger asks it when it decides,
- * in its own words; the adapter answers over Groups' read model (ADR 1, T3). No domain imports Groups.
+ * A balance a member passed on when they left a group (request 20): the amount, from the member who left to the one who
+ * took it over, in Ledger's words. Ledger counts it when it reads the balances (ADR 11).
+ */
+export interface BalancePassing {
+  from: string;
+  to: string;
+  amount: number;
+}
+
+/**
+ * Ledger's own port onto Groups: who may be in a split, who may change an expense, and what passed to the owner when a
+ * member left. Ledger asks it when it decides, in its own words; the adapter answers over Groups' read model (ADR 1, T3,
+ * ADR 11). No domain imports Groups.
  */
 export interface IGroupMembers {
+  /**
+   * The balances passed on when members of the group left, in the order they were passed. It names no caller: Ledger reads
+   * it when it counts a balance, and every balance is answered to a member only, by the handler that asks for it.
+   */
+  passingsOf(groupId: string): Promise<BalancePassing[]>;
   /**
    * The current members of a group, each with its role, in the order they joined, when `askedBy` is one of them; null
    * otherwise, as if the group did not exist.

@@ -2,12 +2,13 @@ import { ConcurrencyConflictException, IResult, Result } from '@Architecture/Dom
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
-import { IGroupMemberSnapshot, IGroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
+import { IBalancePassingSnapshot, IGroupMemberSnapshot, IGroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
 
 /**
- * The tables of groups: one row per group; one row per current member of it, in the order they joined, with when; and
- * one row per former member, the accounts that left (request 9), with when they last joined.
+ * The tables of groups: one row per group; one row per current member of it, in the order they joined, with when; one
+ * row per former member, the accounts that left (request 9), with when they last joined; and one row per balance passed
+ * on when a member left, in the order they were passed (request 20).
  */
 export function createGroupsTables(database: SqliteDatabase): void {
   database.connection.exec(`
@@ -31,6 +32,14 @@ export function createGroupsTables(database: SqliteDatabase): void {
       account_id TEXT NOT NULL,
       joined_at TEXT NOT NULL,
       PRIMARY KEY (group_id, account_id)
+    );
+    CREATE TABLE IF NOT EXISTS balance_passings (
+      group_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      from_account TEXT NOT NULL,
+      to_account TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      PRIMARY KEY (group_id, seq)
     );
   `);
 }
@@ -63,11 +72,15 @@ export class SqliteGroupRepository implements IGroupRepository {
     const formerMembers = this.database.connection
       .prepare('SELECT account_id, joined_at FROM former_members WHERE group_id = ? ORDER BY rowid')
       .all(id) as Array<{ account_id: string; joined_at: string }>;
+    const passings = this.database.connection
+      .prepare('SELECT from_account, to_account, amount FROM balance_passings WHERE group_id = ? ORDER BY seq')
+      .all(id) as Array<{ from_account: string; to_account: string; amount: number }>;
     return Group.fromSnapshot(
       toSnapshot(
         row,
         members.map(member => ({ accountId: member.account_id, joinedAt: member.joined_at })),
         formerMembers.map(member => ({ accountId: member.account_id, joinedAt: member.joined_at })),
+        passings.map(passing => ({ from: passing.from_account, to: passing.to_account, amount: passing.amount })),
       ),
     );
   }
@@ -111,6 +124,11 @@ export class SqliteGroupRepository implements IGroupRepository {
     snapshot.formerMembers.forEach((member: IGroupMemberSnapshot) =>
       addFormer.run(id, member.accountId, member.joinedAt),
     );
+    this.database.connection.prepare('DELETE FROM balance_passings WHERE group_id = ?').run(id);
+    const addPassing = this.database.connection.prepare(
+      'INSERT INTO balance_passings (group_id, seq, from_account, to_account, amount) VALUES (?, ?, ?, ?, ?)',
+    );
+    snapshot.passings.forEach((passing, seq) => addPassing.run(id, seq, passing.from, passing.to, passing.amount));
     return Result.ok();
   }
 }
@@ -119,6 +137,7 @@ function toSnapshot(
   row: GroupRow,
   members: IGroupMemberSnapshot[],
   formerMembers: IGroupMemberSnapshot[],
+  passings: IBalancePassingSnapshot[],
 ): IGroupSnapshot {
   return {
     _id: row.id,
@@ -127,6 +146,7 @@ function toSnapshot(
     ownerId: row.owner_id,
     members,
     formerMembers,
+    passings,
     createdAt: row.created_at,
     version: row.version,
   };

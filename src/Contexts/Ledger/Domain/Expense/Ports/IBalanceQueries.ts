@@ -6,8 +6,9 @@ export interface MemberBalance {
 
 /**
  * The read side of balances: a read model of Ledger's own facts, written in the transaction of each expense that counts
- * (ADR 1, T4), and the settlements paid, which count through a port Ledger owns (ADR 8). It never aggregates a running
- * balance into an aggregate (QUERY-READ-MODELS).
+ * (ADR 1, T4), the settlements paid, which count through a port Ledger owns (ADR 8), and the balances passed on when
+ * members left, which count through the same port (request 20, ADR 11). It never aggregates a running balance into an
+ * aggregate (QUERY-READ-MODELS).
  */
 export interface IBalanceQueries {
   /**

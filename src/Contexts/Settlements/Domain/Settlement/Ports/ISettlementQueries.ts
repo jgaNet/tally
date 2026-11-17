@@ -29,6 +29,12 @@ export interface WaitingSettlement {
   amount: number;
 }
 
+/** A payment through the provider that has not ended yet, pending or refunding: a member may not leave while one of theirs waits (request 20). */
+export interface OpenProviderPayment {
+  from: string;
+  to: string;
+}
+
 /**
  * The read side of settlements: read models, never aggregates (QUERY-READ-MODELS). Ledger reads `paidIn` through its own
  * port when it reads a balance (ADR 8), and Settlements reads `waitingIn` when it suggests transfers; a settlement is read
@@ -43,4 +49,6 @@ export interface ISettlementQueries {
   paidIn(groupId: string): Promise<PaidSettlement[]>;
   /** Every payment of the group that waits at the provider, in the order they were requested. */
   waitingIn(groupId: string): Promise<WaitingSettlement[]>;
+  /** Every payment through the provider of the group that has not ended yet (pending, or refunding), in the order they were recorded (request 20). */
+  openProviderPaymentsIn(groupId: string): Promise<OpenProviderPayment[]>;
 }

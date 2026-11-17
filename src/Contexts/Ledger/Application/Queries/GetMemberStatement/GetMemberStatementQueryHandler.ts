@@ -12,7 +12,9 @@ import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembe
 /**
  * A signed-in member reads the statement of any member of their group, themselves included (request 8): the expenses the
  * member paid or is in the split of, in the order of a bank statement, each with the balance once it is counted, from 0.
- * The statement's balance is the last entry's, which is the balance the group's balances give the member. To anyone who
+ * The statement's balance is the last entry's: the sum of the expenses it lists, from 0. It lists expenses only, so it does
+ * not include the settlements paid or the balances passed on when members left (request 20), which the group's balances
+ * count. To anyone who
  * is not a member the group does not exist; a member the group has never had does not exist either, while a former
  * member's statement is read as it was (request 9). Membership is asked of Groups, through the port.
  */

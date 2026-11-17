@@ -38,6 +38,19 @@ export interface IGroupQueries {
    * read by the background job, which decides for every group, and never answered to a person.
    */
   membersOfEveryGroup(): Promise<GroupMembership[]>;
+  /**
+   * The balances passed on when members of the group left, in the order they were passed (request 20): each from the
+   * member who left, to the one who took it over. It names no caller: Ledger reads it when it counts a balance, and
+   * every balance is answered to a member only, by the handler that asks for it.
+   */
+  passingsOf(groupId: string): Promise<BalancePassingView[]>;
+}
+
+/** A balance passed on when a member left: the amount, from the member who left to the one who took it over. */
+export interface BalancePassingView {
+  from: string;
+  to: string;
+  amount: number;
 }
 
 /** A current member of a group, as the background job reads it: the group, and the account. */

@@ -1,6 +1,7 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import {
+  BalancePassingView,
   GroupMembership,
   GroupView,
   IGroupQueries,
@@ -85,6 +86,15 @@ export class SqliteGroupQueries implements IGroupQueries {
         .prepare('SELECT group_id, account_id FROM group_members ORDER BY group_id, position')
         .all() as { group_id: string; account_id: string }[];
       return rows.map(row => ({ groupId: row.group_id, memberId: row.account_id }));
+    });
+  }
+
+  passingsOf(groupId: string): Promise<BalancePassingView[]> {
+    return this.database.exclusive(connection => {
+      const rows = connection
+        .prepare('SELECT from_account, to_account, amount FROM balance_passings WHERE group_id = ? ORDER BY seq')
+        .all(groupId) as unknown as { from_account: string; to_account: string; amount: number }[];
+      return rows.map(row => ({ from: row.from_account, to: row.to_account, amount: row.amount }));
     });
   }
 

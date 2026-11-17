@@ -5,10 +5,11 @@ import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
   AlreadyMemberException,
-  BalanceNotZeroException,
   OwnerCannotLeaveException,
+  PaymentWaitingException,
 } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 import {
+  BalancePassedEvent,
   GroupCreatedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
@@ -20,20 +21,30 @@ export interface GroupMember {
   joinedAt: Date;
 }
 
+/** A balance passed on when a member left: the amount, from the member who left to the one who takes it over (the owner). */
+export interface BalancePassing {
+  from: string;
+  to: string;
+  amount: number;
+}
+
 /**
  * Group is the aggregate root of Groups' groups: the people who share expenses in one currency, fixed when the
  * group is created (the storm's decision). Its creator is its owner and its first member. Other accounts join by an
  * invitation (request 3), and each account is a member once: the group keeps that, since it is the one place the
  * membership lives.
  *
- * A member leaves once their balance is 0 (request 9), and the owner never leaves. A member who left is kept among
- * the former members, so that the group still knows every account that has been one (a former member's statement
- * is read by the group's members); a member who joins again is taken out of them and put last among the members,
- * from the moment they join.
+ * A member leaves whatever their balance (request 20): what it is passes to the owner in the same step, and is kept as
+ * a passing, so that the balances of the members still add up to 0. The owner never leaves, and a member whose
+ * payment waits at the provider does not leave until it has ended. A member who left is kept among the former
+ * members, so that the group still knows every account that has been one (a former member's statement is read by the
+ * group's members); a member who joins again is taken out of them and put last among the members, from the moment
+ * they join.
  *
  * The name and the currency are value objects, validated by their own `create()`, so a group once held is valid.
  * The name is the only thing that changes after the creation, and no behaviour here changes it; the behaviours are
- * the creation, which records GroupCreated, a join, which records MemberJoined, and a leave, which records MemberLeft.
+ * the creation, which records GroupCreated, a join, which records MemberJoined, and a leave, which records
+ * BalancePassed and MemberLeft.
  */
 export class Group extends AggregateRoot {
   readonly #name: GroupName;
@@ -41,6 +52,7 @@ export class Group extends AggregateRoot {
   readonly #ownerId: string;
   readonly #members: GroupMember[];
   readonly #formerMembers: GroupMember[];
+  readonly #passings: BalancePassing[];
   readonly #createdAt: Date;
 
   private constructor(
@@ -50,6 +62,7 @@ export class Group extends AggregateRoot {
     ownerId: string,
     members: GroupMember[],
     formerMembers: GroupMember[],
+    passings: BalancePassing[],
     createdAt: Date,
     version: number,
   ) {
@@ -59,6 +72,7 @@ export class Group extends AggregateRoot {
     this.#ownerId = ownerId;
     this.#members = members;
     this.#formerMembers = formerMembers;
+    this.#passings = passings;
     this.#createdAt = createdAt;
   }
 
@@ -93,6 +107,7 @@ export class Group extends AggregateRoot {
       ownerId,
       [{ accountId: ownerId, joinedAt: createdAt }],
       [],
+      [],
       createdAt,
       0,
     );
@@ -116,19 +131,33 @@ export class Group extends AggregateRoot {
   }
 
   /**
-   * A member leaves the group, with the balance it has in it, as the Ledger counts it: the group refuses the owner
-   * always, and a balance that is not 0. The account is no longer among the members, and is kept among the former
-   * ones; MemberLeft is recorded. An account that is not a member is not in the group, so it is refused as a group
-   * that does not exist. The balance is a plain value the caller read from Ledger through its port.
+   * A member leaves the group, whatever its balance (request 20). The group refuses the owner always, and a member
+   * with a payment waiting at the provider, which the caller read through its port. Otherwise the member's balance,
+   * as the Ledger counts it, passes to the owner: it is kept as a passing, and BalancePassed is recorded before
+   * MemberLeft, in the same step. The account is no longer among the members, and is kept among the former ones. An
+   * account that is not a member is not in the group, so it is refused as a group that does not exist. The balance and
+   * the waiting payment are plain values the caller read from the other contexts through its ports.
    */
-  leave({ accountId, balance }: { accountId: string; balance: number }): IResult<void> {
+  leave({
+    accountId,
+    balance,
+    paymentWaiting,
+  }: {
+    accountId: string;
+    balance: number;
+    paymentWaiting: boolean;
+  }): IResult<void> {
     const index = this.#members.findIndex(member => member.accountId === accountId);
     if (index < 0) return Result.fail(new NotFoundException('Groups', 'Group not found'));
     if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
-    if (balance !== 0) return Result.fail(new BalanceNotZeroException());
+    if (paymentWaiting) return Result.fail(new PaymentWaitingException());
 
     const [left] = this.#members.splice(index, 1);
     this.#formerMembers.push(left);
+    this.#passings.push({ from: accountId, to: this.#ownerId, amount: balance });
+    this.record(
+      BalancePassedEvent.set({ groupId: this._id.value, from: accountId, to: this.#ownerId, amount: balance }),
+    );
     this.record(MemberLeftEvent.set({ groupId: this._id.value, accountId }));
     return Result.ok();
   }
@@ -151,6 +180,7 @@ export class Group extends AggregateRoot {
       accountId: member.accountId,
       joinedAt: new Date(member.joinedAt),
     }));
+    const passings = snapshot.passings.map(passing => ({ ...passing }));
     const accounts = [...members, ...formerMembers].map(member => member.accountId);
     if (
       name.isFailure() ||
@@ -169,6 +199,7 @@ export class Group extends AggregateRoot {
       snapshot.ownerId,
       members,
       formerMembers,
+      passings,
       createdAt,
       snapshot.version,
     );
@@ -185,6 +216,7 @@ export class Group extends AggregateRoot {
         accountId: member.accountId,
         joinedAt: member.joinedAt.toISOString(),
       })),
+      passings: this.#passings.map(passing => ({ ...passing })),
       createdAt: this.#createdAt.toISOString(),
       version: this.version,
     };
@@ -210,6 +242,11 @@ export class Group extends AggregateRoot {
   /** The accounts that were members and left, in the order they left. */
   get formerMembers(): readonly GroupMember[] {
     return this.#formerMembers;
+  }
+
+  /** The balances passed on when members left, in the order they were passed (request 20). */
+  get passings(): readonly BalancePassing[] {
+    return this.#passings;
   }
 
   get createdAt(): Date {

@@ -37,9 +37,13 @@ import { settlementQueries } from '@Contexts/Settlements/module.local';
 const database = applicationDatabase();
 const expenses = new SqliteExpenseRepository(database);
 const expenseQueries = new SqliteExpenseQueries(database);
-const balanceQueries = new SqliteBalanceQueries(database, new SettlementsSettledAmounts(settlementQueries));
-const statementQueries = new SqliteStatementQueries(database);
 const groupMembers = new GroupsMembership(groupQueries);
+const balanceQueries = new SqliteBalanceQueries(
+  database,
+  new SettlementsSettledAmounts(settlementQueries),
+  groupMembers,
+);
+const statementQueries = new SqliteStatementQueries(database);
 const clock = systemClock;
 
 export const localLedgerModule = new Module({

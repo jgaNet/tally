@@ -7,6 +7,7 @@ import {
 import { SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
   ISettlementQueries,
+  OpenProviderPayment,
   PaidSettlement,
   SettlementView,
   WaitingSettlement,
@@ -69,6 +70,17 @@ export class SqliteSettlementQueries implements ISettlementQueries {
         )
         .all(groupId) as unknown as { payer: string; payee: string; amount: number }[];
       return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
+    });
+  }
+
+  openProviderPaymentsIn(groupId: string): Promise<OpenProviderPayment[]> {
+    return this.database.exclusive(connection => {
+      const rows = connection
+        .prepare(
+          "SELECT payer, payee FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding') ORDER BY recorded_seq",
+        )
+        .all(groupId) as unknown as { payer: string; payee: string }[];
+      return rows.map(row => ({ from: row.payer, to: row.payee }));
     });
   }
 
