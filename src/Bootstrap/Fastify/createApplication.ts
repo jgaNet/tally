@@ -9,6 +9,7 @@ import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutb
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { groupsAccessTokens, localGroupsModule } from '@Contexts/Groups/module.local';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
+import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
@@ -22,7 +23,7 @@ import { localLedgerModule } from '@Contexts/Ledger/module.local';
  * that owns accounts gives the transport its `authenticate`.
  *
  * A context is added here: its `LiteModule` registered, its routes under its own prefix, the module in
- * the routes' options (the Groups' accounts are served at the root of the API: `/v1/accounts`) —
+ * the routes' options (the Groups' accounts and groups are served at the root of the API: `/v1/accounts`, `/v1/groups`) —
  *
  *   .registerModule(localTasksModule)
  *   .registerRoutes('/tasks', taskRoutes, { module: localTasksModule });
@@ -45,7 +46,8 @@ export async function createApplication({
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
-    .registerRoutes('/', accountRoutes, { module: localGroupsModule });
+    .registerRoutes('/', accountRoutes, { module: localGroupsModule })
+    .registerRoutes('/', groupRoutes, { module: localGroupsModule });
 
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an

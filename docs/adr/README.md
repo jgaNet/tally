@@ -7,6 +7,7 @@ why, what it costs, and when to revisit it.
 |---|---|
 | [1](0001-groups-and-ledger-and-how-they-relate.md) | Groups and Ledger, and how they relate |
 | [2](0002-accounts-in-groups.md) | Accounts in Groups: an aggregate and a domain event, brought in by this decision |
+| [3](0003-groups-an-aggregate-and-its-creation-event.md) | Groups: an aggregate and a domain event, brought in by this decision |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

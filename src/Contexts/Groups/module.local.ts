@@ -1,18 +1,21 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import { createGroup, getGroup, getMyGroups } from '@Contexts/Groups/Application/Groups';
 import { GroupsDatabase } from '@Contexts/Groups/Infrastructure/GroupsDatabase';
 import { SqliteAccounts } from '@Contexts/Groups/Infrastructure/SqliteAccounts';
+import { SqliteGroups } from '@Contexts/Groups/Infrastructure/SqliteGroups';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
 import { SignedAccessTokens } from '@Contexts/Groups/Infrastructure/SignedAccessTokens';
 
 /**
- * The Groups context, as data (ADR 1, ADR 2): its accounts in SQLite at `DATABASE_PATH` (read when the first request
+ * The Groups context, as data (ADR 1, ADR 2, ADR 3): its accounts and groups in SQLite at `DATABASE_PATH` (read when the first request
  * needs the file, so that a process may set it before then), its password hashing and its tokens, and the use cases
  * it answers. The access tokens are shared with the transport, which says who is calling (`createApplication`).
  */
 const database = new GroupsDatabase(() => process.env.DATABASE_PATH || 'tally.sqlite');
 const accounts = new SqliteAccounts(database);
+const groups = new SqliteGroups(database);
 const passwords = new ScryptPasswordHasher();
 
 export const groupsAccessTokens = new SignedAccessTokens(database);
@@ -23,5 +26,8 @@ export const localGroupsModule = new LiteModule({
     signUp(accounts, passwords, systemClock),
     signIn(accounts, passwords, groupsAccessTokens),
     getMyAccount(accounts),
+    createGroup(groups, systemClock),
+    getGroup(groups),
+    getMyGroups(groups),
   ],
 });

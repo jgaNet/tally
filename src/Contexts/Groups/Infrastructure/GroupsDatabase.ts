@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 
 /**
- * The SQLite file the Groups context keeps its accounts and its signing key in, opened on first use, at the path
+ * The SQLite file the Groups context keeps its accounts, its groups and its signing key in, opened on first use, at the path
  * `pathOf` gives then (`DATABASE_PATH`). Several servers may open the same file: WAL lets them read while one writes,
  * and a busy timeout lets a write wait its turn instead of failing.
  */
@@ -22,6 +22,19 @@ export class GroupsDatabase {
           name TEXT NOT NULL,
           password_hash TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS expense_groups (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          currency TEXT NOT NULL,
+          owner_id TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS expense_group_members (
+          group_id TEXT NOT NULL REFERENCES expense_groups (id),
+          account_id TEXT NOT NULL,
+          PRIMARY KEY (group_id, account_id)
+        );
+        CREATE INDEX IF NOT EXISTS expense_group_members_by_account ON expense_group_members (account_id);
         CREATE TABLE IF NOT EXISTS settings (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
