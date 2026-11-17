@@ -5,6 +5,7 @@ import { Module } from '@Architecture/Application';
 import { FastifySettlementController } from '@Contexts/Settlements/Presentation/API/REST/Controllers/FastifySettlementController';
 import { providerSignatureIsValid } from '@Contexts/Settlements/Presentation/API/REST/Routes/provider-signature';
 import {
+  GetGroupSettlementsResSchema,
   GetPayoutAccountResSchema,
   GetSettlementResSchema,
   GetSuggestedSettlementsResSchema,
@@ -102,6 +103,12 @@ export const settlementRoutes = function (
     '/accounts/me/payout-account',
     { schema: { tags, response: GetPayoutAccountResSchema } },
     controller.getPayoutAccount.bind(controller),
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    '/groups/:id/settlements',
+    { schema: { tags, response: GetGroupSettlementsResSchema } },
+    controller.getGroupSettlements.bind(controller),
   );
 
   fastify.get<{ Params: { id: string } }>(

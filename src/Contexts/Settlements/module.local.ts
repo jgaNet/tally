@@ -5,6 +5,7 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ledgerBalanceQueries } from '@Bootstrap/Fastify/readModels';
 import { groupQueries } from '@Contexts/Groups/module.local';
 import {
+  GetGroupSettlementsQueryHandler,
   GetPayoutAccountQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
@@ -76,11 +77,11 @@ export const localSettlementsModule = new Module({
     },
     {
       event: ReceivePaymentWebhookCommandEvent,
-      handlers: [new ReceivePaymentWebhookCommandHandler(books)],
+      handlers: [new ReceivePaymentWebhookCommandHandler(books, clock)],
     },
     {
       event: RefundSettlementCommandEvent,
-      handlers: [new RefundSettlementCommandHandler(settlementMembers, books, paymentProvider)],
+      handlers: [new RefundSettlementCommandHandler(settlementMembers, books, paymentProvider, clock)],
     },
     {
       event: SetPayoutAccountCommandEvent,
@@ -90,6 +91,7 @@ export const localSettlementsModule = new Module({
   queries: [
     new GetSuggestedSettlementsQueryHandler(groupBalances, settlementMembers, settlementQueries),
     new GetSettlementQueryHandler(settlementQueries, settlementMembers),
+    new GetGroupSettlementsQueryHandler(settlementQueries, settlementMembers),
     new GetPayoutAccountQueryHandler(payoutAccountQueries),
   ],
 });

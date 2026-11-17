@@ -61,7 +61,7 @@ describe('SqliteSettlementBookRepository, webhooks late and at once (request 14)
     const books = new SqliteSettlementBookRepository(after);
     const found = await books.findByPaymentId('pay_1');
     if (!found) throw new Error('the book should be in the file');
-    expect(found.receiveProviderUpdate(succeeded).isSuccess()).toBe(true);
+    expect(found.receiveProviderUpdate(succeeded, AT).isSuccess()).toBe(true);
     expect((await books.save(found)).isSuccess()).toBe(true);
     after.connection.close();
 
@@ -70,7 +70,7 @@ describe('SqliteSettlementBookRepository, webhooks late and at once (request 14)
     const reread = await new SqliteSettlementBookRepository(again).findByPaymentId('pay_1');
     if (!reread) throw new Error('the book should be in the file');
     expect(reread.toSnapshot().changed).toEqual([]);
-    reread.receiveProviderUpdate(succeeded);
+    reread.receiveProviderUpdate(succeeded, AT);
     expect(reread.hasChanges()).toBe(false);
     again.connection.close();
   });
@@ -84,8 +84,8 @@ describe('SqliteSettlementBookRepository, webhooks late and at once (request 14)
     const first = await books.findByPaymentId('pay_1');
     const second = await books.findByPaymentId('pay_1');
     if (!first || !second) throw new Error('the book should be in the file');
-    first.receiveProviderUpdate(succeeded);
-    second.receiveProviderUpdate(succeeded);
+    first.receiveProviderUpdate(succeeded, AT);
+    second.receiveProviderUpdate(succeeded, AT);
 
     expect((await books.save(first)).isSuccess()).toBe(true);
     const refused = await books.save(second);
@@ -94,7 +94,7 @@ describe('SqliteSettlementBookRepository, webhooks late and at once (request 14)
     // The command re-reads the book, finds the payment paid, and records nothing: the payment is counted once.
     const reread = await books.findByPaymentId('pay_1');
     if (!reread) throw new Error('the book should be in the file');
-    reread.receiveProviderUpdate(succeeded);
+    reread.receiveProviderUpdate(succeeded, AT);
     expect(reread.hasChanges()).toBe(false);
     expect(reread.toSnapshot().changed).toEqual([]);
     database.connection.close();

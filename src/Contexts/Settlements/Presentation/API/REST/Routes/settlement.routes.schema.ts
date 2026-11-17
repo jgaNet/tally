@@ -37,10 +37,20 @@ export const RecordCashSettlementResSchema = {
   409: RefusalSchema,
 } as const;
 
-/** A settlement as the API answers it to a member of its group (request 12's `settlement` resource). */
+/** A status a settlement had, and when Tally learned it (request 19's `history` line). */
+const StatusLineSchema = {
+  type: 'object',
+  required: ['status', 'at'],
+  properties: {
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+    at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
+  },
+} as const;
+
+/** A settlement as the API answers it to a member of its group (request 12's `settlement` resource, with request 19's `history`). */
 const SettlementSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at'],
+  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -51,6 +61,7 @@ const SettlementSchema = {
     status: { enum: ['paid', 'pending', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },
+    history: { type: 'array', minItems: 1, items: StatusLineSchema },
   },
 } as const;
 
@@ -67,6 +78,13 @@ export const RefundSettlementResSchema = {
 
 export const GetSettlementResSchema = {
   200: SettlementSchema,
+  401: RefusalSchema,
+  404: RefusalSchema,
+} as const;
+
+/** The settlements of a group, the most recently recorded first (request 19). */
+export const GetGroupSettlementsResSchema = {
+  200: { type: 'array', items: SettlementSchema },
   401: RefusalSchema,
   404: RefusalSchema,
 } as const;

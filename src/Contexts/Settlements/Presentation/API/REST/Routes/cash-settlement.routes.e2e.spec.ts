@@ -79,6 +79,8 @@ describe('a cash settlement', () => {
       method: 'cash',
       status: 'paid',
       at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      // Request 19: a cash settlement is paid at once, so its history is that one line.
+      history: [{ status: 'paid', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) }],
     });
 
     // A member's statement is the expenses' alone: Bob's statement still says he owes 30.

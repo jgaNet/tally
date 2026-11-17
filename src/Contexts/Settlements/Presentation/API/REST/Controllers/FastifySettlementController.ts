@@ -12,6 +12,7 @@ import {
 } from '@Contexts/Settlements/Application/Commands';
 import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook/ReceivePaymentWebhookCommandEvent';
 import {
+  GetGroupSettlementsQueryHandler,
   GetPayoutAccountQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
@@ -77,6 +78,14 @@ export class FastifySettlementController {
   receiveProviderWebhook(req: FastifyRequest<{ Body: ProviderWebhookBody }>, reply: FastifyReply) {
     const { paymentId, status } = req.body;
     return acceptCommandAtOnce(req, reply, this.#module, ReceivePaymentWebhookCommandEvent.set({ paymentId, status }));
+  }
+
+  async getGroupSettlements(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetGroupSettlementsQueryHandler)
+      .handle({ groupId: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }
 
   async getSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

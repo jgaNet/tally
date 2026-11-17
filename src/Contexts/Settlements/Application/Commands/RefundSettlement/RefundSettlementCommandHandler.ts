@@ -1,5 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { CommandHandler, ExecutionContext } from '@Architecture/Application';
+import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { ISettlementMembers } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementMembers';
@@ -20,6 +20,7 @@ export class RefundSettlementCommandHandler extends CommandHandler<RefundSettlem
     private settlementMembers: ISettlementMembers,
     private books: ISettlementBookRepository,
     private provider: IPaymentProvider,
+    private clock: Clock,
   ) {
     super();
   }
@@ -48,7 +49,7 @@ export class RefundSettlementCommandHandler extends CommandHandler<RefundSettlem
       reference: settlementId,
     });
 
-    const kept = book.keepRefund(proposed.data, accepted);
+    const kept = book.keepRefund(proposed.data, accepted, this.clock());
     if (kept.isFailure()) return Result.fail(kept.error);
 
     const saved = await this.books.save(book);

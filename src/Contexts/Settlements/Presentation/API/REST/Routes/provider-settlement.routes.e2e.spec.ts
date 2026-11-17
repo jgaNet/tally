@@ -647,3 +647,161 @@ describe('Payout accounts (request 16)', () => {
     ]);
   });
 });
+
+const listSettlements = (groupId: string, token?: string) => http.get(`/v1/groups/${groupId}/settlements`, { token });
+
+describe('a group’s settlements, and each one’s history (request 19)', () => {
+  it('lists the settlements the most recent first, each with every status it has had, the earliest first', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+
+    // First: 10 through the provider, paid, then refunded by its payee: pending, paid, refunding, refunded.
+    const first = (await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 10 })).body as { id: string };
+    const firstPayment = lastPayment();
+    expectAcknowledged(await webhook({ paymentId: firstPayment, status: 'succeeded' }));
+    expect((await refundSettlement(first.id, ann.token)).status).toBe(201);
+    expectAcknowledged(await webhook({ paymentId: firstPayment, status: 'refunded' }));
+
+    // Second: 30 through the provider, failed: pending, failed. It frees what it held, so the third may be asked for the same 30.
+    const second = (await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 })).body as { id: string };
+    const secondPayment = lastPayment();
+    expectAcknowledged(await webhook({ paymentId: secondPayment, status: 'failed' }));
+
+    // Third: 30 through the provider, paid: pending, paid.
+    const third = (await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 })).body as { id: string };
+    expectAcknowledged(await webhook({ paymentId: lastPayment(), status: 'succeeded' }));
+
+    const listed = await listSettlements(groupId, bob.token);
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual([
+      {
+        id: third.id,
+        groupId,
+        from: bob.id,
+        to: ann.id,
+        amount: 30,
+        method: 'provider',
+        status: 'paid',
+        at: expect.any(String),
+        payUrl: expect.any(String),
+        history: [
+          { status: 'pending', at: expect.any(String) },
+          { status: 'paid', at: expect.any(String) },
+        ],
+      },
+      {
+        id: second.id,
+        groupId,
+        from: bob.id,
+        to: ann.id,
+        amount: 30,
+        method: 'provider',
+        status: 'failed',
+        at: expect.any(String),
+        payUrl: expect.any(String),
+        history: [
+          { status: 'pending', at: expect.any(String) },
+          { status: 'failed', at: expect.any(String) },
+        ],
+      },
+      {
+        id: first.id,
+        groupId,
+        from: bob.id,
+        to: ann.id,
+        amount: 10,
+        method: 'provider',
+        status: 'refunded',
+        at: expect.any(String),
+        payUrl: expect.any(String),
+        history: [
+          { status: 'pending', at: expect.any(String) },
+          { status: 'paid', at: expect.any(String) },
+          { status: 'refunding', at: expect.any(String) },
+          { status: 'refunded', at: expect.any(String) },
+        ],
+      },
+    ]);
+
+    // The settlement read by its id carries the same history.
+    expect((await http.get(`/v1/settlements/${first.id}`, { token: ann.token })).body).toMatchObject({
+      history: [{ status: 'pending' }, { status: 'paid' }, { status: 'refunding' }, { status: 'refunded' }],
+    });
+  });
+
+  it('adds nothing for a webhook that changes nothing, and only the status it moves to when it moves past one never had', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = (await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 10 })).body as { id: string };
+    const paymentId = lastPayment();
+
+    expectAcknowledged(await webhook({ paymentId, status: 'pending' }));
+    expectAcknowledged(await webhook({ paymentId, status: 'authorised' }));
+    expect(await readHistory(asked.id, bob.token)).toEqual(['pending']);
+
+    // Refunded arrives for a payment that never succeeded in Tally: the line is refunded alone, no `paid` is invented.
+    expectAcknowledged(await webhook({ paymentId, status: 'refunded' }));
+    expect(await readHistory(asked.id, bob.token)).toEqual(['pending', 'refunded']);
+
+    // Once refunded, a later success changes nothing: the history is as it was.
+    expectAcknowledged(await webhook({ paymentId, status: 'succeeded' }));
+    expect(await readHistory(asked.id, bob.token)).toEqual(['pending', 'refunded']);
+  });
+
+  it('dates each status by when Tally learned it, not by the provider’s word', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = (await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 10 })).body as { id: string };
+    const paymentId = lastPayment();
+    const requested = (await http.get(`/v1/settlements/${asked.id}`, { token: bob.token })).body as { at: string };
+
+    // The provider says it happened in 2020, long before Tally recorded the payment: the history does not take that time, so the
+    // line is no earlier than the settlement's own time, which is the clock's at the request.
+    expectAcknowledged(await webhook({ paymentId, status: 'succeeded', at: '2020-01-01T10:00:00Z' }));
+
+    const read = (await http.get(`/v1/settlements/${asked.id}`, { token: bob.token })).body as {
+      history: { status: string; at: string }[];
+    };
+    expect(read.history[1]).toEqual({ status: 'paid', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
+    expect(Date.parse(read.history[1].at)).toBeGreaterThanOrEqual(Date.parse(requested.at));
+  });
+
+  it('lists a cash settlement with its one line, and keeps it listed after its payer has left, to the members still in the group', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const carl = await accountOf('carl.history@example.com', 'Carl');
+
+    const cash = (await settleInCash(groupId, ann.token, { from: bob.id, amount: 30 })).body as { id: string };
+    expect(await readHistory(cash.id, ann.token)).toEqual(['paid']);
+
+    // Bob's balance is 0, so he may leave; his settlement stays the group's.
+    expect(
+      (await http.request('POST', `/v1/groups/${groupId}/leave`, { token: bob.token })).status,
+    ).toBeGreaterThanOrEqual(200);
+
+    const afterLeaving = await listSettlements(groupId, ann.token);
+    expect(afterLeaving.status).toBe(200);
+    expect(afterLeaving.body).toEqual([
+      {
+        id: cash.id,
+        groupId,
+        from: bob.id,
+        to: ann.id,
+        amount: 30,
+        method: 'cash',
+        status: 'paid',
+        at: expect.any(String),
+        history: [{ status: 'paid', at: expect.any(String) }],
+      },
+    ]);
+
+    // Bob, who has left, is no longer a member and sees the group no more; Carl never was, and sees nothing either.
+    expect((await listSettlements(groupId, bob.token)).status).toBe(404);
+    expect((await listSettlements(groupId, carl.token)).status).toBe(404);
+    expect((await listSettlements(groupId)).status).toBe(401);
+  });
+});
+
+/** The statuses a settlement has had, in the order it had them, as its read by its id gives them. */
+async function readHistory(settlementId: string, token: string): Promise<string[]> {
+  const read = (await http.get(`/v1/settlements/${settlementId}`, { token })).body as {
+    history: { status: string }[];
+  };
+  return read.history.map(line => line.status);
+}

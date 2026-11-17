@@ -11,6 +11,8 @@ import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/Settleme
  * its link; a cash settlement keeps neither.
  */
 export function createSettlementTables(database: SqliteDatabase): void {
+  // The status lines (request 19): one per status a settlement had, in the order the book gave them. A settlement recorded before
+  // this table existed gets the one line its stored status says, at the time it was recorded, once; its earlier statuses are unknown.
   database.connection.exec(`
     CREATE TABLE IF NOT EXISTS settlement_books (
       group_id TEXT PRIMARY KEY,
@@ -32,6 +34,17 @@ export function createSettlementTables(database: SqliteDatabase): void {
     );
     CREATE INDEX IF NOT EXISTS settlements_by_group ON settlements (group_id);
     CREATE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id);
+    CREATE TABLE IF NOT EXISTS settlement_history (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      settlement_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS settlement_history_by_settlement ON settlement_history (settlement_id);
+    INSERT INTO settlement_history (settlement_id, status, at)
+      SELECT s.id, s.status, s.at FROM settlements s
+       WHERE NOT EXISTS (SELECT 1 FROM settlement_history h WHERE h.settlement_id = s.id)
+       ORDER BY s.recorded_seq;
   `);
 }
 
@@ -128,6 +141,11 @@ export class SqliteSettlementBookRepository implements ISettlementBookRepository
     for (const settlement of snapshot.recorded) this.insertSettlement(settlement);
     for (const settlement of snapshot.changed) {
       connection.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(settlement.status, settlement._id);
+    }
+    for (const line of snapshot.history) {
+      connection
+        .prepare('INSERT INTO settlement_history (settlement_id, status, at) VALUES (?, ?, ?)')
+        .run(line.settlementId, line.status, line.at);
     }
     return Result.ok();
   }

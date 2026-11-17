@@ -183,21 +183,21 @@ describe('SettlementBook, a payment through the provider (request 13)', () => {
   it('pays a settlement when the provider says it succeeded, once, and records SettlementPaid', () => {
     const { book } = bookWithPendingPayment();
     book.pullDomainEvents();
-    const received = book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' });
+    const received = book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' }, AT);
     expect(received.isSuccess()).toBe(true);
     expect(book.hasChanges()).toBe(true);
     expect(book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementPaidEvent']);
 
     // A repeated success, or a later failure, changes nothing: the payment ended once.
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' });
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' });
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' }, AT);
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' }, AT);
     expect(book.pullDomainEvents()).toEqual([]);
   });
 
   it('fails a settlement when the provider says it failed, and frees what it held', () => {
     const { book } = bookWithPendingPayment();
     book.pullDomainEvents();
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' });
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' }, AT);
     expect(book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementFailedEvent']);
 
     // What was waiting is free again: Bob may pay Ann the 30 once more.
@@ -208,10 +208,10 @@ describe('SettlementBook, a payment through the provider (request 13)', () => {
     const { book } = bookWithPendingPayment();
     // Read back, as a later writer reads it: nothing has moved since.
     const reader = reread(book, book.toSnapshot().recorded);
-    reader.receiveProviderUpdate({ paymentId: 'pay_1', status: 'pending' });
-    reader.receiveProviderUpdate({ paymentId: 'pay_1', status: 'authorised' });
-    reader.receiveProviderUpdate({ paymentId: 'pay_unknown', status: 'succeeded' });
-    reader.receiveProviderUpdate({ paymentId: 'pay_unknown', status: 'refunded' });
+    reader.receiveProviderUpdate({ paymentId: 'pay_1', status: 'pending' }, AT);
+    reader.receiveProviderUpdate({ paymentId: 'pay_1', status: 'authorised' }, AT);
+    reader.receiveProviderUpdate({ paymentId: 'pay_unknown', status: 'succeeded' }, AT);
+    reader.receiveProviderUpdate({ paymentId: 'pay_unknown', status: 'refunded' }, AT);
     expect(reader.hasChanges()).toBe(false);
     expect(reader.pullDomainEvents()).toEqual([]);
   });
@@ -223,7 +223,7 @@ describe('SettlementBook, a payment through the provider (request 13)', () => {
     expect(first.changed).toEqual([]);
 
     const reader = reread(book, first.recorded);
-    reader.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' });
+    reader.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' }, AT);
     const moved = reader.toSnapshot();
     expect(moved.recorded).toEqual([]);
     expect(moved.changed).toEqual([expect.objectContaining({ _id: settlementId, status: 'paid' })]);
@@ -233,7 +233,7 @@ describe('SettlementBook, a payment through the provider (request 13)', () => {
 /** A book that holds one payment through the provider from Bob to Ann of 30, paid: the provider said it succeeded. */
 function bookWithPaidPayment(): { book: SettlementBook; settlementId: string } {
   const { book, settlementId } = bookWithPendingPayment();
-  book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' });
+  book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' }, AT);
   book.pullDomainEvents();
   return { book, settlementId };
 }
@@ -258,7 +258,7 @@ describe('SettlementBook, a refund through the provider (request 15)', () => {
     expect(proposal.isSuccess() && proposal.data).toEqual({ settlementId, paymentId: 'pay_1' });
     expect(book.pullDomainEvents()).toEqual([]);
 
-    const kept = book.keepRefund(proposalOf(book, settlementId), true);
+    const kept = book.keepRefund(proposalOf(book, settlementId), true, AT);
     expect(kept.isSuccess() && kept.data.status).toBe('refunding');
     expect(book.pullDomainEvents().map(event => event.name)).toEqual(['RefundRequestedEvent']);
     expect(book.toSnapshot().recorded).toEqual([expect.objectContaining({ _id: settlementId, status: 'refunding' })]);
@@ -290,12 +290,12 @@ describe('SettlementBook, a refund through the provider (request 15)', () => {
     expect(inCash.isFailure() && inCash.error.type).toBe('SettlementNotRefundable');
 
     const { book: refunding, settlementId: refundingId } = bookWithPaidPayment();
-    refunding.keepRefund(proposalOf(refunding, refundingId), true);
+    refunding.keepRefund(proposalOf(refunding, refundingId), true, AT);
     const again = askRefund(refunding, refundingId);
     expect(again.isFailure() && again.error.type).toBe('SettlementNotRefundable');
 
     const { book: failed, settlementId: failedId } = bookWithPendingPayment();
-    failed.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' });
+    failed.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' }, AT);
     const failedRefund = askRefund(failed, failedId);
     expect(failedRefund.isFailure() && failedRefund.error.type).toBe('SettlementNotRefundable');
   });
@@ -310,7 +310,7 @@ describe('SettlementBook, a refund through the provider (request 15)', () => {
 
   it('is refused as ProviderUnavailable, and nothing moves, when the provider did not accept the refund', () => {
     const { book, settlementId } = bookWithPaidPayment();
-    const refused = book.keepRefund(proposalOf(book, settlementId), false);
+    const refused = book.keepRefund(proposalOf(book, settlementId), false, AT);
     expect(refused.isFailure() && refused.error.type).toBe('ProviderUnavailable');
     expect(book.pullDomainEvents()).toEqual([]);
     expect(book.toSnapshot().recorded).toEqual([expect.objectContaining({ _id: settlementId, status: 'paid' })]);
@@ -319,12 +319,12 @@ describe('SettlementBook, a refund through the provider (request 15)', () => {
 
   it('records SettlementRefunded once when the provider says a paid or refunding payment is refunded, and nothing after', () => {
     const { book, settlementId } = bookWithPaidPayment();
-    book.keepRefund(proposalOf(book, settlementId), true);
+    book.keepRefund(proposalOf(book, settlementId), true, AT);
     book.pullDomainEvents();
 
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' });
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' });
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' });
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' }, AT);
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' }, AT);
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' }, AT);
     expect(book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementRefundedEvent']);
     expect(askRefund(book, settlementId).isFailure()).toBe(true);
   });
@@ -332,9 +332,9 @@ describe('SettlementBook, a refund through the provider (request 15)', () => {
   it('keeps a refunded payment refunded when a succeeded webhook arrives after it, and counts it for nothing', () => {
     const { book, settlementId } = bookWithPendingPayment();
     book.pullDomainEvents();
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' });
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' });
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' });
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' }, AT);
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'succeeded' }, AT);
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' }, AT);
 
     // A refunded that overtook the success leaves the settlement refunded, and never records it as paid.
     expect(book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementRefundedEvent']);
@@ -343,9 +343,9 @@ describe('SettlementBook, a refund through the provider (request 15)', () => {
 
   it('changes nothing when a refunded webhook arrives for a payment that failed', () => {
     const { book } = bookWithPendingPayment();
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' });
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'failed' }, AT);
     book.pullDomainEvents();
-    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' });
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' }, AT);
     expect(book.pullDomainEvents()).toEqual([]);
   });
 });
@@ -366,5 +366,51 @@ describe("SettlementBook and the payee's payout account (request 16)", () => {
 
   it('keeps a cash settlement needing no payout account', () => {
     expect(recordCash(SettlementBook.open('group-1')).isSuccess()).toBe(true);
+  });
+});
+
+describe('SettlementBook’s history (request 19)', () => {
+  const LATER = new Date('2026-11-17T11:00:00.000Z');
+
+  it('gives a cash settlement one line, paid, at the time it was recorded', () => {
+    const book = SettlementBook.open('group-1');
+    const recorded = recordCash(book);
+    const settlementId = recorded.isSuccess() ? recorded.data._id : '';
+
+    expect(book.toSnapshot().history).toEqual([{ settlementId, status: 'paid', at: AT.toISOString() }]);
+  });
+
+  it('gives a provider payment a line when it is kept, and only the status the provider moves it to, dated when the book learned it', () => {
+    const { book, settlementId } = bookWithPendingPayment();
+    expect(book.toSnapshot().history).toEqual([{ settlementId, status: 'pending', at: AT.toISOString() }]);
+
+    // Refunded for a payment that never succeeded: the line is refunded alone, no `paid` is invented.
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'refunded' }, LATER);
+    expect(book.toSnapshot().history).toEqual([
+      { settlementId, status: 'pending', at: AT.toISOString() },
+      { settlementId, status: 'refunded', at: LATER.toISOString() },
+    ]);
+  });
+
+  it('adds no line for a webhook that changes nothing', () => {
+    const { book, settlementId } = bookWithPendingPayment();
+    book.receiveProviderUpdate({ paymentId: 'pay_1', status: 'pending' }, LATER);
+    book.receiveProviderUpdate({ paymentId: 'pay_unknown', status: 'succeeded' }, LATER);
+
+    expect(book.toSnapshot().history).toEqual([{ settlementId, status: 'pending', at: AT.toISOString() }]);
+  });
+
+  it('gives a refund asked of a paid payment a line, refunding, at the time it is kept', () => {
+    const { book, settlementId } = bookWithPaidPayment();
+    const proposed = book.proposeRefund({ settlementId, asker: ANN, members: MEMBERS });
+    expect(proposed.isSuccess()).toBe(true);
+    if (proposed.isFailure()) return;
+
+    book.keepRefund(proposed.data, true, LATER);
+    expect(book.toSnapshot().history).toEqual([
+      { settlementId, status: 'pending', at: AT.toISOString() },
+      { settlementId, status: 'paid', at: AT.toISOString() },
+      { settlementId, status: 'refunding', at: LATER.toISOString() },
+    ]);
   });
 });

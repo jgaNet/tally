@@ -31,6 +31,16 @@ export interface PaymentLink {
   payUrl: string;
 }
 
+/**
+ * A status a settlement had, and when Tally learned it: the line of a settlement's history (request 19). The time is the clock's
+ * at the command that made the status, not the provider's.
+ */
+export interface ISettlementStatusLine {
+  settlementId: string;
+  status: SettlementStatus;
+  at: string;
+}
+
 /** The settlement book as the store keeps it: its identity, its group and the version it was read at. */
 export interface ISettlementBookSnapshot {
   _id: string;
@@ -40,4 +50,6 @@ export interface ISettlementBookSnapshot {
   recorded: ISettlementSnapshot[];
   /** The settlements read by the book whose status it moved since: the store updates them with the same version. */
   changed: ISettlementSnapshot[];
+  /** The statuses the book gave settlements since it was read, in the order it gave them: the store adds them as history. */
+  history: ISettlementStatusLine[];
 }

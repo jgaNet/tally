@@ -3,6 +3,7 @@ import { AggregateRoot, IResult, Id, NotAllowedException, NotFoundException, Res
 import {
   ISettlementBookSnapshot,
   ISettlementSnapshot,
+  ISettlementStatusLine,
   PaymentLink,
 } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
@@ -107,6 +108,8 @@ export class SettlementBook extends AggregateRoot {
   readonly #recorded: string[] = [];
   /** The ids of the settlements read by the book whose status it moved since. */
   readonly #changed = new Set<string>();
+  /** The statuses the book gave settlements since it was read, in the order it gave them (request 19: each status is a line). */
+  readonly #history: ISettlementStatusLine[] = [];
 
   private constructor(id: Id, groupId: string, version: number, settlements: ISettlementSnapshot[]) {
     super(id, version);
@@ -214,9 +217,10 @@ export class SettlementBook extends AggregateRoot {
    * Takes the provider's word on a payment of this book, moving forward only, each step once: a pending payment becomes paid when the
    * provider says it succeeded, and failed when it says it failed; a pending, paid or refunding payment becomes refunded when it says
    * so, and then counts for nothing. Any other step, a status that is `pending` or unknown, and a payment this book does not hold
-   * change nothing. The answer is a success either way, as the provider needs.
+   * change nothing. The answer is a success either way, as the provider needs. `at` is when Tally learned the word (the clock's),
+   * the time of the status it moves the payment to.
    */
-  receiveProviderUpdate({ paymentId, status }: ProviderPaymentUpdate): IResult<void> {
+  receiveProviderUpdate({ paymentId, status }: ProviderPaymentUpdate, at: Date): IResult<void> {
     const settlement = [...this.#settlements.values()].find(
       ({ method, providerPaymentId }) => method === 'provider' && providerPaymentId === paymentId,
     );
@@ -224,13 +228,13 @@ export class SettlementBook extends AggregateRoot {
 
     const facts = this.#factsOf(settlement);
     if (status === 'succeeded' && settlement.status === 'pending') {
-      this.#moveStatus(settlement, 'paid');
+      this.#moveStatus(settlement, 'paid', at);
       this.record(SettlementPaidEvent.set(facts));
     } else if (status === 'failed' && settlement.status === 'pending') {
-      this.#moveStatus(settlement, 'failed');
+      this.#moveStatus(settlement, 'failed', at);
       this.record(SettlementFailedEvent.set(facts));
     } else if (status === 'refunded' && ['pending', 'paid', 'refunding'].includes(settlement.status)) {
-      this.#moveStatus(settlement, 'refunded');
+      this.#moveStatus(settlement, 'refunded', at);
       this.record(SettlementRefundedEvent.set(facts));
     }
     return Result.ok();
@@ -263,14 +267,14 @@ export class SettlementBook extends AggregateRoot {
   /**
    * Keeps a proposed refund once the provider has answered: `accepted` is whether it accepted the refund. A refund the provider did
    * not accept is refused as ProviderUnavailable and nothing moves. A settlement that stopped being paid while the provider was asked
-   * is refused as not refundable. Otherwise the settlement is refunding, and records `RefundRequested`.
+   * is refused as not refundable. Otherwise the settlement is refunding, at `at`, and records `RefundRequested`.
    */
-  keepRefund(proposal: RefundProposal, accepted: boolean): IResult<ISettlementSnapshot> {
+  keepRefund(proposal: RefundProposal, accepted: boolean, at: Date): IResult<ISettlementSnapshot> {
     if (!accepted) return Result.fail(new ProviderUnavailableException());
     const settlement = this.#settlements.get(proposal.settlementId);
     if (!settlement || settlement.status !== 'paid') return Result.fail(new SettlementNotRefundableException());
 
-    this.#moveStatus(settlement, 'refunding');
+    this.#moveStatus(settlement, 'refunding', at);
     this.record(RefundRequestedEvent.set(this.#factsOf(settlement)));
     return Result.ok({ ...settlement });
   }
@@ -289,6 +293,7 @@ export class SettlementBook extends AggregateRoot {
       version: this.version,
       recorded: this.#recorded.map(id => ({ ...this.#settlements.get(id)! })),
       changed: [...this.#changed].filter(id => !recordedIds.has(id)).map(id => ({ ...this.#settlements.get(id)! })),
+      history: this.#history.map(line => ({ ...line })),
     };
   }
 
@@ -340,6 +345,7 @@ export class SettlementBook extends AggregateRoot {
     };
     this.#settlements.set(kept._id, kept);
     this.#recorded.push(kept._id);
+    this.#history.push({ settlementId: kept._id, status: kept.status, at: kept.at });
     return kept;
   }
 
@@ -353,9 +359,10 @@ export class SettlementBook extends AggregateRoot {
     };
   }
 
-  #moveStatus(settlement: ISettlementSnapshot, status: ISettlementSnapshot['status']): void {
+  #moveStatus(settlement: ISettlementSnapshot, status: ISettlementSnapshot['status'], at: Date): void {
     settlement.status = status;
     this.#changed.add(settlement._id);
+    this.#history.push({ settlementId: settlement._id, status, at: at.toISOString() });
   }
 }
 

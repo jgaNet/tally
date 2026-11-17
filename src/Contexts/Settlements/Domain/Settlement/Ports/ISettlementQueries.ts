@@ -1,3 +1,5 @@
+import { SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+
 /** A settlement as a member reads it: the fields the API answers. `payUrl` is the link of a settlement through the provider only. */
 export interface SettlementView {
   id: string;
@@ -9,6 +11,8 @@ export interface SettlementView {
   status: 'paid' | 'pending' | 'failed' | 'refunding' | 'refunded';
   at: string;
   payUrl?: string;
+  /** Every status the settlement has had, the earliest first, each with when Tally learned it (request 19). */
+  history: { status: SettlementStatus; at: string }[];
 }
 
 /** A settlement that was paid, as Ledger counts it: who paid whom, and how much. */
@@ -33,6 +37,8 @@ export interface WaitingSettlement {
 export interface ISettlementQueries {
   /** The settlement with this id, or null if there is none. */
   findById(id: string): Promise<SettlementView | null>;
+  /** Every settlement of the group, the most recently recorded first, each with its history (request 19). */
+  listGroupSettlements(groupId: string): Promise<SettlementView[]>;
   /** Every settlement of the group the balances count, in the order they were recorded: paid, or refunding (the money has not gone back yet). */
   paidIn(groupId: string): Promise<PaidSettlement[]>;
   /** Every payment of the group that waits at the provider, in the order they were requested. */
