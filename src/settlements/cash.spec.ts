@@ -223,6 +223,7 @@ describe('settling up in cash', () => {
         method: 'cash',
         status: 'paid',
         at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?00)$/),
+        history: [{ status: 'paid', at: expect.any(String) }],
       });
       expect(Number.isNaN(Date.parse(body.at))).toBe(false);
     });

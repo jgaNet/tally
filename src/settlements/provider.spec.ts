@@ -95,6 +95,7 @@ describe('paying through the provider', () => {
         status: 'pending',
         payUrl: provider.payments[0].payUrl,
         at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?00)$/),
+        history: [{ status: 'pending', at: expect.any(String) }],
       });
     });
 

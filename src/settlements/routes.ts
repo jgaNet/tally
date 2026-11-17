@@ -5,7 +5,7 @@ import { requireMembership } from '../groups/groups';
 import { Refusal } from '../refusal';
 import { applyProviderStatus, type ProviderConfig, requestProviderSettlement, signatureIsValid } from './provider';
 import { requestRefund } from './refunds';
-import { recordCashSettlement, requireSettlement } from './settlements';
+import { recordCashSettlement, requireSettlement, settlementsOfGroup } from './settlements';
 import { suggestedTransfersOf } from './suggested';
 
 const transferSchema = {
@@ -20,7 +20,7 @@ const transferSchema = {
 
 const settlementSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at'],
+  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -31,12 +31,41 @@ const settlementSchema = {
     status: { type: 'string', enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     payUrl: { type: 'string' },
+    history: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        required: ['status', 'at'],
+        properties: {
+          status: { type: 'string', enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+          at: { type: 'string' },
+        },
+      },
+    },
   },
 };
 
 const idSchema = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } };
 
 export function registerSettlementRoutes(app: FastifyInstance, db: Database, provider: ProviderConfig): void {
+  app.get<{ Params: { id: string } }>(
+    '/groups/:id/settlements',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        response: { 200: { type: 'array', items: settlementSchema } },
+      },
+    },
+    async request => {
+      const account = requireAccount(db, request);
+      // Only the members of a group see its settlements, those of a member who has left included; anyone
+      // else is told it does not exist.
+      requireMembership(db, request.params.id, account.id);
+      return settlementsOfGroup(db, request.params.id);
+    },
+  );
+
   app.get<{ Params: { id: string } }>(
     '/groups/:id/settlements/suggested',
     {

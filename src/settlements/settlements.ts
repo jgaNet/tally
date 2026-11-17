@@ -3,6 +3,7 @@ import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
 import { requireMembership } from '../groups/groups';
 import { Refusal } from '../refusal';
+import { type StatusEntry, historyOf, recordStatus } from './history';
 
 /** A settlement as the API answers it. */
 export interface Settlement {
@@ -22,6 +23,8 @@ export interface Settlement {
   status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
   /** When it was recorded. */
   at: string;
+  /** Every status it has had, the earliest first, each with when Tally learned it. Its last is `status`. */
+  history: StatusEntry[];
   /** Through the provider only: the link where the payer pays. */
   payUrl?: string;
 }
@@ -83,10 +86,12 @@ export function recordCashSettlement(
   return inTransaction(db, () => {
     checkNewSettlement(db, groupId, input.from, payeeId, input.amount);
     const id = randomUUID();
+    const at = new Date().toISOString();
     db.prepare(
       `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?)`,
-    ).run(id, groupId, input.from, payeeId, input.amount, new Date().toISOString());
+    ).run(id, groupId, input.from, payeeId, input.amount, at);
+    recordStatus(db, id, 'paid', at);
     return id;
   });
 }
@@ -103,23 +108,11 @@ interface SettlementRow {
   created_at: string;
 }
 
-/**
- * The settlement with this id, for a member of its group. For anyone else it is `undefined`, the same
- * as a settlement that does not exist. Reading it changes nothing.
- */
-export function findSettlement(db: Database, settlementId: string, accountId: string): Settlement | undefined {
-  const row = db
-    .prepare(
-      `SELECT settlements.id, settlements.group_id, settlements.payer_id, settlements.payee_id,
-              settlements.amount, settlements.method, settlements.status, settlements.pay_url,
-              settlements.created_at
-         FROM settlements JOIN memberships ON memberships.group_id = settlements.group_id
-        WHERE settlements.id = ? AND memberships.account_id = ?`,
-    )
-    .get(settlementId, accountId) as SettlementRow | undefined;
-  if (row === undefined) {
-    return undefined;
-  }
+const SETTLEMENT_COLUMNS = `settlements.id, settlements.group_id, settlements.payer_id, settlements.payee_id,
+  settlements.amount, settlements.method, settlements.status, settlements.pay_url, settlements.created_at`;
+
+/** The settlement as the API answers it, with its history. */
+function settlementOf(db: Database, row: SettlementRow): Settlement {
   const settlement: Settlement = {
     id: row.id,
     groupId: row.group_id,
@@ -129,11 +122,43 @@ export function findSettlement(db: Database, settlementId: string, accountId: st
     method: row.method,
     status: row.status,
     at: row.created_at,
+    history: historyOf(db, row.id),
   };
   if (row.pay_url !== null) {
     settlement.payUrl = row.pay_url;
   }
   return settlement;
+}
+
+/**
+ * The settlement with this id, for a member of its group. For anyone else it is `undefined`, the same
+ * as a settlement that does not exist. Reading it changes nothing.
+ */
+export function findSettlement(db: Database, settlementId: string, accountId: string): Settlement | undefined {
+  const row = db
+    .prepare(
+      `SELECT ${SETTLEMENT_COLUMNS}
+         FROM settlements JOIN memberships ON memberships.group_id = settlements.group_id
+        WHERE settlements.id = ? AND memberships.account_id = ?`,
+    )
+    .get(settlementId, accountId) as SettlementRow | undefined;
+  return row === undefined ? undefined : settlementOf(db, row);
+}
+
+/**
+ * Every settlement of `groupId`, the most recently recorded first, each as `findSettlement` answers it.
+ * It does not check who asks: the caller must be a member.
+ */
+export function settlementsOfGroup(db: Database, groupId: string): Settlement[] {
+  const rows = db
+    .prepare(
+      `SELECT ${SETTLEMENT_COLUMNS}
+         FROM settlements
+        WHERE settlements.group_id = ?
+        ORDER BY settlements.created_at DESC, settlements.rowid DESC`,
+    )
+    .all(groupId) as unknown as SettlementRow[];
+  return rows.map(row => settlementOf(db, row));
 }
 
 /** The settlement, for a member of its group. Anyone else is refused with `404`, as if it did not exist. */

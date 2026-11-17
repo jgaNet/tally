@@ -3,6 +3,7 @@ import { type Database, inTransaction } from '../database';
 import { requireMembership } from '../groups/groups';
 import { payoutAccountOf } from '../payouts/payout-accounts';
 import { Refusal } from '../refusal';
+import { type StatusEntry, recordStatus } from './history';
 import { checkNewSettlement } from './settlements';
 
 /** Where the payment provider is, and the secret it and Tally share. */
@@ -49,10 +50,12 @@ export async function requestProviderSettlement(
       );
     }
     const id = randomUUID();
+    const at = new Date().toISOString();
     db.prepare(
       `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?)`,
-    ).run(id, groupId, payerId, payeeId, amount, new Date().toISOString());
+    ).run(id, groupId, payerId, payeeId, amount, at);
+    recordStatus(db, id, 'pending', at);
     return { id, currency: group.currency, payee };
   });
 
@@ -154,11 +157,27 @@ export function applyProviderStatus(db: Database, paymentId: string, status: str
   }
 }
 
-/** Sets the provider settlement of `paymentId` to `status`, if it is now one of `from`. */
-function setProviderStatus(db: Database, paymentId: string, status: string, from: readonly string[]): void {
-  // `from` is written here, never from a request: only its placeholders are built from it.
-  db.prepare(
-    `UPDATE settlements SET status = ?
-      WHERE provider_payment_id = ? AND method = 'provider' AND status IN (${from.map(() => '?').join(', ')})`,
-  ).run(status, paymentId, ...from);
+/**
+ * Sets the provider settlement of `paymentId` to `status`, if it is now one of `from`, and records the
+ * change in its history. A word that changes nothing records nothing.
+ */
+function setProviderStatus(
+  db: Database,
+  paymentId: string,
+  status: StatusEntry['status'],
+  from: readonly StatusEntry['status'][],
+): void {
+  inTransaction(db, () => {
+    // `from` is written here, never from a request: only its placeholders are built from it.
+    const settlements = db
+      .prepare(
+        `SELECT id FROM settlements
+          WHERE provider_payment_id = ? AND method = 'provider' AND status IN (${from.map(() => '?').join(', ')})`,
+      )
+      .all(paymentId, ...from) as { id: string }[];
+    for (const { id } of settlements) {
+      db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(status, id);
+      recordStatus(db, id, status);
+    }
+  });
 }

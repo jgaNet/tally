@@ -2,6 +2,7 @@ import { type Database, inTransaction } from '../database';
 import { leftMembersAmong } from '../groups/groups';
 import { Refusal } from '../refusal';
 import type { ProviderConfig } from './provider';
+import { recordStatus } from './history';
 import { requireSettlement } from './settlements';
 
 /**
@@ -52,6 +53,7 @@ export async function requestRefund(
       throw new Refusal(409, 'NotRefundable', 'This payment has no provider payment to refund.');
     }
     db.prepare(`UPDATE settlements SET status = 'refunding' WHERE id = ? AND status = 'paid'`).run(settlementId);
+    recordStatus(db, settlementId, 'refunding');
     return { paymentId };
   });
 
@@ -59,7 +61,14 @@ export async function requestRefund(
     await createProviderRefund(provider, held.paymentId, settlementId);
   } catch {
     // Released only while it is still held: a refund the provider has reported in the meantime stands.
-    db.prepare(`UPDATE settlements SET status = 'paid' WHERE id = ? AND status = 'refunding'`).run(settlementId);
+    inTransaction(db, () => {
+      const released = db
+        .prepare(`UPDATE settlements SET status = 'paid' WHERE id = ? AND status = 'refunding'`)
+        .run(settlementId);
+      if (released.changes > 0) {
+        recordStatus(db, settlementId, 'paid');
+      }
+    });
     throw new Refusal(
       409,
       'RefundNotStarted',

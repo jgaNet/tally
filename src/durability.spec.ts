@@ -128,7 +128,7 @@ describe('the database file', () => {
     const databasePath = temporaryDatabasePath();
     openDatabase(databasePath).close();
     const again = openDatabase(databasePath);
-    expect(again.prepare('PRAGMA user_version').get()?.user_version).toBe(14);
+    expect(again.prepare('PRAGMA user_version').get()?.user_version).toBe(15);
     again.close();
   });
 });

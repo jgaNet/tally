@@ -228,6 +228,28 @@ const migrations: readonly string[] = [
   ALTER TABLE notices_next RENAME TO notices;
   CREATE INDEX notices_by_account ON notices (account_id, created_at);
   `,
+  `
+  -- Every status a settlement has had, in the order Tally learned of them: one row per change, never
+  -- edited. \`id\` is an autoincrement so that rows written in the same millisecond keep their order. The
+  -- rows before this step are reconstructed from the settlement: a cash one was paid when recorded; a
+  -- provider one was pending when recorded and then went on to the status it has, through paid when that
+  -- status is refunding or refunded. Their times are not known, so each is the settlement's own time.
+  CREATE TABLE settlement_statuses (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    settlement_id TEXT NOT NULL REFERENCES settlements (id) ON DELETE CASCADE,
+    status        TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+    at            TEXT NOT NULL
+  );
+  CREATE INDEX settlement_statuses_by_settlement ON settlement_statuses (settlement_id, id);
+  INSERT INTO settlement_statuses (settlement_id, status, at)
+    SELECT id, CASE WHEN method = 'cash' THEN 'paid' ELSE 'pending' END, created_at FROM settlements;
+  INSERT INTO settlement_statuses (settlement_id, status, at)
+    SELECT id, 'paid', created_at FROM settlements
+     WHERE method = 'provider' AND status IN ('paid', 'refunding', 'refunded');
+  INSERT INTO settlement_statuses (settlement_id, status, at)
+    SELECT id, status, created_at FROM settlements
+     WHERE method = 'provider' AND status IN ('failed', 'refunding', 'refunded');
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */
