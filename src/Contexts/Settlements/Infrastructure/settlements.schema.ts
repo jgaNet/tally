@@ -24,4 +24,11 @@ export const SETTLEMENT_STATEMENTS = [
    )`,
   `CREATE INDEX IF NOT EXISTS settlements_by_group ON settlements (group_id)`,
   `CREATE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id)`,
+  // A person's payout account at the provider (request 16, ADR 10): one row per person, replaced when they set another.
+  `CREATE TABLE IF NOT EXISTS payout_accounts (
+     id TEXT PRIMARY KEY,
+     owner_id TEXT NOT NULL UNIQUE,
+     account_id TEXT NOT NULL,
+     version INTEGER NOT NULL
+   )`,
 ];

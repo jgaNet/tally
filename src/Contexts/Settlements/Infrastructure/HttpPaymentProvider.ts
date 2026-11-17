@@ -1,12 +1,17 @@
 import { IResult, Result } from '@Architecture/Domain';
 import { IPaymentProvider, PaymentLink } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
-import { ProviderUnavailable, RefundUnavailable } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
+import {
+  ProviderAccountUnavailable,
+  ProviderUnavailable,
+  RefundUnavailable,
+} from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 
 /**
- * The payment provider over HTTP (ADR 8, ADR 9): `POST {PROVIDER_URL}/payments` with `{ reference, amount, currency }`, answered
- * `201 { id, payUrl }`; and `POST {PROVIDER_URL}/payments/{paymentId}/refunds` with `{ reference }`, answered `201 { id }`.
- * Anything else, an answer after 5 seconds, or no `PROVIDER_URL` at all, is `ProviderUnavailable` for a payment and
- * `RefundUnavailable` for a refund.
+ * The payment provider over HTTP (ADR 8, ADR 9, ADR 10): `POST {PROVIDER_URL}/payments` with `{ reference, amount, currency, payee }`,
+ * answered `201 { id, payUrl }`; `POST {PROVIDER_URL}/payments/{paymentId}/refunds` with `{ reference }`, answered `201 { id }`;
+ * and `GET {PROVIDER_URL}/accounts/{id}`, answered `200 { id }` for an account it knows and `404` for one it does not. Anything
+ * else, an answer after 5 seconds, or no `PROVIDER_URL` at all, is `ProviderUnavailable` for a payment, `RefundUnavailable` for
+ * a refund and `ProviderAccountUnavailable` for an account.
  */
 export class HttpPaymentProvider implements IPaymentProvider {
   constructor(
@@ -14,7 +19,28 @@ export class HttpPaymentProvider implements IPaymentProvider {
     private readonly timeoutMs: number = 5000,
   ) {}
 
-  async createPayment(payment: { reference: string; amount: number; currency: string }): Promise<IResult<PaymentLink>> {
+  async findPayoutAccount(accountId: string): Promise<IResult<{ id: string } | null>> {
+    if (!this.baseUrl) return Result.fail(new ProviderAccountUnavailable());
+    try {
+      const response = await fetch(`${this.baseUrl}/accounts/${encodeURIComponent(accountId)}`, {
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (response.status === 404) return Result.ok(null);
+      if (response.status !== 200) return Result.fail(new ProviderAccountUnavailable());
+      const body = (await response.json()) as { id?: unknown };
+      if (typeof body.id !== 'string' || body.id !== accountId) return Result.fail(new ProviderAccountUnavailable());
+      return Result.ok({ id: body.id });
+    } catch {
+      return Result.fail(new ProviderAccountUnavailable());
+    }
+  }
+
+  async createPayment(payment: {
+    reference: string;
+    amount: number;
+    currency: string;
+    payee: string;
+  }): Promise<IResult<PaymentLink>> {
     if (!this.baseUrl) return Result.fail(new ProviderUnavailable());
     try {
       const response = await fetch(`${this.baseUrl}/payments`, {

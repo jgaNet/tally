@@ -14,6 +14,7 @@ why, what it costs, and when to revisit it.
 | [7](0007-settle-in-cash-and-how-ledger-counts-settlements.md) | Settle in cash: Settlements decides in a book per group, and Ledger counts what was settled |
 | [8](0008-pay-through-the-provider-and-what-is-still-owed.md) | Pay through the payment provider: a payment waits, is still owed, and ends once |
 | [9](0009-refund-through-the-provider.md) | Refund through the payment provider: the payee asks, and the balances go back when the provider says so |
+| [10](0010-payout-accounts-in-settlements.md) | Payout accounts live in Settlements, and a payment is paid to the payee's account |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

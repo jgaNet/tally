@@ -25,7 +25,7 @@ const balances = new Map([
 /** A book with one settlement through the provider, kept pending and then paid by the provider's word. */
 function paidThroughProvider(): { book: SettlementBook; settlementId: Id } {
   const book = SettlementBook.open(Id.generate(), 0);
-  const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members });
+  const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
   if (proposal.isFailure()) throw new Error('the payment must be proposed');
   const kept = book.keepPayment(proposal.data, { id: 'prov-1', payUrl: 'https://pay.example/prov-1' }, at);
   if (kept.isFailure()) throw new Error('the payment must be kept');
@@ -75,7 +75,7 @@ describe('SettlementBook: the payee refunds a settlement paid through the provid
 
   it('refuses a settlement that is not paid, pending or already refunded', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members });
+    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
     book.keepPayment(proposal.data, { id: 'prov-2', payUrl: 'https://pay.example/prov-2' }, at);
 
@@ -133,7 +133,7 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
 
   it('ends a refund that overtakes the success of the same payment as refunded, never paid', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members });
+    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
     book.keepPayment(proposal.data, { id: 'prov-3', payUrl: 'https://pay.example/prov-3' }, at);
     book.pullDomainEvents();
@@ -163,7 +163,7 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
 
   it('does not refund a settlement the provider said failed', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members });
+    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
     book.keepPayment(proposal.data, { id: 'prov-4', payUrl: 'https://pay.example/prov-4' }, at);
     book.receivePayment({ paymentId: 'prov-4', status: 'failed' });

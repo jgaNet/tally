@@ -17,7 +17,10 @@ import {
   RecordCashSettlementCommandHandler,
   RefundSettlementCommandEvent,
   RefundSettlementCommandHandler,
+  SetPayoutAccountCommandEvent,
+  SetPayoutAccountCommandHandler,
 } from '@Contexts/Settlements/Application/Commands';
+import { GetPayoutAccountQueryHandler } from '@Contexts/Settlements/Application/Queries';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
 import { IWaitingEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingEffects';
 import { GroupsGroupCurrency } from '@Contexts/Settlements/Infrastructure/GroupsGroupCurrency';
@@ -25,6 +28,8 @@ import { GroupsSettlementMembers } from '@Contexts/Settlements/Infrastructure/Gr
 import { SqliteSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBookRepository';
 import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/SqliteSettlementQueries';
 import { SqliteSettlementEffects } from '@Contexts/Settlements/Infrastructure/SqliteSettlementEffects';
+import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountRepository';
+import { SqlitePayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountQueries';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADR 5, ADR 6, ADR 7, ADR 8), kept in the application's SQLite file. Its
@@ -82,10 +87,15 @@ export function settlementsModuleWith(
             balancesInCommand,
             new GroupsSettlementMembers(groupMembershipInCommand),
             new GroupsGroupCurrency(groupCurrencyInCommand),
+            new SqlitePayoutAccountRepository(database),
             provider,
             systemClock,
           ),
         ],
+      },
+      {
+        event: SetPayoutAccountCommandEvent,
+        handlers: [new SetPayoutAccountCommandHandler(new SqlitePayoutAccountRepository(database), provider)],
       },
       {
         event: RefundSettlementCommandEvent,
@@ -109,6 +119,7 @@ export function settlementsModuleWith(
         new SqliteSettlementQueries(database),
         new GroupsSettlementMembers(groupMembership),
       ),
+      new GetPayoutAccountQueryHandler(new SqlitePayoutAccountQueries(database)),
     ],
   });
 }

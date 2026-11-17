@@ -121,7 +121,7 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
     ['payer', -30],
     ['payee', 30],
   ]);
-  const decision = { payer, payee, balances, members };
+  const decision = { payer, payee, balances, members, payeeAccount: 'acct-payee' as string | undefined };
 
   function kept(amount: number, book = SettlementBook.open(Id.generate(), 0)) {
     const proposal = book.proposePayment({ ...decision, amount });
@@ -146,6 +146,23 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
     expect(again.isFailure()).toBe(true);
     expect((again.error as { type?: string } | undefined)?.type).toBe('SettlementExceedsDebt');
     expect(book.proposePayment({ ...decision, amount: 10 }).isSuccess()).toBe(true);
+  });
+
+  it('refuses a payee with no payout account by name, before the provider is asked, and keeps nothing', () => {
+    const book = SettlementBook.open(Id.generate(), 0);
+    const proposal = book.proposePayment({ ...decision, payeeAccount: undefined, amount: 20 });
+
+    expect(proposal.isFailure()).toBe(true);
+    expect((proposal.error as { type?: string } | undefined)?.type).toBe('PayeeHasNoPayoutAccount');
+    expect(book.unsaved).toHaveLength(0);
+  });
+
+  it('asks a payment for the payee account it is given, and keeps the proposal with it', () => {
+    const book = SettlementBook.open(Id.generate(), 0);
+    const proposal = book.proposePayment({ ...decision, amount: 20 });
+
+    expect(proposal.isSuccess()).toBe(true);
+    expect(proposal.data).toMatchObject({ payeeAccount: 'acct-payee', amount: 20 });
   });
 
   it('refuses a payee who is not a member of the group', () => {

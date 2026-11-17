@@ -11,6 +11,7 @@ import {
   CashSettlementNotRefundable,
   InvalidSettlementAmount,
   NotThePayee,
+  PayeeHasNoPayoutAccount,
   PayeeNotAMember,
   PayerIsPayee,
   PayerNotAMember,
@@ -51,6 +52,8 @@ export interface SettlementDecision {
 export interface PaymentProposal extends SettlementDecision {
   /** The settlement's id, which is the reference the provider is asked with. */
   readonly id: Id;
+  /** The provider's id of the payee's payout account, which the payment is paid to (request 16, ADR 10). */
+  readonly payeeAccount: string;
 }
 
 /** A refund the book checked, to ask the provider for: the settlement it refunds, and the payment's id at the provider. */
@@ -116,12 +119,18 @@ export class SettlementBook extends AggregateRoot {
 
   /**
    * A payer asks to pay through the provider: the rules are checked now, and the id the provider is asked with is made; nothing
-   * is kept until the provider has answered (`keepPayment`).
+   * is kept until the provider has answered (`keepPayment`). The payee must have a payout account at the provider (request 16):
+   * `payeeAccount` is that account's id, read by the caller from the payee's PayoutAccount, and is undefined when the payee has
+   * none, which is refused before the provider is asked.
    */
-  proposePayment(decision: SettlementDecision): IResult<PaymentProposal> {
+  proposePayment({
+    payeeAccount,
+    ...decision
+  }: SettlementDecision & { payeeAccount: string | undefined }): IResult<PaymentProposal> {
     const refusal = this.#refusal(decision);
     if (refusal) return Result.fail(refusal);
-    return Result.ok({ ...decision, id: Id.generate() });
+    if (payeeAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccount());
+    return Result.ok({ ...decision, id: Id.generate(), payeeAccount });
   }
 
   /**

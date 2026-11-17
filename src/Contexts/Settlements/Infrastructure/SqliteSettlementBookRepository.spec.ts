@@ -51,7 +51,7 @@ describe('SqliteSettlementBookRepository: a webhook that is late, or at the same
     const groupId = Id.generate();
     const first = start();
     const book = SettlementBook.open(groupId, 0);
-    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members });
+    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
     if (proposal.isFailure()) throw new Error('refused');
     book.keepPayment(proposal.data, { id: 'late-pay', payUrl: 'https://pay.example/late-pay' }, at);
     expect((await first.repository.save(book)).isSuccess()).toBe(true);
@@ -77,7 +77,7 @@ describe('SqliteSettlementBookRepository: a webhook that is late, or at the same
     const groupId = Id.generate();
     const setup = start();
     const book = SettlementBook.open(groupId, 0);
-    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members });
+    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
     if (proposal.isFailure()) throw new Error('refused');
     book.keepPayment(proposal.data, { id: 'shared-pay', payUrl: 'https://pay.example/shared-pay' }, at);
     await setup.repository.save(book);

@@ -5,6 +5,7 @@ import {
   WebhookRequest,
 } from '@Contexts/Settlements/Presentation/API/REST/Controllers/FastifySettlementController';
 import {
+  GetPayoutAccountResSchema,
   GetSettlementResSchema,
   GetSuggestedSettlementsResSchema,
   PayThroughProviderBodySchema,
@@ -13,6 +14,8 @@ import {
   RecordCashSettlementBodySchema,
   RecordCashSettlementResSchema,
   RefundSettlementResSchema,
+  SetPayoutAccountBodySchema,
+  SetPayoutAccountResSchema,
 } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
 
 export const settlementRoutes = function (
@@ -71,6 +74,23 @@ export const settlementRoutes = function (
     '/settlements/:id/refund',
     { schema: { tags: ['settlements'], response: RefundSettlementResSchema } },
     controller.refundSettlement.bind(controller),
+  );
+
+  fastify.put(
+    '/accounts/me/payout-account',
+    {
+      schema: {
+        tags: ['settlements'],
+        body: SetPayoutAccountBodySchema,
+        response: SetPayoutAccountResSchema,
+      },
+    },
+    controller.setPayoutAccount.bind(controller),
+  );
+  fastify.get(
+    '/accounts/me/payout-account',
+    { schema: { tags: ['settlements'], response: GetPayoutAccountResSchema } },
+    controller.getPayoutAccount.bind(controller),
   );
 
   fastify.post(

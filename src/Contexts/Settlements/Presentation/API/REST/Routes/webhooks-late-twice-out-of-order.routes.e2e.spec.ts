@@ -21,6 +21,17 @@ beforeAll(async () => {
     let data = '';
     req.on('data', chunk => (data += chunk));
     req.on('end', () => {
+      if (req.method === 'GET' && /^\/accounts\/[^/]+$/.test(req.url ?? '')) {
+        // The provider knows the accounts that start with `acct-` (request 16).
+        const accountId = decodeURIComponent((req.url ?? '').slice('/accounts/'.length));
+        if (!accountId.startsWith('acct-')) {
+          res.writeHead(404).end();
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ id: accountId }));
+        return;
+      }
       if (req.method !== 'POST' || req.url !== '/payments') {
         res.writeHead(404).end();
         return;
@@ -132,8 +143,15 @@ async function statusOf(settlementId: string, token: string) {
 }
 
 /** Ann paid 60 for dinner, split with Bob: Bob owes Ann 30, and Bob asks to pay it through the provider. */
+/** The person sets the payout account the provider knows, and follows it to its outcome (request 16). */
+async function setPayoutAccount(token: string, accountId: string) {
+  const answer = await http.request('PUT', `${api}/accounts/me/payout-account`, { body: { accountId }, token });
+  return outcome((answer.body as Body).operationId as string, token);
+}
+
 async function owingAndPaying(name: string) {
   const ann = await person(`${name}Ann`);
+  await setPayoutAccount(ann.token, `acct-${ann.id}`);
   const bob = await person(`${name}Bob`);
   const groupId = await createGroup(ann);
   await join(groupId, ann, bob);

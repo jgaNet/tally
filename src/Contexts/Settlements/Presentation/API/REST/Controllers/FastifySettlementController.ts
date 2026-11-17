@@ -6,8 +6,10 @@ import {
   ReceivePaymentWebhookCommandEvent,
   RecordCashSettlementCommandEvent,
   RefundSettlementCommandEvent,
+  SetPayoutAccountCommandEvent,
 } from '@Contexts/Settlements/Application/Commands';
 import {
+  GetPayoutAccountQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
@@ -87,6 +89,17 @@ export class FastifySettlementController {
         at: String(body.at ?? ''),
       }),
     );
+  }
+
+  /** A signed-in person sets the payout account the provider pays them on: answered at once, its outcome read later (request 16). */
+  setPayoutAccount(req: FastifyRequest<{ Body: { accountId: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, SetPayoutAccountCommandEvent.set({ accountId: req.body.accountId }));
+  }
+
+  /** A signed-in person reads their own payout account: 404 when they have set none (request 16). */
+  async getPayoutAccount(req: FastifyRequest, reply: FastifyReply) {
+    const result = await this.#module.getQuery(GetPayoutAccountQueryHandler).handle(undefined, req.executionContext);
+    return result.isFailure() ? refuse(reply, result.error) : result.data;
   }
 
   async getSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

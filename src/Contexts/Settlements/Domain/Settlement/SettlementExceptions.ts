@@ -71,3 +71,27 @@ export class ProviderUnavailable extends SettlementException {
     super('ProviderUnavailable', 'The payment provider did not give a payment link, and nothing was recorded');
   }
 }
+
+/** A payment is asked of the provider only to a payee who has a payout account at it (request 16, ADR 10). */
+export class PayeeHasNoPayoutAccount extends SettlementException {
+  constructor() {
+    super('PayeeHasNoPayoutAccount', 'The payee has no payout account, so the payment is not asked of the provider');
+  }
+}
+
+/** The provider does not know the payout account, or did not answer for it as asked: nothing is set (request 16, ADR 10). */
+export class UnknownPayoutAccount extends SettlementException {
+  constructor() {
+    super('UnknownPayoutAccount', 'The payment provider does not know this payout account, and nothing was set');
+  }
+}
+
+/** The provider did not answer for the payout account: it is not configured, did not answer, or answered anything else (ADR 10). */
+export class ProviderAccountUnavailable extends SettlementException {
+  constructor() {
+    super(
+      'ProviderAccountUnavailable',
+      'The payment provider did not answer for the payout account, and nothing was set',
+    );
+  }
+}

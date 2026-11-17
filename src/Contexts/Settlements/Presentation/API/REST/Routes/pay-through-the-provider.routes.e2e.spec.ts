@@ -23,6 +23,17 @@ beforeAll(async () => {
     let data = '';
     req.on('data', chunk => (data += chunk));
     req.on('end', () => {
+      if (req.method === 'GET' && /^\/accounts\/[^/]+$/.test(req.url ?? '')) {
+        // The provider knows the accounts that start with `acct-` (request 16).
+        const accountId = decodeURIComponent((req.url ?? '').slice('/accounts/'.length));
+        if (!accountId.startsWith('acct-')) {
+          res.writeHead(404).end();
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ id: accountId }));
+        return;
+      }
       if (req.method !== 'POST' || req.url !== '/payments') {
         res.writeHead(404).end();
         return;
@@ -135,8 +146,15 @@ async function balances(groupId: string, token: string) {
 }
 
 /** Ann paid 60 for dinner, split with Bob: Bob owes Ann 30. */
+/** The person sets the payout account the provider knows, and follows it to its outcome (request 16). */
+async function setPayoutAccount(token: string, accountId: string) {
+  const answer = await http.request('PUT', `${api}/accounts/me/payout-account`, { body: { accountId }, token });
+  return outcome((answer.body as Body).operationId as string, token);
+}
+
 async function owing(name: string) {
   const ann = await person(`${name}Ann`);
+  await setPayoutAccount(ann.token, `acct-${ann.id}`);
   const bob = await person(`${name}Bob`);
   const groupId = await createGroup(ann);
   await join(groupId, ann, bob);
@@ -157,7 +175,7 @@ describe('Settlements: a payment through the provider waits as pending, and the 
     const paid = await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 30 });
     expect(paid.status).toBe('SUCCESS');
     const id = (paid.body.result as { id: string }).id;
-    expect(asked).toEqual([{ reference: id, amount: 30, currency: 'EUR' }]);
+    expect(asked).toEqual([{ reference: id, amount: 30, currency: 'EUR', payee: `acct-${ann.id}` }]);
 
     const read = await http.get(`${api}/settlements/${id}`, { token: bob.token });
     expect(read.body).toEqual({
@@ -256,7 +274,7 @@ describe('Groups → Settlements (GroupCurrency): the group Groups makes is the 
     const paid = await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 10 });
     const settlementId = (paid.body.result as { id: string }).id;
 
-    expect(asked).toEqual([{ reference: settlementId, amount: 10, currency: 'EUR' }]);
+    expect(asked).toEqual([{ reference: settlementId, amount: 10, currency: 'EUR', payee: `acct-${ann.id}` }]);
     const read = await http.get(`${api}/settlements/${settlementId}`, { token: bob.token });
     expect((read.body as Body).groupId).toBe(groupId);
     expect((read.body as Body).id).toBe(settlementId);
@@ -266,6 +284,7 @@ describe('Groups → Settlements (GroupCurrency): the group Groups makes is the 
 describe('Ledger → Settlements (GroupBalances): the expense Ledger records is the balance the provider payment is asked against, by the id its request answered', () => {
   it('reads the expense by the id its request answered, and asks for no more than the expense leaves owed', async () => {
     const ann = await person('LedgerAnn');
+    await setPayoutAccount(ann.token, `acct-${ann.id}`);
     const bob = await person('LedgerBob');
     const groupId = await createGroup(ann);
     await join(groupId, ann, bob);

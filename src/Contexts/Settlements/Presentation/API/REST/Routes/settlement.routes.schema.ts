@@ -58,6 +58,33 @@ export const RefundSettlementResSchema = {
   401: RefusedSchema,
 } as const;
 
+/** The body of setting a payout account: the provider's id of the account. Whether the provider knows it is the domain's. */
+export const SetPayoutAccountBodySchema = {
+  type: 'object',
+  required: ['accountId'],
+  properties: {
+    accountId: { type: 'string' },
+  },
+} as const;
+
+/** Setting a payout account is asked at once and answered later, as a command is; a refusal is the operation's error (request 16). */
+export const SetPayoutAccountResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  400: RefusedSchema,
+  401: RefusedSchema,
+} as const;
+
+/** A person's payout account as they read it: the provider's id of the account they are paid on (request 16). */
+export const GetPayoutAccountResSchema = {
+  200: {
+    type: 'object',
+    required: ['accountId'],
+    properties: { accountId: { type: 'string' } },
+  },
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;
+
 /** The provider's webhook is acknowledged once its signature is right, whatever it says (ADR 8). */
 export const ProviderWebhookResSchema = {
   202: { type: 'object', properties: { operationId: { type: 'string' } } },
