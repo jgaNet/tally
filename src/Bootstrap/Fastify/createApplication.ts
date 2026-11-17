@@ -17,9 +17,10 @@ import { groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
+import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
-import { settlementsWiring } from '@Contexts/Settlements/module.local';
+import { settlementRoster, settlementsSchema, settlementsWiring } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 
 /**
@@ -55,13 +56,19 @@ export async function createApplication({
   databasePath?: string;
   webOrigins?: string[];
 } = {}): Promise<FastifyApplication> {
-  const database = SqliteDatabase.open(databasePath, [...groupsSchema, ...ledgerSchema]);
+  const database = SqliteDatabase.open(databasePath, [...groupsSchema, ...ledgerSchema, ...settlementsSchema]);
+  // What the settlements moved is read by Ledger through a port it owns, over Settlements' read model (ADR 10): every balance counts a
+  // settlement once it is recorded. Ledger's balance read model is over the database and that port alone (ADR 1 T3, T5).
+  const settledAmounts = new SettledAmountsFromSettlements(settlementRoster(database));
   // Groups asks a member's balance over Ledger's read model, and Ledger asks Groups' roster: each read model is built over
   // the database alone, so neither wiring needs the other's module to exist (ADR 1 T3, T5).
-  const groups = await groupsWiring(database, new MemberBalancesFromLedger(ledgerBalanceRoster(database)));
-  const ledger = ledgerWiring(database, groups.roster);
+  const groups = await groupsWiring(
+    database,
+    new MemberBalancesFromLedger(ledgerBalanceRoster(database, settledAmounts)),
+  );
+  const ledger = ledgerWiring(database, groups.roster, settledAmounts);
   // The suggested settlements read the members of a group from Groups' roster and its balances from Ledger's read model (ADR 9).
-  const settlements = settlementsWiring(groups.roster, ledgerBalanceRoster(database));
+  const settlements = settlementsWiring(database, groups.roster, ledgerBalanceRoster(database, settledAmounts));
 
   const app = new FastifyApplication({
     logger,

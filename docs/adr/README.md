@@ -14,6 +14,7 @@ why, what it costs, and when to revisit it.
 | [7](0007-leaving-keeps-former-members-and-asks-the-balance.md) | Leaving keeps the former member, and Groups asks the balance through a port |
 | [8](0008-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
 | [9](0009-suggested-settlements-read-two-owned-ports-and-are-computed-at-the-read.md) | Suggested settlements read two owned ports, and are computed at the read |
+| [10](0010-cash-settlements-are-a-book-per-group-and-the-balances-count-them.md) | Cash settlements are decided in a book per group, and the balances count them |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
