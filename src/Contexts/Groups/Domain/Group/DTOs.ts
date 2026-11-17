@@ -6,6 +6,11 @@ export interface MemberSnapshot {
   role: 'owner' | 'member';
   /** ISO 8601, UTC: when the account became a member (the owner's, when the group was created). */
   joinedAt: string;
+  /**
+   * ISO 8601, UTC: when the account left the group, when it has. A former member stays in the store, so that who has ever
+   * been a member is known; it is not among the members (docs/adr/0009).
+   */
+  leftAt?: string;
 }
 
 /** The state of a group as the store keeps it: what `Group.fromSnapshot()` reads and `toSnapshot()` writes. */

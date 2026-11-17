@@ -13,4 +13,8 @@ export class GroupMembersOfGroups implements IGroupMembers {
     const members = await this.groups.listMembersOf(callerId, groupId);
     return members?.map(({ memberId, role }) => ({ memberId, role }));
   }
+
+  async hasBeenMember(groupId: string, memberId: string): Promise<boolean> {
+    return this.groups.everMemberOf(memberId, groupId);
+  }
 }

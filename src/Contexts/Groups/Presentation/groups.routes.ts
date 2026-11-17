@@ -3,7 +3,7 @@ import { FastifyPluginCallback } from 'fastify';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
-import { createGroup, getGroup, getGroupMembers, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
 import { createInvitation } from '@Contexts/Groups/Application/Invitations';
 
 /** The bodies say their shape only (API-BODY-SHAPE): whether a currency or a name is allowed is the domain's to refuse. */
@@ -35,6 +35,10 @@ export const groupRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fasti
 
   fastify.get<{ Params: { id: string } }>('/groups/:id/members', { schema: { tags: ['groups'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getGroupMembers), { id: req.params.id }),
+  );
+
+  fastify.post<{ Params: { id: string } }>('/groups/:id/leave', { schema: { tags: ['groups'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(leaveGroup), { groupId: req.params.id }),
   );
 
   done();

@@ -21,3 +21,25 @@ export class InvalidCurrencyException extends Exception {
     });
   }
 }
+
+/** The owner created the group and stays in it: its owner cannot leave it (request 9). */
+export class OwnerCannotLeaveException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'OwnerCannotLeave',
+      message: 'The owner of a group cannot leave it',
+    });
+  }
+}
+
+/** A member leaves a group once its balance in it is 0: not while it owes or is owed (request 9). */
+export class BalanceNotZeroException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'BalanceNotZero',
+      message: 'A member leaves a group once its balance in it is 0',
+    });
+  }
+}

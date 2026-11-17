@@ -2,8 +2,9 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { NotFoundException, Result } from '@Architecture/Domain';
 
-import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
 import { IGroupQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
+import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
+import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 
 /** Creates a group: a signed-in person, who becomes its owner and first member. Its id is the answer. */
@@ -42,5 +43,29 @@ export const getGroupMembers = query(
       const members = await groups.listMembersOf(callerOf(context), id);
       if (!members) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
       return Result.ok(members);
+    },
+);
+
+/**
+ * Takes the caller out of a group, once its balance in it is 0 (request 9, docs/adr/0009). Only a member may leave: for anyone
+ * else the group does not exist. The owner never leaves. The balance is asked of Ledger when this decides, through
+ * MemberBalances, and the departure is stored with its MemberLeft event.
+ */
+export const leaveGroup = command(
+  'LeaveGroup',
+  (groups: IGroupRepository, balances: IMemberBalances, clock: Clock) =>
+    async ({ groupId }: { groupId: string }, context) => {
+      const by = callerOf(context);
+      const group = await groups.findById(groupId);
+      if (!group || !group.isMember(by)) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
+
+      const balance = await balances.balanceOf(groupId, by);
+      const left = group.leave({ accountId: by, balance, at: clock() });
+      if (left.isFailure()) return left;
+
+      const saved = await groups.save(group);
+      if (saved.isFailure()) return saved;
+      await publishDomainEvents(group, context);
+      return Result.ok(undefined);
     },
 );

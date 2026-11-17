@@ -1,6 +1,11 @@
-import { AggregateRoot, AlreadyExistsException, Id, IResult, Result } from '@Architecture/Domain';
+import { AggregateRoot, AlreadyExistsException, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
-import { GroupCreatedEvent, MemberJoinedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import {
+  GroupCreatedEvent,
+  MemberJoinedEvent,
+  MemberLeftEvent,
+} from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import { BalanceNotZeroException, OwnerCannotLeaveException } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import { Currency, CurrencyCode } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupSnapshot, MemberSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
@@ -11,6 +16,9 @@ import { GroupSnapshot, MemberSnapshot } from '@Contexts/Groups/Domain/Group/DTO
  * Its members are kept in the order they joined; the owner is the first, and the group starts with it: creating
  * a group records GroupCreated, which says who created it, and no MemberJoined (the storm, hot spot 1). The
  * currency is set here and never changes (hot spot 2).
+ *
+ * A member who leaves (request 9, docs/adr/0009) is kept in the snapshot with `leftAt`, so that who has ever been a member is
+ * known; it is no longer among `members`. Joining again puts the account last, as a new member.
  *
  * `register()` is the creation, which the rule allows under either name (DOMAIN-CREATE-VS-RECONSTITUTE). It is not
  * named `create()` here because the reference's inventory credits any `X.create(` call in a use case to every
@@ -123,20 +131,38 @@ export class Group extends AggregateRoot {
   /**
    * Adds an account as a member, once: it joins at `at`, last of the members, and MemberJoined is recorded for the
    * store to make durable with it. An account that is a member already is refused (AlreadyExists): it cannot join
-   * again. Who may join is decided by the invitation, not here: the use case has checked it.
+   * again. An account that left before joins again as a new member, last of them, its former entry replaced. Who may
+   * join is decided by the invitation, not here: the use case has checked it.
    */
   join({ accountId, at }: { accountId: string; at: Date }): IResult<undefined> {
     if (this.isMember(accountId)) {
       return Result.fail(new AlreadyExistsException('Groups', 'You are already a member of this group'));
     }
+    const former = this.#members.findIndex(member => member.accountId === accountId);
+    if (former !== -1) this.#members.splice(former, 1);
     this.#members.push({ accountId, role: 'member', joinedAt: at.toISOString() });
     this.record(MemberJoinedEvent.set({ groupId: this._id.value, accountId }));
     return Result.ok(undefined);
   }
 
-  /** Whether an account is a member of this group, whatever its role. */
+  /**
+   * Takes a member out of the group, once its balance in it is 0 (request 9, docs/adr/0009). Only a current member may
+   * leave: for anyone else the group does not exist. The owner never leaves, and a balance that is not 0 is refused. The
+   * departure is kept on the member, and MemberLeft is recorded for the store to make durable with it.
+   */
+  leave({ accountId, balance, at }: { accountId: string; balance: number; at: Date }): IResult<undefined> {
+    const member = this.#members.find(entry => entry.accountId === accountId && entry.leftAt === undefined);
+    if (!member) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
+    if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
+    if (balance !== 0) return Result.fail(new BalanceNotZeroException());
+    member.leftAt = at.toISOString();
+    this.record(MemberLeftEvent.set({ groupId: this._id.value, accountId }));
+    return Result.ok(undefined);
+  }
+
+  /** Whether an account is a current member of this group, whatever its role. */
   isMember(accountId: string): boolean {
-    return this.#members.some(member => member.accountId === accountId);
+    return this.#members.some(member => member.accountId === accountId && member.leftAt === undefined);
   }
 
   get id(): string {
@@ -155,8 +181,8 @@ export class Group extends AggregateRoot {
     return this.#ownerId;
   }
 
-  /** The members, in the order they joined. */
+  /** The current members, in the order they joined: a former member is not among them. */
   get members(): readonly MemberSnapshot[] {
-    return this.#members.map(member => ({ ...member }));
+    return this.#members.filter(member => member.leftAt === undefined).map(member => ({ ...member }));
   }
 }

@@ -100,6 +100,20 @@ export class PayerNotInSplitException extends Exception {
 }
 
 /**
+ * The payer of an expense, or one of the members it is split between, is no longer a member of its group: the expense is kept
+ * as it was, so that the balances still add up to 0 (request 9, docs/adr/0009). It can be neither edited nor deleted.
+ */
+export class ExpenseOfFormerMemberException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'ExpenseOfFormerMember',
+      message: 'An expense whose payer or one of whose members has left the group can no longer be changed or deleted',
+    });
+  }
+}
+
+/**
  * The expense changed since the version the edit was made from: its author reads it again and decides (request 6). It is a
  * conflict, so a use case re-reads and re-decides it first, and the last conflict is the refusal (`409`, ADR 0006).
  */

@@ -2,7 +2,7 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { groupsReadModel } from '@Contexts/Groups/module.local';
+import { groupsReadModel } from '@Bootstrap/Fastify/readModels';
 import {
   deleteExpense,
   editExpense,

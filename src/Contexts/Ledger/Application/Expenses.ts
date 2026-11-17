@@ -157,10 +157,11 @@ export const getGroupExpenses = query(
  * A member's statement in a group, for its members only (request 8, docs/adr/0008): every expense the member paid or is in the
  * split of, the earliest date first and, on the same date, the earliest recorded first, each with the balance once it is counted.
  * Its balance is the last entry's, or 0 with no entry: the balance the group's balances give the member (request 5). For anyone
- * else the group does not exist, and a member who has never been one of the group does not exist either.
+ * else the group does not exist, and a member who has never been one of the group does not exist either. A former member's
+ * statement stays readable by the group's members (request 9, docs/adr/0009).
  *
- * The members are read before the statement, and membership only grows (docs/adr/0005): a member who is one of the group's members
- * here has been one since before the statement's expenses were read.
+ * The caller's membership is read before the statement, and the statement is read after it: a member who has been one of the
+ * group is one still or has left with a balance of 0, so the statement's entries are the same whichever way the read falls.
  */
 export const getMemberStatement = query(
   'GetMemberStatement',
@@ -168,7 +169,7 @@ export const getMemberStatement = query(
     async ({ groupId, memberId }: { groupId: string; memberId: string }, context) => {
       const members = await groupMembers.membersOf(callerOf(context), groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
-      if (!members.some(member => member.memberId === memberId)) {
+      if (!(await groupMembers.hasBeenMember(groupId, memberId))) {
         return Result.fail(new NotFoundException('Ledger', 'There is no such member'));
       }
       const entries = await expenses.statementOf(groupId, memberId);

@@ -128,3 +128,65 @@ describe('groups', () => {
     expect((await myGroups(ada.token)).body).toContainEqual(expect.objectContaining({ id }));
   });
 });
+
+describe('leaving a group (request 9)', () => {
+  const leave = (id: string, token?: string) => http.request('POST', `${api}/groups/${id}/leave`, { token });
+  const members = (id: string, token: string) => http.request('GET', `${api}/groups/${id}/members`, { token });
+
+  /** Invites the member by the owner's link, and the joiner accepts it. */
+  async function join(groupId: string, owner: string, joiner: string): Promise<void> {
+    const invitation = await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: owner });
+    await http.request('POST', `${api}/invitations/${(invitation.body as { id: string }).id}/accept`, {
+      token: joiner,
+    });
+  }
+
+  it('lets a member with a balance of 0 leave, answering 204; the group is then not theirs', async () => {
+    const ada = await signedIn('leave-ada@example.com', 'Ada');
+    const bob = await signedIn('leave-bob@example.com', 'Bob');
+    const { id } = (await createGroup(ada.token, { name: 'Flat', currency: 'EUR' })).body as { id: string };
+    await join(id, ada.token, bob.token);
+
+    expect((await leave(id, bob.token)).status).toBe(204);
+
+    expect(await getGroup(id, bob.token)).toMatchObject({ status: 404, body: { type: 'NotFound' } });
+    expect((await myGroups(bob.token)).body).not.toContainEqual(expect.objectContaining({ id }));
+    expect((await members(id, ada.token)).body).toEqual([expect.objectContaining({ memberId: ada.id, role: 'owner' })]);
+  });
+
+  it('refuses the owner, who stays in the group: 422, OwnerCannotLeave', async () => {
+    const ada = await signedIn('leave-owner@example.com', 'Ada');
+    const { id } = (await createGroup(ada.token, { name: 'Stays', currency: 'EUR' })).body as { id: string };
+
+    expect(await leave(id, ada.token)).toMatchObject({ status: 422, body: { type: 'OwnerCannotLeave' } });
+    expect(await getGroup(id, ada.token)).toMatchObject({ status: 200 });
+  });
+
+  it('answers a group the caller is not a member of as if it did not exist, and a missing caller 401', async () => {
+    const ada = await signedIn('leave-ada2@example.com', 'Ada');
+    const eve = await signedIn('leave-eve@example.com', 'Eve');
+    const { id } = (await createGroup(ada.token, { name: 'Closed', currency: 'EUR' })).body as { id: string };
+
+    expect(await leave(id, eve.token)).toMatchObject({ status: 404, body: { type: 'NotFound' } });
+    expect((await leave(id)).status).toBe(401);
+  });
+
+  it('lets a former member join again by an invitation: last of the members, as a new member', async () => {
+    const ada = await signedIn('leave-ada3@example.com', 'Ada');
+    const bob = await signedIn('leave-bob3@example.com', 'Bob');
+    const cy = await signedIn('leave-cy3@example.com', 'Cy');
+    const { id } = (await createGroup(ada.token, { name: 'Again', currency: 'EUR' })).body as { id: string };
+    await join(id, ada.token, bob.token);
+    await join(id, ada.token, cy.token);
+    expect((await leave(id, bob.token)).status).toBe(204);
+
+    await join(id, ada.token, bob.token);
+
+    expect((await members(id, ada.token)).body).toEqual([
+      expect.objectContaining({ memberId: ada.id, role: 'owner' }),
+      expect.objectContaining({ memberId: cy.id, role: 'member' }),
+      expect.objectContaining({ memberId: bob.id, role: 'member' }),
+    ]);
+    expect(await getGroup(id, bob.token)).toMatchObject({ status: 200 });
+  });
+});

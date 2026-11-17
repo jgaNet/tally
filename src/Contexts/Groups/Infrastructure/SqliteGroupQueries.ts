@@ -15,7 +15,8 @@ const toView = (row: GroupRow): GroupView => ({
 
 /**
  * The read side of the groups over SQLite: reads of the file, taken alone, outside any transaction. Membership is the
- * join, so a group that a caller is not a member of is not found at all.
+ * join, and only a current membership counts (a member who left is not among the members): so a group a caller is not a
+ * member of, or has left, is not found at all.
  */
 export class SqliteGroupQueries implements IGroupQueries {
   constructor(private readonly database: SqliteDatabase) {
@@ -26,7 +27,7 @@ export class SqliteGroupQueries implements IGroupQueries {
     return this.database.exclusive(() => {
       const row = this.database.connection
         .prepare(
-          'SELECT g.id, g.name, g.currency, g.owner_id FROM groups g JOIN group_members m ON m.group_id = g.id WHERE g.id = ? AND m.account_id = ?',
+          'SELECT g.id, g.name, g.currency, g.owner_id FROM groups g JOIN group_members m ON m.group_id = g.id WHERE g.id = ? AND m.account_id = ? AND m.left_at IS NULL',
         )
         .get(groupId, memberId) as GroupRow | undefined;
       return row ? toView(row) : undefined;
@@ -37,7 +38,7 @@ export class SqliteGroupQueries implements IGroupQueries {
     return this.database.exclusive(() => {
       const rows = this.database.connection
         .prepare(
-          'SELECT g.id, g.name, g.currency, g.owner_id FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.account_id = ? ORDER BY g.created_at DESC, g.rowid DESC',
+          'SELECT g.id, g.name, g.currency, g.owner_id FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.account_id = ? AND m.left_at IS NULL ORDER BY g.created_at DESC, g.rowid DESC',
         )
         .all(memberId) as GroupRow[];
       return rows.map(toView);
@@ -48,12 +49,12 @@ export class SqliteGroupQueries implements IGroupQueries {
     return this.database.exclusive(() => {
       const connection = this.database.connection;
       const asks = connection
-        .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ?')
+        .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NULL')
         .get(groupId, memberId);
       if (!asks) return undefined;
       const rows = connection
         .prepare(
-          'SELECT m.account_id AS member_id, a.name, m.role, m.joined_at FROM group_members m JOIN accounts a ON a.id = m.account_id WHERE m.group_id = ? ORDER BY m.position',
+          'SELECT m.account_id AS member_id, a.name, m.role, m.joined_at FROM group_members m JOIN accounts a ON a.id = m.account_id WHERE m.group_id = ? AND m.left_at IS NULL ORDER BY m.position',
         )
         .all(groupId) as MemberRow[];
       return rows.map((row): MemberView => ({
@@ -62,6 +63,15 @@ export class SqliteGroupQueries implements IGroupQueries {
         role: row.role === 'owner' ? 'owner' : 'member',
         joinedAt: String(row.joined_at),
       }));
+    });
+  }
+
+  async everMemberOf(accountId: string, groupId: string): Promise<boolean> {
+    return this.database.exclusive(() => {
+      const row = this.database.connection
+        .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ?')
+        .get(groupId, accountId);
+      return row !== undefined;
     });
   }
 }

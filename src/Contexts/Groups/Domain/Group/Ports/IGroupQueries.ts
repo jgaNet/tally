@@ -22,4 +22,9 @@ export interface IGroupQueries {
   listGroupsOf(memberId: string): Promise<GroupView[]>;
   /** The members of the group, in the order they joined, when this account is one of them: undefined otherwise. */
   listMembersOf(memberId: string, groupId: string): Promise<MemberView[] | undefined>;
+  /**
+   * Whether the account is, or has been, a member of the group, current or former (docs/adr/0009). It does not check the
+   * caller: a read that needs a caller asks the caller's membership first, through `listMembersOf`.
+   */
+  everMemberOf(accountId: string, groupId: string): Promise<boolean>;
 }

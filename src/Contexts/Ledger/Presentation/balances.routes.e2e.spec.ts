@@ -165,3 +165,99 @@ describe('Groups → Ledger', () => {
     ]);
   });
 });
+
+describe('Ledger → Groups (request 9)', () => {
+  const UNKNOWN_MEMBER = '00000000-0000-4000-8000-000000000000';
+  const leave = (groupId: string, token: string) => http.request('POST', `${api}/groups/${groupId}/leave`, { token });
+  const statement = (groupId: string, memberId: string, token: string) =>
+    http.request('GET', `${api}/groups/${groupId}/members/${memberId}/statement`, { token });
+  const editExpense = (expenseId: string, token: string, body: unknown) =>
+    http.request('PUT', `${api}/expenses/${expenseId}`, { body, token });
+  const deleteExpense = (expenseId: string, token: string) =>
+    http.request('DELETE', `${api}/expenses/${expenseId}`, { token });
+
+  it('refuses a leave while the balance is not 0, and lets the member leave once it is', async () => {
+    const ada = await signedIn('lv-ada@example.com', 'Ada');
+    const bob = await signedIn('lv-bob@example.com', 'Bob');
+    const groupId = await groupWith(ada, [bob]);
+    expect(
+      (
+        await record(ada.token, groupId, {
+          description: 'Hotel',
+          amount: 1000,
+          date: PAST,
+          splitBetween: [ada.id, bob.id],
+        })
+      ).status,
+    ).toBe(201);
+
+    expect(await leave(groupId, bob.token)).toMatchObject({ status: 422, body: { type: 'BalanceNotZero' } });
+
+    // Bob paid 1000 for the two of them: Bob is even (-500 + 1000 - 500), and Ada is even too.
+    expect(
+      (
+        await record(bob.token, groupId, {
+          description: 'Taxi',
+          amount: 1000,
+          date: PAST,
+          splitBetween: [ada.id, bob.id],
+        })
+      ).status,
+    ).toBe(201);
+    expect((await readBalances(groupId, ada.token)).body).toEqual([
+      { memberId: ada.id, balance: 0 },
+      { memberId: bob.id, balance: 0 },
+    ]);
+    expect((await leave(groupId, bob.token)).status).toBe(204);
+  });
+
+  it("keeps a former member's expenses as they were, readable in its statement, and the balances at 0", async () => {
+    const ada = await signedIn('lv2-ada@example.com', 'Ada');
+    const bob = await signedIn('lv2-bob@example.com', 'Bob');
+    const cy = await signedIn('lv2-cy@example.com', 'Cy');
+    const groupId = await groupWith(ada, [bob, cy]);
+    const hotel = (
+      await record(ada.token, groupId, {
+        description: 'Hotel',
+        amount: 900,
+        date: PAST,
+        splitBetween: [ada.id, bob.id, cy.id],
+      })
+    ).body as { id: string };
+    // Bob paid 600 for Ada and Bob: Bob is even (-300 + 600 - 300).
+    await record(bob.token, groupId, { description: 'Taxi', amount: 600, date: PAST, splitBetween: [ada.id, bob.id] });
+    expect(await leave(groupId, bob.token)).toMatchObject({ status: 204 });
+
+    // The expenses Bob was in stay as they were: nobody may edit or delete the hotel any more.
+    expect(
+      await editExpense(hotel.id, ada.token, {
+        description: 'Hotel',
+        amount: 900,
+        date: PAST,
+        version: 1,
+        splitBetween: [ada.id, cy.id],
+      }),
+    ).toMatchObject({ status: 422, body: { type: 'ExpenseOfFormerMember' } });
+    expect(await deleteExpense(hotel.id, ada.token)).toMatchObject({
+      status: 422,
+      body: { type: 'ExpenseOfFormerMember' },
+    });
+    // Nobody new can be split with Bob.
+    expect(
+      await record(ada.token, groupId, { description: 'Late', amount: 30, date: PAST, splitBetween: [ada.id, bob.id] }),
+    ).toMatchObject({ status: 422, body: { type: 'NotAMemberInSplit' } });
+
+    // Bob is no longer among the balances, and the group's still add up to 0.
+    const balances = (await readBalances(groupId, ada.token)).body as Balance[];
+    expect(balances.map(({ memberId }) => memberId)).toEqual([ada.id, cy.id]);
+    expect(sum(balances)).toBe(0);
+
+    // The members still read Bob's statement, two entries, ending at 0; a stranger's is not there at all.
+    const read = await statement(groupId, bob.id, cy.token);
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject({ memberId: bob.id, balance: 0 });
+    expect((read.body as { entries: unknown[] }).entries).toHaveLength(2);
+    expect(await statement(groupId, UNKNOWN_MEMBER, cy.token)).toMatchObject({ status: 404 });
+    expect(await readBalances(groupId, bob.token)).toMatchObject({ status: 404 });
+  });
+});

@@ -1,8 +1,17 @@
 import { Currency, CURRENCIES } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
-import { InvalidCurrencyException, InvalidGroupNameException } from '@Contexts/Groups/Domain/Group/GroupExceptions';
+import {
+  BalanceNotZeroException,
+  InvalidCurrencyException,
+  InvalidGroupNameException,
+  OwnerCannotLeaveException,
+} from '@Contexts/Groups/Domain/Group/GroupExceptions';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
-import { GroupCreatedEvent, MemberJoinedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import {
+  GroupCreatedEvent,
+  MemberJoinedEvent,
+  MemberLeftEvent,
+} from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 
 const AT = new Date('2026-05-01T10:00:00.000Z');
 
@@ -92,5 +101,87 @@ describe('Group', () => {
     expect(again.error?.type).toBe('AlreadyExists');
     expect(group.members).toHaveLength(1);
     expect(group.pullDomainEvents()).toEqual([]);
+  });
+});
+
+describe('Group leaving (request 9)', () => {
+  const create = () => Group.register({ name: 'Lisbon', currency: 'EUR', ownerId: 'ada', at: AT }).data!;
+  const JOINED = new Date('2026-05-02T09:30:00.000Z');
+  const LEFT = new Date('2026-05-03T18:00:00.000Z');
+  const AGAIN = new Date('2026-05-04T08:00:00.000Z');
+
+  it('takes a member out once its balance is 0, keeps it as a former member, and records MemberLeft', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: JOINED });
+    group.pullDomainEvents();
+
+    expect(group.leave({ accountId: 'bob', balance: 0, at: LEFT }).isSuccess()).toBe(true);
+
+    expect(group.isMember('bob')).toBe(false);
+    expect(group.members).toEqual([{ accountId: 'ada', role: 'owner', joinedAt: AT.toISOString() }]);
+    expect(group.toSnapshot().members).toContainEqual({
+      accountId: 'bob',
+      role: 'member',
+      joinedAt: JOINED.toISOString(),
+      leftAt: LEFT.toISOString(),
+    });
+    const [event] = group.pullDomainEvents();
+    expect(event).toBeInstanceOf(MemberLeftEvent);
+    expect(event.payload).toEqual({ groupId: group.id, accountId: 'bob' });
+  });
+
+  it('keeps the departure when the group is read back from its snapshot', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: JOINED });
+    group.leave({ accountId: 'bob', balance: 0, at: LEFT });
+
+    const read = Group.fromSnapshot(group.toSnapshot());
+
+    expect(read.isMember('bob')).toBe(false);
+    expect(read.members.map(member => member.accountId)).toEqual(['ada']);
+  });
+
+  it('refuses a balance that is not 0, and records nothing', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: JOINED });
+    group.pullDomainEvents();
+
+    const refused = group.leave({ accountId: 'bob', balance: -250, at: LEFT });
+
+    expect(refused.error).toBeInstanceOf(BalanceNotZeroException);
+    expect(group.isMember('bob')).toBe(true);
+    expect(group.pullDomainEvents()).toEqual([]);
+  });
+
+  it('refuses the owner, whatever its balance', () => {
+    const group = create();
+
+    expect(group.leave({ accountId: 'ada', balance: 0, at: LEFT }).error).toBeInstanceOf(OwnerCannotLeaveException);
+    expect(group.isMember('ada')).toBe(true);
+  });
+
+  it('answers NotFound to an account that is not a current member, and to one that already left', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: JOINED });
+    group.leave({ accountId: 'bob', balance: 0, at: LEFT });
+
+    expect(group.leave({ accountId: 'cy', balance: 0, at: LEFT }).error?.type).toBe('NotFound');
+    expect(group.leave({ accountId: 'bob', balance: 0, at: LEFT }).error?.type).toBe('NotFound');
+  });
+
+  it('puts a former member last when it joins again, as a new member, with one entry for it', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: JOINED });
+    group.join({ accountId: 'cy', at: JOINED });
+    group.leave({ accountId: 'bob', balance: 0, at: LEFT });
+
+    expect(group.join({ accountId: 'bob', at: AGAIN }).isSuccess()).toBe(true);
+
+    expect(group.members).toEqual([
+      { accountId: 'ada', role: 'owner', joinedAt: AT.toISOString() },
+      { accountId: 'cy', role: 'member', joinedAt: JOINED.toISOString() },
+      { accountId: 'bob', role: 'member', joinedAt: AGAIN.toISOString() },
+    ]);
+    expect(group.toSnapshot().members.filter(member => member.accountId === 'bob')).toHaveLength(1);
   });
 });

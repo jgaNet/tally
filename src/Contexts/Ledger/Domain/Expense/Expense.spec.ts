@@ -203,3 +203,50 @@ describe('Expense.edit and Expense.remove', () => {
     expect(stored().remove({ by: 'cy', members: roles }).error?.type).toBe('NotAllowed');
   });
 });
+
+describe('an expense of a former member (request 9)', () => {
+  // The expense is split between ada, bob and cy, and cy has since left: the current members are ada and bob.
+  const current = [
+    { memberId: 'ada', role: 'owner' as const },
+    { memberId: 'bob', role: 'member' as const },
+  ];
+  const everyone = [...current, { memberId: 'cy', role: 'member' as const }];
+  const recorded = () => Expense.register(valid).data!;
+  const edited = (expense: Expense, members = current) =>
+    expense.edit({
+      by: 'ada',
+      members,
+      version: 0,
+      description: 'Groceries',
+      amount: 1000,
+      date: '2026-11-16',
+      split: { kind: 'equal', between: ['ada', 'bob'] },
+      at: NOW,
+    });
+
+  it('can be edited while everyone it concerns is still a member', () => {
+    expect(edited(recorded(), everyone).isSuccess()).toBe(true);
+  });
+
+  it('refuses an edit once a member of its split has left, and a delete too', () => {
+    expect(edited(recorded()).error?.type).toBe('ExpenseOfFormerMember');
+    expect(recorded().remove({ by: 'ada', members: current }).error?.type).toBe('ExpenseOfFormerMember');
+  });
+
+  it('refuses an edit or a delete once its payer has left, whoever asks', () => {
+    const paidByBob = Expense.register({ ...valid, paidBy: 'bob' }).data!;
+
+    expect(
+      paidByBob.edit({
+        by: 'bob',
+        members: [{ memberId: 'ada', role: 'owner' }],
+        version: 0,
+        description: 'Groceries',
+        amount: 1000,
+        date: '2026-11-16',
+        split: { kind: 'equal', between: ['ada'] },
+        at: NOW,
+      }).error?.type,
+    ).toBe('ExpenseOfFormerMember');
+  });
+});

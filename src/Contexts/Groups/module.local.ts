@@ -1,10 +1,12 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
-import { SqliteDatabase, sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
+import { ledgerReadModel } from '@Bootstrap/Fastify/readModels';
+
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
-import { createGroup, getGroup, getGroupMembers, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { SqliteAccountRepository } from '@Contexts/Groups/Infrastructure/SqliteAccountRepository';
 import { SqliteAccountQueries } from '@Contexts/Groups/Infrastructure/SqliteAccountQueries';
@@ -14,6 +16,7 @@ import { SqliteGroupRepository } from '@Contexts/Groups/Infrastructure/SqliteGro
 import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/SqliteGroupQueries';
 import { SqliteInvitationRepository } from '@Contexts/Groups/Infrastructure/SqliteInvitationRepository';
 import { SqliteInvitationQueries } from '@Contexts/Groups/Infrastructure/SqliteInvitationQueries';
+import { MemberBalancesOfLedger } from '@Contexts/Groups/Infrastructure/MemberBalancesOfLedger';
 
 /**
  * The Groups context (conventions/domain.yaml, ADR 0001, ADR 0002): accounts, and groups with their members and their
@@ -30,11 +33,10 @@ const invitations = new SqliteInvitationRepository(sharedDatabase);
 const invitationQueries = new SqliteInvitationQueries(sharedDatabase);
 
 /**
- * The groups' read model, for Ledger to ask while its own transaction is open (docs/adr/0004). It reads on a connection of
- * its own: the shared one holds the file's turn for the whole transaction, and a read on it would wait for itself. A
- * connection of its own reads what is committed, which is what a membership is.
+ * The balances, for a leave to be decided while its own transaction is open (docs/adr/0009): Ledger's read model, which the
+ * composition root opens on a connection of its own (docs/adr/0004, docs/adr/0009).
  */
-export const groupsReadModel = new SqliteGroupQueries(new SqliteDatabase());
+const memberBalances = new MemberBalancesOfLedger(ledgerReadModel);
 
 export const localGroupsModule = new LiteModule({
   name: 'Groups',
@@ -49,6 +51,7 @@ export const localGroupsModule = new LiteModule({
     createInvitation(invitations, groups, systemClock),
     acceptInvitation(invitations, groups, systemClock),
     getInvitation(invitationQueries),
+    leaveGroup(groups, memberBalances, systemClock),
   ],
 });
 

@@ -13,6 +13,7 @@ why, what it costs, and when to revisit it.
 | [6](0006-an-expense-is-edited-and-deleted-by-its-payer-or-the-owner.md) | An expense is edited and deleted by its payer or the group's owner, from the version its author read |
 | [7](0007-an-expense-is-split-equally-by-exact-amounts-or-by-shares.md) | An expense is split equally, by exact amounts or by shares, and says which |
 | [8](0008-a-group-expenses-and-a-members-statement-are-read-from-ledgers-expenses.md) | A group's expenses and a member's statement are read from Ledger's expenses, the statement's balance running in the read |
+| [9](0009-a-member-leaves-a-group-once-its-balance-is-zero.md) | A member leaves a group once its balance is 0, a former member keeps its place in the record, and the cross-context read models open at the composition root |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

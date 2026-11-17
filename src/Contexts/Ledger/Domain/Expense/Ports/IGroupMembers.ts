@@ -15,4 +15,9 @@ export interface IGroupMembers {
    * `undefined` otherwise, as if the group did not exist.
    */
   membersOf(callerId: string, groupId: string): Promise<GroupMember[] | undefined>;
+  /**
+   * Whether the account is, or has been, a member of the group, current or former (docs/adr/0009): a former member's statement
+   * stays readable by the group's members. A read asks the caller's membership first, through `membersOf`.
+   */
+  hasBeenMember(groupId: string, memberId: string): Promise<boolean>;
 }

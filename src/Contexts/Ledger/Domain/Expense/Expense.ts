@@ -9,6 +9,7 @@ import {
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
 import {
   ExpenseChangedException,
+  ExpenseOfFormerMemberException,
   InvalidAmountException,
   InvalidDateException,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
@@ -115,6 +116,7 @@ export class Expense extends AggregateRoot {
     at: Date;
   }): IResult<Expense> {
     if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
+    if (!this.concernsOnlyCurrentMembers(members)) return Result.fail(new ExpenseOfFormerMemberException());
     if (version !== this.version) return Result.fail(new ExpenseChangedException());
 
     const checked = checkExpense({
@@ -156,6 +158,7 @@ export class Expense extends AggregateRoot {
    */
   remove({ by, members }: { by: string; members: GroupMember[] }): IResult<Expense> {
     if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
+    if (!this.concernsOnlyCurrentMembers(members)) return Result.fail(new ExpenseOfFormerMemberException());
     this.record(ExpenseDeletedEvent.set({ expenseId: this._id.value, groupId: this.#groupId, paidBy: this.#paidBy }));
     return Result.ok(this);
   }
@@ -222,6 +225,15 @@ export class Expense extends AggregateRoot {
   private mayChange(by: string, members: GroupMember[]): boolean {
     if (by === this.#paidBy) return true;
     return members.some(member => member.memberId === by && member.role === 'owner');
+  }
+
+  /**
+   * Whether the payer and every member of the split are still members of the group. An expense of a former member is kept as
+   * it was: the shares stay, so the balances add up to 0 (docs/adr/0009).
+   */
+  private concernsOnlyCurrentMembers(members: GroupMember[]): boolean {
+    const current = new Set(members.map(member => member.memberId));
+    return current.has(this.#paidBy) && this.#split.shares.every(share => current.has(share.memberId));
   }
 }
 
