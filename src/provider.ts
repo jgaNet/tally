@@ -18,7 +18,34 @@ export interface ProviderPayment {
   readonly payUrl: string;
 }
 
+/** What the provider answers to a refund request: its id for the refund. */
+export interface ProviderRefund {
+  readonly id: string;
+}
+
 const UNAVAILABLE = 'The payment provider did not answer with a payment. Nothing was kept.';
+const REFUND_UNAVAILABLE = 'The payment provider did not answer with a refund. Nothing was kept.';
+
+/**
+ * The body of the provider's `201` answer to `body` posted to `path` of its API at `url`, within `timeoutMs`.
+ * Any other answer, a body that does not arrive in time, and no answer at all give `undefined`: they refuse the
+ * same way, so the caller decides the refusal.
+ */
+async function createdAt(url: string, timeoutMs: number, path: string, body: unknown): Promise<unknown> {
+  try {
+    const response = await fetch(`${url}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (response.status !== 201) return undefined;
+    // Read inside the try: a body that does not arrive in time is an answer that never came.
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Asks the provider for a payment of `amount` in `currency`, identified by `reference` (the settlement's id).
@@ -32,23 +59,34 @@ export async function requestPayment(
   if (provider.url === undefined) {
     throw new Refusal(424, 'ProviderNotConfigured', 'Paying through the provider is not configured.');
   }
-  let response: Response;
-  try {
-    response = await fetch(`${provider.url}/payments`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(input),
-      signal: AbortSignal.timeout(provider.timeoutMs),
-    });
-    if (response.status !== 201) throw new Error(`answered ${response.status}`);
-    // Read inside the try: a body that does not arrive in time is an answer that never came.
-    const body: unknown = await response.json();
-    if (isPayment(body)) return { id: body.id, payUrl: body.payUrl };
-  } catch {
-    // Fall through to the refusal: a network error, a timeout, a status other than 201 and a body not shaped
-    // as asked all refuse the same way.
-  }
+  const body = await createdAt(provider.url, provider.timeoutMs, '/payments', input);
+  if (isPayment(body)) return { id: body.id, payUrl: body.payUrl };
+  // Every other answer refuses the same way, nothing kept.
   throw new Refusal(424, 'ProviderUnavailable', UNAVAILABLE);
+}
+
+/**
+ * Asks the provider to refund the payment `paymentId` at the provider, with `reference` (the settlement's id),
+ * and answers the refund's id. The provider answers `201 { id }` within the time limit, or the refund is refused
+ * with `424`, as {@link requestPayment} refuses a payment; a provider not configured is refused with `424` too.
+ */
+export async function requestRefund(
+  provider: ProviderConfig,
+  input: { paymentId: string; reference: string },
+): Promise<ProviderRefund> {
+  if (provider.url === undefined) {
+    throw new Refusal(424, 'ProviderNotConfigured', 'Refunding through the provider is not configured.');
+  }
+  const path = `/payments/${encodeURIComponent(input.paymentId)}/refunds`;
+  const body = await createdAt(provider.url, provider.timeoutMs, path, { reference: input.reference });
+  if (isRefund(body)) return { id: body.id };
+  throw new Refusal(424, 'ProviderUnavailable', REFUND_UNAVAILABLE);
+}
+
+function isRefund(value: unknown): value is ProviderRefund {
+  if (typeof value !== 'object' || value === null) return false;
+  const { id } = value as Record<string, unknown>;
+  return typeof id === 'string' && id.length > 0;
 }
 
 function isPayment(value: unknown): value is ProviderPayment {

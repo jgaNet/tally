@@ -46,7 +46,7 @@ describe('paying through the provider', () => {
   let provider: Server;
   let providerUrl: string;
   let calls: ProviderCall[];
-  let answerWith: (reference: string) => ProviderAnswer;
+  let answerWith: (reference: string, path: string | undefined) => ProviderAnswer;
   let nextPayment: number;
   /** Applications started by a test beyond `app`, stopped after it. */
   const extra: Application[] = [];
@@ -57,18 +57,28 @@ describe('paying through the provider', () => {
     return { status: 201, body: { id: `pay_${n}`, payUrl: `https://pay.example.org/${n}` } };
   }
 
+  /** A refund the fake provider answers as made: `201 { id }`. */
+  function refundCreated(): ProviderAnswer {
+    return { status: 201, body: { id: 're_1' } };
+  }
+
+  /** Makes the fake provider answer `answer` to refund requests, and a new payment to payment requests. */
+  function providerRefundsWith(answer: ProviderAnswer): void {
+    answerWith = (_reference, path) => (path?.endsWith('/refunds') ? answer : createdPayment());
+  }
+
   beforeEach(async () => {
     directory = testDirectory();
     calls = [];
     nextPayment = 1;
-    answerWith = () => createdPayment();
+    answerWith = (_reference, path) => (path?.endsWith('/refunds') ? refundCreated() : createdPayment());
     provider = createServer((request, response) => {
       let raw = '';
       request.on('data', chunk => (raw += chunk));
       request.on('end', async () => {
         const body: unknown = raw === '' ? undefined : JSON.parse(raw);
         calls.push({ method: request.method, path: request.url, body });
-        const answer = answerWith((body as { reference: string }).reference);
+        const answer = answerWith((body as { reference: string }).reference, request.url);
         if (answer.delayMs) await sleep(answer.delayMs);
         try {
           response.writeHead(answer.status, { 'content-type': 'application/json' });
@@ -407,7 +417,7 @@ describe('paying through the provider', () => {
     const webhooks = [
       webhookAbout('pay_1', 'pending'),
       webhookAbout('pay_unknown', 'succeeded'),
-      webhookAbout('pay_1', 'refunded'),
+      webhookAbout('pay_unknown', 'refunded'),
       signedBody('this is not JSON at all'),
       signedBody('[1, 2, 3]'),
       signedBody(JSON.stringify({ id: 'evt', paymentId: 42, status: 'succeeded' })),
@@ -594,5 +604,234 @@ describe('paying through the provider', () => {
     } finally {
       legacy.remove();
     }
+  });
+
+  describe('refunding through the provider', () => {
+    /** The provider's id of the payment of the settlement `id`, as Tally keeps it. */
+    function paymentOf(id: string): string {
+      const row = db.prepare('SELECT provider_payment_id FROM settlements WHERE id = ?').get(id) as {
+        provider_payment_id: string;
+      };
+      return row.provider_payment_id;
+    }
+
+    /** The refund requests the provider received. */
+    function refundCalls(): ProviderCall[] {
+      return calls.filter(call => call.path?.endsWith('/refunds'));
+    }
+
+    /** Sends a refund of the settlement `id` as `token`'s account. */
+    async function refund(token: string, id: string) {
+      return send(app, 'POST', `/settlements/${id}/refund`, { token });
+    }
+
+    /** Delivers the provider's webhook that says the payment `paymentId` is `status`, and expects it acknowledged. */
+    async function say(paymentId: string, status: string): Promise<void> {
+      const { body, signature } = webhookAbout(paymentId, status);
+      expect(await postWebhook(body, signature)).toEqual({ status: 204 });
+    }
+
+    /** Ben pays Ann 1500 through the provider and the provider says it succeeded: the balances are 0. */
+    async function benPaidAnnThroughProvider() {
+      const { ann, ben, groupId } = await annAndBenOwing1500();
+      const id = ((await askToPay(ben.token, groupId, ann.id, 1500)).body as { id: string }).id;
+      await say(paymentOf(id), 'succeeded');
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
+      return { ann, ben, groupId, id };
+    }
+
+    it('asks the provider to refund the payment, with the settlement as reference, and keeps the settlement refunding, still counted as paid', async () => {
+      const { ann, ben, groupId, id } = await benPaidAnnThroughProvider();
+      const paymentId = paymentOf(id);
+
+      const reply = await refund(ann.token, id);
+      expect(reply.status).toBe(204);
+      expect(refundCalls()).toEqual([
+        { method: 'POST', path: `/payments/${paymentId}/refunds`, body: { reference: id } },
+      ]);
+      expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'refunding', method: 'provider' });
+      // The money has not gone back yet: the balances and the suggestions still count the settlement as paid.
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
+      expect(await suggestionsAs(ann.token, groupId)).toEqual([]);
+    });
+
+    it('counts the balances back once the provider says the payment is refunded, and counts that once however often it says so', async () => {
+      const { ann, ben, groupId, id } = await benPaidAnnThroughProvider();
+      expect((await refund(ann.token, id)).status).toBe(204);
+
+      await say(paymentOf(id), 'refunded');
+      await say(paymentOf(id), 'refunded');
+      expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'refunded' });
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 1500, [ben.id]: -1500 });
+      expect(await suggestionsAs(ann.token, groupId)).toEqual([{ from: ben.id, to: ann.id, amount: 1500 }]);
+      // Refunded, it cannot be refunded again.
+      expect((await refund(ann.token, id)).status).toBe(409);
+      expect(refundCalls()).toHaveLength(1);
+    });
+
+    it('lets a refunded that overtakes the success of its payment leave it refunded, never counted; a later success or pending changes nothing', async () => {
+      const { ann, ben, groupId } = await annAndBenOwing1500();
+      const id = ((await askToPay(ben.token, groupId, ann.id, 1000)).body as { id: string }).id;
+      const failed = ((await askToPay(ben.token, groupId, ann.id, 500)).body as { id: string }).id;
+      await say(paymentOf(failed), 'failed');
+
+      await say(paymentOf(id), 'refunded');
+      await say(paymentOf(id), 'succeeded');
+      await say(paymentOf(id), 'pending');
+      await say(paymentOf(failed), 'refunded');
+
+      expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'refunded' });
+      expect((await readSettlement(ben.token, failed)).body).toMatchObject({ status: 'failed' });
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 1500, [ben.id]: -1500 });
+    });
+
+    it('lets the provider say a payment is refunded while the refund is being asked, and keeps that when the refund is made', async () => {
+      const { ann, ben, groupId, id } = await benPaidAnnThroughProvider();
+      providerRefundsWith({ status: 201, body: { id: 're_1' }, delayMs: 100 });
+
+      const pending = refund(ann.token, id);
+      await sleep(30);
+      await say(paymentOf(id), 'refunded');
+      expect((await pending).status).toBe(204);
+
+      // The refund made after the provider's word does not turn the settlement back to refunding.
+      expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'refunded' });
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 1500, [ben.id]: -1500 });
+    });
+
+    it('refuses a refund the provider does not make in time, or does not answer with a refund, and changes nothing', async () => {
+      const { ann, ben, groupId, id } = await benPaidAnnThroughProvider();
+      const refusals: [string, ProviderAnswer][] = [
+        ['answers 500', { status: 500, body: { message: 'boom' } }],
+        ['answers 200 where 201 is due', { status: 200, body: { id: 're_x' } }],
+        ['answers 201 without an id', { status: 201, body: { refundId: 're_x' } }],
+        ['answers 201 with a body that is not JSON', { status: 201, text: 'not json' }],
+        ['answers after the time limit', { status: 201, body: { id: 're_x' }, delayMs: 600 }],
+      ];
+      for (const [name, answer] of refusals) {
+        providerRefundsWith(answer);
+        const reply = await refund(ann.token, id);
+        expect({ name, status: reply.status }).toEqual({ name, status: 424 });
+        expect(reply.body).toMatchObject({ error: 'ProviderUnavailable' });
+        expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'paid' });
+      }
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
+
+      // A refusal leaves the settlement free to be refunded: the next refund, answered as made, is made.
+      providerRefundsWith({ status: 201, body: { id: 're_1' } });
+      expect((await refund(ann.token, id)).status).toBe(204);
+      expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'refunding' });
+    });
+
+    it('refuses a refund when the provider is not configured, before asking anyone', async () => {
+      const { ann, id } = await benPaidAnnThroughProvider();
+      const unconfigured = await createApplication({ databasePath: directory.databasePath, providerUrl: '' });
+      extra.push(unconfigured);
+      await unconfigured.start(0);
+
+      const reply = await send(unconfigured, 'POST', `/settlements/${id}/refund`, { token: ann.token });
+      expect(reply.status).toBe(424);
+      expect(reply.body).toMatchObject({ error: 'ProviderNotConfigured' });
+      expect(refundCalls()).toEqual([]);
+    });
+
+    it('refuses only the payee refunding, with 403 for a payer or any other member, and 404 to someone outside the group', async () => {
+      const { ann, ben, groupId, id } = await benPaidAnnThroughProvider();
+      const cat = await signedUpAccount(app, { email: 'cat@example.org', name: 'Cat' });
+
+      expect(await refund(ben.token, id)).toMatchObject({ status: 403, body: { error: 'NotThePayee' } });
+      expect(await refund(cat.token, id)).toMatchObject({ status: 404, body: { error: 'SettlementNotFound' } });
+      expect((await send(app, 'POST', `/settlements/${id}/refund`, {})).status).toBe(401);
+      expect((await send(app, 'POST', `/settlements/no-such-settlement/refund`, { token: ann.token })).status).toBe(
+        404,
+      );
+      expect(refundCalls()).toEqual([]);
+      expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'paid' });
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
+    });
+
+    it('refuses a refund of a settlement in cash, or one not paid, with 409, and asks the provider nothing', async () => {
+      const { ann, ben, groupId } = await annAndBenOwing1500();
+      // Ann records a cash settlement from Ben: paid at once, and not refunded through Tally.
+      const cash = ((await settleInCash(ann.token, groupId, ben.id, 500)).body as { id: string }).id;
+      expect(await refund(ann.token, cash)).toMatchObject({ status: 409, body: { error: 'NotPaidThroughProvider' } });
+
+      // A payment still waiting at the provider, and one that failed.
+      const waiting = ((await askToPay(ben.token, groupId, ann.id, 300)).body as { id: string }).id;
+      expect(await refund(ann.token, waiting)).toMatchObject({ status: 409, body: { error: 'SettlementIsNotPaid' } });
+      const failed = ((await askToPay(ben.token, groupId, ann.id, 200)).body as { id: string }).id;
+      await say(paymentOf(failed), 'failed');
+      expect(await refund(ann.token, failed)).toMatchObject({ status: 409, body: { error: 'SettlementIsNotPaid' } });
+
+      expect(refundCalls()).toEqual([]);
+      expect((await readSettlement(ben.token, waiting)).body).toMatchObject({ status: 'pending' });
+      expect((await readSettlement(ben.token, failed)).body).toMatchObject({ status: 'failed' });
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 1000, [ben.id]: -1000 });
+    });
+
+    it('refuses a refund when the payer has left the group, so that the balances still add up to 0, and changes nothing', async () => {
+      const { ann, ben, groupId, id } = await benPaidAnnThroughProvider();
+      // Ben's balance is 0 once paid: he may leave, and the settlement's payer is no longer a member.
+      expect((await send(app, 'POST', `/groups/${groupId}/leave`, { token: ben.token })).status).toBe(204);
+
+      expect(await refund(ann.token, id)).toMatchObject({ status: 409, body: { error: 'MemberHasLeft' } });
+      expect(refundCalls()).toEqual([]);
+      expect((await readSettlement(ann.token, id)).body).toMatchObject({ status: 'paid' });
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0 });
+    });
+
+    it('asks the provider once when two refunds of a settlement are asked at the same moment, and refuses the other with 409', async () => {
+      const { ann, id } = await benPaidAnnThroughProvider();
+      providerRefundsWith({ status: 201, body: { id: 're_1' }, delayMs: 100 });
+
+      const replies = await Promise.all([refund(ann.token, id), refund(ann.token, id)]);
+      expect(replies.map(reply => reply.status).sort()).toEqual([204, 409]);
+      expect(replies.find(reply => reply.status === 409)?.body).toMatchObject({ error: 'RefundIsInProgress' });
+      expect(refundCalls()).toHaveLength(1);
+    });
+
+    it('keeps a settlement that a file written before refunds holds, and takes its refund', async () => {
+      const legacy = testDirectory();
+      try {
+        // A file as the application wrote it before refunds: the provider's settlements may be pending, paid or failed.
+        const old = new DatabaseSync(legacy.databasePath);
+        old.exec(`
+          CREATE TABLE accounts (id TEXT PRIMARY KEY);
+          CREATE TABLE groups (id TEXT PRIMARY KEY);
+          INSERT INTO accounts VALUES ('ann'), ('ben');
+          INSERT INTO groups VALUES ('g1');
+          CREATE TABLE settlements (
+            id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES groups (id),
+            payer_id TEXT NOT NULL REFERENCES accounts (id), payee_id TEXT NOT NULL REFERENCES accounts (id),
+            amount INTEGER NOT NULL CHECK (amount >= 1),
+            method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+            status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
+            provider_payment_id TEXT, pay_url TEXT, created_at TEXT NOT NULL,
+            CHECK (method = 'provider' OR (status = 'paid' AND provider_payment_id IS NULL AND pay_url IS NULL)),
+            CHECK (method = 'cash' OR (provider_payment_id IS NOT NULL AND pay_url IS NOT NULL))
+          );
+          INSERT INTO settlements VALUES ('s1', 'g1', 'ben', 'ann', 700, 'cash', 'paid', NULL, NULL, '2026-11-01T10:00:00.000Z');
+          INSERT INTO settlements VALUES ('s2', 'g1', 'ben', 'ann', 100, 'provider', 'paid', 'pay_9', 'https://pay.example.org/9', '2026-11-02T10:00:00.000Z');
+        `);
+        old.close();
+
+        const upgraded = openDatabase(legacy.databasePath);
+        expect(
+          upgraded.prepare('SELECT id, method, status, provider_payment_id FROM settlements ORDER BY id').all(),
+        ).toEqual([
+          { id: 's1', method: 'cash', status: 'paid', provider_payment_id: null },
+          { id: 's2', method: 'provider', status: 'paid', provider_payment_id: 'pay_9' },
+        ]);
+        // The rebuilt table takes the statuses refunds add, which the old one refused.
+        upgraded.exec(`UPDATE settlements SET status = 'refunding' WHERE id = 's2'`);
+        upgraded.exec(`UPDATE settlements SET status = 'refunded' WHERE id = 's2'`);
+        expect(upgraded.prepare('SELECT status FROM settlements WHERE id = ?').get('s2')).toEqual({
+          status: 'refunded',
+        });
+        upgraded.close();
+      } finally {
+        legacy.remove();
+      }
+    });
   });
 });

@@ -30,15 +30,16 @@ export interface BalanceOptions {
  * balance of 0. The balances add up to 0, since each expense's shares add up to its amount, each expense
  * is counted once, and each settlement moves its amount from its payee's balance to its payer's.
  *
- * A settlement counts once it is `paid`; a `failed` one never counts. With `includePending`, a `pending`
- * one counts too, as if paid.
+ * A settlement counts once it is `paid`, and goes on counting while it is `refunding`, since the money has not
+ * gone back yet; a `refunded`, `failed` one never counts. With `includePending`, a `pending` one counts too, as
+ * if paid.
  *
  * It is one statement, so it reads one consistent state of the file: an expense recorded by another
  * server is either wholly counted or not at all. Reading never changes what is stored.
  */
 export function balancesOfGroup(db: DatabaseSync, groupId: string, options: BalanceOptions = {}): Balance[] {
   // A constant chosen here, never a value from a request.
-  const counted = options.includePending ? `'paid', 'pending'` : `'paid'`;
+  const counted = options.includePending ? `'paid', 'refunding', 'pending'` : `'paid', 'refunding'`;
   const rows = db
     .prepare(
       `SELECT m.account_id AS member_id,

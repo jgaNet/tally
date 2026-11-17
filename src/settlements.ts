@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { type Balance, balancesOfGroup } from './balances';
 import { findGroupOfMember, membersOfGroup } from './groups';
-import { type ProviderConfig, requestPayment } from './provider';
+import { type ProviderConfig, requestPayment, requestRefund } from './provider';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
 
@@ -70,8 +70,11 @@ export interface Settlement {
   readonly to: string;
   readonly amount: number;
   readonly method: 'cash' | 'provider';
-  /** `pending` while the provider has not ended the payment; `failed` when it failed, and it never counts. */
-  readonly status: 'pending' | 'paid' | 'failed';
+  /**
+   * `pending` while the provider has not ended the payment; `failed` when it failed, and it never counts. A `paid`
+   * one is `refunding` once its refund is asked of the provider, and `refunded` once the provider says so.
+   */
+  readonly status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
   readonly at: string;
   /** The link where the payer pays, through the provider; a settlement in cash has none. */
   readonly payUrl?: string;
@@ -84,7 +87,8 @@ interface SettlementRow {
   payee_id: string;
   amount: number;
   method: 'cash' | 'provider';
-  status: 'pending' | 'paid' | 'failed';
+  status: Settlement['status'];
+  provider_payment_id: string | null;
   pay_url: string | null;
   created_at: string;
 }
@@ -224,17 +228,116 @@ export async function requestProviderSettlement(
 }
 
 /**
- * Applies the provider's word on a payment: `succeeded` makes the settlement `paid`, `failed` makes it `failed`.
- * A settlement moves only from `pending`, once: a payment that has ended keeps its status, whatever a later
- * webhook says. `pending`, and any payment Tally does not know, change nothing. Answers nothing; the webhook is
- * acknowledged either way.
+ * What the provider's word on a payment moves a settlement to, and from which statuses it does. Each status is
+ * a step forward, and a payment that has ended keeps its status: `succeeded` ends a `pending` payment as `paid`,
+ * `failed` ends one as `failed`, and `refunded` ends a payment as `refunded` from `pending` (a refund that
+ * overtakes the success it follows), from `paid`, or from `refunding` (the refund Tally asked for).
+ */
+const PROVIDER_OUTCOMES = new Map<string, { to: Settlement['status']; from: string }>([
+  ['succeeded', { to: 'paid', from: `'pending'` }],
+  ['failed', { to: 'failed', from: `'pending'` }],
+  ['refunded', { to: 'refunded', from: `'pending', 'paid', 'refunding'` }],
+]);
+
+/**
+ * Applies the provider's word on a payment (see {@link PROVIDER_OUTCOMES}). A settlement moves once, forward: a
+ * webhook saying a status the settlement has passed, or has gone past, changes nothing, and a `refunded` said
+ * twice counts once. `pending`, and any payment Tally does not know, change nothing. Answers nothing; the webhook
+ * is acknowledged either way.
  */
 export function recordProviderOutcome(db: DatabaseSync, input: { paymentId: string; status: string }): void {
-  const status = input.status === 'succeeded' ? 'paid' : input.status === 'failed' ? 'failed' : undefined;
-  if (status === undefined) return;
+  const outcome = PROVIDER_OUTCOMES.get(input.status);
+  if (outcome === undefined) return;
+  // The statuses are constants chosen here, never values from a webhook.
   db.prepare(
-    `UPDATE settlements SET status = ? WHERE method = 'provider' AND status = 'pending' AND provider_payment_id = ?`,
-  ).run(status, input.paymentId);
+    `UPDATE settlements SET status = ?
+     WHERE method = 'provider' AND provider_payment_id = ? AND status IN (${outcome.from})`,
+  ).run(outcome.to, input.paymentId);
+}
+
+/**
+ * The settlements whose refund is being asked of the provider, by id, in this process: a second refund of one
+ * asked meanwhile is refused, so the provider is not asked to refund the same payment twice at once.
+ */
+const refundsInFlight = new Set<string>();
+const REFUND_IN_PROGRESS = 'A refund of this settlement is already being asked of the provider.';
+
+/**
+ * Asks the payment provider to refund the settlement `settlementId`, which `accountId` (the caller) must be the
+ * payee of, and records it `refunding`: the money has not gone back yet, so the balances still count it as paid,
+ * until the provider says it is `refunded` (see {@link recordProviderOutcome}).
+ *
+ * Refused with `404` when the caller is not a current member of the settlement's group, as if it did not exist;
+ * with `403` when the caller is not the payee; with `409` when the settlement was paid in cash, when it is not
+ * `paid` (a refund is asked once), when the payer or the payee has left the group (so the balances would not add
+ * up to 0 once refunded), or when a refund of it is already being asked; with `424` when the provider is not
+ * configured or does not answer a refund in time (see {@link requestRefund}), and then nothing changes.
+ *
+ * The rules are checked, first to refuse early and again once the claim is taken, then the provider is asked
+ * outside any transaction, so no write is held while it answers. The rules are not checked once the provider has
+ * answered: a refund it has made is recorded, since refusing it would not undo the refund. A `refunded` webhook
+ * that arrives before that is kept, since the settlement is then `refunded` already.
+ */
+export async function refundSettlement(
+  db: DatabaseSync,
+  provider: ProviderConfig,
+  input: { settlementId: string; accountId: string },
+): Promise<void> {
+  const { settlementId, accountId } = input;
+  // Refused as the rules say before anything is claimed, so a request that may not refund learns nothing of
+  // a refund in progress.
+  inReadSnapshot(db, () => refundablePayment(db, accountId, settlementId));
+  if (refundsInFlight.has(settlementId)) throw new Refusal(409, 'RefundIsInProgress', REFUND_IN_PROGRESS);
+  refundsInFlight.add(settlementId);
+  try {
+    // Read again under the claim: a refund that finished before this one claimed the settlement is seen as not paid.
+    const paymentId = inReadSnapshot(db, () => refundablePayment(db, accountId, settlementId));
+    await requestRefund(provider, { paymentId, reference: settlementId });
+    // A `refunded` that arrived meanwhile stays: it is `refunded` already, and only a `paid` settlement moves on.
+    inTransaction(db, () => {
+      db.prepare(`UPDATE settlements SET status = 'refunding' WHERE id = ? AND status = 'paid'`).run(settlementId);
+    });
+  } finally {
+    refundsInFlight.delete(settlementId);
+  }
+}
+
+/**
+ * The provider's id of the payment of the settlement, when `accountId` may ask for its refund now; refused as
+ * {@link refundSettlement} says otherwise.
+ */
+function refundablePayment(db: DatabaseSync, accountId: string, settlementId: string): string {
+  const row = db
+    .prepare(
+      `SELECT s.group_id, s.payer_id, s.payee_id, s.method, s.status, s.provider_payment_id FROM settlements s
+       JOIN group_members m ON m.group_id = s.group_id
+       WHERE s.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
+    )
+    .get(settlementId, accountId) as
+    | {
+        group_id: string;
+        payer_id: string;
+        payee_id: string;
+        method: Settlement['method'];
+        status: Settlement['status'];
+        provider_payment_id: string | null;
+      }
+    | undefined;
+  if (!row) throw new Refusal(404, 'SettlementNotFound', 'No settlement has this id.');
+  if (row.payee_id !== accountId) {
+    throw new Refusal(403, 'NotThePayee', 'Only the member who was paid can refund the settlement.');
+  }
+  if (row.method !== 'provider' || row.provider_payment_id === null) {
+    throw new Refusal(409, 'NotPaidThroughProvider', 'A settlement in cash is not refunded through Tally.');
+  }
+  if (row.status !== 'paid') {
+    throw new Refusal(409, 'SettlementIsNotPaid', 'Only a settlement that is paid can be refunded.');
+  }
+  const members = membersOfGroup(db, row.group_id).map(member => member.memberId);
+  if (!members.includes(row.payer_id) || !members.includes(row.payee_id)) {
+    throw new Refusal(409, 'MemberHasLeft', 'Both members of the settlement must be in the group to refund it.');
+  }
+  return row.provider_payment_id;
 }
 
 /**

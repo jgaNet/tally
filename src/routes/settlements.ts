@@ -6,6 +6,7 @@ import type { ProviderConfig } from '../provider';
 import {
   findSettlementOfMember,
   recordCashSettlement,
+  refundSettlement,
   requestProviderSettlement,
   suggestedSettlement,
 } from '../settlements';
@@ -46,7 +47,7 @@ const SETTLEMENT = {
     to: { type: 'string' },
     amount: { type: 'integer' },
     method: { enum: ['cash', 'provider'] },
-    status: { enum: ['pending', 'paid', 'failed'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     payUrl: { type: 'string' },
   },
@@ -100,6 +101,13 @@ export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSy
       return reply.code(201).send({ id });
     },
   );
+
+  // The payee is the caller, who asks the provider to refund the settlement; a caller who is not a member sees no settlement.
+  server.post<{ Params: { id: string } }>('/settlements/:id/refund', async (request, reply) => {
+    const caller = requireCaller(db, request);
+    await refundSettlement(db, provider, { settlementId: request.params.id, accountId: caller.id });
+    return reply.code(204).send();
+  });
 
   // Only a current member of the settlement's group reads it; to anyone else it does not exist.
   server.get<{ Params: { id: string } }>(

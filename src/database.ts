@@ -72,7 +72,8 @@ const SCHEMA = `
 
 /**
  * The settlements table. A settlement in cash is `paid` at once; one through the payment provider is `pending`
- * with the provider's payment id and `payUrl`, until the provider says it `paid` or `failed`.
+ * with the provider's payment id and `payUrl`, until the provider says it `paid` or `failed`. A paid one may be
+ * `refunding` (asked of the provider) and then `refunded`, as the provider says.
  */
 const SETTLEMENTS_TABLE = `
   CREATE TABLE IF NOT EXISTS settlements (
@@ -82,7 +83,7 @@ const SETTLEMENTS_TABLE = `
     payee_id            TEXT NOT NULL REFERENCES accounts (id),
     amount              INTEGER NOT NULL CHECK (amount >= 1),
     method              TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
-    status              TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
+    status              TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
     provider_payment_id TEXT,
     pay_url             TEXT,
     created_at          TEXT NOT NULL,
@@ -116,6 +117,20 @@ function addMissingColumns(db: DatabaseSync): void {
        SELECT id, group_id, payer_id, payee_id, amount, method, status, created_at FROM settlements_before_provider`,
     );
     db.exec('DROP TABLE settlements_before_provider');
+  }
+  // A settlements table written before refunds lacks the statuses they add: its rows are kept as they are.
+  const settlementsTable = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'settlements'`)
+    .get() as { sql: string } | undefined;
+  if (settlementsTable && !settlementsTable.sql.includes(`'refunded'`)) {
+    db.exec('ALTER TABLE settlements RENAME TO settlements_before_refund');
+    db.exec(SETTLEMENTS_TABLE);
+    db.exec(
+      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, created_at)
+       SELECT id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, created_at
+       FROM settlements_before_refund`,
+    );
+    db.exec('DROP TABLE settlements_before_refund');
   }
   // An expense written before splits by shares or exact amounts was split equally.
   if (!expenseColumns.some(column => column.name === 'split_kind')) {
