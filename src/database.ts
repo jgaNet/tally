@@ -32,6 +32,22 @@ const MIGRATIONS: readonly string[] = [
     created_at TEXT NOT NULL
   );
   `,
+  `
+  CREATE TABLE groups (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    owner_id TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE group_members (
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    PRIMARY KEY (group_id, account_id)
+  );
+  CREATE INDEX group_members_account ON group_members (account_id);
+  `,
 ];
 
 /**
@@ -55,17 +71,28 @@ export function openDatabase(path: string): DatabaseSync {
   }
 }
 
-function migrate(db: DatabaseSync): void {
+/**
+ * Runs `work` in a write transaction that waits for the write lock: its writes all land, or, when it
+ * throws, none does.
+ */
+export function inTransaction<T>(db: DatabaseSync, work: () => T): T {
   db.exec('BEGIN IMMEDIATE');
   try {
+    const result = work();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+function migrate(db: DatabaseSync): void {
+  inTransaction(db, () => {
     const current = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
     for (let version = current; version < MIGRATIONS.length; version++) {
       db.exec(MIGRATIONS[version]);
     }
     if (current < MIGRATIONS.length) db.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
-    db.exec('COMMIT');
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+  });
 }

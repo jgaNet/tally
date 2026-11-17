@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { Application } from './app';
-import { openDatabase } from './database';
+import { inTransaction, openDatabase } from './database';
 import { ada, call, Reachable, startApplication, temporaryDatabase } from './test-support';
 
 /** The server of `src/server.ts` as a process of its own, so that a kill stops it as a crash would. */
@@ -96,7 +96,24 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 1 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 2 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps all of a transaction that completes, and none of one that throws', () => {
+    const db = openDatabase(database.path);
+    try {
+      db.exec('CREATE TABLE notes (text TEXT NOT NULL)');
+      inTransaction(db, () => db.exec("INSERT INTO notes (text) VALUES ('kept')"));
+      expect(() =>
+        inTransaction(db, () => {
+          db.exec("INSERT INTO notes (text) VALUES ('rolled back')");
+          throw new Error('the work failed');
+        }),
+      ).toThrow('the work failed');
+      expect(db.prepare('SELECT text FROM notes').all()).toEqual([{ text: 'kept' }]);
     } finally {
       db.close();
     }
