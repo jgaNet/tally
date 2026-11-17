@@ -4,13 +4,18 @@ import { ConcurrencyConflictException, IResult, Result } from '@Architecture/Dom
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { SettlementMethod, SettlementStatus, SettlementView } from '@Contexts/Settlements/Domain/Settlement/DTOs';
-import { PendingSettlement, SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
+import {
+  PaidSettlement,
+  PendingSettlement,
+  SettlementBook,
+} from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import { ISettlementBooks } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBooks';
 
 /**
  * The tables of the settlements: a group's book is a row holding its version, and each settlement is a row of its own. The
- * book's row is what a save checks (docs/adr/0013); a settlement is changed only by its status, once it is pending (request 13).
- * A settlement through the provider keeps the link its payer pays at and the provider's id for its payment, which its webhook names.
+ * book's row is what a save checks (docs/adr/0013); a settlement is changed only by its status: pending to paid or failed, paid to
+ * refunding, and to refunded (requests 13 and 15). A settlement through the provider keeps the link its payer pays at and the
+ * provider's id for its payment, which its webhook names.
  */
 export function prepareSettlementSchema(connection: DatabaseSync): void {
   connection.exec(
@@ -52,10 +57,16 @@ export class SqliteSettlementBooks implements ISettlementBooks {
         "SELECT id, payer_id, payee_id, amount, provider_payment_id FROM settlements WHERE group_id = ? AND status = 'pending' ORDER BY recorded_at, rowid",
       )
       .all(groupId) as PendingRow[];
+    const paid = connection
+      .prepare(
+        "SELECT id, payer_id, payee_id, amount, provider_payment_id, status FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('paid', 'refunding') ORDER BY recorded_at, rowid",
+      )
+      .all(groupId) as PaidRow[];
     return SettlementBook.fromSnapshot({
       groupId,
       version: row ? Number(row.version) : 0,
       pending: pending.map(pendingOf),
+      paid: paid.map(paidOf),
     });
   }
 
@@ -64,6 +75,13 @@ export class SqliteSettlementBooks implements ISettlementBooks {
     const row = this.database.connection
       .prepare('SELECT group_id FROM settlements WHERE provider_payment_id = ?')
       .get(providerPaymentId) as { group_id: string } | undefined;
+    return row ? this.get(String(row.group_id)) : undefined;
+  }
+
+  async ofSettlement(settlementId: string): Promise<SettlementBook | undefined> {
+    this.database.assertInTransaction();
+    const row = this.database.connection.prepare('SELECT group_id FROM settlements WHERE id = ?').get(settlementId) as
+      { group_id: string } | undefined;
     return row ? this.get(String(row.group_id)) : undefined;
   }
 
@@ -101,8 +119,8 @@ export class SqliteSettlementBooks implements ISettlementBooks {
       );
     }
 
-    const settle = connection.prepare("UPDATE settlements SET status = ? WHERE id = ? AND status = 'pending'");
-    for (const ended of book.ended) settle.run(ended.status, ended.id);
+    const move = connection.prepare('UPDATE settlements SET status = ? WHERE id = ?');
+    for (const each of book.moved) move.run(each.status, each.id);
     return Result.ok(undefined);
   }
 }
@@ -111,6 +129,7 @@ const changedSinceRead = () =>
   new ConcurrencyConflictException('Settlements', 'The settlements of the group changed since they were read');
 
 type PendingRow = { id: string; payer_id: string; payee_id: string; amount: number; provider_payment_id: string };
+type PaidRow = PendingRow & { status: string };
 
 const pendingOf = (row: PendingRow): PendingSettlement => ({
   id: String(row.id),
@@ -118,6 +137,11 @@ const pendingOf = (row: PendingRow): PendingSettlement => ({
   to: String(row.payee_id),
   amount: Number(row.amount),
   providerPaymentId: String(row.provider_payment_id),
+});
+
+const paidOf = (row: PaidRow): PaidSettlement => ({
+  ...pendingOf(row),
+  status: String(row.status) as PaidSettlement['status'],
 });
 
 /** The settlement a row holds, as `GetSettlement` answers it. Exported for the read side of the same tables. */

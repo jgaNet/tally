@@ -71,6 +71,52 @@ describe('the payment provider over HTTP', () => {
   });
 });
 
+describe('the refund of a payment at the provider over HTTP', () => {
+  it('asks POST /payments/{paymentId}/refunds for the settlement as reference, and accepts the 201 it answers with an id', async () => {
+    const provider = await providerAt(() => ({ status: 201, body: '{"id":"refund-1"}' }));
+    try {
+      const refunded = await new HttpPaymentProvider(() => `${provider.origin}/`).refundPayment({
+        paymentId: 'pay-1',
+        reference: 'settlement-1',
+      });
+      expect(refunded.isSuccess()).toBe(true);
+      expect(provider.requests).toEqual([
+        { url: '/payments/pay-1/refunds', method: 'POST', body: JSON.stringify({ reference: 'settlement-1' }) },
+      ]);
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('refuses any other answer, or one without an id, as ProviderUnavailable', async () => {
+    const provider = await providerAt(path =>
+      path.endsWith('/refunds') ? { status: 200, body: '{"id":"x"}' } : undefined,
+    );
+    try {
+      const refunded = await new HttpPaymentProvider(() => provider.origin).refundPayment({
+        paymentId: 'pay-1',
+        reference: 'settlement-1',
+      });
+      expect(refunded.isFailure() && refunded.error.type).toBe('ProviderUnavailable');
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('refuses a provider that does not answer in time, as ProviderUnavailable', async () => {
+    const provider = await providerAt(() => undefined);
+    try {
+      const refunded = await new HttpPaymentProvider(() => provider.origin, 50).refundPayment({
+        paymentId: 'pay-1',
+        reference: 'settlement-1',
+      });
+      expect(refunded.isFailure() && refunded.error.type).toBe('ProviderUnavailable');
+    } finally {
+      await provider.close();
+    }
+  });
+});
+
 describe('the signature of a webhook', () => {
   const body = '{"id":"w-1","paymentId":"pay-1","status":"succeeded","at":"2026-11-17T10:00:00Z"}';
   const secret = 'a-shared-secret';

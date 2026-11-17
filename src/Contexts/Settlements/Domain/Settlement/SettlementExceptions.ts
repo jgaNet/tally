@@ -46,3 +46,18 @@ export class ProviderUnavailableException extends Exception {
     });
   }
 }
+
+/**
+ * The settlement cannot be refunded: it is not a settlement through the provider that is paid (a cash one, a refunded or a refunding one,
+ * a failed or pending one), or one of its payer and payee has left the group (request 15, docs/adr/0015). Nothing changes; `422`.
+ */
+export class SettlementNotRefundableException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementNotRefundable',
+      message:
+        'A settlement is refunded only while it is paid through the provider, and both its members are still in the group',
+    });
+  }
+}

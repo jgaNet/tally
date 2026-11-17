@@ -3,9 +3,10 @@ export type SettlementMethod = 'cash' | 'provider';
 
 /**
  * Where a settlement stands: a cash settlement is paid the moment it is recorded (request 12); a settlement through the provider
- * is `pending` until the provider says its payment ended, once: `paid` if it succeeded, `failed` if it did not (request 13).
+ * is `pending` until the provider says its payment ended, once: `paid` if it succeeded, `failed` if it did not (request 13). A paid
+ * one is `refunding` once its payee asked for the refund, and `refunded` once the provider says it went back (request 15).
  */
-export type SettlementStatus = 'pending' | 'paid' | 'failed';
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
 
 /**
  * A settlement as it is recorded and as `GetSettlement` answers it (requests 12 and 13). `from` pays `to`, `at` when it was

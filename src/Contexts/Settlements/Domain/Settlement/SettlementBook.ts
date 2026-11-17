@@ -1,15 +1,18 @@
-import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { AggregateRoot, Id, IResult, NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
 
 import { SettlementView } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
   PaymentRequestedEvent,
+  RefundRequestedEvent,
   SettlementFailedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
+  SettlementRefundedEvent,
 } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
 import {
   InvalidSettlementAmountException,
   SettlementExceedsDebtException,
+  SettlementNotRefundableException,
   SettlementToSelfException,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 import { stillBalance, Waiting } from '@Contexts/Settlements/Domain/Settlement/StillOwed';
@@ -36,7 +39,14 @@ export interface RequestProviderPaymentCommand {
   at: Date;
 }
 
-/** A settlement through the provider that is pending: it waits for the provider to say its payment ended (request 13). */
+/** What a payee asks to refund: the caller (`by`), the settlement, and the members of the group as Groups lists them now. */
+export interface RefundSettlementCommand {
+  by: string;
+  settlementId: string;
+  members: string[];
+}
+
+/** A settlement through the provider whose payment the provider has not ended yet: it waits for the provider's webhook (request 13). */
 export interface PendingSettlement {
   id: string;
   from: string;
@@ -44,6 +54,14 @@ export interface PendingSettlement {
   amount: number;
   /** The provider's id for the payment: what its webhooks name. */
   providerPaymentId: string;
+}
+
+/**
+ * A settlement through the provider that is paid, and whose payment may be refunded (request 15): `paid` until its payee asks for the
+ * refund, `refunding` once it did. Its webhook `refunded` moves it on, once.
+ */
+export interface PaidSettlement extends PendingSettlement {
+  status: 'paid' | 'refunding';
 }
 
 /** What the provider answered for a reserved settlement: the link where the payer pays, and the id the provider gave the payment. */
@@ -56,15 +74,18 @@ export interface ProviderPaymentLink {
 /** A settlement the book adds to its rows: the view, and the provider's payment id when it is paid through the provider. */
 export type NewSettlement = SettlementView & { providerPaymentId?: string };
 
-/** A pending settlement the provider ended, whose status the book moves: `paid` or `failed`. */
-export interface EndedSettlement {
+/**
+ * A settlement whose status the book moves: a pending one the provider ended (`paid`, `failed`, or `refunded` when the refund overtook the
+ * success), a paid one whose refund was asked (`refunding`), or one the provider says was refunded (`refunded`).
+ */
+export interface MovedSettlement {
   id: string;
-  status: 'paid' | 'failed';
+  status: 'paid' | 'failed' | 'refunding' | 'refunded';
 }
 
 /**
- * The settlements of one group, decided in one place (conventions/domain.yaml, the Settlements context; docs/adr/0013, docs/adr/0014).
- * The book is the group's: its identity is the group's id, born with the group and taken up as it is (DOMAIN-IDENTITY). Its
+ * The settlements of one group, decided in one place (conventions/domain.yaml, the Settlements context; docs/adr/0013, docs/adr/0014,
+ * docs/adr/0015). The book is the group's: its identity is the group's id, born with the group and taken up as it is (DOMAIN-IDENTITY). Its
  * version is what the store checks on a save (CONC-OPTIMISTIC): two writers who read the same version cannot both record.
  *
  * Every settlement is decided here, cash and provider alike, against the balances it is given and the pending settlements the
@@ -75,42 +96,56 @@ export interface EndedSettlement {
  * - `reserveProviderPayment()` decides a settlement through the provider and reserves its id, which the provider is given as the
  *   payment's reference; nothing is recorded. The provider is asked after it: an answer that is not a link refuses the settlement.
  * - `recordProviderPayment()` decides again with the link in hand, and records the settlement pending, as `PaymentRequested`.
- * - `settleProviderPayment()` moves a pending settlement to `paid` or `failed` when the provider's webhook says its payment ended,
- *   once: a payment that is not pending any more, or a status that is not an end, changes nothing.
+ * - `reserveRefund()` decides a refund of a paid settlement through the provider: its payee asks, both members are still in the group,
+ *   and it is paid. Nothing is recorded; the provider is asked after it, and `recordRefund()` then moves it to `refunding`, as
+ *   `RefundRequested`. The balances still count a refunding settlement.
+ * - `settleProviderPayment()` moves a settlement when the provider's webhook says its payment ended, once: `succeeded` or `failed` for a
+ *   pending payment, `refunded` for a payment that is pending, paid or refunding (as `SettlementRefunded`). Any other status, or a payment
+ *   that has no more to say, changes nothing.
  *
- * `fromSnapshot()` reads what the store kept, with the pending settlements of the group, records nothing, and throws on corrupted
- * data. The book does not hold every settlement of the group: it holds the ones recorded since it was read, and the ones pending.
+ * `fromSnapshot()` reads what the store kept, with the settlements of the group still waiting on the provider, records nothing, and
+ * throws on corrupted data. The book does not hold every settlement of the group: it holds the ones recorded since it was read, and the
+ * provider's ones that a webhook or a refund may still move.
  */
 export class SettlementBook extends AggregateRoot {
   #pending: PendingSettlement[];
+  #paid: PaidSettlement[];
   #recorded: NewSettlement[] = [];
-  #ended: EndedSettlement[] = [];
+  #moved: MovedSettlement[] = [];
 
-  private constructor(groupId: Id, version: number, pending: PendingSettlement[]) {
+  private constructor(groupId: Id, version: number, pending: PendingSettlement[], paid: PaidSettlement[]) {
     super(groupId, version);
     this.#pending = pending;
+    this.#paid = paid;
   }
 
   /**
-   * The book as the store kept it, at the version it was read at: 0 when no settlement of the group is recorded yet, and the
-   * settlements of the group still pending, with the provider's payment id each waits on.
+   * The book as the store kept it, at the version it was read at: 0 when no settlement of the group is recorded yet, the settlements of
+   * the group still pending, and the provider's paid ones, each with the provider's payment id it waits on or was paid by.
    */
   static fromSnapshot({
     groupId,
     version,
     pending = [],
+    paid = [],
   }: {
     groupId: string;
     version: number;
     pending?: PendingSettlement[];
+    paid?: PaidSettlement[];
   }): SettlementBook {
     if (!groupId || !Number.isInteger(version) || version < 0) {
       throw new Error(`A settlement book is corrupted: group ${groupId}, version ${version}`);
     }
-    const corrupted = pending.some(({ id, providerPaymentId, amount }) => !id || !providerPaymentId || !(amount >= 1));
+    const corrupted = [...pending, ...paid].some(
+      ({ id, providerPaymentId, amount }) => !id || !providerPaymentId || !(amount >= 1),
+    );
     if (corrupted)
-      throw new Error(`A settlement book is corrupted: group ${groupId} has a pending settlement without its payment`);
-    return new SettlementBook(new Id(groupId), version, [...pending]);
+      throw new Error(`A settlement book is corrupted: group ${groupId} has a settlement without its payment`);
+    const badStatus = paid.some(({ status }) => status !== 'paid' && status !== 'refunding');
+    if (badStatus)
+      throw new Error(`A settlement book is corrupted: group ${groupId} has a paid settlement of another status`);
+    return new SettlementBook(new Id(groupId), version, [...pending], [...paid]);
   }
 
   get groupId(): string {
@@ -122,14 +157,19 @@ export class SettlementBook extends AggregateRoot {
     return this.#recorded;
   }
 
-  /** The pending settlements the provider ended since the book was read, whose status the store moves. */
-  get ended(): readonly EndedSettlement[] {
-    return this.#ended;
+  /** The settlements whose status the book moved since it was read, in the order they moved: the store writes each one. */
+  get moved(): readonly MovedSettlement[] {
+    return this.#moved;
   }
 
   /** The settlements of the group still pending, as the book was read and as recorded since. */
   get pending(): readonly PendingSettlement[] {
     return this.#pending;
+  }
+
+  /** The provider's settlements of the group that are paid, as the book was read: `refunding` once their refund was asked. */
+  get paid(): readonly PaidSettlement[] {
+    return this.#paid;
   }
 
   recordCash({ by, from, amount, members, balances, at }: RecordCashSettlementCommand): IResult<SettlementView> {
@@ -198,10 +238,42 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /**
-   * Moves the pending settlement whose payment the provider names to `paid` (`succeeded`) or `failed`, once. A `pending` status,
-   * an unknown one, or a payment that is not pending any more changes nothing, so a late or repeated webhook is harmless.
+   * Decides a refund of a paid settlement through the provider and answers the provider's payment id it is refunded by. Only the payee
+   * may ask (`NotAllowed` for another member); a settlement that is not paid through the provider, or whose payer or payee has left the
+   * group, is refused (`SettlementNotRefundable`). Records nothing: the provider is asked after it.
+   */
+  reserveRefund(command: RefundSettlementCommand): IResult<PaidSettlement> {
+    return this.#decideRefund(command);
+  }
+
+  /** Decides the refund again, and moves the settlement to `refunding`, as `RefundRequested`: the money has not gone back yet. */
+  recordRefund(command: RefundSettlementCommand): IResult<undefined> {
+    const decided = this.#decideRefund(command);
+    if (decided.isFailure()) return decided;
+
+    const payment = decided.data;
+    this.#paid = this.#paid.map(each => (each === payment ? { ...each, status: 'refunding' } : each));
+    this.#moved.push({ id: payment.id, status: 'refunding' });
+    this.record(
+      RefundRequestedEvent.set({
+        settlementId: payment.id,
+        groupId: this.groupId,
+        from: payment.from,
+        to: payment.to,
+        amount: payment.amount,
+      }),
+    );
+    return Result.ok(undefined);
+  }
+
+  /**
+   * Moves the settlement whose payment the provider names, once, as the provider's status says: `succeeded` or `failed` for a pending
+   * one, `refunded` for a pending, paid or refunding one. Any other status (`pending`, an unknown one), and a payment that has no more
+   * to say, changes nothing, so a late or repeated webhook is harmless.
    */
   settleProviderPayment({ providerPaymentId, status }: { providerPaymentId: string; status: string }): void {
+    if (status === 'refunded') return this.#refundedByProvider(providerPaymentId);
+
     const payment = this.#pending.find(each => each.providerPaymentId === providerPaymentId);
     if (!payment) return;
     if (status !== 'succeeded' && status !== 'failed') return;
@@ -209,12 +281,42 @@ export class SettlementBook extends AggregateRoot {
     this.#pending = this.#pending.filter(each => each !== payment);
     const { id, from, to, amount } = payment;
     if (status === 'succeeded') {
-      this.#ended.push({ id, status: 'paid' });
+      this.#moved.push({ id, status: 'paid' });
       this.record(SettlementPaidEvent.set({ settlementId: id, groupId: this.groupId, from, to, amount }));
     } else {
-      this.#ended.push({ id, status: 'failed' });
+      this.#moved.push({ id, status: 'failed' });
       this.record(SettlementFailedEvent.set({ settlementId: id, groupId: this.groupId, from, to, amount }));
     }
+  }
+
+  /** The provider says the payment was refunded: a pending, paid or refunding settlement is refunded, and never counted again. */
+  #refundedByProvider(providerPaymentId: string): void {
+    const payment: PendingSettlement | undefined =
+      this.#pending.find(each => each.providerPaymentId === providerPaymentId) ??
+      this.#paid.find(each => each.providerPaymentId === providerPaymentId);
+    if (!payment) return;
+
+    this.#pending = this.#pending.filter(each => each !== payment);
+    this.#paid = this.#paid.filter(each => each.providerPaymentId !== providerPaymentId);
+    const { id, from, to, amount } = payment;
+    this.#moved.push({ id, status: 'refunded' });
+    this.record(SettlementRefundedEvent.set({ settlementId: id, groupId: this.groupId, from, to, amount }));
+  }
+
+  /**
+   * The refund rules: the settlement is a paid one through the provider this book holds; the caller is its payee; and its payer and
+   * payee are still members of the group, so that the balances of the group still add up to 0 (request 9).
+   */
+  #decideRefund({ by, settlementId, members }: RefundSettlementCommand): IResult<PaidSettlement> {
+    const payment = this.#paid.find(each => each.id === settlementId && each.status === 'paid');
+    if (!payment) return Result.fail(new SettlementNotRefundableException());
+    if (payment.to !== by) {
+      return Result.fail(new NotAllowedException('Settlements', 'Only the payee of a settlement may refund it'));
+    }
+    if (!members.includes(payment.from) || !members.includes(payment.to)) {
+      return Result.fail(new SettlementNotRefundableException());
+    }
+    return Result.ok(payment);
   }
 
   /**

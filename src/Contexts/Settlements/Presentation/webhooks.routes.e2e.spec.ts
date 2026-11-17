@@ -208,7 +208,7 @@ describe('webhooks that come twice, late, out of order or at once (request 14)',
     const { id, paymentId } = await bobPays50(groupId, ann, bob);
 
     expect(await sendWebhook(webhookText({ paymentId, status: 'pending' }))).toBe(204);
-    expect(await sendWebhook(webhookText({ paymentId, status: 'refunded' }))).toBe(204);
+    expect(await sendWebhook(webhookText({ paymentId, status: 'chargeback' }))).toBe(204);
     expect(await sendWebhook(webhookText({ paymentId: 'pay-never-asked', status: 'succeeded' }))).toBe(204);
     expect(await sendWebhook(webhookText({ paymentId, status: 'succeeded' }))).toBe(204);
     expect(await sendWebhook(webhookText({ paymentId, status: 'succeeded' }))).toBe(204);

@@ -12,6 +12,11 @@ export interface ISettlementBooks {
    */
   ofPayment(providerPaymentId: string): Promise<SettlementBook | undefined>;
   /**
+   * The book of the group the settlement belongs to, as it is stored, whatever the settlement is; `undefined` when there is no such
+   * settlement. Read inside the transaction, where the settlement's own query cannot be used (request 15).
+   */
+  ofSettlement(settlementId: string): Promise<SettlementBook | undefined>;
+  /**
    * Stores what the book recorded and what the provider ended, if the book is still at the version it was read at: a conflict
    * otherwise (ConcurrencyConflictException, CONC-OPTIMISTIC, docs/adr/0013). The store then holds one version more.
    */

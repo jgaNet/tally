@@ -69,6 +69,45 @@ export const payThroughProvider = command(
     },
 );
 
+/** What a payee gives to refund a settlement paid through the provider: the settlement's id (request 15). */
+export interface RefundSettlementInput {
+  id: string;
+}
+
+/**
+ * Asks the provider to refund a settlement paid through it, whole, for its payee (request 15, docs/adr/0015). The settlement's book is read
+ * first: a settlement that is not in a group the caller is a member of does not exist for it (`404`). The book decides which settlements may be
+ * refunded: a paid one through the provider, asked by its payee, whose payer and payee are still members (anything else is refused, `403`
+ * for another member or `422`, and nothing changes). The provider is asked next, and the settlement is `refunding` once it accepted: the
+ * balances still count it until the provider's webhook says it is refunded. A provider that does not accept refuses the refund, and nothing
+ * changes. Answers `204`: there is nothing to say back.
+ */
+export const refundSettlement = command(
+  'RefundSettlement',
+  (books: ISettlementBooks, members: ISettlementMembers, provider: IPaymentProvider) =>
+    async ({ id }: RefundSettlementInput, context) => {
+      const by = callerOf(context);
+      const book = await books.ofSettlement(id);
+      if (!book) return Result.fail(new NotFoundException('Settlements', 'There is no such settlement'));
+      const group = await members.groupOf(by, book.groupId);
+      if (!group) return Result.fail(new NotFoundException('Settlements', 'There is no such settlement'));
+
+      const request = { by, settlementId: id, members: group.members.map(member => member.memberId) };
+      const reserved = book.reserveRefund(request);
+      if (reserved.isFailure()) return reserved;
+
+      const asked = await provider.refundPayment({ paymentId: reserved.data.providerPaymentId, reference: id });
+      if (asked.isFailure()) return asked;
+
+      const recorded = book.recordRefund(request);
+      if (recorded.isFailure()) return recorded;
+      const saved = await books.save(book);
+      if (saved.isFailure()) return saved;
+      await publishDomainEvents(book, context);
+      return Result.ok(undefined);
+    },
+);
+
 /** What the provider's webhook says: the body as it was sent (signed), the signature it carries, and the payment and its status. */
 export interface ReceivePaymentWebhookInput {
   body: string;
@@ -81,7 +120,8 @@ export interface ReceivePaymentWebhookInput {
  * The provider's webhook: a signed word that a payment ended (request 13, docs/adr/0014). Anyone may send it: the signature is the proof,
  * checked over the body as sent before anything is decided, and a missing or wrong one is refused with `401`. A webhook about a payment
  * Tally does not know changes nothing, and so does a status that is not an end, or one for a payment that is not pending any more: the
- * provider is acknowledged whatever it says. A payment that succeeded makes its settlement paid, and one that failed makes it failed.
+ * provider is acknowledged whatever it says. A payment that succeeded makes its settlement paid, and one that failed makes it failed; one that
+ * was refunded makes its settlement refunded, once (request 15).
  */
 export const receivePaymentWebhook = command(
   'ReceivePaymentWebhook',
@@ -94,7 +134,7 @@ export const receivePaymentWebhook = command(
       const book = await books.ofPayment(paymentId);
       if (!book) return Result.ok(undefined);
       book.settleProviderPayment({ providerPaymentId: paymentId, status });
-      if (book.ended.length === 0) return Result.ok(undefined);
+      if (book.moved.length === 0) return Result.ok(undefined);
 
       const saved = await books.save(book);
       if (saved.isFailure()) return saved;

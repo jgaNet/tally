@@ -47,3 +47,27 @@ export class SettlementFailedEvent extends DomainEvent<{
   to: string;
   amount: number;
 }> {}
+
+/**
+ * A paid settlement through the provider was asked to be refunded by its payee: it is `refunding` until the provider's webhook says it
+ * is refunded, and the balances still count it as paid (request 15, docs/adr/0015). Recorded by `SettlementBook.recordRefund()`.
+ */
+export class RefundRequestedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  from: string;
+  to: string;
+  amount: number;
+}> {}
+
+/**
+ * The provider says a settlement's payment was refunded: the settlement is `refunded`, and the balances no longer count it, as if it had
+ * never been paid (request 15, docs/adr/0015). Recorded by `SettlementBook.settleProviderPayment()`, once.
+ */
+export class SettlementRefundedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  from: string;
+  to: string;
+  amount: number;
+}> {}
