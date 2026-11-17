@@ -18,4 +18,14 @@ export class GroupsMembers implements IGroupMembers {
   async hasBeenMember(groupId: Id, accountId: Id): Promise<boolean> {
     return this.groups.hasBeenMember(groupId.value, accountId.value);
   }
+
+  async balancesPassed(groupId: Id): Promise<Map<string, number>> {
+    const passed = await this.groups.balancesPassed(groupId.value);
+    const sums = new Map<string, number>();
+    for (const { fromId, toId, amount } of passed) {
+      sums.set(fromId, (sums.get(fromId) ?? 0) - amount);
+      sums.set(toId, (sums.get(toId) ?? 0) + amount);
+    }
+    return sums;
+  }
 }

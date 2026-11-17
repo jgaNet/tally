@@ -12,6 +12,7 @@ import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes'
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { authenticate, groupsModuleWith } from '@Contexts/Groups/module.local';
 import { LedgerMemberBalances } from '@Contexts/Groups/Infrastructure/LedgerMemberBalances';
+import { SettlementsWaitingPayments } from '@Contexts/Groups/Infrastructure/SettlementsWaitingPayments';
 import { accountRoutes, groupRoutes, invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
 import {
   groupBalanceSums,
@@ -19,7 +20,11 @@ import {
   localLedgerModule,
   memberBalanceSumsInCommand,
 } from '@Contexts/Ledger/module.local';
-import { memberDebtsWith, settlementsModuleWith } from '@Contexts/Settlements/module.local';
+import {
+  memberDebtsWith,
+  memberPaymentsWaitingInCommand,
+  settlementsModuleWith,
+} from '@Contexts/Settlements/module.local';
 import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/LedgerGroupBalances';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
@@ -53,9 +58,12 @@ export async function createApplication({
   clock?: Clock;
 } = {}): Promise<FastifyApplication> {
   const database = SqliteDatabase.shared();
-  // Groups asks Ledger a member's balance when one leaves (ADR 4): the two wirings do not import each other, so the
-  // composition root gives Groups the port over Ledger's read.
-  const localGroupsModule = groupsModuleWith(new LedgerMemberBalances(memberBalanceSumsInCommand));
+  // Groups asks Ledger a member's balance when one leaves (ADR 4), and Settlements whether a payment of theirs waits at the
+  // provider (ADR 13): the wirings do not import each other, so the composition root gives Groups both ports over their reads.
+  const localGroupsModule = groupsModuleWith(
+    new LedgerMemberBalances(memberBalanceSumsInCommand),
+    new SettlementsWaitingPayments(memberPaymentsWaitingInCommand),
+  );
   // Settlements decides on the balances Ledger reads (GroupBalances, ADR 5, ADR 7), outside a transaction for its
   // queries and inside the command's for its command; Ledger in turn reads what Settlements paid. Neither wiring imports
   // the other's module, so the composition root gives Settlements the balances.

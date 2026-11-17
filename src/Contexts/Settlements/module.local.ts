@@ -33,6 +33,8 @@ import { SqliteSettlementEffects } from '@Contexts/Settlements/Infrastructure/Sq
 import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountRepository';
 import { SqlitePayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountQueries';
 import { SettlementsMemberDebts } from '@Contexts/Settlements/Infrastructure/SettlementsMemberDebts';
+import { SqliteMemberPaymentsWaiting } from '@Contexts/Settlements/Infrastructure/SqliteMemberPaymentsWaiting';
+import { IMemberPaymentsWaiting } from '@Contexts/Settlements/Domain/Settlement/Ports/IMemberPaymentsWaiting';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADR 5, ADR 6, ADR 7, ADR 8), kept in the application's SQLite file. Its
@@ -54,6 +56,12 @@ export const settlementEffectsInCommand: ISettlementEffects = new SqliteSettleme
   'paid',
   'refunding',
 ]);
+
+/**
+ * Whether a member has a payment waiting at the provider, exported for Groups' command (WaitingPayments, ADR 13): inside the
+ * asking command's transaction. The composition root hands it to Groups' module; this wiring does not import Groups'.
+ */
+export const memberPaymentsWaitingInCommand: IMemberPaymentsWaiting = new SqliteMemberPaymentsWaiting(database);
 
 /** What the payments waiting at the provider do to each balance, for the suggestions (ADR 8), outside any transaction. */
 const waitingEffects: IWaitingEffects = new SqliteSettlementEffects(database, false, ['pending']);

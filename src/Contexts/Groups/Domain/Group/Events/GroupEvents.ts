@@ -16,6 +16,18 @@ export class MemberJoinedEvent extends DomainEvent<{
   joinedAt: string;
 }> {}
 
+/**
+ * A member left a group with a balance, which passed to the group's owner in the same step (request 20): the leaver, the
+ * owner it passed to, the amount (negative when the leaver was owed), and when. A balance of 0 passes nothing, and is recorded all the same.
+ */
+export class BalancePassedEvent extends DomainEvent<{
+  groupId: string;
+  fromId: string;
+  toId: string;
+  amount: number;
+  passedAt: string;
+}> {}
+
 /** A member left a group, and when: it is no longer among the members, and what it did in the group stays as it was. */
 export class MemberLeftEvent extends DomainEvent<{
   groupId: string;

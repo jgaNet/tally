@@ -118,16 +118,22 @@ describe('Leaving a group', () => {
     expect((balances.body as { memberId: string }[]).map(balance => balance.memberId)).toEqual([alice.id, bob.id]);
   });
 
-  it('refuses a member whose balance is not 0, and a member who is not in the group', async () => {
+  it('lets a member leave with a balance that is not 0, and refuses a member who is not in the group', async () => {
     const { alice, bob, groupId } = await trio();
-    // Bob pays 100 for himself and Alice: Bob is owed 50.
+    // Bob pays 100 for himself and Alice: Bob is owed 50, and Alice owes 50.
     await record(bob.token, groupId, {
       description: 'Taxi',
       amount: 100,
       date: today(),
       splitBetween: [alice.id, bob.id],
     });
-    expect((await leave(groupId, bob)).body).toMatchObject({ status: 'ERROR', error: { type: 'BalanceNotZero' } });
+    expect((await leave(groupId, bob)).body).toMatchObject({ status: 'SUCCESS' });
+    // What Bob was owed passed to Alice, the owner: Alice's balance is what it was less 50, and Bob's is gone with him.
+    const balances = await http.get(`${api}/groups/${groupId}/balances`, { token: alice.token });
+    expect(balances.body).toEqual([
+      { memberId: alice.id, balance: 0 },
+      { memberId: expect.any(String), balance: 0 },
+    ]);
     const stranger = await person('Eve');
     expect((await leave(groupId, stranger)).body).toMatchObject({ status: 'ERROR' });
   });
@@ -191,15 +197,49 @@ describe('Leaving a group', () => {
   });
 });
 
-describe('Groups → Ledger → Groups: a member leaves on the balance Ledger has for it (MemberBalances)', () => {
-  it('asks Ledger the balance, and the leave is refused while it is not 0', async () => {
-    const { alice, bob, groupId } = await trio();
+describe('Groups → Ledger → Groups: a member leaves on the balance Ledger has for it, which passes to the owner (MemberBalances)', () => {
+  it('asks Ledger the balance, and the balance passes to the owner in the same step', async () => {
+    const { alice, bob, dan, groupId } = await trio();
+    // Alice pays 600 for Bob and Dan: each owes 300, and Alice is owed 600.
     await record(alice.token, groupId, {
-      description: 'Rent',
-      amount: 90,
+      description: 'Hotel',
+      amount: 600,
       date: today(),
-      splitBetween: [alice.id, bob.id],
+      splitExactly: [
+        { memberId: alice.id, amount: 0 },
+        { memberId: bob.id, amount: 300 },
+        { memberId: dan.id, amount: 300 },
+      ],
     });
-    expect((await leave(groupId, bob)).body).toMatchObject({ status: 'ERROR', error: { type: 'BalanceNotZero' } });
+    expect((await leave(groupId, bob)).body).toMatchObject({ status: 'SUCCESS' });
+
+    // Alice 300, Dan -300: the balances still add up to 0, and Bob is in no list of the group.
+    const balances = await http.get(`${api}/groups/${groupId}/balances`, { token: alice.token });
+    expect(balances.body).toEqual([
+      { memberId: alice.id, balance: 300 },
+      { memberId: dan.id, balance: -300 },
+    ]);
+  });
+
+  it('keeps what passed when the member who left joins again, which starts at 0', async () => {
+    const { alice, bob, dan, groupId } = await trio();
+    await record(alice.token, groupId, {
+      description: 'Hotel',
+      amount: 600,
+      date: today(),
+      splitExactly: [
+        { memberId: alice.id, amount: 0 },
+        { memberId: bob.id, amount: 300 },
+        { memberId: dan.id, amount: 300 },
+      ],
+    });
+    await leave(groupId, bob);
+    await join(groupId, alice, bob);
+    const balances = await http.get(`${api}/groups/${groupId}/balances`, { token: alice.token });
+    expect(balances.body).toEqual([
+      { memberId: alice.id, balance: 300 },
+      { memberId: dan.id, balance: -300 },
+      { memberId: bob.id, balance: 0 },
+    ]);
   });
 });

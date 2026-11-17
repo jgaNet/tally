@@ -14,4 +14,10 @@ export interface IGroupMembers {
   currentMembers(groupId: Id): Promise<Id[]>;
   roleOf(groupId: Id, accountId: Id): Promise<MemberRole | null>;
   hasBeenMember(groupId: Id, accountId: Id): Promise<boolean>;
+  /**
+   * What passed to each member when a member left the group, in Ledger's words (request 20): the owner's balance went up by
+   * what the leaver owed or was owed, and the leaver's went down by it, so this adds up to 0 over the group. A member with
+   * nothing passed is absent (0). Ledger counts it in every balance it reads.
+   */
+  balancesPassed(groupId: Id): Promise<Map<string, number>>;
 }

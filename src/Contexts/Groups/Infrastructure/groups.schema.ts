@@ -22,6 +22,17 @@ export const GROUP_STATEMENTS = [
      PRIMARY KEY (group_id, account_id)
    )`,
   `CREATE INDEX IF NOT EXISTS group_members_by_account ON group_members (account_id)`,
+  // The balances that passed to the owner when a member left (request 20, ADR 13): facts, one per leave, in the order they
+  // were made. They outlive the membership of the member who left, which a new join replaces.
+  `CREATE TABLE IF NOT EXISTS group_balances_passed (
+     group_id TEXT NOT NULL,
+     position INTEGER NOT NULL,
+     from_id TEXT NOT NULL,
+     to_id TEXT NOT NULL,
+     amount INTEGER NOT NULL,
+     passed_at TEXT NOT NULL,
+     PRIMARY KEY (group_id, position)
+   )`,
   `CREATE TABLE IF NOT EXISTS group_invitations (
      id TEXT PRIMARY KEY,
      group_id TEXT NOT NULL,

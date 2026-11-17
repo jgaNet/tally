@@ -23,7 +23,16 @@ export function groupIdsOf(connection: DatabaseSync): string[] {
 
 /** A balance is the expenses' part plus what the settlements paid to it (ADR 7): a member's balance, read by Ledger, counts both. */
 export function withSettled(entries: Map<string, number>, settled: Map<string, number>): Map<string, number> {
-  const sums = new Map(entries);
-  for (const [memberId, amount] of settled) sums.set(memberId, (sums.get(memberId) ?? 0) + amount);
+  return addSums(entries, settled);
+}
+
+/** A balance also counts what passed to it, or from it, when a member left (request 20): a member's balance, read by Ledger, counts it. */
+export function withPassed(entries: Map<string, number>, passed: Map<string, number>): Map<string, number> {
+  return addSums(entries, passed);
+}
+
+function addSums(base: Map<string, number>, extra: Map<string, number>): Map<string, number> {
+  const sums = new Map(base);
+  for (const [memberId, amount] of extra) sums.set(memberId, (sums.get(memberId) ?? 0) + amount);
   return sums;
 }

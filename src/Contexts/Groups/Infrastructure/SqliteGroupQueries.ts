@@ -60,6 +60,21 @@ export class SqliteGroupQueries implements IGroupQueries, IGroupMembership {
     return (row as { role: 'owner' | 'member' } | undefined)?.role ?? null;
   }
 
+  async balancesPassed(groupId: string): Promise<{ fromId: string; toId: string; amount: number }[]> {
+    const rows = await this.database.exclusive(
+      connection =>
+        connection
+          .prepare(
+            'SELECT from_id AS fromId, to_id AS toId, amount FROM group_balances_passed WHERE group_id = ? ORDER BY position',
+          )
+          .all(groupId) as unknown,
+    );
+    return (rows as { fromId: string; toId: string; amount: number }[]).map(row => ({
+      ...row,
+      amount: Number(row.amount),
+    }));
+  }
+
   async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {
     const row = await this.database.exclusive(
       connection =>

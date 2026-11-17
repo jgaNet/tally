@@ -33,6 +33,7 @@ import { SqliteGroupMembership } from '@Contexts/Groups/Infrastructure/SqliteGro
 import { SqliteGroupCurrency } from '@Contexts/Groups/Infrastructure/SqliteGroupCurrency';
 import { IGroupCurrency } from '@Contexts/Groups/Domain/Group/Ports/IGroupCurrency';
 import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
+import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPayments';
 import { LeaveGroupCommandEvent, LeaveGroupCommandHandler } from '@Contexts/Groups/Application/Commands';
 
 /**
@@ -63,10 +64,11 @@ export const groupCurrencyInCommand: IGroupCurrency = new SqliteGroupCurrency(da
 export const authenticate = authenticateWith(tokens);
 
 /**
- * The Groups module, given the port it asks of Ledger when a member leaves (MemberBalances, ADR 4). The composition root
- * gives it Ledger's read: this wiring does not import Ledger's, which imports this one (ADR 3).
+ * The Groups module, given the ports it asks when a member leaves: the balance it asks of Ledger (MemberBalances, ADR 4), and
+ * whether a payment of the member waits at the provider (WaitingPayments, ADR 13). The composition root gives it both reads:
+ * this wiring does not import Ledger's or Settlements', which import this one (ADR 3).
  */
-export function groupsModuleWith(memberBalances: IMemberBalances): Module {
+export function groupsModuleWith(memberBalances: IMemberBalances, waitingPayments: IWaitingPayments): Module {
   return new Module({
     name: 'Groups',
     commands: [
@@ -100,7 +102,14 @@ export function groupsModuleWith(memberBalances: IMemberBalances): Module {
       },
       {
         event: LeaveGroupCommandEvent,
-        handlers: [new LeaveGroupCommandHandler(new SqliteGroupRepository(database), memberBalances, systemClock)],
+        handlers: [
+          new LeaveGroupCommandHandler(
+            new SqliteGroupRepository(database),
+            memberBalances,
+            waitingPayments,
+            systemClock,
+          ),
+        ],
       },
     ],
     queries: [

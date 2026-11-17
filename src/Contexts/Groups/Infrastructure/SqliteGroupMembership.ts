@@ -30,6 +30,15 @@ export class SqliteGroupMembership implements IGroupMembership {
     return row?.role ?? null;
   }
 
+  async balancesPassed(groupId: string): Promise<{ fromId: string; toId: string; amount: number }[]> {
+    const rows = this.database.connection
+      .prepare(
+        'SELECT from_id AS fromId, to_id AS toId, amount FROM group_balances_passed WHERE group_id = ? ORDER BY position',
+      )
+      .all(groupId) as { fromId: string; toId: string; amount: number }[];
+    return rows.map(row => ({ ...row, amount: Number(row.amount) }));
+  }
+
   async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {
     const row = this.database.connection
       .prepare('SELECT 1 AS found FROM group_members WHERE group_id = ? AND account_id = ?')

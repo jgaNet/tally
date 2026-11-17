@@ -1,16 +1,20 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { IMemberBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalanceSums';
 import { ISettledAmounts } from '@Contexts/Ledger/Domain/Expense/Ports/ISettledAmounts';
+import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { EXPENSE_STATEMENTS } from '@Contexts/Ledger/Infrastructure/expenses.schema';
+import { Id } from '@Architecture/Domain';
 
 /**
  * Ledger's balance of one member, inside the asking command's transaction: the expenses' entries over the connection the
- * transaction holds (ADR 2), plus what the settlements paid to the member, read in the same transaction (ADR 7).
+ * transaction holds (ADR 2), plus what the settlements paid to the member, and what passed to or from it when a member left
+ * (request 20), all read in the same transaction.
  */
 export class SqliteMemberBalanceSums implements IMemberBalanceSums {
   constructor(
     private readonly database: SqliteDatabase,
     private readonly settled: ISettledAmounts,
+    private readonly members: IGroupMembers,
   ) {
     database.migrate(EXPENSE_STATEMENTS);
   }
@@ -22,6 +26,7 @@ export class SqliteMemberBalanceSums implements IMemberBalanceSums {
       )
       .get(groupId, memberId) as { balance: number };
     const settled = (await this.settled.settledByMember(groupId)).get(memberId) ?? 0;
-    return Number(row.balance) + settled;
+    const passed = (await this.members.balancesPassed(new Id(groupId))).get(memberId) ?? 0;
+    return Number(row.balance) + settled + passed;
   }
 }

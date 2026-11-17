@@ -181,7 +181,7 @@ describe('Settlements: a settlement in cash is recorded by its payee, and the ba
     expect(await balances(groupId, ann.token)).toEqual({ [ann.id]: 0, [bob.id]: 0 });
   });
 
-  it('counts a settlement in leaving: a member who owed cannot leave, and one who was paid back can', async () => {
+  it('counts a settlement in leaving: a member who owed leaves, and what they owed passes to the owner, once settled or not', async () => {
     const ann = await person('Ann');
     const bob = await person('Bob');
     const groupId = await createGroup(ann);
@@ -193,12 +193,11 @@ describe('Settlements: a settlement in cash is recorded by its payee, and the ba
       splitBetween: [ann.id, bob.id],
     });
 
+    // Bob owes 30, which passes to Ann when Bob leaves (request 20): Ann's 30 is then settled by it, and nothing is left.
     const before = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
-    expect((await outcome((before.body as Body).operationId as string, bob.token)).body.status).toBe('ERROR');
-
-    await settleInCash(ann.token, groupId, { from: bob.id, amount: 30 });
-    const after = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
-    expect((await outcome((after.body as Body).operationId as string, bob.token)).body.status).toBe('SUCCESS');
+    expect((await outcome((before.body as Body).operationId as string, bob.token)).body.status).toBe('SUCCESS');
+    const balances = await http.get(`${api}/groups/${groupId}/balances`, { token: ann.token });
+    expect(balances.body).toEqual([{ memberId: ann.id, balance: 0 }]);
   });
 
   it('answers a settlement to a member of its group only, and to nobody else as not found', async () => {

@@ -43,17 +43,29 @@ const database = SqliteDatabase.shared();
 const settledForQueries = new SettlementsSettledAmounts(settlementEffects);
 const settledInCommand = new SettlementsSettledAmounts(settlementEffectsInCommand);
 
+/** Who passed what when a member left (request 20), as Ledger reads it through GroupMembers: outside a transaction, and inside the asking command's. */
+const membersForQueries = new GroupsMembers(groupMembership);
+const membersInCommand = new GroupsMembers(groupMembershipInCommand);
+
 /**
  * Ledger's balance of a member as Groups asks it when a member leaves (MemberBalances, ADR 4), exported for a command:
  * it reads inside the asking command's transaction. The composition root hands it to Groups' module.
  */
-export const memberBalanceSumsInCommand: IMemberBalanceSums = new SqliteMemberBalanceSums(database, settledInCommand);
+export const memberBalanceSumsInCommand: IMemberBalanceSums = new SqliteMemberBalanceSums(
+  database,
+  settledInCommand,
+  membersInCommand,
+);
 
 /**
  * The balances of each group as Settlements reads them (GroupBalances, ADR 5), exported for a query: outside any
  * transaction. The composition root's Settlements wiring takes it; this wiring does not import Settlements' module.
  */
-export const groupBalanceSums: IGroupBalanceSums = new SqliteBalanceQueries(database, settledForQueries);
+export const groupBalanceSums: IGroupBalanceSums = new SqliteBalanceQueries(
+  database,
+  settledForQueries,
+  membersForQueries,
+);
 
 /**
  * The balances of each group as a settlement is decided on them (GroupBalances, ADR 7), exported for a command: inside
@@ -62,6 +74,7 @@ export const groupBalanceSums: IGroupBalanceSums = new SqliteBalanceQueries(data
 export const groupBalanceSumsInCommand: IGroupBalanceSums = new SqliteGroupBalanceSumsInCommand(
   database,
   settledInCommand,
+  membersInCommand,
 );
 
 export const localLedgerModule = new Module({
@@ -102,8 +115,8 @@ export const localLedgerModule = new Module({
   queries: [
     new GetExpenseQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
     new GetGroupBalancesQueryHandler(
-      new SqliteBalanceQueries(database, settledForQueries),
-      new GroupsMembers(groupMembership),
+      new SqliteBalanceQueries(database, settledForQueries, membersForQueries),
+      membersForQueries,
     ),
     new GetGroupExpensesQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
     new GetMemberStatementQueryHandler(new SqliteStatementQueries(database), new GroupsMembers(groupMembership)),

@@ -5,6 +5,14 @@ export interface MembershipSnapshot {
   leftAt: string | null;
 }
 
+/** A balance that passed from a member who left to the owner of the group, as it is stored: the amount, and when. */
+export interface PassedBalanceSnapshot {
+  fromId: string;
+  toId: string;
+  amount: number;
+  passedAt: string;
+}
+
 /** A group as it is stored and reconstituted: plain values, its memberships in the order they joined, its version included. */
 export interface GroupSnapshot {
   id: string;
@@ -12,6 +20,8 @@ export interface GroupSnapshot {
   currency: string;
   ownerId: string;
   members: MembershipSnapshot[];
+  /** The balances that passed to the owner when a member left, the earliest first: facts, never changed. */
+  passed: PassedBalanceSnapshot[];
   createdAt: string;
   version: number;
 }

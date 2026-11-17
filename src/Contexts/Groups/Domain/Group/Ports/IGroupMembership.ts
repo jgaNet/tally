@@ -9,4 +9,6 @@ export interface IGroupMembership {
   hasBeenMember(groupId: string, accountId: string): Promise<boolean>;
   /** The role of an account in a group: `owner` for the one who made it, `member` for the others, null when it is not a member now (or the group does not exist). */
   roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null>;
+  /** The balances that passed when members left the group, each with its member who left, the owner it passed to and the amount, the earliest first. */
+  balancesPassed(groupId: string): Promise<{ fromId: string; toId: string; amount: number }[]>;
 }

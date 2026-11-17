@@ -17,6 +17,7 @@ why, what it costs, and when to revisit it.
 | [10](0010-payout-accounts-in-settlements.md) | Payout accounts live in Settlements, and a payment is paid to the payee's account |
 | [11](0011-notices-and-the-expense-event.md) | Notices: Ledger publishes ExpenseRecorded, and Notifications makes one notice per member |
 | [12](0012-reminders-the-sweep-and-the-debt-watch.md) | Reminders: a background sweep keeps a debt watch per member, and Settlements answers what is still owed |
+| [13](0013-leaving-with-a-balance.md) | Leaving with a balance: the balance passes to the owner, Groups keeps the fact, and Settlements says whether a payment waits |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

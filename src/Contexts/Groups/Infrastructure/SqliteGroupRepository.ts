@@ -26,6 +26,11 @@ export class SqliteGroupRepository implements IGroupRepository {
     const members = connection
       .prepare('SELECT account_id, joined_at, left_at FROM group_members WHERE group_id = ? ORDER BY position')
       .all(id.value) as { account_id: string; joined_at: string; left_at: string | null }[];
+    const passed = connection
+      .prepare(
+        'SELECT from_id, to_id, amount, passed_at FROM group_balances_passed WHERE group_id = ? ORDER BY position',
+      )
+      .all(id.value) as { from_id: string; to_id: string; amount: number; passed_at: string }[];
     return Group.fromSnapshot({
       id: row.id,
       name: row.name,
@@ -36,13 +41,19 @@ export class SqliteGroupRepository implements IGroupRepository {
         joinedAt: member.joined_at,
         leftAt: member.left_at,
       })),
+      passed: passed.map(fact => ({
+        fromId: fact.from_id,
+        toId: fact.to_id,
+        amount: Number(fact.amount),
+        passedAt: fact.passed_at,
+      })),
       createdAt: row.created_at,
       version: row.version,
     });
   }
 
   async save(group: Group): Promise<IResult> {
-    const { id, name, currency, ownerId, members, createdAt, version } = group.toSnapshot();
+    const { id, name, currency, ownerId, members, passed, createdAt, version } = group.toSnapshot();
     const { connection } = this.database;
     if (version === 0) {
       connection
@@ -65,6 +76,14 @@ export class SqliteGroupRepository implements IGroupRepository {
           'INSERT INTO group_members (group_id, account_id, position, joined_at, left_at) VALUES (?, ?, ?, ?, ?)',
         )
         .run(id, accountId, position, joinedAt, leftAt),
+    );
+    // A balance that passed is a fact: each is written once, at its position, and never changed (INSERT OR IGNORE).
+    passed.forEach((fact, position) =>
+      connection
+        .prepare(
+          'INSERT OR IGNORE INTO group_balances_passed (group_id, position, from_id, to_id, amount, passed_at) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+        .run(id, position, fact.fromId, fact.toId, fact.amount, fact.passedAt),
     );
     return Result.ok();
   }

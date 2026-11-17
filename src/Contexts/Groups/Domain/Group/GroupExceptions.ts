@@ -37,8 +37,8 @@ export class OwnerCannotLeave extends GroupException {
   }
 }
 
-export class BalanceNotZero extends GroupException {
+export class PaymentWaitingAtProvider extends GroupException {
   constructor() {
-    super('BalanceNotZero', 'A member leaves a group only once their balance in it is 0');
+    super('PaymentWaitingAtProvider', 'A member leaves a group once no payment of theirs is waiting at the provider');
   }
 }
