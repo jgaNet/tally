@@ -6,3 +6,5 @@ export { CreateInvitationCommandEvent } from '@Contexts/Groups/Application/Comma
 export { CreateInvitationCommandHandler } from '@Contexts/Groups/Application/Commands/CreateInvitation/CreateInvitationCommandHandler';
 export { AcceptInvitationCommandEvent } from '@Contexts/Groups/Application/Commands/AcceptInvitation/AcceptInvitationCommandEvent';
 export { AcceptInvitationCommandHandler } from '@Contexts/Groups/Application/Commands/AcceptInvitation/AcceptInvitationCommandHandler';
+export { LeaveGroupCommandEvent } from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandEvent';
+export { LeaveGroupCommandHandler } from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandHandler';

@@ -64,5 +64,12 @@ export const groupRoutes = function (
     controller.acceptInvitation.bind(controller),
   );
 
+  // Leaving is answered later, as joining is: once the member's balance in the group is 0 (request 9).
+  fastify.post(
+    '/groups/:id/leave',
+    { schema: { tags: ['groups'], response: LaterCommandResSchema } },
+    controller.leaveGroup.bind(controller),
+  );
+
   done();
 };

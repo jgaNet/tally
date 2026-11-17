@@ -9,6 +9,8 @@ import {
   CreateGroupCommandHandler,
   CreateInvitationCommandEvent,
   CreateInvitationCommandHandler,
+  LeaveGroupCommandEvent,
+  LeaveGroupCommandHandler,
   SignUpCommandEvent,
   SignUpCommandHandler,
 } from '@Contexts/Groups/Application/Commands';
@@ -29,6 +31,8 @@ import { SqliteGroupRepository } from '@Contexts/Groups/Infrastructure/SqliteGro
 import { SqliteInvitationReadModels } from '@Contexts/Groups/Infrastructure/SqliteInvitationReadModels';
 import { SqliteInvitationRepository } from '@Contexts/Groups/Infrastructure/SqliteInvitationRepository';
 import { authenticateWithToken } from '@Contexts/Groups/Presentation/API/REST/authenticate';
+import { BalancesFromLedger } from '@Contexts/Groups/Infrastructure/BalancesFromLedger';
+import { memberBalances as ledgerMemberBalances } from '@Contexts/Ledger/module.local';
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
 
 const database = sharedDatabase();
@@ -47,6 +51,13 @@ const tokens = HmacTokenIssuer.inDatabase(database);
  */
 export const groupMembers: IGroupMembersQueries = groupReadModels;
 
+/**
+ * The balance a member has in a group, read from Ledger's read model before the member may leave it (ADR 4). Ledger's
+ * wiring imports `groupMembers` from this file, so the two files import each other: the adapter reads Ledger's export
+ * when the balance is asked, not while this file is evaluated.
+ */
+const balances = new BalancesFromLedger(() => ledgerMemberBalances);
+
 /** Says who is calling, for the transport: the account a bearer token names. */
 export const authenticate = authenticateWithToken(tokens, systemClock);
 
@@ -63,6 +74,10 @@ export const localGroupsModule = new Module({
     {
       event: AcceptInvitationCommandEvent,
       handlers: [new AcceptInvitationCommandHandler(invitations, groups, systemClock)],
+    },
+    {
+      event: LeaveGroupCommandEvent,
+      handlers: [new LeaveGroupCommandHandler(groups, balances, systemClock)],
     },
   ],
   queries: [

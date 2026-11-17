@@ -7,6 +7,8 @@ import { createAccountsTable } from '@Contexts/Groups/Infrastructure/AccountsTab
  * asks for it. A member's row is kept in join order (`position`), so that the owner, the first, is the first row, and
  * with the time it joined. A group's `version` is the one it was last saved at (ADR 8).
  *
+ * A member who left keeps its row, with the time it left (`left_at`, ADR 4): a row with no `left_at` is a current member.
+ *
  * A file made before the members had their join time and the groups their version is brought up to date here: each
  * member of such a file was the owner, who joined when the group was created.
  */
@@ -37,6 +39,7 @@ export function createGroupsTables(database: SqliteDatabase): void {
 
   addColumnUnlessThere(database, 'groups', 'version', 'INTEGER NOT NULL DEFAULT 1');
   addColumnUnlessThere(database, 'group_members', 'joined_at', "TEXT NOT NULL DEFAULT ''");
+  addColumnUnlessThere(database, 'group_members', 'left_at', 'TEXT');
   database.exec(`UPDATE group_members SET joined_at = (
     SELECT g.created_at FROM groups g WHERE g.id = group_members.group_id
   ) WHERE joined_at = ''`);

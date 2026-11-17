@@ -1,10 +1,19 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import { GroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
-import { GroupCreatedEvent, MemberJoinedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import {
+  GroupCreatedEvent,
+  MemberJoinedEvent,
+  MemberLeftEvent,
+} from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
-import { AlreadyAMember } from '@Contexts/Groups/Domain/Group/GroupExceptions';
+import {
+  AlreadyAMember,
+  BalanceNotZero,
+  NotAMember,
+  OwnerCannotLeave,
+} from '@Contexts/Groups/Domain/Group/GroupExceptions';
 
 /** One member of a group: an account, from the moment it joined. */
 export interface Membership {
@@ -12,9 +21,16 @@ export interface Membership {
   joinedAt: Date;
 }
 
+/** A member who left: the membership it had, and when it left (ADR 4). */
+export interface Departure extends Membership {
+  leftAt: Date;
+}
+
 /**
  * A group of people who share expenses, in one currency fixed when it is created and never changed. Its owner is its
- * first member; whoever joins later joins by an invitation, once, and a group's members are the only ones who may see it.
+ * first member; whoever joins later joins by an invitation, and may leave once their balance is 0 (the owner never does).
+ * A member who left is kept apart in `departed`: the expenses they were in still say who they were, and joining again
+ * makes them a member once more.
  */
 export class Group extends AggregateRoot {
   private constructor(
@@ -24,6 +40,8 @@ export class Group extends AggregateRoot {
     readonly ownerId: Id,
     /** The members in the order they joined; the owner is the first. */
     readonly members: Membership[],
+    /** The members who left, kept as they were: none of them is in `members`. */
+    readonly departed: Departure[],
     readonly createdAt: Date,
     version: number,
   ) {
@@ -42,7 +60,16 @@ export class Group extends AggregateRoot {
     ownerId: Id;
     now: Date;
   }): Group {
-    const group = new Group(Id.generate(), name, currency, ownerId, [{ accountId: ownerId, joinedAt: now }], now, 0);
+    const group = new Group(
+      Id.generate(),
+      name,
+      currency,
+      ownerId,
+      [{ accountId: ownerId, joinedAt: now }],
+      [],
+      now,
+      0,
+    );
     group.record(GroupCreatedEvent.set({ groupId: group._id.value, ownerId: ownerId.value }));
     return group;
   }
@@ -52,13 +79,17 @@ export class Group extends AggregateRoot {
     const currency = Currency.create(snapshot.currency);
     const createdAt = new Date(snapshot.createdAt);
     const joinedAt = snapshot.members.map(member => new Date(member.joinedAt));
+    const leftAt = snapshot.departed.map(member => new Date(member.leftAt));
+    const current = new Set(snapshot.members.map(member => member.accountId));
     if (
       name.isFailure() ||
       currency.isFailure() ||
       Number.isNaN(createdAt.getTime()) ||
       !snapshot.members.length ||
       snapshot.members[0].accountId !== snapshot.ownerId ||
-      joinedAt.some(date => Number.isNaN(date.getTime()))
+      joinedAt.some(date => Number.isNaN(date.getTime())) ||
+      leftAt.some(date => Number.isNaN(date.getTime())) ||
+      snapshot.departed.some(member => current.has(member.accountId) || member.accountId === snapshot.ownerId)
     ) {
       throw new Error(`The group ${snapshot.id} is corrupted`);
     }
@@ -68,24 +99,53 @@ export class Group extends AggregateRoot {
       currency.data,
       new Id(snapshot.ownerId),
       snapshot.members.map((member, index) => ({ accountId: new Id(member.accountId), joinedAt: joinedAt[index] })),
+      snapshot.departed.map((member, index) => ({
+        accountId: new Id(member.accountId),
+        joinedAt: new Date(member.joinedAt),
+        leftAt: leftAt[index],
+      })),
       createdAt,
       snapshot.version,
     );
   }
 
-  /** Whether this account is one of the group's members: the owner, or whoever joined. */
+  /** Whether this account is one of the group's current members: the owner, or whoever joined and has not left. */
   isMember(accountId: Id): boolean {
     return this.members.some(member => member.accountId.value === accountId.value);
   }
 
+  /** Whether this account has been a member of the group, now or before it left. */
+  hasBeenMember(accountId: Id): boolean {
+    return this.isMember(accountId) || this.departed.some(member => member.accountId.value === accountId.value);
+  }
+
   /**
-   * The account joins the group as its newest member, at `now`, the application's clock. Refused when it is already a
-   * member: an account is a member of a group once.
+   * The account joins the group as its newest member, at `now`, the application's clock. Refused when it is a member
+   * already. A former member joins again the same way: it is taken out of the departed and joins last.
    */
   join({ accountId, now }: { accountId: Id; now: Date }): IResult {
     if (this.isMember(accountId)) return Result.fail(new AlreadyAMember());
+    const index = this.departed.findIndex(member => member.accountId.value === accountId.value);
+    if (index >= 0) this.departed.splice(index, 1);
     this.members.push({ accountId, joinedAt: now });
     this.record(MemberJoinedEvent.set({ groupId: this._id.value, accountId: accountId.value }));
+    return Result.ok();
+  }
+
+  /**
+   * The member leaves the group, at `now`. `balance` is the member's balance in the group, read by the handler from Ledger:
+   * the leave is refused while it is not 0, and the owner never leaves. The member is kept as a former one, with the time it
+   * left. For anyone who is not a member the group does not exist; the handler answers that before it reads the balance.
+   */
+  leave({ accountId, balance, now }: { accountId: Id; balance: number; now: Date }): IResult {
+    if (!this.isMember(accountId)) return Result.fail(new NotAMember());
+    if (accountId.value === this.ownerId.value) return Result.fail(new OwnerCannotLeave());
+    if (balance !== 0) return Result.fail(new BalanceNotZero());
+
+    const index = this.members.findIndex(member => member.accountId.value === accountId.value);
+    const [member] = this.members.splice(index, 1);
+    this.departed.push({ accountId: member.accountId, joinedAt: member.joinedAt, leftAt: now });
+    this.record(MemberLeftEvent.set({ groupId: this._id.value, accountId: accountId.value }));
     return Result.ok();
   }
 
@@ -98,6 +158,11 @@ export class Group extends AggregateRoot {
       members: this.members.map(member => ({
         accountId: member.accountId.value,
         joinedAt: member.joinedAt.toISOString(),
+      })),
+      departed: this.departed.map(member => ({
+        accountId: member.accountId.value,
+        joinedAt: member.joinedAt.toISOString(),
+        leftAt: member.leftAt.toISOString(),
       })),
       createdAt: this.createdAt.toISOString(),
       version: this.version,

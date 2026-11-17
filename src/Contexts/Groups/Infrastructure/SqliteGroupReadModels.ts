@@ -26,11 +26,12 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
     createGroupsTables(database);
   }
 
-  /** A group is read through its members only: the join is what hides it from anyone who is not one. */
+  /** A group is read through its current members only: the join is what hides it from anyone who is not one. */
   async findForMember(groupId: string, accountId: string): Promise<GroupReadModel | null> {
     const row = await this.database.exclusive(() =>
       this.database.get<Row>(
-        `${SELECT} JOIN group_members m ON m.group_id = g.id WHERE g.id = ? AND m.account_id = ?`,
+        `${SELECT} JOIN group_members m ON m.group_id = g.id
+         WHERE g.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
         groupId,
         accountId,
       ),
@@ -41,7 +42,8 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
   async listForMember(accountId: string): Promise<GroupReadModel[]> {
     const rows = await this.database.exclusive(() =>
       this.database.all<Row>(
-        `${SELECT} JOIN group_members m ON m.group_id = g.id WHERE m.account_id = ? ORDER BY g.created_at DESC, g.rowid DESC`,
+        `${SELECT} JOIN group_members m ON m.group_id = g.id
+         WHERE m.account_id = ? AND m.left_at IS NULL ORDER BY g.created_at DESC, g.rowid DESC`,
         accountId,
       ),
     );
@@ -55,12 +57,27 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
    */
   async memberIdsOf(groupId: string): Promise<string[]> {
     return this.database
-      .all<{ account_id: string }>('SELECT account_id FROM group_members WHERE group_id = ? ORDER BY position', groupId)
+      .all<{ account_id: string }>(
+        'SELECT account_id FROM group_members WHERE group_id = ? AND left_at IS NULL ORDER BY position',
+        groupId,
+      )
       .map(row => row.account_id);
   }
 
   /** Whether the account is a member now: asked by a query, outside any transaction, so it waits for one in progress. */
   async isMemberOf(groupId: string, accountId: string): Promise<boolean> {
+    return this.database.exclusive(
+      () =>
+        this.database.get<{ found: number }>(
+          'SELECT 1 AS found FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NULL',
+          groupId,
+          accountId,
+        ) !== undefined,
+    );
+  }
+
+  /** Whether the account has been a member, now or before it left (ADR 4): a former member's statement is still read. */
+  async hasBeenMemberOf(groupId: string, accountId: string): Promise<boolean> {
     return this.database.exclusive(
       () =>
         this.database.get<{ found: number }>(
@@ -75,7 +92,7 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
   async roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null> {
     const row = this.database.get<{ owner_id: string }>(
       `SELECT g.owner_id AS owner_id FROM group_members m JOIN groups g ON g.id = m.group_id
-       WHERE m.group_id = ? AND m.account_id = ?`,
+       WHERE m.group_id = ? AND m.account_id = ? AND m.left_at IS NULL`,
       groupId,
       accountId,
     );
@@ -87,7 +104,7 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
   async listMembers(groupId: string, accountId: string): Promise<MemberReadModel[] | null> {
     return this.database.exclusive(() => {
       const isMember = this.database.get<{ found: number }>(
-        'SELECT 1 AS found FROM group_members WHERE group_id = ? AND account_id = ?',
+        'SELECT 1 AS found FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NULL',
         groupId,
         accountId,
       );
@@ -97,7 +114,7 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
          FROM group_members m
          JOIN accounts a ON a.id = m.account_id
          JOIN groups g ON g.id = m.group_id
-         WHERE m.group_id = ? ORDER BY m.position`,
+         WHERE m.group_id = ? AND m.left_at IS NULL ORDER BY m.position`,
         groupId,
       );
       return rows.map((row): MemberReadModel => ({

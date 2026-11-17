@@ -1,5 +1,5 @@
 import { ExecutionContext, QueryHandler } from '@Architecture/Application';
-import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { IExpenseQueries } from '@Contexts/Ledger/Application/Ports/IExpenseQueries';
@@ -36,9 +36,8 @@ export class GetMemberStatementQueryHandler extends QueryHandler<
     if (!(await this.groupMembers.isMember(groupId, caller.data))) {
       return Result.fail(new NotFoundException('Ledger', 'Group not found', { id: groupId }));
     }
-    // Members are never removed from a group, so the members it has are the ones it has ever had.
-    const members = await this.groupMembers.membersOf(groupId);
-    if (!members.some(member => member.value === memberId)) {
+    // A former member's statement is still read: a member who left is one the group has had (ADR 4).
+    if (!(await this.groupMembers.hasBeenMember(groupId, new Id(memberId)))) {
       return Result.fail(new NotFoundException('Ledger', 'Member not found', { id: memberId }));
     }
 

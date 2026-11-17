@@ -7,6 +7,7 @@ import { IGroupQueries } from '@Contexts/Groups/Application/Ports/IGroupQueries'
 import { GroupReadModel } from '@Contexts/Groups/Application/ReadModel/GroupReadModel';
 import { MemberReadModel } from '@Contexts/Groups/Application/ReadModel/MemberReadModel';
 import { AccountSnapshot } from '@Contexts/Groups/Domain/Account/DTOs';
+import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
 
 /** The groups kept in memory, shared by the in-memory adapters of the ports, for the specs. */
 export type InMemoryGroupStore = Map<string, GroupSnapshot>;
@@ -62,6 +63,19 @@ export class InMemoryGroupReadModels implements IGroupQueries {
       role: member.accountId === snapshot.ownerId ? 'owner' : 'member',
       joinedAt: member.joinedAt,
     }));
+  }
+}
+
+/** The balances a member has in a group, as the test gives them: keyed by the group's id and the member's, 0 when not given. */
+export class InMemoryMemberBalances implements IMemberBalances {
+  constructor(private balances: Map<string, number> = new Map()) {}
+
+  set(groupId: string, accountId: string, balance: number): void {
+    this.balances.set(`${groupId}/${accountId}`, balance);
+  }
+
+  async balanceOf(groupId: string, accountId: Id): Promise<number> {
+    return this.balances.get(`${groupId}/${accountId.value}`) ?? 0;
   }
 }
 

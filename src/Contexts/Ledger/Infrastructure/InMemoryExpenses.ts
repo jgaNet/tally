@@ -92,4 +92,9 @@ export class InMemoryGroupMembers implements IGroupMembers {
     if (!members.includes(accountId.value)) return null;
     return members[0] === accountId.value ? 'owner' : 'member';
   }
+
+  /** The test gives only the current members, so a former one is not known here: it is a member only while it is given. */
+  async hasBeenMember(groupId: string, accountId: Id): Promise<boolean> {
+    return (this.members.get(groupId) ?? []).includes(accountId.value);
+  }
 }

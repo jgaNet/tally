@@ -22,14 +22,21 @@ import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMem
 import { SqliteExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteExpenseReadModels';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 import { SqliteMemberBalances } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalances';
+import { IMemberBalancesQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalancesQueries';
 
 const database = sharedDatabase();
 const expenses = new SqliteExpenseRepository(database);
 const expenseReadModels = new SqliteExpenseReadModels(database);
-/** Who may be in a split: Groups' membership, read through the port Ledger owns (ADR 3). */
-const members = new GroupMembersFromGroups(groupMembers);
+/**
+ * Who may be in a split: Groups' membership, read through the port Ledger owns (ADR 3). Groups' wiring imports `memberBalances`
+ * from this file too (ADR 4), so the port reads Groups' export when it is asked, not while this file is evaluated.
+ */
+const members = new GroupMembersFromGroups(() => groupMembers);
 /** The balances: counted into in the transaction of each expense, and read by a member of the group (T4). */
 const balances = new SqliteMemberBalances(database);
+
+/** A member's balance in a group, read by Groups before the member leaves it (ADR 4): Ledger's read model, exported. */
+export const memberBalances: IMemberBalancesQueries = balances;
 
 /** The Ledger context: the expenses of each group, how each is split, and what each member owes or is owed. */
 export const localLedgerModule = new Module({

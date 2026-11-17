@@ -73,6 +73,16 @@ export class NotAMemberOfTheGroup extends LedgerException {
   }
 }
 
+/**
+ * An expense whose payer, or one of whose split members, has left the group cannot change or be deleted: their balance stays
+ * 0 and the group's balances still add up to 0 (request 9).
+ */
+export class ExpenseConcernsAFormerMember extends LedgerException {
+  constructor() {
+    super('ExpenseConcernsAFormerMember', 'An expense that concerns a member who has left the group cannot change');
+  }
+}
+
 /** An edit made from a version the expense has since left: its author reads it again and decides. */
 export class ExpenseChanged extends LedgerException {
   constructor() {

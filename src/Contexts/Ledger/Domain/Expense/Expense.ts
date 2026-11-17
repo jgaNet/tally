@@ -4,6 +4,7 @@ import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import {
   ExpenseChanged,
+  ExpenseConcernsAFormerMember,
   NotAMemberOfTheGroup,
   NotThePayerOrTheOwner,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
@@ -83,9 +84,10 @@ export class Expense extends AggregateRoot {
 
   /**
    * Replaces the expense, whole, from the version its author read. Only its payer, or the owner of its group, may change
-   * it (`byOwner` is the group's role of the caller, read by the handler). The payer stays the one who paid. The edit is
-   * refused when the expense has changed since `version` was read, and the new shares are computed from what the edit
-   * gives. The returned expense keeps this version: the repository stores version + 1 when it saves it.
+   * it (`byOwner` is the group's role of the caller, read by the handler). The payer stays the one who paid. An expense
+   * whose payer or split members are no longer in `groupMembers` is refused: it concerns a member who has left (request 9).
+   * The edit is refused when the expense has changed since `version` was read, and the new shares are computed from what the
+   * edit gives. The returned expense keeps this version: the repository stores version + 1 when it saves it.
    */
   edit({
     by,
@@ -109,6 +111,7 @@ export class Expense extends AggregateRoot {
     now: Date;
   }): IResult<Expense> {
     if (!this.mayChange(by, byOwner)) return Result.fail(new NotThePayerOrTheOwner());
+    if (this.concernsAFormerMember(groupMembers)) return Result.fail(new ExpenseConcernsAFormerMember());
     if (version !== this.version) return Result.fail(new ExpenseChanged());
 
     const decided = Expense.decide({
@@ -138,9 +141,13 @@ export class Expense extends AggregateRoot {
     return Result.ok(edited);
   }
 
-  /** Deletes the expense: it is gone from every read once the repository removes it. Only its payer or the owner may. */
-  delete({ by, byOwner }: { by: Id; byOwner: boolean }): IResult<Expense> {
+  /**
+   * Deletes the expense: it is gone from every read once the repository removes it. Only its payer or the owner may, and not
+   * an expense that concerns a member who has left (`groupMembers` are the group's current members, read by the handler).
+   */
+  delete({ by, byOwner, groupMembers }: { by: Id; byOwner: boolean; groupMembers: Id[] }): IResult<Expense> {
     if (!this.mayChange(by, byOwner)) return Result.fail(new NotThePayerOrTheOwner());
+    if (this.concernsAFormerMember(groupMembers)) return Result.fail(new ExpenseConcernsAFormerMember());
 
     this.record(ExpenseDeletedEvent.set({ expenseId: this._id.value, groupId: this.groupId.value }));
     return Result.ok(this);
@@ -210,6 +217,12 @@ export class Expense extends AggregateRoot {
   /** The payer, or the owner of the group, may change an expense; no one else. */
   private mayChange(by: Id, byOwner: boolean): boolean {
     return byOwner || by.value === this.paidBy.value;
+  }
+
+  /** Whether the payer or one of the split's members is no longer a member of the group (ADR 4). */
+  private concernsAFormerMember(groupMembers: Id[]): boolean {
+    const isCurrent = (memberId: Id) => groupMembers.some(member => member.value === memberId.value);
+    return !isCurrent(this.paidBy) || this.shares.some(share => !isCurrent(share.memberId));
   }
 
   /** The rules of an expense's content, shared by recording and editing: the same refusals, the same computed shares. */

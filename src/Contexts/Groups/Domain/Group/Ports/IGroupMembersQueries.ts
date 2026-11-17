@@ -16,4 +16,9 @@ export interface IGroupMembersQueries {
    * not a member or there is no such group. Read by the command deciding on it, inside its own transaction: no lock.
    */
   roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null>;
+  /**
+   * Whether the account has been a member of the group, now or before it left: a former member's statement is still read
+   * by the members of the group (ADR 4). Asked by a query, outside any transaction.
+   */
+  hasBeenMemberOf(groupId: string, accountId: string): Promise<boolean>;
 }

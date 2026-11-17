@@ -4,13 +4,14 @@ import { IBalanceCounts } from '@Contexts/Ledger/Application/Ports/IBalanceCount
 import { IBalanceQueries } from '@Contexts/Ledger/Application/Ports/IBalanceQueries';
 import { MemberBalanceReadModel } from '@Contexts/Ledger/Application/ReadModel/MemberBalanceReadModel';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { IMemberBalancesQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalancesQueries';
 import { createLedgerTables } from '@Contexts/Ledger/Infrastructure/LedgerTables';
 
 /**
  * The balances, in the application's file. `count` writes in the command's transaction, so the expense and its balances are
  * stored together or not at all; `balancesOf` is read outside any transaction, so it waits for the one in progress.
  */
-export class SqliteMemberBalances implements IBalanceCounts, IBalanceQueries {
+export class SqliteMemberBalances implements IBalanceCounts, IBalanceQueries, IMemberBalancesQueries {
   constructor(private database: SqliteDatabase) {
     createLedgerTables(database);
   }
@@ -33,6 +34,17 @@ export class SqliteMemberBalances implements IBalanceCounts, IBalanceQueries {
         sign * change,
       );
     }
+  }
+
+  /** A member's balance, read by Groups before the member leaves (ADR 4): inside Groups' transaction, so it takes no lock. */
+  async balanceOf(groupId: string, memberId: string): Promise<number> {
+    return (
+      this.database.get<{ balance: number }>(
+        'SELECT balance FROM member_balances WHERE group_id = ? AND member_id = ?',
+        groupId,
+        memberId,
+      )?.balance ?? 0
+    );
   }
 
   async balancesOf(groupId: string): Promise<MemberBalanceReadModel[]> {
