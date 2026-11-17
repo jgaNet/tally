@@ -8,6 +8,7 @@ import { registerGroupRoutes } from './groups/routes';
 import { registerInvitationRoutes } from './invitations/routes';
 import { Refusal } from './refusal';
 import { registerOperationRoutes } from './operations/routes';
+import { registerStatementRoutes } from './statements/routes';
 
 /** The running application: what the server entry point and the tests start and stop. */
 export interface Application {
@@ -57,6 +58,7 @@ export async function createApplication({
       registerInvitationRoutes(routes, db);
       registerExpenseRoutes(routes, db);
       registerBalanceRoutes(routes, db);
+      registerStatementRoutes(routes, db);
       registerOperationRoutes(routes, db);
     },
     { prefix: `/${apiPrefix}` },

@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAccount } from '../auth';
 import type { Database } from '../database';
-import { createExpense, deleteExpense, requireExpense, updateExpense } from './expenses';
+import { requireMembership } from '../groups/groups';
+import { createExpense, deleteExpense, expensesOfGroup, requireExpense, updateExpense } from './expenses';
 import type { SplitInput } from './validation';
 
 const shareSchema = {
@@ -121,6 +122,22 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database): void 
         split: splitOf(request.body),
       });
       return reply.code(201).send({ id });
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    '/groups/:id/expenses',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        response: { 200: { type: 'array', items: expenseSchema } },
+      },
+    },
+    async request => {
+      const account = requireAccount(db, request);
+      // Only the members of a group see its expenses; anyone else is told it does not exist.
+      requireMembership(db, request.params.id, account.id);
+      return expensesOfGroup(db, request.params.id);
     },
   );
 

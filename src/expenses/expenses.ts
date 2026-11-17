@@ -136,25 +136,11 @@ interface ShareRow {
   amount: number;
 }
 
-/**
- * The expense with this id, for a member of its group. For anyone else it is `undefined`, the same
- * as an expense that does not exist. Reading it changes nothing.
- */
-export function findExpense(db: Database, expenseId: string, accountId: string): Expense | undefined {
-  const row = db
-    .prepare(
-      `SELECT expenses.id, expenses.group_id, expenses.description, expenses.amount, expenses.date,
-              expenses.paid_by, expenses.version, expenses.split_kind
-         FROM expenses JOIN memberships ON memberships.group_id = expenses.group_id
-        WHERE expenses.id = ? AND memberships.account_id = ?`,
-    )
-    .get(expenseId, accountId) as ExpenseRow | undefined;
-  if (row === undefined) {
-    return undefined;
-  }
-  const shares = db
-    .prepare('SELECT member_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position')
-    .all(expenseId) as unknown as ShareRow[];
+const EXPENSE_COLUMNS = `expenses.id, expenses.group_id, expenses.description, expenses.amount, expenses.date,
+              expenses.paid_by, expenses.version, expenses.split_kind`;
+
+/** The expense from its row and its shares, which are read in the order of the split. */
+function toExpense(row: ExpenseRow, shares: ShareRow[]): Expense {
   return {
     id: row.id,
     groupId: row.group_id,
@@ -166,6 +152,57 @@ export function findExpense(db: Database, expenseId: string, accountId: string):
     splitKind: row.split_kind,
     shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
   };
+}
+
+/**
+ * The expense with this id, for a member of its group. For anyone else it is `undefined`, the same
+ * as an expense that does not exist. Reading it changes nothing.
+ */
+export function findExpense(db: Database, expenseId: string, accountId: string): Expense | undefined {
+  const row = db
+    .prepare(
+      `SELECT ${EXPENSE_COLUMNS}
+         FROM expenses JOIN memberships ON memberships.group_id = expenses.group_id
+        WHERE expenses.id = ? AND memberships.account_id = ?`,
+    )
+    .get(expenseId, accountId) as ExpenseRow | undefined;
+  if (row === undefined) {
+    return undefined;
+  }
+  const shares = db
+    .prepare('SELECT member_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position')
+    .all(expenseId) as unknown as ShareRow[];
+  return toExpense(row, shares);
+}
+
+/**
+ * Every expense of `groupId`, as `findExpense` reads each: the latest date first, then the most
+ * recently recorded first. An edit does not change when an expense was recorded. Reading changes nothing.
+ */
+export function expensesOfGroup(db: Database, groupId: string): Expense[] {
+  const rows = db
+    .prepare(
+      `SELECT ${EXPENSE_COLUMNS}
+         FROM expenses
+        WHERE expenses.group_id = ?
+        ORDER BY expenses.date DESC, expenses.created_at DESC, expenses.rowid DESC`,
+    )
+    .all(groupId) as unknown as ExpenseRow[];
+  const shareRows = db
+    .prepare(
+      `SELECT expense_shares.expense_id, expense_shares.member_id, expense_shares.amount
+         FROM expense_shares JOIN expenses ON expenses.id = expense_shares.expense_id
+        WHERE expenses.group_id = ?
+        ORDER BY expense_shares.expense_id, expense_shares.position`,
+    )
+    .all(groupId) as unknown as (ShareRow & { expense_id: string })[];
+  const sharesByExpense = new Map<string, ShareRow[]>();
+  for (const share of shareRows) {
+    const list = sharesByExpense.get(share.expense_id) ?? [];
+    list.push(share);
+    sharesByExpense.set(share.expense_id, list);
+  }
+  return rows.map(row => toExpense(row, sharesByExpense.get(row.id) ?? []));
 }
 
 /** The expense, for a member of its group. Anyone else is refused with `404`, as if it did not exist. */
