@@ -7,3 +7,12 @@
 export interface IMemberBalances {
   balanceOf(groupId: string, memberId: string): Promise<number>;
 }
+
+/**
+ * Whether a member has a payment waiting at the provider in a group (request 20, ADR 15): a payment they pay or receive through the
+ * provider, pending or refunding, which a member may not leave while it waits. Groups asks it when a member asks to leave; the
+ * adapter is Groups' infrastructure over Settlements' read model, so no domain imports Settlements.
+ */
+export interface IWaitingPayments {
+  hasWaitingPayment(groupId: string, memberId: string): Promise<boolean>;
+}

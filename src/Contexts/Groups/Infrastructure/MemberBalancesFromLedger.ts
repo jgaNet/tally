@@ -6,7 +6,7 @@ export type BalanceRoster = IBalanceRoster;
 
 /**
  * A member's balance, answered over Ledger's balances read model (ADR 1 T5, feature 9): Groups' port `IMemberBalances` is built
- * on the read model Ledger gives, so a member may leave once their balance is 0, and no domain imports Ledger.
+ * on the read model Ledger gives, so a member's leave passes what they owe or are owed to the owner (request 20, ADR 15), and no domain imports Ledger.
  */
 export class MemberBalancesFromLedger implements IMemberBalances {
   constructor(private readonly balances: BalanceRoster) {}

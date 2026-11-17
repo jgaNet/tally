@@ -109,9 +109,17 @@ relationships:
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
     why: >-
-      A member leaves a group only with a balance of zero, and only Ledger knows the balances. Groups asks through a
-      port it owns (MemberBalances) when it decides: two ports in opposite directions, each in the asking side's
-      words, and no domain imports the other (T5).
+      A member leaves a group whatever their balance, and what they owe or are owed passes to the owner in the same
+      step; only Ledger knows the balances. Groups asks through a port it owns (MemberBalances) when it decides: two
+      ports in opposite directions, each in the asking side's words, and no domain imports the other (T5, ADR 15).
+  - upstream: Settlements
+    downstream: Groups
+    patterns: [customer-supplier, anti-corruption-layer]
+    mechanism: owned-port
+    why: >-
+      A member may not leave while a payment of theirs waits at the provider (pending or refunding), and only
+      Settlements knows which payments wait. Groups asks through a port it owns (WaitingPayments) when it decides, so
+      that a payment that lands after its payer left never changes a former member's balance (ADR 15).
   - upstream: Ledger
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]

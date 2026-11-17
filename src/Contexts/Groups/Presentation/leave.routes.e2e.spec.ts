@@ -1,3 +1,6 @@
+import { createHmac } from 'node:crypto';
+import { createServer, IncomingMessage, Server, ServerResponse } from 'node:http';
+import { AddressInfo } from 'node:net';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -9,22 +12,65 @@ import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
- * Leaving a group over HTTP, against a database file (feature 9, fragment 10): the owner and a member with a balance that is
- * not 0 are refused; a member with a balance of 0 leaves, and the group is no longer theirs; what concerns them is kept, their
- * statement is still read by the members, and the expenses of a former member can no longer change; joining again makes them
- * the last of the members with 0.
+ * Leaving a group over HTTP, against a database file (feature 9, fragment 10, request 20): the owner is refused and a stranger is
+ * not there for; a member leaves whatever their balance, which passes to the owner in the same step, so the balances still add up to 0;
+ * a member with a payment waiting at the provider is refused until it has ended (Settlements → Groups, WaitingPayments); what concerns
+ * them is kept, their statement is still read by the members, and the expenses of a former member can no longer change; joining again
+ * makes them the last of the members with 0; and a leave and an expense naming the leaver at the same moment, through two servers on one
+ * database, are either counted in what passes or refused.
  */
 let directory: string;
+let databasePath: string;
+let provider: Server;
+let providerUrl: string;
+/** The provider's payments by the reference Tally gave them (the settlement's id). */
+let paymentsByReference: Map<string, string>;
+let nextPayment: number;
 let app: FastifyApplication;
 let http: ReturnType<typeof apiClient>;
 let api: string;
 
 const silent = { info() {}, warn() {}, error() {}, debug() {} };
 const password = 'a long enough password';
+const SECRET = 'a secret Tally and the provider share';
+const WEBHOOK_AT = '2026-03-01T10:00:00.000Z';
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-leave-'));
-  app = await createApplication({ databasePath: join(directory, 'tally.sqlite'), logger: silent });
+  databasePath = join(directory, 'tally.sqlite');
+  paymentsByReference = new Map();
+  nextPayment = 0;
+  // A fake payment provider on a local port: it keeps each payment by its reference, and knows the payout accounts `acct-…`.
+  provider = createServer((req: IncomingMessage, res: ServerResponse) => {
+    const account = /^\/accounts\/([^/]+)$/.exec(req.url ?? '');
+    if (req.method === 'GET' && account) {
+      const known = decodeURIComponent(account[1]).startsWith('acct-');
+      res.statusCode = known ? 200 : 404;
+      res.setHeader('content-type', 'application/json');
+      res.end(known ? JSON.stringify({ id: decodeURIComponent(account[1]) }) : '{}');
+      return;
+    }
+    let text = '';
+    req.on('data', chunk => (text += chunk));
+    req.on('end', () => {
+      const body = JSON.parse(text) as { reference: string };
+      nextPayment += 1;
+      const id = `pay-${nextPayment}`;
+      paymentsByReference.set(body.reference, id);
+      res.statusCode = 201;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ id, payUrl: `https://pay.example/${id}` }));
+    });
+  });
+  await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
+  providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+
+  app = await createApplication({
+    databasePath,
+    logger: silent,
+    providerUrl,
+    providerWebhookSecret: SECRET,
+  });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
@@ -35,6 +81,8 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await app.stop();
+  provider.closeAllConnections();
+  await new Promise(resolve => provider.close(resolve));
   rmSync(directory, { recursive: true, force: true });
 });
 
@@ -44,6 +92,11 @@ async function person(name: string, email: string) {
   const login = await http.request('POST', `${api}/accounts/login`, { body: { email, password } });
   const token = (login.body as { token: string }).token;
   const me = await http.request('GET', `${api}/accounts/me`, { token });
+  // Every person has a payout account at the provider, so that a payment to them can be asked (request 16).
+  await http.request('PUT', `${api}/accounts/me/payout-account`, {
+    token,
+    body: { accountId: `acct-${name.toLowerCase()}` },
+  });
   return { token, id: (me.body as { id: string }).id, name };
 }
 
@@ -99,15 +152,17 @@ async function groupWithDinner() {
 }
 
 describe('leaving a group', () => {
-  it('refuses the owner with 403, a stranger with 404, and a member whose balance is not 0 with 422', async () => {
+  it('refuses the owner with 403 and a stranger with 404, and lets a member leave whatever their balance', async () => {
     const { groupId } = await groupWithDinner();
 
     expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: ann.token })).status).toBe(403);
     expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: dave.token })).status).toBe(404);
-    expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token })).status).toBe(422);
 
-    const stillMember = await http.request('GET', `${api}/groups/${groupId}`, { token: bob.token });
-    expect(stillMember.status).toBe(200);
+    // Bob owes 100 for the dinner: he leaves anyway, and the group is no longer his.
+    const left = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
+    expect(left.status).toBeGreaterThanOrEqual(200);
+    expect(left.status).toBeLessThan(300);
+    expect((await http.request('GET', `${api}/groups/${groupId}`, { token: bob.token })).status).toBe(404);
   });
 
   it('lets a member whose balance is 0 leave: the group is no longer theirs, nor among their groups, nor among the members', async () => {
@@ -270,6 +325,12 @@ describe('Groups → Ledger (GroupMembers)', () => {
   });
 });
 
+const balancesOfGroup = async (groupId: string) =>
+  (await http.request('GET', `${api}/groups/${groupId}/balances`, { token: ann.token })).body as {
+    memberId: string;
+    balance: number;
+  }[];
+
 describe('Ledger → Groups (MemberBalances)', () => {
   it('a balance Ledger counts in a group made in Groups is the one Groups asks when a member leaves, found by the same group id', async () => {
     const created = await http.request('POST', `${api}/groups`, {
@@ -285,10 +346,104 @@ describe('Ledger → Groups (MemberBalances)', () => {
     });
     expect(expense.status).toBeLessThan(300);
 
+    // Bob owes 100 of the rent: it passes to Ann, who is owed 100 of it, and she stands at 0.
+    const left = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
+    expect(left.status).toBeLessThan(300);
+    const stillFound = await http.request('GET', `${api}/groups/${groupId}`, { token: ann.token });
+    expect((stillFound.body as { id: string }).id).toBe(groupId);
+    expect(await balancesOfGroup(groupId)).toEqual([{ memberId: ann.id, balance: 0 }]);
+  });
+});
+
+describe('leaving with a balance (request 20)', () => {
+  it('passes what a member owes or is owed to the owner in the same step, and the balances still add up to 0', async () => {
+    const { groupId } = await groupWithDinner();
+    // Ann is owed 200; Bob and Carol owe 100 each.
+    expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token })).status).toBeLessThan(
+      300,
+    );
+    expect(await balancesOfGroup(groupId)).toEqual([
+      { memberId: ann.id, balance: 100 },
+      { memberId: carol.id, balance: -100 },
+    ]);
+
+    expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: carol.token })).status).toBeLessThan(
+      300,
+    );
+    expect(await balancesOfGroup(groupId)).toEqual([{ memberId: ann.id, balance: 0 }]);
+  });
+
+  it('a member who joins again is the last of the members with a balance of 0, and the owner keeps what passed', async () => {
+    const { groupId } = await groupWithDinner();
+    expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token })).status).toBeLessThan(
+      300,
+    );
+
+    expect((await joinGroup(groupId, bob)).status).toBeLessThan(300);
+    expect(await balancesOfGroup(groupId)).toEqual([
+      { memberId: ann.id, balance: 100 },
+      { memberId: carol.id, balance: -100 },
+      { memberId: bob.id, balance: 0 },
+    ]);
+  });
+});
+
+describe('Settlements → Groups (WaitingPayments)', () => {
+  it('refuses a member with a payment of theirs waiting at the provider, and lets them leave once it has ended', async () => {
+    const { groupId } = await groupWithDinner();
+    // Bob pays Ann 100 through the provider: it is pending, and is not in the balances until the provider says it succeeded.
+    const paid = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      token: bob.token,
+      body: { to: ann.id, amount: 100 },
+    });
+    expect(paid.status).toBeLessThan(300);
+    const settlementId = (paid.body as { id: string }).id;
+
     const refused = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
     expect(refused.status).toBe(422);
-    const stillFound = await http.request('GET', `${api}/groups/${groupId}`, { token: bob.token });
-    expect(stillFound.status).toBe(200);
-    expect((stillFound.body as { id: string }).id).toBe(groupId);
+    expect((await http.request('GET', `${api}/groups/${groupId}`, { token: bob.token })).status).toBe(200);
+
+    // The provider says the payment succeeded: Bob stands at 0 and leaves.
+    const webhook = {
+      id: `wh-${settlementId}`,
+      paymentId: paymentsByReference.get(settlementId),
+      status: 'succeeded',
+      at: WEBHOOK_AT,
+    };
+    const counted = await http.request('POST', `${api}/provider/webhooks`, {
+      body: webhook,
+      headers: { 'provider-signature': createHmac('sha256', SECRET).update(JSON.stringify(webhook)).digest('hex') },
+    });
+    expect(counted.status).toBe(204);
+    const left = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
+    expect(left.status).toBeLessThan(300);
+  });
+});
+
+describe('leaving at the same moment as an expense (two servers, one database)', () => {
+  it('an expense naming the leaver is either counted in what passes or refused, and the members still add up to 0', async () => {
+    const { groupId } = await groupWithDinner();
+    const other = await createApplication({ databasePath, logger: silent, providerUrl, providerWebhookSecret: SECRET });
+    await other.start(0);
+    const otherHttp = apiClient(other.address);
+    try {
+      // Carol pays 60 for herself and Bob, while Bob leaves through the first server.
+      const [recorded, left] = await Promise.all([
+        otherHttp.request('POST', `${api}/groups/${groupId}/expenses`, {
+          token: carol.token,
+          body: { description: 'Tea', amount: 60, date: '2020-01-10', splitBetween: [carol.id, bob.id] },
+        }),
+        http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token }),
+      ]);
+      expect(left.status).toBeLessThan(300);
+      // Counted before the leave (2xx), or refused because Bob is no longer a member (422): never a share left with a former member.
+      expect(recorded.status === 422 || (recorded.status >= 200 && recorded.status < 300)).toBe(true);
+
+      const balances = await balancesOfGroup(groupId);
+      expect(balances.map(row => row.memberId)).toEqual([ann.id, carol.id]);
+      expect(balances.reduce((sum, row) => sum + row.balance, 0)).toBe(0);
+    } finally {
+      await other.stop();
+    }
   });
 });

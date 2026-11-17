@@ -8,8 +8,8 @@ import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { ISettledAmounts } from '@Contexts/Ledger/Application/ISettledAmounts';
+import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { IBalanceRoster } from '@Contexts/Ledger/Domain/Expense/Ports/IBalanceRoster';
-import { GroupMembersFromGroups, GroupRoster } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { SqliteBalanceRoster } from '@Contexts/Ledger/Infrastructure/SqliteBalanceRoster';
 import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseStore';
 
@@ -24,17 +24,28 @@ export const ledgerSchema = ledgerTablesSchema;
 
 /**
  * The balances of a group's members, as Ledger's read model gives them to Groups when a member asks to leave (feature 9), and to
- * Settlements when it decides a settlement or suggests one. It is over the database and what the settlements moved (`settled`), so the
- * composition root can build it before Ledger's own wiring, which needs Groups' roster.
+ * Settlements when it decides a settlement or suggests one. It is over the database, what the settlements moved (`settled`) and the
+ * members Ledger asks (`groupMembers`, which carries what passed when members left, request 20), so the composition root can build it
+ * before Ledger's own wiring: each is built over the database alone.
  */
-export function ledgerBalanceRoster(database: SqliteDatabase, settled: ISettledAmounts): IBalanceRoster {
-  return new SqliteBalanceRoster(database, settled);
+export function ledgerBalanceRoster(
+  database: SqliteDatabase,
+  settled: ISettledAmounts,
+  groupMembers: IGroupMembers,
+): IBalanceRoster {
+  return new SqliteBalanceRoster(database, settled, groupMembers);
 }
 
-/** The Ledger module, over the database, the roster of Groups and what the settlements moved. */
-export function ledgerWiring(database: SqliteDatabase, roster: GroupRoster, settled: ISettledAmounts): LiteModule {
+/**
+ * The Ledger module, over the database, Groups' members (`groupMembers`, built over Groups' roster) and what the settlements moved.
+ * The composition root builds `groupMembers` once, so the balance read model and this module share it.
+ */
+export function ledgerWiring(
+  database: SqliteDatabase,
+  groupMembers: IGroupMembers,
+  settled: ISettledAmounts,
+): LiteModule {
   const expenses = new SqliteExpenseStore(database);
-  const groupMembers = new GroupMembersFromGroups(roster);
 
   return new LiteModule({
     name: 'Ledger',

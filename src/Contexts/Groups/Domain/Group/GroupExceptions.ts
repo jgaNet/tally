@@ -48,13 +48,16 @@ export class OwnerCannotLeaveException extends NotAllowedException {
   }
 }
 
-/** A member asks to leave a group while their balance in it is not 0: `422`, a rule (feature 9, ADR 4). */
-export class BalanceNotZeroException extends Exception {
+/**
+ * A member asks to leave a group while a payment of theirs waits at the provider (pending or refunding, as payer or payee): `422`,
+ * a rule. They leave once it has ended (request 20, ADR 15).
+ */
+export class PaymentWaitingException extends Exception {
   constructor() {
     super({
       service: SERVICE,
-      type: 'BalanceNotZero',
-      message: 'You can leave a group once your balance in it is 0',
+      type: 'PaymentWaiting',
+      message: 'You can leave a group once the payments you pay or receive through the provider have ended',
     });
   }
 }

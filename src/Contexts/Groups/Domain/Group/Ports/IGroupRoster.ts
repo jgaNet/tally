@@ -12,6 +12,18 @@ export interface IGroupRoster {
   currencyOf(groupId: string): Promise<string | undefined>;
   /** The ids of every group there is, the earliest made first: what a sweep over all the groups reads (feature 18). */
   groupIds(): Promise<string[]>;
+  /**
+   * The balances that passed to the owner when members left the group, in the order they were made (request 20, ADR 15): each
+   * leaver's balance, passed from them to the owner. Ledger counts them in every balance it reads; a group with no leaver answers [].
+   */
+  passedBalancesOf(groupId: string): Promise<PassedBalance[]>;
+}
+
+/** A balance that passed from a member who left a group to its owner, in the group's currency's hundredths (ADR 15). */
+export interface PassedBalance {
+  readonly from: string;
+  readonly to: string;
+  readonly amount: number;
 }
 
 /** A member of a group as the roster answers it: the account, and its role in the group (the owner, or a member). */

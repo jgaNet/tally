@@ -26,6 +26,10 @@ export const getGroupBalances = query(
       for (const { memberId, change } of await settled.settledOf(groupId)) {
         counted.set(memberId, (counted.get(memberId) ?? 0) + change);
       }
+      for (const { from, to, amount } of await groupMembers.passedBalancesOf(groupId)) {
+        counted.set(from, (counted.get(from) ?? 0) - amount);
+        counted.set(to, (counted.get(to) ?? 0) + amount);
+      }
       return Result.ok(members.map(({ memberId }) => ({ memberId, balance: counted.get(memberId) ?? 0 })));
     },
 );

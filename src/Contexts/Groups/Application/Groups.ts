@@ -4,7 +4,7 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 
 import { GroupView, IGroupStore } from '@Contexts/Groups/Application/IGroupStore';
 import { IAccountStore } from '@Contexts/Groups/Application/IAccountStore';
-import { IMemberBalances } from '@Contexts/Groups/Application/IMemberBalances';
+import { IMemberBalances, IWaitingPayments } from '@Contexts/Groups/Application/IMemberBalances';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { GroupNotFoundException } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 
@@ -89,22 +89,26 @@ export const getMyGroups = query(
 );
 
 /**
- * The signed-in person leaves a group they are a member of (feature 9). Refused with `422` while their balance in it is not 0
- * (the balance is read through the owned port, MemberBalances, when they ask), and with `403` for the owner, who stays. To
- * anyone who is not a member the group does not exist: the same `404`. Once they have left, the group is not among their
- * groups and its members do not include them; what concerns them is kept as it was. What it recorded (MemberLeft) goes out
- * with the commit, through the outbox.
+ * The signed-in person leaves a group they are a member of (feature 9, request 20). Whatever their balance in it: it passes to
+ * the owner in the same step, and is read through the owned port MemberBalances in the leave's own transaction, so an expense or
+ * a settlement recorded at the same moment is either counted in it or refused. Refused with `422` while a payment of theirs waits
+ * at the provider (the owned port WaitingPayments), with `403` for the owner, who stays. To anyone who is not a member the group
+ * does not exist: the same `404`. Once they have left, the group is not among their groups and its members do not include them;
+ * what concerns them is kept as it was. What it recorded (BalancePassed, MemberLeft) goes out with the commit, through the outbox.
  */
 export const leaveGroup = command(
   'LeaveGroup',
-  (groups: IGroupStore, balances: IMemberBalances, clock: Clock) =>
+  (groups: IGroupStore, balances: IMemberBalances, waiting: IWaitingPayments, clock: Clock) =>
     async (groupId: string, context): Promise<IResult<void>> => {
       const caller = callerOf(context);
       const group = await groups.findById(groupId);
       if (!group || !group.hasMember(caller)) return Result.fail(new GroupNotFoundException());
 
-      const balance = await balances.balanceOf(groupId, caller);
-      const left = group.leave(caller, balance, clock());
+      const reading = {
+        balance: await balances.balanceOf(groupId, caller),
+        paymentWaiting: await waiting.hasWaitingPayment(groupId, caller),
+      };
+      const left = group.leave(caller, reading, clock());
       if (left.isFailure()) return left;
 
       await groups.save(group);

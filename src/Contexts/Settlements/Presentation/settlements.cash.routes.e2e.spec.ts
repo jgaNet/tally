@@ -130,15 +130,17 @@ describe('a cash settlement', () => {
     expect(suggested.body).toEqual([{ from: cy.id, to: ann.id, amount: 1000 }]);
   });
 
-  it('counts for leaving: a member with a balance of 0 after settling may leave, one still owing may not', async () => {
+  it('counts for leaving: what a member still owes passes to the owner, after what they settled counted in it (request 20)', async () => {
     const groupId = await threeOwing();
+    expect((await settle(ann.token, groupId, { from: cy.id, amount: 400 })).status).toBe(201);
 
-    const before = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: cy.token });
-    expect(before.status).toBeGreaterThanOrEqual(400);
-
-    expect((await settle(ann.token, groupId, { from: cy.id, amount: 1000 })).status).toBe(201);
-    const after = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: cy.token });
-    expect(after.status).toBeLessThan(300);
+    // Cy still owes 600: Cy may leave, and the 600 passes to Ann, who is then owed 1000 by Bob alone.
+    const left = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: cy.token });
+    expect(left.status).toBeLessThan(300);
+    expect((await balances(groupId)).body).toEqual([
+      { memberId: ann.id, balance: 1000 },
+      { memberId: bob.id, balance: -1000 },
+    ]);
   });
 
   it('is refused when it is more than the payer owes, and nothing changes', async () => {

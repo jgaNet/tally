@@ -2,8 +2,8 @@ import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { GroupView, IGroupStore } from '@Contexts/Groups/Application/IGroupStore';
-import { FormerMember, Group, GroupMember, GroupSnapshot } from '@Contexts/Groups/Domain/Group/Group';
-import { IGroupRoster, RosterMember } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
+import { BalancePass, FormerMember, Group, GroupMember, GroupSnapshot } from '@Contexts/Groups/Domain/Group/Group';
+import { IGroupRoster, PassedBalance, RosterMember } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
 
 /**
  * The groups' tables (ADR 2, ADR 5). A group's members are rows of `group_members`, in the order they joined (`position`,
@@ -36,6 +36,17 @@ export const groupsTablesSchema = [
      left_at TEXT NOT NULL,
      PRIMARY KEY (group_id, account_id)
    )`,
+  // The balances that passed to the owner when members left (request 20, ADR 15): one row per pass, in the order they were made. A pass
+  // is never changed, so a row is written once and never again.
+  `CREATE TABLE IF NOT EXISTS group_passes (
+     group_id TEXT NOT NULL REFERENCES groups(id),
+     position INTEGER NOT NULL,
+     from_account_id TEXT NOT NULL,
+     to_account_id TEXT NOT NULL,
+     amount INTEGER NOT NULL,
+     at TEXT NOT NULL,
+     PRIMARY KEY (group_id, position)
+   )`,
 ];
 
 /**
@@ -56,6 +67,7 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
       .prepare('INSERT INTO groups (id, name, currency, owner_id, created_at, version) VALUES (?, ?, ?, ?, ?, ?)')
       .run(snapshot.id, snapshot.name, snapshot.currency, snapshot.ownerId, snapshot.createdAt, snapshot.version + 1);
     this.#saveMembers(snapshot);
+    this.#savePasses(snapshot);
   }
 
   async findById(groupId: string): Promise<Group | undefined> {
@@ -72,6 +84,13 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
         .prepare('SELECT account_id, joined_at, left_at FROM group_former_members WHERE group_id = ? ORDER BY left_at')
         .all(groupId),
     ) as unknown as FormerMemberRow[];
+    const passes = this.database.read(db =>
+      db
+        .prepare(
+          'SELECT from_account_id, to_account_id, amount, at FROM group_passes WHERE group_id = ? ORDER BY position',
+        )
+        .all(groupId),
+    ) as unknown as PassRow[];
     return Group.fromSnapshot({
       id: row.id,
       name: row.name,
@@ -79,6 +98,7 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
       ownerId: row.owner_id,
       members: members.map(toMember),
       formerMembers: formerMembers.map(toFormerMember),
+      passes: passes.map(toPass),
       createdAt: row.created_at,
       version: row.version,
     });
@@ -93,6 +113,7 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
       throw new ConcurrencyConflictException('Groups', 'The group changed since it was read: read it again');
     }
     this.#saveMembers(snapshot);
+    this.#savePasses(snapshot);
   }
 
   async viewFor(groupId: string, memberId: string): Promise<GroupView | undefined> {
@@ -146,6 +167,17 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     return rows.map(row => row.id);
   }
 
+  async passedBalancesOf(groupId: string): Promise<PassedBalance[]> {
+    const rows = this.database.read(db =>
+      db
+        .prepare(
+          'SELECT from_account_id AS fromId, to_account_id AS toId, amount FROM group_passes WHERE group_id = ? ORDER BY position',
+        )
+        .all(groupId),
+    ) as { fromId: string; toId: string; amount: number }[];
+    return rows.map(row => ({ from: row.fromId, to: row.toId, amount: row.amount }));
+  }
+
   async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {
     const row = this.database.read(db =>
       db
@@ -158,6 +190,21 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
         .get(groupId, accountId, groupId, accountId),
     );
     return row !== undefined;
+  }
+
+  /**
+   * Writes the passes the aggregate holds, each at its place in the order they were made. A pass is written once: one already stored is
+   * kept as it is (a pass never changes), so writing them again is idempotent.
+   */
+  #savePasses(snapshot: GroupSnapshot): void {
+    snapshot.passes.forEach((pass: BalancePass, position) => {
+      this.database.writer
+        .prepare(
+          `INSERT OR IGNORE INTO group_passes (group_id, position, from_account_id, to_account_id, amount, at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(snapshot.id, position, pass.fromAccountId, pass.toAccountId, pass.amount, pass.at);
+    });
   }
 
   /**
@@ -222,6 +269,20 @@ interface FormerMemberRow {
   joined_at: string;
   left_at: string;
 }
+
+interface PassRow {
+  from_account_id: string;
+  to_account_id: string;
+  amount: number;
+  at: string;
+}
+
+const toPass = (row: PassRow): BalancePass => ({
+  fromAccountId: row.from_account_id,
+  toAccountId: row.to_account_id,
+  amount: row.amount,
+  at: row.at,
+});
 
 const toView = (row: GroupViewRow): GroupView => ({
   id: row.id,

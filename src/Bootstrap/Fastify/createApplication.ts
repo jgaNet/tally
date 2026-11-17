@@ -13,7 +13,9 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
 import { MemberBalancesFromLedger } from '@Contexts/Groups/Infrastructure/MemberBalancesFromLedger';
-import { groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
+import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsFromSettlements';
+import { groupRoster, groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
+import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
@@ -25,6 +27,7 @@ import {
   settlementRoster,
   settlementsSchema,
   settlementsWiring,
+  waitingPaymentRoster,
 } from '@Contexts/Settlements/module.local';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
 import { sweepDebts } from '@Contexts/Notifications/Application/DebtSweep';
@@ -85,22 +88,27 @@ export async function createApplication({
   // What the settlements moved is read by Ledger through a port it owns, over Settlements' read model (ADR 10): every balance counts a
   // settlement once it is recorded. Ledger's balance read model is over the database and that port alone (ADR 1 T3, T5).
   const settledAmounts = new SettledAmountsFromSettlements(settlementRoster(database));
-  // Groups asks a member's balance over Ledger's read model, and Ledger asks Groups' roster: each read model is built over
-  // the database alone, so neither wiring needs the other's module to exist (ADR 1 T3, T5).
+  // Groups' roster is over the database alone, and Ledger asks it who is in a group and which balances passed when members left (request 20,
+  // ADR 15). Ledger's balance read model is built over that and what the settlements moved; Groups asks a member's balance over it, and asks
+  // Settlements whether a payment of theirs waits at the provider. Each read model is built over the database alone, so no wiring needs
+  // another module to exist (ADR 1 T3, T5).
+  const groupMembers = new GroupMembersFromGroups(groupRoster(database));
+  const balances = ledgerBalanceRoster(database, settledAmounts, groupMembers);
   const groups = await groupsWiring(
     database,
-    new MemberBalancesFromLedger(ledgerBalanceRoster(database, settledAmounts)),
+    new MemberBalancesFromLedger(balances),
+    new WaitingPaymentsFromSettlements(waitingPaymentRoster(database)),
   );
-  const ledger = ledgerWiring(database, groups.roster, settledAmounts);
+  const ledger = ledgerWiring(database, groupMembers, settledAmounts);
   // The suggested settlements read the members of a group from Groups' roster and its balances from Ledger's read model (ADR 9).
   // Paying through the provider (request 13) is asked of PROVIDER_URL, and its webhooks are checked with PROVIDER_WEBHOOK_SECRET.
-  const settlements = settlementsWiring(database, groups.roster, ledgerBalanceRoster(database, settledAmounts), {
+  const settlements = settlementsWiring(database, groups.roster, balances, {
     providerUrl,
     webhookSecret: providerWebhookSecret,
   });
   // What every member still owes is read from Settlements' read model, which counts the payments waiting at the provider as paid, and
   // Notifications' sweep asks it through its own port (request 18, ADR 14). The sweep runs below, every JOBS_INTERVAL_SECONDS.
-  const debts = outstandingDebtRoster(database, groups.roster, ledgerBalanceRoster(database, settledAmounts));
+  const debts = outstandingDebtRoster(database, groups.roster, balances);
   // A notice to each member of an expense's split but its payer, made from ExpenseRecorded (request 17, ADR 13); a reminder to a member
   // whose debt lasted, made by the sweep (request 18).
   const notifications = notificationsWiring(database, new DebtsFromSettlements(debts), {

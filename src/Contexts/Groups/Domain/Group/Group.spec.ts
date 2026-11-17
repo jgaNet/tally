@@ -3,7 +3,12 @@ import { describe, expect, it } from '@jest/globals';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
-import { GroupCreatedEvent, MemberJoinedEvent, MemberLeftEvent } from '@Contexts/Groups/Domain/Group/Group';
+import {
+  BalancePassedEvent,
+  GroupCreatedEvent,
+  MemberJoinedEvent,
+  MemberLeftEvent,
+} from '@Contexts/Groups/Domain/Group/Group';
 
 /** A group's creation, its name and currency as the domain keeps them, and the fact it records (ADR 5). */
 const now = new Date('2026-05-01T10:00:00.000Z');
@@ -23,6 +28,7 @@ describe('Group.register', () => {
       ownerId: owner,
       members: [{ accountId: owner, joinedAt: '2026-05-01T10:00:00.000Z' }],
       formerMembers: [],
+      passes: [],
       createdAt: '2026-05-01T10:00:00.000Z',
       version: 0,
     });
@@ -110,6 +116,7 @@ describe('Group.fromSnapshot', () => {
       ownerId: owner,
       members: [{ accountId: owner, joinedAt: now.toISOString() }],
       formerMembers: [],
+      passes: [],
       createdAt: now.toISOString(),
       version: 3,
     };
@@ -129,6 +136,7 @@ describe('Group.fromSnapshot', () => {
         ownerId: owner,
         members: [{ accountId: 'someone-else', joinedAt: now.toISOString() }],
         formerMembers: [],
+        passes: [],
         createdAt: now.toISOString(),
         version: 0,
       }),
@@ -140,6 +148,7 @@ describe('Group.leave', () => {
   const later = new Date('2026-05-02T09:30:00.000Z');
   const latest = new Date('2026-05-03T18:00:00.000Z');
   const bob = 'account-bob';
+  const settled = { balance: 0, paymentWaiting: false };
 
   /** A group with the owner and Bob, who joined at `later`; its recorded facts taken away. */
   const withBob = () => {
@@ -152,13 +161,13 @@ describe('Group.leave', () => {
   it('takes a member with a balance of 0 out of the members, keeps them as a former member, and records MemberLeft', () => {
     const group = withBob();
 
-    expect(group.leave(bob, 0, latest).isSuccess()).toBe(true);
+    expect(group.leave(bob, settled, latest).isSuccess()).toBe(true);
     expect(group.members().map(member => member.accountId)).toEqual([owner]);
     expect(group.hasMember(bob)).toBe(false);
     expect(group.formerMembers()).toEqual([
       { accountId: bob, joinedAt: later.toISOString(), leftAt: latest.toISOString() },
     ]);
-    const [recorded] = group.pullDomainEvents();
+    const [, recorded] = group.pullDomainEvents();
     expect(recorded).toBeInstanceOf(MemberLeftEvent);
     expect(recorded.payload).toEqual({
       groupId: group.toSnapshot().id,
@@ -167,20 +176,41 @@ describe('Group.leave', () => {
     });
   });
 
-  it('refuses a member whose balance is not 0, with BalanceNotZero, and changes nothing', () => {
+  it('lets a member leave whatever their balance: it passes to the owner in the same step, BalancePassed beside MemberLeft', () => {
     const group = withBob();
 
-    const refused = group.leave(bob, -250, latest);
-    expect(refused.isFailure() && refused.error.type).toBe('BalanceNotZero');
+    expect(group.leave(bob, { balance: -250, paymentWaiting: false }, latest).isSuccess()).toBe(true);
+    expect(group.hasMember(bob)).toBe(false);
+    expect(group.passes()).toEqual([
+      { fromAccountId: bob, toAccountId: owner, amount: -250, at: latest.toISOString() },
+    ]);
+    const [passed, left] = group.pullDomainEvents();
+    expect(passed).toBeInstanceOf(BalancePassedEvent);
+    expect(passed.payload).toEqual({
+      groupId: group.toSnapshot().id,
+      fromAccountId: bob,
+      toAccountId: owner,
+      amount: -250,
+      at: latest.toISOString(),
+    });
+    expect(left).toBeInstanceOf(MemberLeftEvent);
+  });
+
+  it('refuses a member with a payment waiting at the provider, with PaymentWaiting, and changes nothing', () => {
+    const group = withBob();
+
+    const refused = group.leave(bob, { balance: 0, paymentWaiting: true }, latest);
+    expect(refused.isFailure() && refused.error.type).toBe('PaymentWaiting');
     expect(group.hasMember(bob)).toBe(true);
     expect(group.formerMembers()).toEqual([]);
+    expect(group.passes()).toEqual([]);
     expect(group.pullDomainEvents()).toEqual([]);
   });
 
   it('refuses the owner, whatever the balance, with OwnerCannotLeave', () => {
     const group = withBob();
 
-    const refused = group.leave(owner, 0, latest);
+    const refused = group.leave(owner, settled, latest);
     expect(refused.isFailure() && refused.error.type).toBe('NotAllowed');
     expect(group.hasMember(owner)).toBe(true);
   });
@@ -188,13 +218,23 @@ describe('Group.leave', () => {
   it('refuses an account that is not a member, as the group is not there for it', () => {
     const group = withBob();
 
-    const refused = group.leave('account-carol', 0, latest);
+    const refused = group.leave('account-carol', settled, latest);
     expect(refused.isFailure() && refused.error.type).toBe('NotFound');
+  });
+
+  it('keeps the passes of every leave, and a member who joined again keeps what they passed', () => {
+    const group = withBob();
+    group.leave(bob, { balance: 40, paymentWaiting: false }, latest);
+    group.join(bob, new Date('2026-05-04T08:00:00.000Z'));
+    group.leave(bob, { balance: -15, paymentWaiting: false }, new Date('2026-05-05T08:00:00.000Z'));
+
+    expect(group.passes().map(pass => pass.amount)).toEqual([40, -15]);
+    expect(group.toSnapshot().passes).toEqual(group.passes());
   });
 
   it('makes a member who joined again the last of the members, with the time they joined again', () => {
     const group = withBob();
-    group.leave(bob, 0, latest);
+    group.leave(bob, settled, latest);
     group.pullDomainEvents();
     const again = new Date('2026-05-04T08:00:00.000Z');
 

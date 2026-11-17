@@ -13,6 +13,8 @@ import {
 } from '@Contexts/Settlements/Application/Settlements';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { ISettlementRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
+import { IWaitingPaymentRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingPaymentRoster';
+import { SqliteWaitingPaymentRoster } from '@Contexts/Settlements/Infrastructure/SqliteWaitingPaymentRoster';
 import { BalanceRoster, BalancesFromLedger } from '@Contexts/Settlements/Infrastructure/BalancesFromLedger';
 import { GroupRoster, MembersFromGroups } from '@Contexts/Settlements/Infrastructure/MembersFromGroups';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
@@ -54,6 +56,14 @@ export interface PaymentsConfig {
  */
 export function settlementRoster(database: SqliteDatabase): ISettlementRoster {
   return new SqliteSettlementRoster(database);
+}
+
+/**
+ * The payments waiting at the provider, as Settlements' read model gives them to Groups (request 20, ADR 15): a member with one cannot
+ * leave its group. Built over the database alone, so the composition root can give it to Groups before Groups' own wiring.
+ */
+export function waitingPaymentRoster(database: SqliteDatabase): IWaitingPaymentRoster {
+  return new SqliteWaitingPaymentRoster(database);
 }
 
 /**

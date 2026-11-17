@@ -20,4 +20,17 @@ export interface IGroupMembers {
    * expenses, which the group's members still read. Answered over the same roster.
    */
   hasBeenMember(groupId: string, memberId: string): Promise<boolean>;
+  /**
+   * The balances that passed to the owner when members left the group, in the order they were made (request 20, ADR 15): every
+   * balance Ledger reads takes each one off the leaver and puts it on the owner, so the leaver stands at 0 and the group still adds up
+   * to 0. Answered over the same roster.
+   */
+  passedBalancesOf(groupId: string): Promise<PassedBalance[]>;
+}
+
+/** A balance that passed from a member who left a group to its owner, in the group's currency's hundredths (request 20). */
+export interface PassedBalance {
+  readonly from: string;
+  readonly to: string;
+  readonly amount: number;
 }

@@ -3,10 +3,11 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
-import { IMemberBalances } from '@Contexts/Groups/Application/IMemberBalances';
+import { IMemberBalances, IWaitingPayments } from '@Contexts/Groups/Application/IMemberBalances';
 import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
+import { IGroupRoster } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
 import { SignedSessionTokens } from '@Contexts/Groups/Infrastructure/SignedSessionTokens';
 import { SqliteAccountStore, accountsSchema } from '@Contexts/Groups/Infrastructure/SqliteAccountStore';
@@ -23,12 +24,22 @@ import { SqliteInvitationStore, invitationsTablesSchema } from '@Contexts/Groups
 export const groupsSchema = [...accountsSchema, ...groupsTablesSchema, ...invitationsTablesSchema];
 
 /**
- * The Groups module, the authentication the transport gives every request (named exports, ADR 2), and the roster of
- * groups other contexts read (`roster`, the read-model port of ADR 6, for Ledger's split). Leaving (feature 9) asks a
- * member's balance through `balances`, the port Groups owns (ADR 1 T5): the composition root gives it, over Ledger's read
- * model, so this file imports no other context.
+ * The roster of groups, over the database alone: the read model other contexts read (ADR 6), built before the wiring so that
+ * the composition root can give it to the other read models (Ledger's balances, which count what passed when members left)
+ * without waiting for this module (ADR 15).
  */
-export async function groupsWiring(database: SqliteDatabase, balances: IMemberBalances) {
+export function groupRoster(database: SqliteDatabase): IGroupRoster {
+  return new SqliteGroupStore(database);
+}
+
+/**
+ * The Groups module, the authentication the transport gives every request (named exports, ADR 2), and the roster of
+ * groups other contexts read (`roster`, the read-model port of ADR 6, for Ledger's split). Leaving (feature 9, request 20)
+ * asks a member's balance through `balances`, the port Groups owns (ADR 1 T5), and whether a payment of theirs waits at
+ * the provider through `waiting` (ADR 15): the composition root gives both, over the other contexts' read models, so this
+ * file imports no other context.
+ */
+export async function groupsWiring(database: SqliteDatabase, balances: IMemberBalances, waiting: IWaitingPayments) {
   const accounts = new SqliteAccountStore(database);
   const passwords = new ScryptPasswordHasher();
   const tokens = await SignedSessionTokens.open(database);
@@ -48,7 +59,7 @@ export async function groupsWiring(database: SqliteDatabase, balances: IMemberBa
       getInvitation(invitations),
       acceptInvitation(groups, invitations, systemClock),
       getGroupMembers(groups, accounts),
-      leaveGroup(groups, balances, systemClock),
+      leaveGroup(groups, balances, waiting, systemClock),
     ],
   });
   return { module, authenticate: authenticateWith(tokens), roster: groups };
