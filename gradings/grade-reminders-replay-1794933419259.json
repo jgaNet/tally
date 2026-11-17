@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "control": "plain",
+  "project": "/var/tmp/j6/trees/plain-1",
+  "ref": "00b134013ce23c460236337483bfaf1866016d99",
+  "commit": "00b134013ce23c460236337483bfaf1866016d99",
+  "base": "83a0dec4ce7d7990b771b5617709b59050030a5b",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "reminders",
+      "M2": {
+        "pass": false,
+        "tests": "2 failed, 2 passed, 4 total",
+        "failed": [
+          "reminders › reminds a member who has owed more than 2000 for a period, at the sweep, and again each period while it lasts",
+          "reminders › stops reminding once what is still owed is 2000 or less, and starts again, a period later, when it comes back"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● reminders › reminds a member who has owed more than 2000 for a period, at the sweep, and again each period while it lasts",
+          "    Expected length: 1",
+          "    Received length: 0",
+          "    Received array:  []",
+          "  ● reminders › stops reminding once what is still owed is 2000 or less, and starts again, a period later, when it comes back",
+          "    Expected length: 1",
+          "    Received length: 0",
+          "    Received array:  []",
+          "Tests:       2 failed, 2 passed, 4 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 61452,
+  "workers": 1
+}
