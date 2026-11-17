@@ -5,4 +5,6 @@
 export interface IGroupMembership {
   /** The account ids of a group's members, in the order they joined, the owner first; empty for a group that does not exist. */
   listMemberIds(groupId: string): Promise<string[]>;
+  /** The role of an account in a group: `owner` for the one who made it, `member` for the others, null when it is not a member (or the group does not exist). */
+  roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null>;
 }

@@ -2,6 +2,9 @@ import { FastifyInstance } from 'fastify';
 import { Module } from '@Architecture/Application';
 import { FastifyExpenseController } from '@Contexts/Ledger/Presentation/API/REST/Controllers/FastifyExpenseController';
 import {
+  DeleteExpenseResSchema,
+  EditExpenseBodySchema,
+  EditExpenseResSchema,
   GetExpenseResSchema,
   RecordExpenseBodySchema,
   RecordExpenseResSchema,
@@ -25,6 +28,16 @@ export const expenseRoutes = function (
     '/expenses/:id',
     { schema: { tags: ['expenses'], response: GetExpenseResSchema } },
     controller.getExpense.bind(controller),
+  );
+  fastify.put(
+    '/expenses/:id',
+    { schema: { tags: ['expenses'], body: EditExpenseBodySchema, response: EditExpenseResSchema } },
+    controller.editExpense.bind(controller),
+  );
+  fastify.delete(
+    '/expenses/:id',
+    { schema: { tags: ['expenses'], response: DeleteExpenseResSchema } },
+    controller.deleteExpense.bind(controller),
   );
 
   done();

@@ -2,15 +2,26 @@ import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
-import { NotAGroupMember } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
+import {
+  ExpenseChanged,
+  NotAGroupMember,
+  NotAllowedToChangeExpense,
+} from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
-import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import {
+  ExpenseDeletedEvent,
+  ExpenseEditedEvent,
+  ExpenseRecordedEvent,
+} from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 
 /**
- * An expense of a group: an amount its payer paid for some members of the group, with its split, kept as it was
- * recorded. It is made by `create()`, which checks that everyone in the split is a member of the group now (the
- * members come from Groups, through the port the caller asks), and records the fact. Nothing here changes it afterwards.
+ * An expense of a group: an amount its payer paid for some members of the group, with its split. It is made by
+ * `create()`, which checks that everyone in the split is a member of the group now (the members come from Groups,
+ * through the port the caller asks), and records the fact. It may then be changed whole by `edit()`, from the version
+ * its author read, or removed by `delete()`; only its payer or the owner of its group may do either, and the payer never
+ * changes. An `edit()` or `delete()` answers a new instance at the version this one was read at: the repository stores it
+ * at version + 1, and refuses it when the stored version is no longer that one.
  */
 export class Expense extends AggregateRoot {
   private constructor(
@@ -22,8 +33,19 @@ export class Expense extends AggregateRoot {
     readonly date: ExpenseDate,
     readonly split: Split,
     readonly recordedAt: Date,
+    private readonly removed: boolean = false,
   ) {
     super(id, version);
+  }
+
+  /** Who paid the expense. An edit never changes it. */
+  get payer(): Id {
+    return this.split.payer;
+  }
+
+  /** Whether the expense was deleted: a deleted expense is gone from every read, and its repository forgets it. */
+  get isDeleted(): boolean {
+    return this.removed;
   }
 
   /**
@@ -61,6 +83,79 @@ export class Expense extends AggregateRoot {
       }),
     );
     return Result.ok(expense);
+  }
+
+  /**
+   * Gives the expense again, whole, from the version its author read. Only its payer or the group's owner may
+   * (`by`, `byOwner`); the payer stays as it was, and the edit refuses a version other than the one this expense was
+   * read at (ExpenseChanged), and a split with a member who is not in the group now. Records ExpenseEdited.
+   */
+  edit({
+    by,
+    byOwner,
+    fromVersion,
+    description,
+    amount,
+    date,
+    split,
+    groupMembers,
+    at,
+  }: {
+    by: Id;
+    byOwner: boolean;
+    fromVersion: number;
+    description: Description;
+    amount: Amount;
+    date: ExpenseDate;
+    split: Split;
+    groupMembers: readonly Id[];
+    at: Date;
+  }): IResult<Expense> {
+    if (!this.mayBeChangedBy(by, byOwner)) return Result.fail(new NotAllowedToChangeExpense());
+    if (fromVersion !== this.version) return Result.fail(new ExpenseChanged());
+    const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
+    if (outsider) return Result.fail(new NotAGroupMember());
+
+    const edited = new Expense(this._id, this.version, this.groupId, description, amount, date, split, this.recordedAt);
+    edited.record(
+      ExpenseEditedEvent.set({
+        expenseId: this._id.value,
+        groupId: this.groupId.value,
+        paidBy: split.payer.value,
+        amount: amount.value,
+        editedAt: at.toISOString(),
+      }),
+    );
+    return Result.ok(edited);
+  }
+
+  /** Removes the expense. Only its payer or the group's owner may (`by`, `byOwner`). Records ExpenseDeleted. */
+  delete({ by, byOwner, at }: { by: Id; byOwner: boolean; at: Date }): IResult<Expense> {
+    if (!this.mayBeChangedBy(by, byOwner)) return Result.fail(new NotAllowedToChangeExpense());
+
+    const deleted = new Expense(
+      this._id,
+      this.version,
+      this.groupId,
+      this.description,
+      this.amount,
+      this.date,
+      this.split,
+      this.recordedAt,
+      true,
+    );
+    deleted.record(
+      ExpenseDeletedEvent.set({
+        expenseId: this._id.value,
+        groupId: this.groupId.value,
+        deletedAt: at.toISOString(),
+      }),
+    );
+    return Result.ok(deleted);
+  }
+
+  private mayBeChangedBy(by: Id, byOwner: boolean): boolean {
+    return byOwner || this.split.payer.equals(by);
   }
 
   /** Reconstitutes a stored expense. It records nothing, and refuses corrupted data by throwing. */

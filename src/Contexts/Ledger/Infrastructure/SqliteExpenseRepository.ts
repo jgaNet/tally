@@ -45,6 +45,19 @@ export class SqliteExpenseRepository implements IExpenseRepository {
   async save(expense: Expense): Promise<IResult> {
     const { id, groupId, description, amount, date, paidBy, shares, recordedAt, version } = expense.toSnapshot();
     const { connection } = this.database;
+    const conflict = () =>
+      Result.fail(new ConcurrencyConflictException('Ledger', 'The expense changed since it was read', { id }));
+
+    if (expense.isDeleted) {
+      const { changes } = connection
+        .prepare('DELETE FROM ledger_expenses WHERE id = ? AND version = ?')
+        .run(id, version);
+      if (changes === 0) return conflict();
+      connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
+      connection.prepare('DELETE FROM ledger_balance_entries WHERE expense_id = ?').run(id);
+      return Result.ok();
+    }
+
     if (version === 0) {
       connection
         .prepare(
@@ -54,11 +67,12 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         .run(id, groupId, description, amount, date, paidBy, recordedAt);
     } else {
       const { changes } = connection
-        .prepare('UPDATE ledger_expenses SET version = version + 1 WHERE id = ? AND version = ?')
-        .run(id, version);
-      if (changes === 0) {
-        return Result.fail(new ConcurrencyConflictException('Ledger', 'The expense changed since it was read', { id }));
-      }
+        .prepare(
+          `UPDATE ledger_expenses SET description = ?, amount = ?, date = ?, version = version + 1
+            WHERE id = ? AND version = ?`,
+        )
+        .run(description, amount, date, id, version);
+      if (changes === 0) return conflict();
     }
     connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
     shares.forEach(({ memberId, amount: share }, position) =>
@@ -66,13 +80,15 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         .prepare('INSERT INTO ledger_expense_shares (expense_id, position, member_id, amount) VALUES (?, ?, ?, ?)')
         .run(id, position, memberId, share),
     );
-    if (version === 0) this.recordBalanceEntries(id, groupId, paidBy, amount, shares);
+    connection.prepare('DELETE FROM ledger_balance_entries WHERE expense_id = ?').run(id);
+    this.recordBalanceEntries(id, groupId, paidBy, amount, shares);
     return Result.ok();
   }
 
   /**
-   * The expense's effect on each member's balance, written with the expense (the balances' read model): the payer's
-   * net is what they paid minus their own share, each other member's is minus their share. They add up to 0.
+   * The expense's effect on each member's balance, written with the expense as it is saved (the balances' read model):
+   * the payer's net is what they paid minus their own share, each other member's is minus their share. They add up to 0.
+   * An edit replaces them in the same transaction; a deletion removes them.
    */
   private recordBalanceEntries(
     id: string,

@@ -127,6 +127,7 @@ describe('recording an expense, split equally', () => {
         { memberId: carol.id, amount: 333 },
         { memberId: alice.id, amount: 334 },
       ],
+      version: 1,
     });
   });
 
@@ -298,5 +299,323 @@ describe('reading an expense', () => {
     const { alice } = await threeMembers();
     const { status } = await http.get(`${api}/expenses/no-such-expense`, { token: alice.token });
     expect(status).toBe(404);
+  });
+});
+
+/** Edits an expense as a client does: the `202`, then the operation followed to its outcome. */
+async function edit(token: string | undefined, expenseId: string, body: Body) {
+  const answer = await http.request('PUT', `${api}/expenses/${expenseId}`, { body, token });
+  if (answer.status !== 202) return { answer, done: undefined };
+  const done = await outcome((answer.body as Body).operationId as string, token);
+  return { answer, done: done.body as Body };
+}
+
+/** Deletes an expense as a client does: the `202`, then the operation followed to its outcome. */
+async function remove(token: string | undefined, expenseId: string) {
+  const answer = await http.request('DELETE', `${api}/expenses/${expenseId}`, { token });
+  if (answer.status !== 202) return { answer, done: undefined };
+  const done = await outcome((answer.body as Body).operationId as string, token);
+  return { answer, done: done.body as Body };
+}
+
+/** Records an expense and answers its id and its first version. */
+async function recorded(token: string, groupId: string, body: Body) {
+  const { done } = await record(token, groupId, body);
+  return (done as { result: { id: string } }).result.id;
+}
+
+/** The balances of a group, read by one of its members, as a map from member id to balance. */
+async function balancesOf(token: string, groupId: string) {
+  const { body } = await http.get(`${api}/groups/${groupId}/balances`, { token });
+  return new Map((body as { memberId: string; balance: number }[]).map(row => [row.memberId, row.balance]));
+}
+
+describe('editing an expense', () => {
+  it('lets its payer give it again, whole: the shares are computed again, and the version goes up by one', async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Groceries',
+      amount: 1000,
+      date: today(),
+      splitBetween: [bob.id, carol.id, alice.id],
+    });
+
+    const { answer, done } = await edit(alice.token, id, {
+      description: 'Groceries and wine',
+      amount: 600,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+      version: 1,
+    });
+    expect(answer.status).toBe(202);
+    expect(done).toMatchObject({ status: 'SUCCESS' });
+
+    const { body } = await http.get(`${api}/expenses/${id}`, { token: bob.token });
+    expect(body).toEqual({
+      id,
+      groupId,
+      description: 'Groceries and wine',
+      amount: 600,
+      date: today(),
+      paidBy: alice.id,
+      shares: [
+        { memberId: alice.id, amount: 300 },
+        { memberId: bob.id, amount: 300 },
+      ],
+      version: 2,
+    });
+  });
+
+  it('lets the owner of the group give an expense again, and the payer stays the one who paid', async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    const id = await recorded(bob.token, groupId, {
+      description: 'Petrol',
+      amount: 90,
+      date: today(),
+      splitBetween: [bob.id, carol.id],
+    });
+
+    const { done } = await edit(alice.token, id, {
+      description: 'Petrol, motorway',
+      amount: 90,
+      date: today(),
+      splitBetween: [bob.id, carol.id, alice.id],
+      version: 1,
+    });
+    expect(done).toMatchObject({ status: 'SUCCESS' });
+
+    const { body } = await http.get(`${api}/expenses/${id}`, { token: carol.token });
+    expect(body).toMatchObject({ paidBy: bob.id, version: 2 });
+  });
+
+  it('refuses a member who neither paid the expense nor owns the group, behind the 202', async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [alice.id, bob.id, carol.id],
+    });
+    const { answer, done } = await edit(carol.token, id, {
+      description: 'Dinner',
+      amount: 10,
+      date: today(),
+      splitBetween: [alice.id, carol.id],
+      version: 1,
+    });
+    expect(answer.status).toBe(202);
+    expect(done).toMatchObject({ status: 'ERROR', error: { type: 'NotAllowedToChangeExpense' } });
+  });
+
+  it('answers an expense that does not exist to a stranger, the same as one that was never recorded', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const stranger = await person('Outsider');
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+    });
+    const { done } = await edit(stranger.token, id, {
+      description: 'Dinner',
+      amount: 10,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+      version: 1,
+    });
+    expect(done).toMatchObject({ status: 'ERROR', error: { type: 'NotFound' } });
+  });
+
+  it('refuses an edit from a version the expense has moved on from, by name', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+    });
+    await edit(alice.token, id, {
+      description: 'Dinner',
+      amount: 40,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+      version: 1,
+    });
+
+    const { done } = await edit(alice.token, id, {
+      description: 'Dinner',
+      amount: 50,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+      version: 1,
+    });
+    expect(done).toMatchObject({ status: 'ERROR', error: { type: 'ExpenseChanged' } });
+    const { body } = await http.get(`${api}/expenses/${id}`, { token: alice.token });
+    expect(body).toMatchObject({ amount: 40, version: 2 });
+  });
+
+  it('keeps one of two edits made at once from the same version, refuses the other, and the balances add up to 0', async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Groceries',
+      amount: 1000,
+      date: today(),
+      splitBetween: [alice.id, bob.id, carol.id],
+    });
+    const body = (amount: number) => ({
+      description: 'Groceries',
+      amount,
+      date: today(),
+      splitBetween: [alice.id, bob.id, carol.id],
+      version: 1,
+    });
+
+    const [first, second] = await Promise.all([edit(alice.token, id, body(900)), edit(alice.token, id, body(1200))]);
+    const outcomes = [first.done, second.done].map(done => done as Body);
+    const kept = outcomes.filter(done => done.status === 'SUCCESS');
+    const refused = outcomes.filter(done => done.status === 'ERROR');
+    expect(kept).toHaveLength(1);
+    expect(refused).toMatchObject([{ error: { type: 'ExpenseChanged' } }]);
+
+    const { body: stored } = await http.get(`${api}/expenses/${id}`, { token: alice.token });
+    expect(stored).toMatchObject({ version: 2 });
+    const balances = await balancesOf(alice.token, groupId);
+    expect([...balances.values()].reduce((sum, balance) => sum + balance, 0)).toBe(0);
+  });
+
+  it('moves the balances with the edit: the expense counts as it is now, and not as it was', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 60,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+    });
+    const before = await balancesOf(alice.token, groupId);
+    expect(before.get(alice.id)).toBe(30);
+    expect(before.get(bob.id)).toBe(-30);
+
+    await edit(alice.token, id, {
+      description: 'Dinner',
+      amount: 100,
+      date: today(),
+      splitBetween: [alice.id],
+      version: 1,
+    });
+    const balances = await balancesOf(alice.token, groupId);
+    expect(balances.get(alice.id)).toBe(0);
+    expect(balances.get(bob.id)).toBe(0);
+  });
+
+  it('refuses a split with a member who is not in the group, and a split without the payer', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const stranger = await person('Stranger');
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+    });
+    const outsider = await edit(alice.token, id, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [alice.id, stranger.id],
+      version: 1,
+    });
+    expect(outsider.done).toMatchObject({ status: 'ERROR', error: { type: 'NotAGroupMember' } });
+    const withoutPayer = await edit(alice.token, id, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [bob.id],
+      version: 1,
+    });
+    expect(withoutPayer.done).toMatchObject({ status: 'ERROR', error: { type: 'PayerNotInSplit' } });
+  });
+
+  it('is refused without a signed-in caller, at once, with 401', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+    });
+    const { status } = await http.request('PUT', `${api}/expenses/${id}`, {
+      body: { description: 'Dinner', amount: 30, date: today(), splitBetween: [alice.id, bob.id], version: 1 },
+    });
+    expect(status).toBe(401);
+  });
+});
+
+describe('deleting an expense', () => {
+  it('lets its payer delete it: it is gone from every read, and from the balances', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 60,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+    });
+    const { answer, done } = await remove(alice.token, id);
+    expect(answer.status).toBe(202);
+    expect(done).toMatchObject({ status: 'SUCCESS' });
+
+    expect((await http.get(`${api}/expenses/${id}`, { token: alice.token })).status).toBe(404);
+    const balances = await balancesOf(alice.token, groupId);
+    expect(balances.get(alice.id) ?? 0).toBe(0);
+    expect(balances.get(bob.id) ?? 0).toBe(0);
+  });
+
+  it('lets the owner of the group delete an expense of another member', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const id = await recorded(bob.token, groupId, {
+      description: 'Taxi',
+      amount: 20,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+    });
+    const { done } = await remove(alice.token, id);
+    expect(done).toMatchObject({ status: 'SUCCESS' });
+    expect((await http.get(`${api}/expenses/${id}`, { token: bob.token })).status).toBe(404);
+  });
+
+  it('refuses a member who neither paid it nor owns the group, and it stays', async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [alice.id, bob.id, carol.id],
+    });
+    const { done } = await remove(bob.token, id);
+    expect(done).toMatchObject({ status: 'ERROR', error: { type: 'NotAllowedToChangeExpense' } });
+    expect((await http.get(`${api}/expenses/${id}`, { token: carol.token })).status).toBe(200);
+  });
+
+  it('answers a stranger the same as an expense that does not exist', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const stranger = await person('Outsider');
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+    });
+    const { done } = await remove(stranger.token, id);
+    expect(done).toMatchObject({ status: 'ERROR', error: { type: 'NotFound' } });
+  });
+
+  it('is refused without a signed-in caller, at once, with 401', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 30,
+      date: today(),
+      splitBetween: [alice.id, bob.id],
+    });
+    const { status } = await http.request('DELETE', `${api}/expenses/${id}`);
+    expect(status).toBe(401);
   });
 });

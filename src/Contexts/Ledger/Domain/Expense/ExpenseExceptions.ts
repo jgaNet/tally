@@ -48,3 +48,15 @@ export class NotAGroupMember extends ExpenseException {
     super('NotAGroupMember', 'Only members of the group can be in the split of an expense of the group');
   }
 }
+
+export class NotAllowedToChangeExpense extends ExpenseException {
+  constructor() {
+    super('NotAllowedToChangeExpense', 'Only the payer of the expense or the owner of its group may change it');
+  }
+}
+
+export class ExpenseChanged extends ExpenseException {
+  constructor() {
+    super('ExpenseChanged', 'The expense changed since it was read: read it again, and decide again');
+  }
+}

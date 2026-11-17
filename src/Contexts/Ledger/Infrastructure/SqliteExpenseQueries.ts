@@ -13,7 +13,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
     return this.database.exclusive(connection => {
       const row = connection
         .prepare(
-          'SELECT id, group_id AS groupId, description, amount, date, paid_by AS paidBy FROM ledger_expenses WHERE id = ?',
+          'SELECT id, group_id AS groupId, description, amount, date, paid_by AS paidBy, version FROM ledger_expenses WHERE id = ?',
         )
         .get(id) as Omit<ExpenseReadModel, 'shares'> | undefined;
       if (!row) return null;

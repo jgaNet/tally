@@ -1,7 +1,7 @@
 /**
- * The ledger's tables in the SQLite file (ADR 2). An expense is a row of `ledger_expenses`; its shares are its rows of
- * `ledger_expense_shares`, in the order of the split (`position`). `recorded_at` is when it was recorded; nothing here
- * changes after that.
+ * The ledger's tables in the SQLite file (ADR 2). An expense is a row of `ledger_expenses`, at its version (1 when it is
+ * recorded, one more at each edit); its shares are its rows of `ledger_expense_shares`, in the order of the split
+ * (`position`). `recorded_at` is when it was recorded. A deleted expense has no rows here, nor in the balances.
  */
 export const EXPENSE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS ledger_expenses (
@@ -24,8 +24,8 @@ export const EXPENSE_STATEMENTS = [
    )`,
   /*
    * The balances' read model (ADR 1, T4): one row per member per expense, the member's net of that expense: what they
-   * paid of it minus their share. Written in the transaction that records the expense, and never changed after, so the
-   * balances are sums over rows nobody updates, and the expenses of a group add up to 0 row by row.
+   * paid of it minus their share. Written in the transaction that saves the expense (replaced by an edit, removed by a
+   * deletion), so the balances are sums over rows written with their expense, and the expenses of a group add up to 0 row by row.
    */
   `CREATE TABLE IF NOT EXISTS ledger_balance_entries (
      expense_id TEXT NOT NULL,

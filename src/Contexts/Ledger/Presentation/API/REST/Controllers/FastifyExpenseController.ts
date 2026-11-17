@@ -1,7 +1,11 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { Module } from '@Architecture/Application';
 import { acceptCommand } from '@Architecture/Presentation/AcceptCommand';
-import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands';
+import {
+  DeleteExpenseCommandEvent,
+  EditExpenseCommandEvent,
+  RecordExpenseCommandEvent,
+} from '@Contexts/Ledger/Application/Commands';
 import { GetExpenseQueryHandler } from '@Contexts/Ledger/Application/Queries';
 import { refuse } from '@Contexts/Ledger/Presentation/API/REST/Controllers/refuse';
 
@@ -25,6 +29,25 @@ export class FastifyExpenseController {
       this.#module,
       RecordExpenseCommandEvent.set({ groupId: req.params.id, ...req.body }),
     );
+  }
+
+  editExpense(
+    req: FastifyRequest<{
+      Params: { id: string };
+      Body: { description: string; amount: number; date: string; splitBetween: string[]; version: number };
+    }>,
+    reply: FastifyReply,
+  ) {
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      EditExpenseCommandEvent.set({ expenseId: req.params.id, ...req.body }),
+    );
+  }
+
+  deleteExpense(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, DeleteExpenseCommandEvent.set({ expenseId: req.params.id }));
   }
 
   async getExpense(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

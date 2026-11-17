@@ -18,4 +18,15 @@ export class SqliteGroupMembership implements IGroupMembership {
       .all(groupId) as { account_id: string }[];
     return rows.map(row => row.account_id);
   }
+
+  async roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null> {
+    const row = this.database.connection
+      .prepare(
+        `SELECT CASE WHEN m.account_id = g.owner_id THEN 'owner' ELSE 'member' END AS role
+           FROM group_members m JOIN tally_groups g ON g.id = m.group_id
+          WHERE m.group_id = ? AND m.account_id = ?`,
+      )
+      .get(groupId, accountId) as { role: 'owner' | 'member' } | undefined;
+    return row?.role ?? null;
+  }
 }

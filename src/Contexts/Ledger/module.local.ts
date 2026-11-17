@@ -2,7 +2,14 @@ import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
-import { RecordExpenseCommandEvent, RecordExpenseCommandHandler } from '@Contexts/Ledger/Application/Commands';
+import {
+  DeleteExpenseCommandEvent,
+  DeleteExpenseCommandHandler,
+  EditExpenseCommandEvent,
+  EditExpenseCommandHandler,
+  RecordExpenseCommandEvent,
+  RecordExpenseCommandHandler,
+} from '@Contexts/Ledger/Application/Commands';
 import { GetExpenseQueryHandler, GetGroupBalancesQueryHandler } from '@Contexts/Ledger/Application/Queries';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
@@ -23,6 +30,26 @@ export const localLedgerModule = new Module({
       event: RecordExpenseCommandEvent,
       handlers: [
         new RecordExpenseCommandHandler(
+          new SqliteExpenseRepository(database),
+          new GroupsMembers(groupMembershipInCommand),
+          systemClock,
+        ),
+      ],
+    },
+    {
+      event: EditExpenseCommandEvent,
+      handlers: [
+        new EditExpenseCommandHandler(
+          new SqliteExpenseRepository(database),
+          new GroupsMembers(groupMembershipInCommand),
+          systemClock,
+        ),
+      ],
+    },
+    {
+      event: DeleteExpenseCommandEvent,
+      handlers: [
+        new DeleteExpenseCommandHandler(
           new SqliteExpenseRepository(database),
           new GroupsMembers(groupMembershipInCommand),
           systemClock,

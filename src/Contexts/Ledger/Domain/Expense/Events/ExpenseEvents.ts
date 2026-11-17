@@ -8,3 +8,19 @@ export class ExpenseRecordedEvent extends DomainEvent<{
   amount: number;
   recordedAt: string;
 }> {}
+
+/** An expense was edited: its id, its group, who paid it (unchanged by an edit), its new amount, and when it was edited. Its new split is read back from the store. */
+export class ExpenseEditedEvent extends DomainEvent<{
+  expenseId: string;
+  groupId: string;
+  paidBy: string;
+  amount: number;
+  editedAt: string;
+}> {}
+
+/** An expense was deleted: its id, its group, and when it was deleted. It is gone from every read from then on. */
+export class ExpenseDeletedEvent extends DomainEvent<{
+  expenseId: string;
+  groupId: string;
+  deletedAt: string;
+}> {}
