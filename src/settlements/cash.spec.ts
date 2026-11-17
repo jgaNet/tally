@@ -174,19 +174,22 @@ describe('settling up in cash', () => {
       expect(after.json()).toEqual([]);
     });
 
-    it('lets a payer leave once the settlement has brought their balance to 0', async () => {
-      // Linus, a plain member (the owner may not leave), owes Grace 300 for a dinner they split.
-      const { grace, linus, groupId } = await adaOwesGrace();
-      const dinner = await record(grace.token, groupId, {
+    it('lets a payer leave at once, still owing, and the owner takes over what they owed', async () => {
+      // Linus, a plain member (the owner may not leave), owes Grace 300 for a taxi they split.
+      const { ada, grace, linus, groupId } = await adaOwesGrace();
+      const taxi = await record(grace.token, groupId, {
         description: 'Taxi',
         amount: 600,
         date: todayInUtc(),
         splitBetween: [grace.id, linus.id],
       });
-      expect(dinner.statusCode).toBe(201);
-      expect((await send(app, 'POST', `/groups/${groupId}/leave`, { token: linus.token })).statusCode).toBe(409);
-      await settle(grace.token, groupId, { from: linus.id, amount: 300 });
+      expect(taxi.statusCode).toBe(201);
       expect((await send(app, 'POST', `/groups/${groupId}/leave`, { token: linus.token })).statusCode).toBe(204);
+      // Ada owed Grace 500 and now also what Linus owed: 800. Grace is still owed 800; the balances add up to 0.
+      expect(await balancesOf(ada.token, groupId)).toEqual([
+        { memberId: ada.id, balance: -800 },
+        { memberId: grace.id, balance: 800 },
+      ]);
     });
 
     it("leaves a member's statement listing expenses only: its balance is what the expenses give", async () => {

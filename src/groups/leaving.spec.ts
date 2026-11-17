@@ -104,26 +104,6 @@ describe('leaving a group', () => {
       expect(balances.reduce((sum, balance) => sum + balance.balance, 0)).toBe(0);
     });
 
-    it('is refused with 409 while the balance is not 0, and the member stays in the group', async () => {
-      const { ada, grace, groupId } = await settledGrace();
-      await record(grace.token, groupId, expense([grace.id, ada.id], { amount: 600 }));
-      const before = await balancesOf(ada.token, groupId);
-
-      const response = await leave(grace.token, groupId);
-      expect(response.statusCode).toBe(409);
-      expect(response.json()).toEqual({ type: 'BalanceNotZero', message: expect.any(String) });
-      expect(await balancesOf(ada.token, groupId)).toEqual(before);
-      expect((await membersOf(ada.token, groupId)).map(member => member.memberId)).toContain(grace.id);
-      expect((await send(app, 'GET', `/groups/${groupId}`, { token: grace.token })).statusCode).toBe(200);
-    });
-
-    it('is refused with 409 when the member owes the group, as when they are owed by it', async () => {
-      const { ada, grace, groupId } = await settledGrace();
-      await record(ada.token, groupId, expense([ada.id, grace.id], { amount: 600 }));
-      expect((await leave(grace.token, groupId)).json().type).toBe('BalanceNotZero');
-      expect((await leave(ada.token, groupId)).statusCode).toBe(403);
-    });
-
     it('refuses the owner, with 403, who stays in the group', async () => {
       const { ada, groupId } = await settledGrace();
       const response = await leave(ada.token, groupId);

@@ -4,7 +4,8 @@ export interface Balance {
   memberId: string;
   /**
    * What the member paid for the group's expenses, minus their shares in them, plus what they paid
-   * in settlements, minus what they were paid in settlements, in hundredths of the group's currency.
+   * in settlements, minus what they were paid in settlements, plus what was passed on to them when a
+   * member left, minus what they passed on when they left, in hundredths of the group's currency.
    * Positive: the group owes them. Negative: they owe the group.
    */
   balance: number;
@@ -23,7 +24,8 @@ interface BalanceRow {
  *
  * It is one statement, so it reads one snapshot of the file: an expense is either wholly in the
  * balances or not at all. Each expense's shares add up to its amount, so the balances always add
- * up to 0. Reading changes nothing.
+ * up to 0, and so do the transfers made when members left, which each move a balance from the one who
+ * left to the owner. Reading changes nothing.
  */
 export function balancesOf(db: Database, groupId: string): Balance[] {
   return balancesCounting(db, groupId, `settlements.status IN ('paid', 'refunding')`);
@@ -61,7 +63,15 @@ function balancesCounting(db: Database, groupId: string, counted: string): Balan
                  FROM settlements
                 WHERE settlements.group_id = memberships.group_id
                   AND settlements.payee_id = memberships.account_id
-                  AND ${counted}) AS balance
+                  AND ${counted})
+            + (SELECT COALESCE(SUM(balance_transfers.amount), 0)
+                 FROM balance_transfers
+                WHERE balance_transfers.group_id = memberships.group_id
+                  AND balance_transfers.to_id = memberships.account_id)
+            - (SELECT COALESCE(SUM(balance_transfers.amount), 0)
+                 FROM balance_transfers
+                WHERE balance_transfers.group_id = memberships.group_id
+                  AND balance_transfers.from_id = memberships.account_id) AS balance
          FROM memberships
         WHERE memberships.group_id = ?
         ORDER BY memberships.joined_at, memberships.rowid`,

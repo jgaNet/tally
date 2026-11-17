@@ -250,6 +250,21 @@ const migrations: readonly string[] = [
     SELECT id, status, created_at FROM settlements
      WHERE method = 'provider' AND status IN ('failed', 'refunding', 'refunded');
   `,
+  `
+  -- The balance a member had when they left, passed on to the owner of the group: one row per leaving, never
+  -- edited. The amount is in hundredths of the group's currency, positive when the group owed the member. A
+  -- member's balance counts what came to them and not what went from them, so one who leaves at a balance
+  -- of B is at 0 from then on, even if they join again.
+  CREATE TABLE balance_transfers (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    from_id  TEXT NOT NULL REFERENCES accounts (id),
+    to_id    TEXT NOT NULL REFERENCES accounts (id),
+    amount   INTEGER NOT NULL,
+    at       TEXT NOT NULL
+  );
+  CREATE INDEX balance_transfers_by_group ON balance_transfers (group_id);
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

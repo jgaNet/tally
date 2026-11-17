@@ -136,20 +136,18 @@ export function joinGroup(db: Database, groupId: string, accountId: string): voi
 }
 
 /**
- * Makes `accountId` leave `groupId`, once its balance is 0 and no payment through the provider involving
- * it is waiting. The owner cannot leave the group they
- * created; anyone outside the group is refused with `404`, as for a group that does not exist. The
- * balance is read and the membership removed in one transaction, so no expense lands between them.
+ * Makes `accountId` leave `groupId`. Whatever its balance, that balance passes to the owner of the group, in
+ * the same step: the owner's balance moves by it, and the one who left is at 0. It is refused while a payment
+ * through the provider involving it is pending or being refunded. The owner cannot leave the group they
+ * created; anyone outside the group is refused with `404`, as for a group that does not exist. The balance
+ * is read, the transfer to the owner written and the membership removed in one transaction, so no expense or
+ * settlement lands between them.
  */
 export function leaveGroup(db: Database, groupId: string, accountId: string): void {
   inTransaction(db, () => {
     const group = requireMembership(db, groupId, accountId);
     if (group.ownerId === accountId) {
       throw new Refusal(403, 'OwnerCannotLeave', 'The owner cannot leave the group they created.');
-    }
-    const balance = balancesOf(db, groupId).find(entry => entry.memberId === accountId)?.balance ?? 0;
-    if (balance !== 0) {
-      throw new Refusal(409, 'BalanceNotZero', 'Your balance in this group must be 0 before you leave it.');
     }
     // A payment waiting at the provider would still move a balance once it succeeds, and a refund waiting
     // at it once it is refunded: either must end first.
@@ -164,6 +162,16 @@ export function leaveGroup(db: Database, groupId: string, accountId: string): vo
         409,
         'PaymentPending',
         'A payment or a refund through the provider is waiting for you: it must end first.',
+      );
+    }
+    const balance = balancesOf(db, groupId).find(entry => entry.memberId === accountId)?.balance ?? 0;
+    if (balance !== 0) {
+      db.prepare('INSERT INTO balance_transfers (group_id, from_id, to_id, amount, at) VALUES (?, ?, ?, ?, ?)').run(
+        groupId,
+        accountId,
+        group.ownerId,
+        balance,
+        new Date().toISOString(),
       );
     }
     db.prepare('DELETE FROM memberships WHERE group_id = ? AND account_id = ?').run(groupId, accountId);

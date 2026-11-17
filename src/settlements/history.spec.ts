@@ -265,10 +265,11 @@ describe('a group’s settlements and their history', () => {
       };
       await app.stop();
 
-      // Takes the schema back one step, to before the history was kept, and brings it up to date again.
+      // Takes the schema back to before the history was kept, undoing the step that came after it too, and
+      // brings it up to date again.
       const db = new DatabaseSync(databasePath);
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
-      db.exec(`DROP TABLE settlement_statuses; PRAGMA user_version = ${version - 1};`);
+      db.exec(`DROP TABLE balance_transfers; DROP TABLE settlement_statuses; PRAGMA user_version = ${version - 2};`);
       db.close();
       app = await createApplication({ databasePath, providerUrl: provider.url, providerWebhookSecret: SECRET });
 
