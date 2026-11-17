@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 export const BUSY_TIMEOUT_MS = 5000;
 
 /**
- * What the building blocks keep in the database: the outbox (ADR 24) and a few settings a server must
+ * What the building blocks keep in the database: the outbox (ADR 24), the inbox (ADR 12) and a few settings a server must
  * agree on with every other server on the file (ADR 2). A context adds its own tables to `open()`.
  */
 const BUILDING_BLOCKS_SCHEMA = [
@@ -13,6 +13,11 @@ const BUILDING_BLOCKS_SCHEMA = [
      id TEXT NOT NULL UNIQUE,
      name TEXT NOT NULL,
      payload TEXT NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS inbox (
+     subscription TEXT NOT NULL,
+     message_id TEXT NOT NULL,
+     PRIMARY KEY (subscription, message_id)
    )`,
   `CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 ];

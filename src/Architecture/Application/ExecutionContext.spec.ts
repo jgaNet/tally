@@ -4,6 +4,7 @@ import { Event, Result, UnknownException } from '@Architecture/Domain';
 import { EventBus } from '@Architecture/Application/EventBus';
 import { ExecutionContext, UnitOfWork } from '@Architecture/Application/ExecutionContext';
 import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
+import { InMemoryInbox } from '@Architecture/Infrastructure/Inbox/InMemoryInbox';
 
 const eventBus = { connect: jest.fn(), publish: jest.fn(), subscribe: jest.fn() } as EventBus;
 
@@ -11,6 +12,7 @@ class FakeUnitOfWork implements UnitOfWork {
   active = false;
   log: string[] = [];
   outbox = new InMemoryOutbox();
+  inbox = new InMemoryInbox();
 
   async beginTransaction() {
     this.active = true;

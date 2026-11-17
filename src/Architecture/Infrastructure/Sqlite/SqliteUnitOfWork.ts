@@ -1,6 +1,8 @@
 import { UnitOfWork } from '@Architecture/Application/ExecutionContext';
+import { Inbox } from '@Architecture/Application/Inbox';
 import { Outbox } from '@Architecture/Application/Outbox';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { SqliteInbox } from '@Architecture/Infrastructure/Sqlite/SqliteInbox';
 import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
 
 /**
@@ -14,10 +16,12 @@ import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
  */
 export class SqliteUnitOfWork implements UnitOfWork {
   readonly outbox: Outbox;
+  readonly inbox: Inbox;
   #open = false;
 
   constructor(private readonly database: SqliteDatabase) {
     this.outbox = new SqliteOutbox(database);
+    this.inbox = new SqliteInbox(database);
   }
 
   async beginTransaction(): Promise<void> {

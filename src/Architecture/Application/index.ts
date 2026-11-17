@@ -12,6 +12,7 @@ export * from './EventBus';
 export * from './EventEmitter';
 export * from './EventHandler';
 export * from './ExecutionContext';
+export * from './Inbox';
 export * from './Module';
 export * from './Operation';
 export * from './Outbox';

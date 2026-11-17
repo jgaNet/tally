@@ -20,6 +20,7 @@
 
 import { IResult, Result } from '@Architecture/Domain';
 import { EventBus } from '@Architecture/Application/EventBus';
+import { Inbox } from '@Architecture/Application/Inbox';
 import { Outbox, relayOutbox } from '@Architecture/Application/Outbox';
 
 /**
@@ -49,6 +50,9 @@ export interface UnitOfWork {
 
   /** The transactional outbox: what this transaction makes durable to be published after it commits (ADR 24). */
   readonly outbox: Outbox;
+
+  /** The inbox: what each subscriber handled, durable with the writes of its reaction (ADR 12). */
+  readonly inbox: Inbox;
 
   /**
    * A unit of work over the same stores and the same outbox, for a transaction of its own: the one

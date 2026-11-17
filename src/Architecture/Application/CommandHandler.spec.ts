@@ -17,6 +17,7 @@ import { ExecutionContext, UnitOfWork } from './ExecutionContext';
 import { OperationStatus } from './Operation';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
 import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
+import { InMemoryInbox } from '@Architecture/Infrastructure/Inbox/InMemoryInbox';
 
 class Greet extends CommandEvent<{ name: string; then?: 'fail' | 'throw'; conflicts?: number }> {}
 class Greeted extends DomainEvent<{ name: string }> {}
@@ -56,6 +57,7 @@ class GreetHandler extends CommandHandler<Greet> {
 class RecordingUnitOfWork implements UnitOfWork {
   log: string[] = [];
   outbox = new InMemoryOutbox();
+  inbox = new InMemoryInbox();
   #active = false;
 
   async beginTransaction() {

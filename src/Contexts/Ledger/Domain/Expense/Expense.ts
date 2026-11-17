@@ -111,6 +111,7 @@ export class Expense extends AggregateRoot {
         paidBy: payerId,
         amount,
         splitKind: split.data.kind,
+        shares: split.data.shares.map(({ memberId, amount }) => ({ memberId, amount })),
         at: now.toISOString(),
       }),
     );
@@ -260,6 +261,7 @@ export type ExpenseRecordedPayload = {
   paidBy: string;
   amount: number;
   splitKind: SplitKind;
+  shares: Share[];
   at: string;
 };
 export type ExpenseEditedPayload = {
@@ -274,7 +276,8 @@ export type ExpenseDeletedPayload = { expenseId: string; groupId: string; at: st
 
 /**
  * The fact of a recording: which expense, of which group, paid by whom, for how much, and when it was recorded. It is made
- * durable with the expense and published after the commit; nothing subscribes to it yet (the storm lists no policy).
+ * durable with the expense and published after the commit. Ledger's own handler translates it into the integration event
+ * ExpenseRecorded, which Notifications reacts to (ADR 13); it carries the shares, so the translation reads nothing back.
  */
 export class ExpenseRecordedEvent extends DomainEvent<ExpenseRecordedPayload> {}
 

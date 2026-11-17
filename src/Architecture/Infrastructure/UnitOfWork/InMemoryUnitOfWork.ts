@@ -1,5 +1,6 @@
-import { Outbox, UnitOfWork } from '@Architecture/Application';
+import { Inbox, Outbox, UnitOfWork } from '@Architecture/Application';
 import { InMemoryDataSource } from '@Architecture/Infrastructure/DataSources/InMemoryDataSource';
+import { InMemoryInbox } from '@Architecture/Infrastructure/Inbox/InMemoryInbox';
 import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
 
 /**
@@ -27,6 +28,7 @@ export class InMemoryUnitOfWork implements UnitOfWork {
   constructor(
     private stores: Iterable<InMemoryDataSource<unknown>> = InMemoryDataSource.all,
     readonly outbox: Outbox = InMemoryOutbox.shared,
+    readonly inbox: Inbox = InMemoryInbox.shared,
   ) {}
 
   async beginTransaction(): Promise<void> {
@@ -57,6 +59,6 @@ export class InMemoryUnitOfWork implements UnitOfWork {
 
   /** The same stores and outbox, for a transaction of its own: a reaction's (ADR 30). */
   another(): UnitOfWork {
-    return new InMemoryUnitOfWork(this.stores, this.outbox);
+    return new InMemoryUnitOfWork(this.stores, this.outbox, this.inbox);
   }
 }

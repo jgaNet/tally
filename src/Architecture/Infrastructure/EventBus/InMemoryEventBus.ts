@@ -19,7 +19,8 @@ import {
  *
  * Delivery is idempotent per subscriber (ADR 24): a message relayed from the outbox carries its
  * entry's id, and a subscriber that already handled that id — and did not fail — is not handed
- * it again. The inbox is the bus's, not each handler's, so a reaction stays a plain `execute()`;
+ * it again within this process. Across restarts the database's inbox does it (ADR 12), in the
+ * reaction's own transaction, so a reaction stays a plain `execute()`;
  * a reaction that failed is handed the message again, which is what at-least-once is for. An
  * operation's `delivered` settles once every reaction it started has finished, and says whether
  * all of them succeeded: the outbox's relay acknowledges an entry on it, and on nothing sooner.

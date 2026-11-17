@@ -21,7 +21,8 @@ import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/S
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
 import { settlementRoster, settlementsSchema, settlementsWiring } from '@Contexts/Settlements/module.local';
-import { localNotificationsModule } from '@Contexts/Notifications/module.local';
+import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
+import { notificationsSchema, notificationsWiring } from '@Contexts/Notifications/module.local';
 
 /**
  * The composition root (ADR 40, ADR 2): it opens the database the application keeps what it knows in, builds each
@@ -62,7 +63,12 @@ export async function createApplication({
   /** The secret the provider signs its webhooks with, shared with Tally (PROVIDER_WEBHOOK_SECRET). */
   providerWebhookSecret?: string;
 } = {}): Promise<FastifyApplication> {
-  const database = SqliteDatabase.open(databasePath, [...groupsSchema, ...ledgerSchema, ...settlementsSchema]);
+  const database = SqliteDatabase.open(databasePath, [
+    ...groupsSchema,
+    ...ledgerSchema,
+    ...settlementsSchema,
+    ...notificationsSchema,
+  ]);
   // What the settlements moved is read by Ledger through a port it owns, over Settlements' read model (ADR 10): every balance counts a
   // settlement once it is recorded. Ledger's balance read model is over the database and that port alone (ADR 1 T3, T5).
   const settledAmounts = new SettledAmountsFromSettlements(settlementRoster(database));
@@ -79,6 +85,8 @@ export async function createApplication({
     providerUrl,
     webhookSecret: providerWebhookSecret,
   });
+  // A notice to each member of an expense's split but its payer, made from ExpenseRecorded (request 17, ADR 13).
+  const notifications = notificationsWiring(database);
 
   const app = new FastifyApplication({
     logger,
@@ -92,7 +100,7 @@ export async function createApplication({
     .registerModule(groups.module)
     .registerModule(ledger)
     .registerModule(settlements)
-    .registerModule(localNotificationsModule)
+    .registerModule(notifications)
     .registerRoutes('/', accountRoutes, { module: groups.module })
     .registerRoutes('/', groupRoutes, { module: groups.module })
     .registerRoutes('/', invitationRoutes, { module: groups.module })
@@ -100,6 +108,7 @@ export async function createApplication({
     .registerRoutes('/', balanceRoutes, { module: ledger })
     .registerRoutes('/', historyRoutes, { module: ledger })
     .registerRoutes('/', settlementRoutes, { module: settlements })
+    .registerRoutes('/', noticeRoutes, { module: notifications })
     .onStop(() => database.close());
 
   await app.startModules();

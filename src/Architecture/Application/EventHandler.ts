@@ -22,10 +22,10 @@
  * So `execute()` saves, calls `publishDomainEvents()` for an aggregate it changed and
  * `publishIntegrationEvent()` for a fact it tells other contexts, and returns a failed Result
  * to undo all of it. It is not made idempotent by hand: all or nothing, one id per fact, and
- * the bus's inbox hand a fact to a reaction once.
+ * the inbox hand a fact to a reaction once, across restarts (ADR 12): the mark commits with the reaction's writes.
  */
 
-import { Event, IResult } from '@Architecture/Domain';
+import { Event, IResult, Result } from '@Architecture/Domain';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { IOperation } from '@Architecture/Application/Operation';
 
@@ -33,8 +33,9 @@ export abstract class EventHandler<T extends Event<unknown>> {
   async handle(operation: IOperation<T>): Promise<IOperation<T>> {
     const { event } = operation;
     const context = operation.context.forReaction();
+    const subscription = `${this.constructor.name}:${event.name}`;
     try {
-      const result = await context.withTransaction(() => this.execute(event, context));
+      const result = await context.withTransaction(() => this.once(subscription, operation.id, event, context));
       if (result.isFailure()) {
         context.logger?.warn(`${this.constructor.name} failed on ${event.name}: ${result.error.message}`, {
           traceId: context.traceId,
@@ -52,4 +53,25 @@ export abstract class EventHandler<T extends Event<unknown>> {
 
   /** The reaction. Implement it in each concrete handler. */
   abstract execute(event: T, context: ExecutionContext): Promise<IResult<unknown>>;
+
+  /**
+   * The reaction, once per message (ADR 12): a message this subscription already handled in a committed transaction is
+   * answered as handled, and nothing runs. Otherwise the reaction runs, and its handling is marked in the inbox as the
+   * transaction's last step, so the mark commits with the reaction's writes or is rolled back with them.
+   */
+  private async once(
+    subscription: string,
+    messageId: string,
+    event: T,
+    context: ExecutionContext,
+  ): Promise<IResult<unknown>> {
+    const inbox = context.unitOfWork?.inbox;
+    if (inbox && (await inbox.has(subscription, messageId))) return Result.ok(undefined);
+
+    const result = await this.execute(event, context);
+    if (inbox && result.isSuccess()) {
+      await context.beforeCommit(() => inbox.record(subscription, messageId));
+    }
+    return result;
+  }
 }

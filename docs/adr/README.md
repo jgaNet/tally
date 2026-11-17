@@ -16,6 +16,8 @@ why, what it costs, and when to revisit it.
 | [9](0009-suggested-settlements-read-two-owned-ports-and-are-computed-at-the-read.md) | Suggested settlements read two owned ports, and are computed at the read |
 | [10](0010-cash-settlements-are-a-book-per-group-and-the-balances-count-them.md) | Cash settlements are decided in a book per group, and the balances count them |
 | [11](0011-payout-accounts-are-an-aggregate-per-person-and-the-provider-knows-them.md) | A payout account is an aggregate per person, and the provider says whether it knows it |
+| [12](0012-the-inbox-is-in-the-database-and-a-reactions-mark-commits-with-its-writes.md) | The inbox is in the database, and a reaction's mark commits with its writes |
+| [13](0013-notices-are-made-from-an-integration-event-and-a-notice-is-an-aggregate.md) | Notices are made from ExpenseRecorded, and a notice is an aggregate that records NoticeIssued |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

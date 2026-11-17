@@ -5,6 +5,8 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import { getGroupBalances } from '@Contexts/Ledger/Application/Balances';
 import { getGroupExpenses, getMemberStatement } from '@Contexts/Ledger/Application/History';
 import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
+import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { ISettledAmounts } from '@Contexts/Ledger/Application/ISettledAmounts';
 import { IBalanceRoster } from '@Contexts/Ledger/Domain/Expense/Ports/IBalanceRoster';
 import { GroupMembersFromGroups, GroupRoster } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
@@ -36,6 +38,7 @@ export function ledgerWiring(database: SqliteDatabase, roster: GroupRoster, sett
 
   return new LiteModule({
     name: 'Ledger',
+    domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
     useCases: [
       recordExpense(expenses, groupMembers, systemClock),
       editExpense(expenses, groupMembers, systemClock),
