@@ -11,7 +11,7 @@ export function temporaryDatabasePath(): string {
 /** Sends a request to the application without a socket: `/v1` plus `path`. */
 export function send(
   app: Application,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   options: { token?: string; payload?: unknown; headers?: Record<string, string> } = {},
 ) {

@@ -77,6 +77,11 @@ const migrations: readonly string[] = [
     PRIMARY KEY (expense_id, position)
   );
   `,
+  `
+  -- An expense is version 1 when recorded, and one more at each edit. An edit names the version it was
+  -- made from; an expense recorded before this step is version 1.
+  ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1);
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

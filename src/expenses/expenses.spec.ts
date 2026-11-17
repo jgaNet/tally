@@ -333,6 +333,7 @@ describe('expenses', () => {
         amount: 1000,
         date,
         paidBy: ada.id,
+        version: 1,
         shares: [
           { memberId: grace.id, amount: 333 },
           { memberId: ada.id, amount: 334 },
