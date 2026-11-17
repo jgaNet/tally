@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "control": "plain",
+  "project": "/var/tmp/j6/trees/plain-1",
+  "ref": "3557543dc9b37b301baf1417aa353f8b2d8112b4",
+  "commit": "3557543dc9b37b301baf1417aa353f8b2d8112b4",
+  "base": "83a0dec4ce7d7990b771b5617709b59050030a5b",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "create-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "invite-and-join",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "record-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "balances",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "edit-and-delete-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "unequal-splits",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "history-and-statement",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "leave-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "remainder-to-the-first",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "deb9b78b10fca0247102ce0f5c530ac8d660df6d",
+      "mechanical": false
+    },
+    {
+      "feature": "suggested-settlements",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "settle-in-cash",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 46858,
+  "workers": 2
+}
