@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { findGroupOfMember } from './groups';
+import { findGroupOfMember, isOrWasMember } from './groups';
 import { Refusal } from './refusal';
 import { inReadSnapshot } from './transactions';
 
@@ -37,8 +37,8 @@ interface StatementRow {
 }
 
 /**
- * The statement of `memberId` in the group, read by `readerId`, who must be a member of the group (else
- * `404`, as if the group did not exist). `memberId` must be a member of the group too (else `404`).
+ * The statement of `memberId` in the group, read by `readerId`, who must be a current member of the group
+ * (else `404`, as if the group did not exist). `memberId` must be a member of the group, or have left it (else `404`).
  * It reads one consistent state of the file and changes nothing.
  */
 export function statementOfMember(db: DatabaseSync, readerId: string, groupId: string, memberId: string): Statement {
@@ -46,7 +46,8 @@ export function statementOfMember(db: DatabaseSync, readerId: string, groupId: s
     if (!findGroupOfMember(db, readerId, groupId)) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
-    if (!findGroupOfMember(db, memberId, groupId)) {
+    // A member who left keeps a statement, read by the group's current members.
+    if (!isOrWasMember(db, memberId, groupId)) {
       throw new Refusal(404, 'MemberNotFound', 'No member of the group has this id.');
     }
     // The share is joined on the member alone, so each expense appears once: a member is listed once in a split.

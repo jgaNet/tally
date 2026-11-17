@@ -275,7 +275,7 @@ export function findExpenseOfMember(db: DatabaseSync, accountId: string, expense
     .prepare(
       `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, e.version, e.split_kind FROM expenses e
        JOIN group_members m ON m.group_id = e.group_id
-       WHERE e.id = ? AND m.account_id = ?`,
+       WHERE e.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
     .get(expenseId, accountId) as ExpenseRow | undefined;
   if (!row) return undefined;
@@ -321,7 +321,9 @@ export function expensesOfGroup(db: DatabaseSync, accountId: string, groupId: st
 
 /**
  * The expense `editorId` may change: they must be a member of its group (else `404`, as if it did not
- * exist), and its payer or the group's owner (else `403`). Answers the expense as it is now.
+ * exist), and its payer or the group's owner (else `403`). An expense whose payer or a member of whose
+ * split has left the group cannot be changed (`409`), so that their balance stays 0. Answers the expense
+ * as it is now.
  */
 function expenseChangeableBy(db: DatabaseSync, editorId: string, expenseId: string): Expense {
   const expense = findExpenseOfMember(db, editorId, expenseId);
@@ -329,6 +331,16 @@ function expenseChangeableBy(db: DatabaseSync, editorId: string, expenseId: stri
   const ownerId = findGroupOfMember(db, editorId, expense.groupId)?.ownerId;
   if (editorId !== expense.paidBy && editorId !== ownerId) {
     throw new Refusal(403, 'NotPayerOrOwner', 'Only the payer of the expense or the owner of its group may change it.');
+  }
+  const currentMembers = new Set(membersOfGroup(db, expense.groupId).map(member => member.memberId));
+  const concernsLeaver =
+    !currentMembers.has(expense.paidBy) || expense.shares.some(share => !currentMembers.has(share.memberId));
+  if (concernsLeaver) {
+    throw new Refusal(
+      409,
+      'MemberHasLeft',
+      'The expense concerns a member who has left the group, so it cannot be changed or deleted.',
+    );
   }
   return expense;
 }

@@ -50,7 +50,7 @@ export function findInvitation(db: DatabaseSync, id: string): Invitation | undef
 /**
  * Makes `accountId` a member of the group the invitation `id` leads to, with the rights of a member.
  * An unknown invitation is refused with `404`; an account already in the group with `409`, and its
- * membership stays as it was.
+ * membership stays as it was. An account that left the group joins again, last in the order of the members.
  */
 export function acceptInvitation(db: DatabaseSync, input: { id: string; accountId: string }): void {
   const { id, accountId } = input;
@@ -58,9 +58,14 @@ export function acceptInvitation(db: DatabaseSync, input: { id: string; accountI
     const invitation = findInvitation(db, id);
     if (!invitation) throw new Refusal(404, 'InvitationNotFound', 'No invitation has this id.');
     const alreadyMember = db
-      .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ?')
+      .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NULL')
       .get(invitation.groupId, accountId);
     if (alreadyMember) throw new Refusal(409, 'AlreadyMember', 'The account is already a member of this group.');
+    // An account that left is joined afresh: its earlier record goes, so it is last in the order of the members.
+    db.prepare('DELETE FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NOT NULL').run(
+      invitation.groupId,
+      accountId,
+    );
     db.prepare('INSERT INTO group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)').run(
       invitation.groupId,
       accountId,

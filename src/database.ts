@@ -40,6 +40,7 @@ const SCHEMA = `
     group_id   TEXT NOT NULL REFERENCES groups (id),
     account_id TEXT NOT NULL REFERENCES accounts (id),
     joined_at  TEXT NOT NULL,
+    left_at    TEXT,
     PRIMARY KEY (group_id, account_id)
   );
   CREATE INDEX IF NOT EXISTS group_members_by_account ON group_members (account_id);
@@ -75,6 +76,11 @@ const SCHEMA = `
  */
 function addMissingColumns(db: DatabaseSync): void {
   const expenseColumns = db.prepare('PRAGMA table_info(expenses)').all() as unknown as { name: string }[];
+  const membershipColumns = db.prepare('PRAGMA table_info(group_members)').all() as unknown as { name: string }[];
+  // A membership written before leaving a group has no `left_at`: every such membership is still current.
+  if (!membershipColumns.some(column => column.name === 'left_at')) {
+    db.exec('ALTER TABLE group_members ADD COLUMN left_at TEXT');
+  }
   if (!expenseColumns.some(column => column.name === 'version')) {
     db.exec('ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
   }

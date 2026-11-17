@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { balancesOfGroup } from './balances';
 import { inTransaction } from './transactions';
 import { Refusal } from './refusal';
 import { characters } from './text';
@@ -68,13 +69,13 @@ export function createGroup(db: DatabaseSync, input: { ownerId: string; name: st
   return id;
 }
 
-/** The group with this id, when `accountId` is one of its members; `undefined` otherwise, as if it did not exist. */
+/** The group with this id, when `accountId` is one of its current members; `undefined` otherwise, as if it did not exist. */
 export function findGroupOfMember(db: DatabaseSync, accountId: string, groupId: string): Group | undefined {
   const row = db
     .prepare(
       `SELECT ${GROUP_COLUMNS} FROM groups g
        JOIN group_members m ON m.group_id = g.id
-       WHERE g.id = ? AND m.account_id = ?`,
+       WHERE g.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
     .get(groupId, accountId) as GroupRow | undefined;
   return row && groupOf(row);
@@ -95,7 +96,10 @@ interface MemberRow {
   joined_at: string;
 }
 
-/** The members of a group, the earliest to join first; the owner, who created the group, is first. */
+/**
+ * The current members of a group, the earliest to join first; the owner, who created the group, is first.
+ * A member who left is not among them.
+ */
 export function membersOfGroup(db: DatabaseSync, groupId: string): Member[] {
   const rows = db
     .prepare(
@@ -105,22 +109,59 @@ export function membersOfGroup(db: DatabaseSync, groupId: string): Member[] {
        FROM group_members m
        JOIN groups g ON g.id = m.group_id
        JOIN accounts a ON a.id = m.account_id
-       WHERE m.group_id = ?
+       WHERE m.group_id = ? AND m.left_at IS NULL
        ORDER BY m.joined_at ASC, m.rowid ASC`,
     )
     .all(groupId) as unknown as MemberRow[];
   return rows.map(row => ({ memberId: row.member_id, name: row.name, role: row.role, joinedAt: row.joined_at }));
 }
 
-/** The groups `accountId` is a member of, the most recently created first. */
+/** The groups `accountId` is a current member of, the most recently created first. */
 export function groupsOfMember(db: DatabaseSync, accountId: string): Group[] {
   const rows = db
     .prepare(
       `SELECT ${GROUP_COLUMNS} FROM groups g
        JOIN group_members m ON m.group_id = g.id
-       WHERE m.account_id = ?
+       WHERE m.account_id = ? AND m.left_at IS NULL
        ORDER BY g.created_at DESC, g.rowid DESC`,
     )
     .all(accountId) as unknown as GroupRow[];
   return rows.map(groupOf);
+}
+
+/**
+ * True when `accountId` is a member of the group now or has been one: a member who left keeps the record
+ * of having been one, so that the group's members can still read their statement. Reading changes nothing.
+ */
+export function isOrWasMember(db: DatabaseSync, accountId: string, groupId: string): boolean {
+  return (
+    db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ?').get(groupId, accountId) !==
+    undefined
+  );
+}
+
+/**
+ * Makes `accountId` leave the group, which they must be a current member of (else `404`, as if the group
+ * did not exist). The owner, who created the group, cannot leave it (`403`). The member's balance in the
+ * group must be 0 (else `409`): what they owe or are owed is settled. A member who left is no longer among
+ * the group's members or balances, and the group is not among their groups; their expenses stay as they were.
+ */
+export function leaveGroup(db: DatabaseSync, input: { groupId: string; accountId: string }): void {
+  const { groupId, accountId } = input;
+  inTransaction(db, () => {
+    const group = findGroupOfMember(db, accountId, groupId);
+    if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    if (group.ownerId === accountId) {
+      throw new Refusal(403, 'OwnerCannotLeave', 'The owner created the group and cannot leave it.');
+    }
+    const balance = balancesOfGroup(db, groupId).find(member => member.memberId === accountId)?.balance ?? 0;
+    if (balance !== 0) {
+      throw new Refusal(409, 'BalanceIsNotZero', 'The balance must be 0 to leave the group.');
+    }
+    db.prepare('UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?').run(
+      new Date().toISOString(),
+      groupId,
+      accountId,
+    );
+  });
 }

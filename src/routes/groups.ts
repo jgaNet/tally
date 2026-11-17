@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { createGroup, findGroupOfMember, groupsOfMember, membersOfGroup } from '../groups';
+import { createGroup, findGroupOfMember, groupsOfMember, leaveGroup, membersOfGroup } from '../groups';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
 
@@ -66,6 +66,13 @@ export function registerGroupRoutes(server: FastifyInstance, db: DatabaseSync): 
   server.get('/groups/mine', { schema: { response: { 200: { type: 'array', items: GROUP } } } }, async request => {
     const caller = requireCaller(db, request);
     return groupsOfMember(db, caller.id);
+  });
+
+  // Only a current member leaves; the group's owner cannot. A member who left sees no group any more.
+  server.post<{ Params: { id: string } }>('/groups/:id/leave', async (request, reply) => {
+    const caller = requireCaller(db, request);
+    leaveGroup(db, { groupId: request.params.id, accountId: caller.id });
+    return reply.code(204).send();
   });
 
   // Only a member sees the members; to anyone else the group does not exist.
