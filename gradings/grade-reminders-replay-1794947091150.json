@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "control": "plain",
+  "project": "/var/tmp/j6/trees/plain-2",
+  "ref": "530bbe4c296edb9d949a19d06fedc5f0d86bf9d3",
+  "commit": "530bbe4c296edb9d949a19d06fedc5f0d86bf9d3",
+  "base": "83a0dec4ce7d7990b771b5617709b59050030a5b",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "reminders",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 3 passed, 4 total",
+        "failed": [
+          "reminders › stops reminding once what is still owed is 2000 or less, and starts again, a period later, when it comes back"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● reminders › stops reminding once what is still owed is 2000 or less, and starts again, a period later, when it comes back",
+          "    Expected length: 1",
+          "    Received length: 3",
+          "    Received array:  [{\"amount\": 3000, \"at\": \"2026-11-17T20:25:13.405Z\", \"groupId\": \"ef4cb8b7-efa5-43de-807e-ee8d769b81fb\", \"id\": \"144a840c-fea5-42b7-87df-8c74ec3672cf\", \"kind\": \"reminder\"}, {\"amount\": 3000, \"at\": \"2026-11-17T20:25:10.402Z\", \"groupId\": \"ef4cb8b7-efa5-43de-807e-ee8d769b81fb\", \"id\": \"7dd18098-5acd-4aa7-86ca-ffc2dc415dd8\", \"kind\": \"reminder\"}, {\"amount\": 3000, \"at\": \"2026-11-17T20:25:07.400Z\", \"groupId\": \"ef4cb8b7-efa5-43de-807e-ee8d769b81fb\", \"id\": \"e6f416aa-d633-4b60-ad9b-65ab0d5d9b93\", \"kind\": \"reminder\"}]",
+          "Tests:       1 failed, 3 passed, 4 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 39444,
+  "workers": 1
+}
