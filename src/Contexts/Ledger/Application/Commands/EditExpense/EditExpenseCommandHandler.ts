@@ -13,7 +13,8 @@ import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/E
  * A member who paid an expense, or the owner of its group, gives it again, whole, from the version they read. The
  * expense is read afresh and decided on what it is now: a member who is not in the group does not see it at all, and
  * one who is, but neither paid it nor owns the group, is refused by the aggregate. The shares are computed again, under
- * the rules of recording (the same members, the same day); the payer stays the one who paid.
+ * the rules of recording (the same members, or the same kind of split with the new values); the payer stays the one who
+ * paid.
  */
 export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommandEvent> {
   constructor(
@@ -40,11 +41,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (amount.isFailure()) return amount;
     const date = ExpenseDate.create(payload.date, now);
     if (date.isFailure()) return date;
-    const split = Split.equally({
-      amount: amount.data,
-      payer: expense.payer,
-      between: payload.splitBetween.map(member => new Id(member)),
-    });
+    const split = Split.fromRequest({ amount: amount.data, payer: expense.payer, request: payload });
     if (split.isFailure()) return split;
 
     const edited = expense.edit({

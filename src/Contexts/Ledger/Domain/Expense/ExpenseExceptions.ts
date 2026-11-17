@@ -55,6 +55,30 @@ export class NotAllowedToChangeExpense extends ExpenseException {
   }
 }
 
+export class OneSplitOnly extends ExpenseException {
+  constructor() {
+    super('OneSplitOnly', 'An expense is split one way: between members, by exact amounts, or by shares');
+  }
+}
+
+export class InvalidExactAmount extends ExpenseException {
+  constructor() {
+    super('InvalidExactAmount', 'Each exact amount must be a whole number of 0 or more');
+  }
+}
+
+export class ExactAmountsDoNotAddUp extends ExpenseException {
+  constructor() {
+    super('ExactAmountsDoNotAddUp', 'The exact amounts must add up to the amount of the expense');
+  }
+}
+
+export class InvalidShares extends ExpenseException {
+  constructor() {
+    super('InvalidShares', 'Each member must have a whole number of shares, at least 1');
+  }
+}
+
 export class ExpenseChanged extends ExpenseException {
   constructor() {
     super('ExpenseChanged', 'The expense changed since it was read: read it again, and decide again');

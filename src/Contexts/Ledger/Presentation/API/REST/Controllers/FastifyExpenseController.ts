@@ -7,6 +7,7 @@ import {
   RecordExpenseCommandEvent,
 } from '@Contexts/Ledger/Application/Commands';
 import { GetExpenseQueryHandler } from '@Contexts/Ledger/Application/Queries';
+import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { refuse } from '@Contexts/Ledger/Presentation/API/REST/Controllers/refuse';
 
 export class FastifyExpenseController {
@@ -19,7 +20,7 @@ export class FastifyExpenseController {
   recordExpense(
     req: FastifyRequest<{
       Params: { id: string };
-      Body: { description: string; amount: number; date: string; splitBetween: string[] };
+      Body: { description: string; amount: number; date: string } & SplitRequest;
     }>,
     reply: FastifyReply,
   ) {
@@ -34,7 +35,7 @@ export class FastifyExpenseController {
   editExpense(
     req: FastifyRequest<{
       Params: { id: string };
-      Body: { description: string; amount: number; date: string; splitBetween: string[]; version: number };
+      Body: { description: string; amount: number; date: string; version: number } & SplitRequest;
     }>,
     reply: FastifyReply,
   ) {

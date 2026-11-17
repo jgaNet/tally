@@ -79,6 +79,7 @@ export class Expense extends AggregateRoot {
         groupId: groupId.value,
         paidBy: split.payer.value,
         amount: amount.value,
+        splitKind: split.kind,
         recordedAt: at.toISOString(),
       }),
     );
@@ -123,6 +124,7 @@ export class Expense extends AggregateRoot {
         groupId: this.groupId.value,
         paidBy: split.payer.value,
         amount: amount.value,
+        splitKind: split.kind,
         editedAt: at.toISOString(),
       }),
     );
@@ -174,7 +176,12 @@ export class Expense extends AggregateRoot {
     ) {
       throw new Error(`Corrupted expense ${snapshot.id}`);
     }
-    const split = Split.fromSnapshot({ payer: snapshot.paidBy, shares: snapshot.shares, amount: snapshot.amount });
+    const split = Split.fromSnapshot({
+      kind: snapshot.splitKind,
+      payer: snapshot.paidBy,
+      shares: snapshot.shares,
+      amount: snapshot.amount,
+    });
     return new Expense(
       new Id(snapshot.id),
       snapshot.version,
@@ -195,6 +202,7 @@ export class Expense extends AggregateRoot {
       amount: this.amount.value,
       date: this.date.value,
       paidBy: this.split.payer.value,
+      splitKind: this.split.kind,
       shares: this.split.shares.map(share => ({ memberId: share.memberId.value, amount: share.amount })),
       recordedAt: this.recordedAt.toISOString(),
       version: this.version,

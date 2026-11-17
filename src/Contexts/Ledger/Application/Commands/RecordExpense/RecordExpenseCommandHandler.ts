@@ -11,9 +11,9 @@ import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembe
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandEvent';
 
 /**
- * A member records an expense they paid, split equally between the members it concerns. The payer is the caller; the
- * members of the split are asked of Groups when the expense is decided, so a member who has just joined can be in it.
- * The result is the expense's id.
+ * A member records an expense they paid, split between the members it concerns: equally, by exact amounts, or by shares.
+ * The payer is the caller; the members of the split are asked of Groups when the expense is decided, so a member who has
+ * just joined can be in it. The result is the expense's id.
  */
 export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCommandEvent> {
   constructor(
@@ -35,11 +35,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     if (amount.isFailure()) return amount;
     const date = ExpenseDate.create(payload.date, now);
     if (date.isFailure()) return date;
-    const split = Split.equally({
-      amount: amount.data,
-      payer: payer.data,
-      between: payload.splitBetween.map(member => new Id(member)),
-    });
+    const split = Split.fromRequest({ amount: amount.data, payer: payer.data, request: payload });
     if (split.isFailure()) return split;
 
     const groupId = new Id(payload.groupId);

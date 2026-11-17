@@ -12,9 +12,27 @@ const ShareSchema = {
   },
 } as const;
 
+const ExactShareSchema = {
+  type: 'object',
+  required: ['memberId', 'amount'],
+  properties: {
+    memberId: { type: 'string' },
+    amount: { type: 'integer' },
+  },
+} as const;
+
+const SharesShareSchema = {
+  type: 'object',
+  required: ['memberId', 'shares'],
+  properties: {
+    memberId: { type: 'string' },
+    shares: { type: 'integer' },
+  },
+} as const;
+
 const ExpenseSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares', 'version'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'splitKind', 'shares', 'version'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -22,21 +40,39 @@ const ExpenseSchema = {
     amount: { type: 'integer' },
     date: { type: 'string' },
     paidBy: { type: 'string' },
+    splitKind: { enum: ['equal', 'exact', 'shares'] },
     shares: { type: 'array', items: ShareSchema },
     version: { type: 'integer', minimum: 1 },
   },
 } as const;
 
+/*
+ * How an expense is split: exactly one of the three fields, each with its own shape. Two of them in one body, or none, is the
+ * body's shape and a 400; whether the amounts add up or the shares are at least 1 is the domain's to decide.
+ */
+const SplitFields = {
+  splitBetween: { type: 'array', items: { type: 'string' } },
+  splitExactly: { type: 'array', items: ExactShareSchema },
+  splitByShares: { type: 'array', items: SharesShareSchema },
+} as const;
+
+const ExactlyOneOfTheSplits = [
+  { required: ['splitBetween'] },
+  { required: ['splitExactly'] },
+  { required: ['splitByShares'] },
+] as const;
+
 /** The shape of each body: a field missing or of the wrong type is a 400; whether a value is allowed is the domain's. */
 export const RecordExpenseBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date', 'splitBetween'],
+  required: ['description', 'amount', 'date'],
   properties: {
     description: { type: 'string' },
     amount: { type: 'integer' },
     date: { type: 'string' },
-    splitBetween: { type: 'array', items: { type: 'string' } },
+    ...SplitFields,
   },
+  oneOf: ExactlyOneOfTheSplits,
 } as const;
 
 export const RecordExpenseResSchema = {
@@ -54,14 +90,15 @@ export const GetExpenseResSchema = {
 /** The shape of an edit: the expense given again, whole, and the version it was read at. Whether the values are allowed is the domain's. */
 export const EditExpenseBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date', 'splitBetween', 'version'],
+  required: ['description', 'amount', 'date', 'version'],
   properties: {
     description: { type: 'string' },
     amount: { type: 'integer' },
     date: { type: 'string' },
-    splitBetween: { type: 'array', items: { type: 'string' } },
+    ...SplitFields,
     version: { type: 'integer' },
   },
+  oneOf: ExactlyOneOfTheSplits,
 } as const;
 
 export const EditExpenseResSchema = {

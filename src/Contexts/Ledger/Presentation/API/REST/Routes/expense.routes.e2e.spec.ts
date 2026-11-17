@@ -122,6 +122,7 @@ describe('recording an expense, split equally', () => {
       amount: 1000,
       date: today(),
       paidBy: alice.id,
+      splitKind: 'equal',
       shares: [
         { memberId: bob.id, amount: 333 },
         { memberId: carol.id, amount: 333 },
@@ -358,6 +359,7 @@ describe('editing an expense', () => {
       amount: 600,
       date: today(),
       paidBy: alice.id,
+      splitKind: 'equal',
       shares: [
         { memberId: alice.id, amount: 300 },
         { memberId: bob.id, amount: 300 },
@@ -617,5 +619,253 @@ describe('deleting an expense', () => {
     });
     const { status } = await http.request('DELETE', `${api}/expenses/${id}`);
     expect(status).toBe(401);
+  });
+});
+
+describe('splitting unequally', () => {
+  /** Records an expense by exact amounts, as a client does. */
+  const exactly = (token: string, groupId: string, amounts: [string, number][], amount = 10) =>
+    record(token, groupId, {
+      description: 'Lobster',
+      amount,
+      date: today(),
+      splitExactly: amounts.map(([memberId, share]) => ({ memberId, amount: share })),
+    });
+
+  /** Records an expense by shares, as a client does. */
+  const byShares = (token: string, groupId: string, parts: [string, number][], amount: number) =>
+    record(token, groupId, {
+      description: 'Cottage',
+      amount,
+      date: today(),
+      splitByShares: parts.map(([memberId, shares]) => ({ memberId, shares })),
+    });
+
+  it('splits by exact amounts, each member with their amount, in the order given, and reads it as exact', async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    const { answer, done } = await exactly(alice.token, groupId, [
+      [bob.id, 6],
+      [carol.id, 0],
+      [alice.id, 4],
+    ]);
+    expect(answer.status).toBe(202);
+    expect(done).toMatchObject({ status: 'SUCCESS' });
+    const id = (done as { result: { id: string } }).result.id;
+
+    const { body } = await http.get(`${api}/expenses/${id}`, { token: bob.token });
+    expect(body).toEqual({
+      id,
+      groupId,
+      description: 'Lobster',
+      amount: 10,
+      date: today(),
+      paidBy: alice.id,
+      splitKind: 'exact',
+      shares: [
+        { memberId: bob.id, amount: 6 },
+        { memberId: carol.id, amount: 0 },
+        { memberId: alice.id, amount: 4 },
+      ],
+      version: 1,
+    });
+  });
+
+  it('splits by shares: 1001 by 2 and 1 shares, the payer listed second, is 667 and 334', async () => {
+    const { alice, bob, groupId } = await threeMembers();
+    const { done } = await byShares(
+      alice.token,
+      groupId,
+      [
+        [bob.id, 2],
+        [alice.id, 1],
+      ],
+      1001,
+    );
+    expect(done).toMatchObject({ status: 'SUCCESS' });
+    const id = (done as { result: { id: string } }).result.id;
+
+    const { body } = await http.get(`${api}/expenses/${id}`, { token: alice.token });
+    expect(body).toMatchObject({
+      splitKind: 'shares',
+      shares: [
+        { memberId: bob.id, amount: 667 },
+        { memberId: alice.id, amount: 334 },
+      ],
+    });
+  });
+
+  it('splits by shares of 1, 1 and 1 as the equal split does: 333, 333 and 334', async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    const { done } = await byShares(
+      alice.token,
+      groupId,
+      [
+        [bob.id, 1],
+        [carol.id, 1],
+        [alice.id, 1],
+      ],
+      1000,
+    );
+    const id = (done as { result: { id: string } }).result.id;
+    const { body } = await http.get(`${api}/expenses/${id}`, { token: alice.token });
+    expect(body).toMatchObject({
+      splitKind: 'shares',
+      shares: [
+        { memberId: bob.id, amount: 333 },
+        { memberId: carol.id, amount: 333 },
+        { memberId: alice.id, amount: 334 },
+      ],
+    });
+  });
+
+  it.each([
+    [
+      'exact amounts that do not add up',
+      {
+        description: 'Lobster',
+        amount: 10,
+        date: 'TODAY',
+        splitExactly: [
+          { memberId: 'ALICE', amount: 4 },
+          { memberId: 'BOB', amount: 5 },
+        ],
+      },
+      'ExactAmountsDoNotAddUp',
+    ],
+    [
+      'an exact amount below 0',
+      {
+        description: 'Lobster',
+        amount: 10,
+        date: 'TODAY',
+        splitExactly: [
+          { memberId: 'ALICE', amount: 11 },
+          { memberId: 'BOB', amount: -1 },
+        ],
+      },
+      'InvalidExactAmount',
+    ],
+    [
+      'a member with less than one share',
+      {
+        description: 'Cottage',
+        amount: 10,
+        date: 'TODAY',
+        splitByShares: [
+          { memberId: 'ALICE', shares: 0 },
+          { memberId: 'BOB', shares: 1 },
+        ],
+      },
+      'InvalidShares',
+    ],
+  ])('refuses %s, behind the 202', async (_, template, type) => {
+    const { alice, bob, groupId } = await threeMembers();
+    const ids: Record<string, string> = { ALICE: alice.id, BOB: bob.id };
+    const body = JSON.parse(
+      JSON.stringify(template)
+        .replace(/"(ALICE|BOB)"/g, (_m, key: string) => `"${ids[key]}"`)
+        .replace('"TODAY"', `"${today()}"`),
+    ) as Body;
+    const answer = await http.request('POST', `${api}/groups/${groupId}/expenses`, { body, token: alice.token });
+    expect(answer.status).toBe(202);
+    const done = await outcome((answer.body as Body).operationId as string, alice.token);
+    expect(done.body).toMatchObject({ status: 'ERROR', error: { type } });
+  });
+
+  it('refuses a split whose payer is not in it, behind the 202', async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    const { done } = await exactly(alice.token, groupId, [
+      [bob.id, 5],
+      [carol.id, 5],
+    ]);
+    expect(done).toMatchObject({ status: 'ERROR', error: { type: 'PayerNotInSplit' } });
+  });
+
+  it.each([
+    ['none of the three', { description: 'Lobster', amount: 10, date: today() }],
+    [
+      'two of the three',
+      {
+        description: 'Lobster',
+        amount: 10,
+        date: today(),
+        splitExactly: [{ memberId: 'x', amount: 10 }],
+        splitByShares: [{ memberId: 'x', shares: 1 }],
+      },
+    ],
+    [
+      'an exact amount that is a string',
+      { description: 'Lobster', amount: 10, date: today(), splitExactly: [{ memberId: 'x', amount: '10' }] },
+    ],
+    [
+      'a share that is not a whole number',
+      { description: 'Lobster', amount: 10, date: today(), splitByShares: [{ memberId: 'x', shares: 1.5 }] },
+    ],
+  ])('refuses a body with %s at once with 400', async (_, body) => {
+    const { alice, groupId } = await threeMembers();
+    const { status } = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body,
+      token: alice.token,
+    });
+    expect(status).toBe(400);
+  });
+
+  it('edits an equal expense into an exact one: its kind, its shares and its version change', async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    const id = await recorded(alice.token, groupId, {
+      description: 'Groceries',
+      amount: 1000,
+      date: today(),
+      splitBetween: [alice.id, bob.id, carol.id],
+    });
+    const { answer, done } = await edit(alice.token, id, {
+      description: 'Groceries',
+      amount: 1000,
+      date: today(),
+      splitExactly: [
+        { memberId: alice.id, amount: 200 },
+        { memberId: bob.id, amount: 800 },
+      ],
+      version: 1,
+    });
+    expect(answer.status).toBe(202);
+    expect(done).toMatchObject({ status: 'SUCCESS' });
+
+    const { body } = await http.get(`${api}/expenses/${id}`, { token: bob.token });
+    expect(body).toMatchObject({
+      splitKind: 'exact',
+      version: 2,
+      shares: [
+        { memberId: alice.id, amount: 200 },
+        { memberId: bob.id, amount: 800 },
+      ],
+    });
+  });
+
+  it("counts each member's share in the balances, however the expense was split", async () => {
+    const { alice, bob, carol, groupId } = await threeMembers();
+    await exactly(alice.token, groupId, [
+      [alice.id, 4],
+      [bob.id, 6],
+    ]);
+    const { done } = await byShares(
+      alice.token,
+      groupId,
+      [
+        [bob.id, 2],
+        [carol.id, 1],
+        [alice.id, 1],
+      ],
+      300,
+    );
+    expect(done).toMatchObject({ status: 'SUCCESS' });
+    // Alice paid 10 exact (her share 4): she is owed 6, bob owes 6. Then 300 by shares of 2, 1 and 1 (bob 150, carol 75,
+    // alice 75): alice is owed 225 more, bob owes 150 and carol 75.
+    const balances = await balancesOf(alice.token, groupId);
+    expect(balances.get(alice.id)).toBe(231);
+    expect(balances.get(bob.id)).toBe(-156);
+    expect(balances.get(carol.id)).toBe(-75);
+    const total = [...balances.values()].reduce((sum, value) => sum + value, 0);
+    expect(total).toBe(0);
   });
 });

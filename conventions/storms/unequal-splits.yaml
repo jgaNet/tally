@@ -5,7 +5,7 @@ feature: unequal-splits
 intent: >-
   An expense is split equally, by exact amounts that add up, or by whole shares, the remainder to the payer; reading it says which.
 
-done: false
+done: true
 
 hotSpots:
   - question: A command per kind of split, or one?
@@ -16,10 +16,25 @@ hotSpots:
     decision: As an equal split's, whole to the payer, decided in the same Split value.
 
 contexts:
+  # What this feature carries: the commands it changes to take a split of one of three kinds, the read it changes to
+  # say how an expense was split, and the facts they record, which now carry the kind. No new name is added.
   - id: Ledger
-    commands: []
-    queries: []
-    events: []
+    commands:
+      - name: RecordExpense
+        actor: a signed-in account
+        route: POST /groups/{param}/expenses
+        aggregate: Expense
+        events: [ExpenseRecorded]
+      - name: EditExpense
+        actor: a signed-in account
+        route: PUT /expenses/{param}
+        aggregate: Expense
+        events: [ExpenseEdited]
+    queries:
+      - name: GetExpense
+        actor: a signed-in account
+        route: GET /expenses/{param}
+    events: [ExpenseEdited, ExpenseRecorded]
     policies: []
 
 links: []

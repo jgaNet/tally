@@ -1,5 +1,6 @@
 import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture/Domain';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { EXPENSE_STATEMENTS } from '@Contexts/Ledger/Infrastructure/expenses.schema';
@@ -11,6 +12,7 @@ interface ExpenseRow {
   amount: number;
   date: string;
   paid_by: string;
+  split_kind: SplitKind;
   recorded_at: string;
   version: number;
 }
@@ -23,8 +25,13 @@ export class SqliteExpenseRepository implements IExpenseRepository {
 
   async findById(id: Id): Promise<Expense | null> {
     const { connection } = this.database;
-    const row = connection.prepare('SELECT * FROM ledger_expenses WHERE id = ?').get(id.value) as
-      ExpenseRow | undefined;
+    const row = connection
+      .prepare(
+        `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, k.split_kind, e.recorded_at, e.version
+           FROM ledger_expenses e JOIN ledger_expense_splits k ON k.expense_id = e.id
+          WHERE e.id = ?`,
+      )
+      .get(id.value) as ExpenseRow | undefined;
     if (!row) return null;
     const shares = connection
       .prepare('SELECT member_id, amount FROM ledger_expense_shares WHERE expense_id = ? ORDER BY position')
@@ -36,6 +43,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       amount: row.amount,
       date: row.date,
       paidBy: row.paid_by,
+      splitKind: row.split_kind,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       recordedAt: row.recorded_at,
       version: row.version,
@@ -43,7 +51,8 @@ export class SqliteExpenseRepository implements IExpenseRepository {
   }
 
   async save(expense: Expense): Promise<IResult> {
-    const { id, groupId, description, amount, date, paidBy, shares, recordedAt, version } = expense.toSnapshot();
+    const { id, groupId, description, amount, date, paidBy, splitKind, shares, recordedAt, version } =
+      expense.toSnapshot();
     const { connection } = this.database;
     const conflict = () =>
       Result.fail(new ConcurrencyConflictException('Ledger', 'The expense changed since it was read', { id }));
@@ -54,6 +63,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         .run(id, version);
       if (changes === 0) return conflict();
       connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
+      connection.prepare('DELETE FROM ledger_expense_splits WHERE expense_id = ?').run(id);
       connection.prepare('DELETE FROM ledger_balance_entries WHERE expense_id = ?').run(id);
       return Result.ok();
     }
@@ -74,6 +84,9 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         .run(description, amount, date, id, version);
       if (changes === 0) return conflict();
     }
+    connection
+      .prepare('INSERT OR REPLACE INTO ledger_expense_splits (expense_id, split_kind) VALUES (?, ?)')
+      .run(id, splitKind);
     connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
     shares.forEach(({ memberId, amount: share }, position) =>
       connection

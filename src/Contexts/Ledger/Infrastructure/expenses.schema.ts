@@ -1,7 +1,8 @@
 /**
  * The ledger's tables in the SQLite file (ADR 2). An expense is a row of `ledger_expenses`, at its version (1 when it is
  * recorded, one more at each edit); its shares are its rows of `ledger_expense_shares`, in the order of the split
- * (`position`). `recorded_at` is when it was recorded. A deleted expense has no rows here, nor in the balances.
+ * (`position`); how it is split (`equal`, `exact` or `shares`) is its row of `ledger_expense_splits`. `recorded_at` is when
+ * it was recorded. A deleted expense has no rows here, nor in the balances.
  */
 export const EXPENSE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS ledger_expenses (
@@ -15,6 +16,17 @@ export const EXPENSE_STATEMENTS = [
      version INTEGER NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS ledger_expenses_by_group ON ledger_expenses (group_id)`,
+  /*
+   * How each expense is split, one row per expense. It is a side table rather than a column of `ledger_expenses`: the
+   * migrations here are `CREATE … IF NOT EXISTS` and run at every start, which an `ALTER TABLE ADD COLUMN` is not. The
+   * expenses recorded before it existed were split equally, so they get that once; a row already there is kept.
+   */
+  `CREATE TABLE IF NOT EXISTS ledger_expense_splits (
+     expense_id TEXT PRIMARY KEY,
+     split_kind TEXT NOT NULL CHECK (split_kind IN ('equal', 'exact', 'shares'))
+   )`,
+  `INSERT OR IGNORE INTO ledger_expense_splits (expense_id, split_kind)
+   SELECT id, 'equal' FROM ledger_expenses`,
   `CREATE TABLE IF NOT EXISTS ledger_expense_shares (
      expense_id TEXT NOT NULL,
      position INTEGER NOT NULL,

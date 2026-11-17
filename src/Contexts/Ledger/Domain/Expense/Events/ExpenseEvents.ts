@@ -1,20 +1,23 @@
 import { DomainEvent } from '@Architecture/Domain';
+import { SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
 
-/** An expense was recorded: its id, its group, who paid it, its amount, and when it was recorded. Its split is read back from the aggregate's store. */
+/** An expense was recorded: its id, its group, who paid it, its amount, how it was split, and when it was recorded. Its shares are read back from the aggregate's store. */
 export class ExpenseRecordedEvent extends DomainEvent<{
   expenseId: string;
   groupId: string;
   paidBy: string;
   amount: number;
+  splitKind: SplitKind;
   recordedAt: string;
 }> {}
 
-/** An expense was edited: its id, its group, who paid it (unchanged by an edit), its new amount, and when it was edited. Its new split is read back from the store. */
+/** An expense was edited: its id, its group, who paid it (unchanged by an edit), its new amount, how it is now split, and when it was edited. Its new shares are read back from the store. */
 export class ExpenseEditedEvent extends DomainEvent<{
   expenseId: string;
   groupId: string;
   paidBy: string;
   amount: number;
+  splitKind: SplitKind;
   editedAt: string;
 }> {}
 
