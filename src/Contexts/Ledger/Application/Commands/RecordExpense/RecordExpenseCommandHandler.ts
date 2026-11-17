@@ -3,6 +3,7 @@ import { Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { IBalanceCounts } from '@Contexts/Ledger/Application/Ports/IBalanceCounts';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandEvent';
@@ -10,13 +11,15 @@ import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands
 /**
  * A signed-in member of a group records an expense they paid: the payer is the caller, and the operation answers the
  * expense's id. For anyone who is not a member the group does not exist, the same refusal as one that is not there.
- * The split is decided by the expense; its members are read from Groups through the port Ledger owns (ADR 3).
+ * The split is decided by the expense; its members are read from Groups through the port Ledger owns (ADR 3). The
+ * expense is counted into the balances in this same transaction, so the balances and the expense are stored together.
  */
 export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCommandEvent> {
   constructor(
     private expenses: IExpenseRepository,
     private groupMembers: IGroupMembers,
     private clock: Clock,
+    private balances: IBalanceCounts,
   ) {
     super();
   }
@@ -44,6 +47,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
 
     const saved = await this.expenses.save(expense.data);
     if (saved.isFailure()) return saved;
+    await this.balances.count(expense.data);
 
     await this.publishDomainEvents(expense.data, context);
     return Result.ok(expense.data._id.value);

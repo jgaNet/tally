@@ -6,6 +6,8 @@ import { Role } from '@SharedKernel/Domain';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandEvent';
 import { RecordExpenseCommandHandler } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandHandler';
 import {
+  InMemoryBalances,
+  InMemoryBalanceStore,
   InMemoryExpenseRepository,
   InMemoryExpenseStore,
   InMemoryGroupMembers,
@@ -19,12 +21,14 @@ const anonymous = () => new ExecutionContext({ traceId: 'trace', eventBus, auth:
 
 const setup = () => {
   const store: InMemoryExpenseStore = new Map();
+  const balanceStore: InMemoryBalanceStore = new Map();
   const handler = new RecordExpenseCommandHandler(
     new InMemoryExpenseRepository(store),
     new InMemoryGroupMembers(new Map([['flat', ['alice', 'bob']]])),
     () => at,
+    new InMemoryBalances(balanceStore),
   );
-  return { store, handler };
+  return { store, balanceStore, handler };
 };
 
 const groceries = {
@@ -58,17 +62,26 @@ describe('RecordExpense', () => {
     });
   });
 
+  it('counts the expense into the balances: the payer is owed the amount, each member owes their share', async () => {
+    const { handler, balanceStore } = setup();
+
+    await handler.execute(RecordExpenseCommandEvent.set(groceries), signedInAs('alice'));
+
+    expect(Object.fromEntries(balanceStore.get('flat') ?? [])).toEqual({ alice: 500, bob: -500 });
+  });
+
   it('refuses a caller who is not a member of the group, as if the group did not exist', async () => {
-    const { handler, store } = setup();
+    const { handler, store, balanceStore } = setup();
 
     const result = await handler.execute(RecordExpenseCommandEvent.set(groceries), signedInAs('carl'));
 
     expect(result.isFailure() && result.error.type).toBe('NotFound');
     expect(store.size).toBe(0);
+    expect(balanceStore.size).toBe(0);
   });
 
-  it('refuses a split with a stranger, and keeps nothing', async () => {
-    const { handler, store } = setup();
+  it('refuses a split with a stranger, and keeps nothing, not even in the balances', async () => {
+    const { handler, store, balanceStore } = setup();
 
     const result = await handler.execute(
       RecordExpenseCommandEvent.set({ ...groceries, splitBetween: ['alice', 'carl'] }),
@@ -77,6 +90,7 @@ describe('RecordExpense', () => {
 
     expect(result.isFailure() && result.error.type).toBe('NotAMemberOfTheGroup');
     expect(store.size).toBe(0);
+    expect(balanceStore.size).toBe(0);
   });
 
   it('refuses a caller who is not signed in', async () => {

@@ -21,4 +21,12 @@ export function createLedgerTables(database: SqliteDatabase): void {
     amount INTEGER NOT NULL,
     PRIMARY KEY (expense_id, position)
   )`);
+  // The balances: a read model of the expenses, each one counted in the transaction that stores it (T4). A row is a
+  // member's balance in a group; a member with nothing counted has no row, and reads as 0.
+  database.exec(`CREATE TABLE IF NOT EXISTS member_balances (
+    group_id TEXT NOT NULL,
+    member_id TEXT NOT NULL,
+    balance INTEGER NOT NULL,
+    PRIMARY KEY (group_id, member_id)
+  )`);
 }

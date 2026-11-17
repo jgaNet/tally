@@ -1,5 +1,8 @@
 import { Id, IResult, Result } from '@Architecture/Domain';
 
+import { IBalanceCounts } from '@Contexts/Ledger/Application/Ports/IBalanceCounts';
+import { IBalanceQueries } from '@Contexts/Ledger/Application/Ports/IBalanceQueries';
+import { MemberBalanceReadModel } from '@Contexts/Ledger/Application/ReadModel/MemberBalanceReadModel';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
@@ -20,6 +23,28 @@ export class InMemoryExpenseRepository implements IExpenseRepository {
     const snapshot = expense.toSnapshot();
     this.store.set(snapshot.id, snapshot);
     return Result.ok();
+  }
+}
+
+/** The balances kept in a Map, per group and member: the double the unit tests use for the balances. */
+export type InMemoryBalanceStore = Map<string, Map<string, number>>;
+
+export class InMemoryBalances implements IBalanceCounts, IBalanceQueries {
+  constructor(private store: InMemoryBalanceStore = new Map()) {}
+
+  async count(expense: Expense): Promise<void> {
+    const group = this.store.get(expense.groupId.value) ?? new Map<string, number>();
+    for (const { memberId, change } of expense.balanceChanges()) {
+      group.set(memberId.value, (group.get(memberId.value) ?? 0) + change);
+    }
+    this.store.set(expense.groupId.value, group);
+  }
+
+  async balancesOf(groupId: string): Promise<MemberBalanceReadModel[]> {
+    return [...(this.store.get(groupId) ?? new Map<string, number>())].map(([memberId, balance]) => ({
+      memberId,
+      balance,
+    }));
   }
 }
 
