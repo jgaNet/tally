@@ -3,7 +3,13 @@ import { FastifyPluginCallback } from 'fastify';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
-import { CreateGroupInput, createGroup, getGroup, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import {
+  CreateGroupInput,
+  createGroup,
+  getGroup,
+  getGroupMembers,
+  getMyGroups,
+} from '@Contexts/Groups/Application/Groups';
 
 /**
  * The groups' routes, under `/v1/groups` (ADR 5 and the API's fragment 3): each answers its use case at once. Their paths
@@ -33,6 +39,10 @@ export const groupRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fasti
 
   fastify.get<{ Params: { id: string } }>('/groups/:id', (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getGroup), req.params.id),
+  );
+
+  fastify.get<{ Params: { id: string } }>('/groups/:id/members', (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getGroupMembers), req.params.id),
   );
 
   done();

@@ -31,7 +31,7 @@ describe('createGroup', () => {
       name: 'Flat',
       currency: 'EUR',
       ownerId: 'account-ann',
-      memberIds: ['account-ann'],
+      members: [{ accountId: 'account-ann', joinedAt: now.toISOString() }],
     });
   });
 

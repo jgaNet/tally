@@ -1,4 +1,4 @@
-import { Exception, NotFoundException } from '@Architecture/Domain';
+import { ConflictException, Exception, NotFoundException } from '@Architecture/Domain';
 
 const SERVICE = 'Groups';
 
@@ -31,5 +31,12 @@ export class UnsupportedCurrencyException extends Exception {
 export class GroupNotFoundException extends NotFoundException {
   constructor() {
     super(SERVICE, 'No group is there for you with this id');
+  }
+}
+
+/** An account that is already a member of the group asks to join it again: `409`, a conflict with what is kept (ADR 4). */
+export class AlreadyMemberException extends ConflictException {
+  constructor() {
+    super(SERVICE, 'AlreadyMember', 'You are already a member of this group');
   }
 }

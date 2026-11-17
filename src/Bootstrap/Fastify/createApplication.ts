@@ -11,6 +11,7 @@ import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnit
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
+import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
 import { groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
@@ -26,7 +27,8 @@ import { localLedgerModule } from '@Contexts/Ledger/module.local';
  *
  *   .registerModule(groups.module)
  *   .registerRoutes('/', accountRoutes, { module: groups.module })
- *   .registerRoutes('/', groupRoutes, { module: groups.module });
+ *   .registerRoutes('/', groupRoutes, { module: groups.module })
+ *   .registerRoutes('/', invitationRoutes, { module: groups.module });
  */
 export async function createApplication({
   logger = new ConsoleLogger({ debug: false }),
@@ -60,6 +62,7 @@ export async function createApplication({
     .registerModule(localLedgerModule)
     .registerRoutes('/', accountRoutes, { module: groups.module })
     .registerRoutes('/', groupRoutes, { module: groups.module })
+    .registerRoutes('/', invitationRoutes, { module: groups.module })
     .onStop(() => database.close());
 
   await app.startModules();

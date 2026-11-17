@@ -3,7 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
-import { GroupCreatedEvent } from '@Contexts/Groups/Domain/Group/Group';
+import { GroupCreatedEvent, MemberJoinedEvent } from '@Contexts/Groups/Domain/Group/Group';
 
 /** A group's creation, its name and currency as the domain keeps them, and the fact it records (ADR 5). */
 const now = new Date('2026-05-01T10:00:00.000Z');
@@ -21,7 +21,7 @@ describe('Group.register', () => {
       name: 'Lisbon trip',
       currency: 'EUR',
       ownerId: owner,
-      memberIds: [owner],
+      members: [{ accountId: owner, joinedAt: '2026-05-01T10:00:00.000Z' }],
       createdAt: '2026-05-01T10:00:00.000Z',
       version: 0,
     });
@@ -67,6 +67,39 @@ describe('Group.register', () => {
   });
 });
 
+describe('Group.join', () => {
+  const later = new Date('2026-05-02T09:30:00.000Z');
+
+  it('adds the account as the last member, at the time given, and records MemberJoined', () => {
+    const group = Group.register(draft, now).data!;
+    group.pullDomainEvents();
+
+    expect(group.join('account-bob', later).isSuccess()).toBe(true);
+    expect(group.members()).toEqual([
+      { accountId: owner, joinedAt: now.toISOString() },
+      { accountId: 'account-bob', joinedAt: later.toISOString() },
+    ]);
+    expect(group.hasMember('account-bob')).toBe(true);
+    const [recorded] = group.pullDomainEvents();
+    expect(recorded).toBeInstanceOf(MemberJoinedEvent);
+    expect(recorded.payload).toEqual({
+      groupId: group.toSnapshot().id,
+      accountId: 'account-bob',
+      at: later.toISOString(),
+    });
+  });
+
+  it('refuses an account that is already a member, with AlreadyMember, and changes nothing', () => {
+    const group = Group.register(draft, now).data!;
+    group.pullDomainEvents();
+
+    const again = group.join(owner, later);
+    expect(again.isFailure() && again.error.type).toBe('AlreadyMember');
+    expect(group.members()).toHaveLength(1);
+    expect(group.pullDomainEvents()).toEqual([]);
+  });
+});
+
 describe('Group.fromSnapshot', () => {
   it('rebuilds the group it was saved as, records nothing, and keeps its version', () => {
     const snapshot = {
@@ -74,7 +107,7 @@ describe('Group.fromSnapshot', () => {
       name: 'Flat',
       currency: 'GBP',
       ownerId: owner,
-      memberIds: [owner],
+      members: [{ accountId: owner, joinedAt: now.toISOString() }],
       createdAt: now.toISOString(),
       version: 3,
     };
@@ -92,7 +125,7 @@ describe('Group.fromSnapshot', () => {
         name: 'Flat',
         currency: 'GBP',
         ownerId: owner,
-        memberIds: ['someone-else'],
+        members: [{ accountId: 'someone-else', joinedAt: now.toISOString() }],
         createdAt: now.toISOString(),
         version: 0,
       }),
