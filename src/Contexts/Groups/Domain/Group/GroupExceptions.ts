@@ -33,13 +33,13 @@ export class OwnerCannotLeaveException extends Exception {
   }
 }
 
-/** A member leaves a group once its balance in it is 0: not while it owes or is owed (request 9). */
-export class BalanceNotZeroException extends Exception {
+/** A member does not leave while a payment of theirs waits at the provider: pending or refunding (request 20, docs/adr/0019). */
+export class PaymentWaitingException extends Exception {
   constructor() {
     super({
       service: 'Groups',
-      type: 'BalanceNotZero',
-      message: 'A member leaves a group once its balance in it is 0',
+      type: 'PaymentWaiting',
+      message: 'A member leaves a group once no payment of theirs waits at the provider',
     });
   }
 }

@@ -1,5 +1,5 @@
 import { IGroupQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
-import { GroupMember, IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
+import { GroupMember, IGroupMembers, PassedBalances } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 
 /**
  * Ledger's GroupMembers, answered over Groups' read model (docs/adr/0004, docs/adr/0006): the members of a group, in the
@@ -16,5 +16,10 @@ export class GroupMembersOfGroups implements IGroupMembers {
 
   async hasBeenMember(groupId: string, memberId: string): Promise<boolean> {
     return this.groups.everMemberOf(memberId, groupId);
+  }
+
+  async passedBalancesOf(groupId: string): Promise<PassedBalances | undefined> {
+    const passed = await this.groups.passedBalancesOf(groupId);
+    return passed && { ownerId: passed.ownerId, members: passed.members.map(member => ({ ...member })) };
   }
 }

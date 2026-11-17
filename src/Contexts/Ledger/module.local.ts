@@ -24,8 +24,8 @@ import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteE
  * exports for this purpose; its clock is the system's, given to the use case that records a time.
  */
 const expenses = new SqliteExpenseRepository(sharedDatabase);
-const expenseQueries = new SqliteExpenseQueries(sharedDatabase, settledAmountsOfSettlements);
 const groupMembers = new GroupMembersOfGroups(groupsReadModel);
+const expenseQueries = new SqliteExpenseQueries(sharedDatabase, settledAmountsOfSettlements, groupMembers);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',

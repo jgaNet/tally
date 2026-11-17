@@ -3,7 +3,7 @@ import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
-import { ledgerReadModel } from '@Bootstrap/Fastify/readModels';
+import { ledgerReadModel, waitingPaymentsOfSettlements } from '@Bootstrap/Fastify/readModels';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
@@ -51,7 +51,7 @@ export const localGroupsModule = new LiteModule({
     createInvitation(invitations, groups, systemClock),
     acceptInvitation(invitations, groups, systemClock),
     getInvitation(invitationQueries),
-    leaveGroup(groups, memberBalances, systemClock),
+    leaveGroup(groups, memberBalances, waitingPaymentsOfSettlements, systemClock),
   ],
 });
 

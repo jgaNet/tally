@@ -20,4 +20,23 @@ export interface IGroupMembers {
    * stays readable by the group's members. A read asks the caller's membership first, through `membersOf`.
    */
   hasBeenMember(groupId: string, memberId: string): Promise<boolean>;
+  /**
+   * What the leaves of the group passed to its owner (request 20, docs/adr/0019): the owner, and each member who left or joined again
+   * after leaving, with what its leaves passed and whether it is a current member. Undefined for a group that does not exist.
+   * The balances read it: each such member's balance is less what passed, and the owner carries what passed.
+   */
+  passedBalancesOf(groupId: string): Promise<PassedBalances | undefined>;
+}
+
+/** A member whose leaves passed a balance to the owner, as Ledger's balances count it (docs/adr/0019). */
+export interface PassedMember {
+  memberId: string;
+  passed: number;
+  current: boolean;
+}
+
+/** The owner of a group, and what its members' leaves passed to the owner (docs/adr/0019). */
+export interface PassedBalances {
+  ownerId: string;
+  members: PassedMember[];
 }

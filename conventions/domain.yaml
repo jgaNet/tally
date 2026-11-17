@@ -106,16 +106,18 @@ relationships:
     mechanism: owned-port
     why: >-
       Only a member of the group may be in a split, and only Groups knows who is a member now, in which order, with
-      which role, and who has ever been one. Ledger asks in its own words, through a port it owns (GroupMembers), when
-      it decides, so that a member who has just joined can be in a split at once (T3).
+      which role, and who has ever been one, and what each member's leave passed to the owner. Ledger asks in its own
+      words, through a port it owns (GroupMembers), when it decides or reads the balances, so that a member who has just
+      joined can be in a split at once (T3), and the balances count what passed (docs/adr/0019).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
     why: >-
-      A member leaves a group only with a balance of zero, and only Ledger knows the balances. Groups asks through a
-      port it owns (MemberBalances) when it decides: two ports in opposite directions, each in the asking side's
-      words, and no domain imports the other (T5, carried from request 9, docs/adr/0009).
+      A member leaves a group at whatever its balance, which passes to the group's owner in the same step, and only
+      Ledger knows the balances. Groups asks through a port it owns (MemberBalances) in the leave's own transaction, and
+      records what passed with the leave: two ports in opposite directions, each in the asking side's words, and no
+      domain imports the other (T5, docs/adr/0009; request 20, docs/adr/0019).
   - upstream: Ledger
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]
@@ -146,6 +148,15 @@ relationships:
       A member is told when an expense concerns them. Ledger says it in its public words (ExpenseRecorded, Tally's
       first integration event), through the outbox; Notifications turns it into one notice per member and delivers
       it, which keeps the telling out of the ledger's transactions (T9).
+  - upstream: Settlements
+    downstream: Groups
+    patterns: [customer-supplier, anti-corruption-layer]
+    mechanism: owned-port
+    why: >-
+      A member leaves a group at any balance, but not while a payment of theirs waits at the provider: a payment that
+      lands after they left would change a former member's balance. Only Settlements knows which payments wait. Groups
+      asks through a port it owns (WaitingPayments) in the leave's own transaction (docs/adr/0019; storm
+      conventions/storms/leave-with-a-balance.yaml).
   - upstream: Settlements
     downstream: Notifications
     patterns: [customer-supplier, anti-corruption-layer]

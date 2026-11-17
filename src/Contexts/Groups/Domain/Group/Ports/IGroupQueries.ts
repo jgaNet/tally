@@ -27,4 +27,23 @@ export interface IGroupQueries {
    * caller: a read that needs a caller asks the caller's membership first, through `listMembersOf`.
    */
   everMemberOf(accountId: string, groupId: string): Promise<boolean>;
+  /**
+   * What the leaves of the group passed to its owner (request 20, docs/adr/0019): the owner, and each member who left it or joined
+   * it again after leaving, with the balance its leaves passed and whether it is a current member. Undefined for a group that does
+   * not exist. Ledger reads it through GroupMembers when it reads the balances.
+   */
+  passedBalancesOf(groupId: string): Promise<PassedBalancesView | undefined>;
+}
+
+/** A member whose leaves passed a balance to the owner, as Ledger reads it (docs/adr/0019). */
+export interface PassedMemberView {
+  memberId: string;
+  passed: number;
+  current: boolean;
+}
+
+/** The owner of a group and what its members' leaves passed to the owner. */
+export interface PassedBalancesView {
+  ownerId: string;
+  members: PassedMemberView[];
 }

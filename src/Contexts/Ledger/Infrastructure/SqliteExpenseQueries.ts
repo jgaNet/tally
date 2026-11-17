@@ -8,6 +8,7 @@ import {
   StatementEntryView,
 } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
+import { IGroupMembers, PassedBalances } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { ISettledAmounts } from '@Contexts/Ledger/Domain/Expense/Ports/ISettledAmounts';
 import { prepareLedgerSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 
@@ -38,6 +39,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
   constructor(
     private readonly database: SqliteDatabase,
     private readonly settled: ISettledAmounts,
+    private readonly groupMembers: IGroupMembers,
   ) {
     database.prepare(prepareLedgerSchema);
   }
@@ -78,6 +80,10 @@ export class SqliteExpenseQueries implements IExpenseQueries {
 
     const balances = new Map<string, number>(expenses.map(({ memberId, balance }) => [memberId, balance]));
     for (const { memberId, amount } of settled) balances.set(memberId, (balances.get(memberId) ?? 0) + amount);
+    // What the leaves passed is read after the expenses, on a connection of its own (docs/adr/0019): the carry is applied as a whole,
+    // so the balances listed add up to 0 whatever the read sees of a leave that lands meanwhile.
+    const passed = await this.groupMembers.passedBalancesOf(groupId);
+    if (passed) carryPassed(balances, passed);
     return [...balances].map(([memberId, balance]): BalanceView => ({ memberId, balance }));
   }
 
@@ -142,6 +148,27 @@ export class SqliteExpenseQueries implements IExpenseQueries {
       }));
     });
   }
+}
+
+/**
+ * What the members' leaves passed to the owner, applied to the balances (request 20, docs/adr/0019). A member who left, or joined again
+ * after leaving, is counted from what it had when it left: its balance is less what passed, so one who joins again starts at 0. The owner
+ * carries what passed. A former member who has not joined again is no longer listed, so what it still holds passes to the owner too, and
+ * its own balance is taken off the list. Summed over the members, the balances stay 0.
+ */
+function carryPassed(balances: Map<string, number>, passed: PassedBalances): void {
+  let carried = 0;
+  for (const member of passed.members) {
+    const balance = (balances.get(member.memberId) ?? 0) - member.passed;
+    carried += member.passed;
+    if (member.current) {
+      balances.set(member.memberId, balance);
+    } else {
+      carried += balance;
+      balances.delete(member.memberId);
+    }
+  }
+  balances.set(passed.ownerId, (balances.get(passed.ownerId) ?? 0) + carried);
 }
 
 /** An expense's read model from its row and its shares, in the order of the split. */

@@ -1,13 +1,14 @@
 import { Currency, CURRENCIES } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
-  BalanceNotZeroException,
   InvalidCurrencyException,
   InvalidGroupNameException,
   OwnerCannotLeaveException,
+  PaymentWaitingException,
 } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import {
+  BalancePassedEvent,
   GroupCreatedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
@@ -110,12 +111,12 @@ describe('Group leaving (request 9)', () => {
   const LEFT = new Date('2026-05-03T18:00:00.000Z');
   const AGAIN = new Date('2026-05-04T08:00:00.000Z');
 
-  it('takes a member out once its balance is 0, keeps it as a former member, and records MemberLeft', () => {
+  it('takes a member out, keeps it as a former member, and records what passed and MemberLeft', () => {
     const group = create();
     group.join({ accountId: 'bob', at: JOINED });
     group.pullDomainEvents();
 
-    expect(group.leave({ accountId: 'bob', balance: 0, at: LEFT }).isSuccess()).toBe(true);
+    expect(group.leave({ accountId: 'bob', balance: 0, waitingPayment: false, at: LEFT }).isSuccess()).toBe(true);
 
     expect(group.isMember('bob')).toBe(false);
     expect(group.members).toEqual([{ accountId: 'ada', role: 'owner', joinedAt: AT.toISOString() }]);
@@ -125,15 +126,56 @@ describe('Group leaving (request 9)', () => {
       joinedAt: JOINED.toISOString(),
       leftAt: LEFT.toISOString(),
     });
-    const [event] = group.pullDomainEvents();
-    expect(event).toBeInstanceOf(MemberLeftEvent);
-    expect(event.payload).toEqual({ groupId: group.id, accountId: 'bob' });
+    const [passed, left] = group.pullDomainEvents();
+    expect(passed).toBeInstanceOf(BalancePassedEvent);
+    expect(passed.payload).toEqual({ groupId: group.id, from: 'bob', to: 'ada', amount: 0 });
+    expect(left).toBeInstanceOf(MemberLeftEvent);
+    expect(left.payload).toEqual({ groupId: group.id, accountId: 'bob' });
+  });
+
+  it('lets a member leave at any balance, which passes to the owner in the same step', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: JOINED });
+    group.pullDomainEvents();
+
+    expect(group.leave({ accountId: 'bob', balance: -300, waitingPayment: false, at: LEFT }).isSuccess()).toBe(true);
+
+    const [passed, left] = group.pullDomainEvents();
+    expect(passed.payload).toEqual({ groupId: group.id, from: 'bob', to: 'ada', amount: -300 });
+    expect(left).toBeInstanceOf(MemberLeftEvent);
+    expect(group.toSnapshot().members).toContainEqual(
+      expect.objectContaining({ accountId: 'bob', leftAt: LEFT.toISOString(), passed: -300 }),
+    );
+  });
+
+  it('starts a member who joins again at 0: what its earlier leaves passed stays on it', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: JOINED });
+    group.leave({ accountId: 'bob', balance: -300, waitingPayment: false, at: LEFT });
+    group.join({ accountId: 'bob', at: AGAIN });
+    group.leave({ accountId: 'bob', balance: 0, waitingPayment: false, at: AGAIN });
+    group.join({ accountId: 'bob', at: AGAIN });
+    group.leave({ accountId: 'bob', balance: 120, waitingPayment: false, at: AGAIN });
+
+    expect(group.toSnapshot().members).toContainEqual(expect.objectContaining({ accountId: 'bob', passed: -180 }));
+  });
+
+  it('refuses the leave while a payment of the member waits at the provider, and records nothing', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: JOINED });
+    group.pullDomainEvents();
+
+    const refused = group.leave({ accountId: 'bob', balance: -250, waitingPayment: true, at: LEFT });
+
+    expect(refused.error).toBeInstanceOf(PaymentWaitingException);
+    expect(group.isMember('bob')).toBe(true);
+    expect(group.pullDomainEvents()).toEqual([]);
   });
 
   it('keeps the departure when the group is read back from its snapshot', () => {
     const group = create();
     group.join({ accountId: 'bob', at: JOINED });
-    group.leave({ accountId: 'bob', balance: 0, at: LEFT });
+    group.leave({ accountId: 'bob', balance: 0, waitingPayment: false, at: LEFT });
 
     const read = Group.fromSnapshot(group.toSnapshot());
 
@@ -141,39 +183,29 @@ describe('Group leaving (request 9)', () => {
     expect(read.members.map(member => member.accountId)).toEqual(['ada']);
   });
 
-  it('refuses a balance that is not 0, and records nothing', () => {
-    const group = create();
-    group.join({ accountId: 'bob', at: JOINED });
-    group.pullDomainEvents();
-
-    const refused = group.leave({ accountId: 'bob', balance: -250, at: LEFT });
-
-    expect(refused.error).toBeInstanceOf(BalanceNotZeroException);
-    expect(group.isMember('bob')).toBe(true);
-    expect(group.pullDomainEvents()).toEqual([]);
-  });
-
   it('refuses the owner, whatever its balance', () => {
     const group = create();
 
-    expect(group.leave({ accountId: 'ada', balance: 0, at: LEFT }).error).toBeInstanceOf(OwnerCannotLeaveException);
+    expect(group.leave({ accountId: 'ada', balance: 0, waitingPayment: false, at: LEFT }).error).toBeInstanceOf(
+      OwnerCannotLeaveException,
+    );
     expect(group.isMember('ada')).toBe(true);
   });
 
   it('answers NotFound to an account that is not a current member, and to one that already left', () => {
     const group = create();
     group.join({ accountId: 'bob', at: JOINED });
-    group.leave({ accountId: 'bob', balance: 0, at: LEFT });
+    group.leave({ accountId: 'bob', balance: 0, waitingPayment: false, at: LEFT });
 
-    expect(group.leave({ accountId: 'cy', balance: 0, at: LEFT }).error?.type).toBe('NotFound');
-    expect(group.leave({ accountId: 'bob', balance: 0, at: LEFT }).error?.type).toBe('NotFound');
+    expect(group.leave({ accountId: 'cy', balance: 0, waitingPayment: false, at: LEFT }).error?.type).toBe('NotFound');
+    expect(group.leave({ accountId: 'bob', balance: 0, waitingPayment: false, at: LEFT }).error?.type).toBe('NotFound');
   });
 
   it('puts a former member last when it joins again, as a new member, with one entry for it', () => {
     const group = create();
     group.join({ accountId: 'bob', at: JOINED });
     group.join({ accountId: 'cy', at: JOINED });
-    group.leave({ accountId: 'bob', balance: 0, at: LEFT });
+    group.leave({ accountId: 'bob', balance: 0, waitingPayment: false, at: LEFT });
 
     expect(group.join({ accountId: 'bob', at: AGAIN }).isSuccess()).toBe(true);
 

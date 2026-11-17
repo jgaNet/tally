@@ -359,3 +359,22 @@ describe('Ledger → Settlements', () => {
     expect((await readSettlement(id, bob.token)).body).toMatchObject({ id, groupId, amount: 50, status: 'pending' });
   });
 });
+
+describe('Settlements → Groups, leaving (request 20)', () => {
+  it('refuses a member who leaves while a payment of theirs waits at the provider, found by the id it was made with, and lets it leave once the payment succeeded', async () => {
+    const { groupId, ann, bob } = await annAndBobOwing50('leave-waits');
+    const created = await payThrough(groupId, bob.token, { to: ann.id, amount: 50 });
+    expect(created.status).toBe(201);
+    const id = (created.body as { id: string }).id;
+    const paymentId = `pay-${paymentCount}`;
+
+    const refused = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
+    expect(refused).toMatchObject({ status: 422, body: { type: 'PaymentWaiting' } });
+    expect((await readSettlement(id, bob.token)).body).toMatchObject({ id, status: 'pending' });
+
+    expect(await webhook({ paymentId, status: 'succeeded' })).toBe(204);
+    expect((await readSettlement(id, bob.token)).body).toMatchObject({ id, status: 'paid' });
+    expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token })).status).toBe(204);
+    expect(await balancesOf(groupId, ann.token)).toEqual([{ memberId: ann.id, balance: 0 }]);
+  });
+});

@@ -5,6 +5,7 @@ import { NotFoundException, Result } from '@Architecture/Domain';
 import { IGroupQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
 import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
 import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
+import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPayments';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 
 /** Creates a group: a signed-in person, who becomes its owner and first member. Its id is the answer. */
@@ -47,20 +48,22 @@ export const getGroupMembers = query(
 );
 
 /**
- * Takes the caller out of a group, once its balance in it is 0 (request 9, docs/adr/0009). Only a member may leave: for anyone
- * else the group does not exist. The owner never leaves. The balance is asked of Ledger when this decides, through
- * MemberBalances, and the departure is stored with its MemberLeft event.
+ * Takes the caller out of a group, at whatever its balance (request 20, docs/adr/0019; request 9, docs/adr/0009). Only a member may
+ * leave: for anyone else the group does not exist. The owner never leaves, and not while a payment of the caller waits at the
+ * provider. The balance is asked of Ledger when this decides, through MemberBalances, and what passes to the owner is stored with
+ * the departure, its BalancePassed and MemberLeft events, in this transaction.
  */
 export const leaveGroup = command(
   'LeaveGroup',
-  (groups: IGroupRepository, balances: IMemberBalances, clock: Clock) =>
+  (groups: IGroupRepository, balances: IMemberBalances, payments: IWaitingPayments, clock: Clock) =>
     async ({ groupId }: { groupId: string }, context) => {
       const by = callerOf(context);
       const group = await groups.findById(groupId);
       if (!group || !group.isMember(by)) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
 
       const balance = await balances.balanceOf(groupId, by);
-      const left = group.leave({ accountId: by, balance, at: clock() });
+      const waitingPayment = await payments.paymentWaitingOf(groupId, by);
+      const left = group.leave({ accountId: by, balance, waitingPayment, at: clock() });
       if (left.isFailure()) return left;
 
       const saved = await groups.save(group);

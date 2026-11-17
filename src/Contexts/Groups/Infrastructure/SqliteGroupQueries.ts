@@ -1,7 +1,13 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { prepareGroupsSchema } from '@Contexts/Groups/Infrastructure/SqliteGroupRepository';
-import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
+import {
+  GroupView,
+  IGroupQueries,
+  MemberView,
+  PassedBalancesView,
+  PassedMemberView,
+} from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
 
 type GroupRow = { id: string; name: string; currency: string; owner_id: string };
 type MemberRow = { member_id: string; name: string; role: string; joined_at: string };
@@ -63,6 +69,29 @@ export class SqliteGroupQueries implements IGroupQueries {
         role: row.role === 'owner' ? 'owner' : 'member',
         joinedAt: String(row.joined_at),
       }));
+    });
+  }
+
+  async passedBalancesOf(groupId: string): Promise<PassedBalancesView | undefined> {
+    return this.database.exclusive(() => {
+      const connection = this.database.connection;
+      const group = connection.prepare('SELECT owner_id FROM groups WHERE id = ?').get(groupId) as
+        { owner_id: string } | undefined;
+      if (!group) return undefined;
+      // A membership that never passed anything and never left is not listed: it has nothing to carry (docs/adr/0019).
+      const rows = connection
+        .prepare(
+          'SELECT account_id, passed, left_at FROM group_members WHERE group_id = ? AND (passed <> 0 OR left_at IS NOT NULL) ORDER BY position',
+        )
+        .all(groupId) as Array<{ account_id: string; passed: number; left_at: string | null }>;
+      return {
+        ownerId: String(group.owner_id),
+        members: rows.map((row): PassedMemberView => ({
+          memberId: String(row.account_id),
+          passed: Number(row.passed),
+          current: row.left_at === null,
+        })),
+      };
     });
   }
 

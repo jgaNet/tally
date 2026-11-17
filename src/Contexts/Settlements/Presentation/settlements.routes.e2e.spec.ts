@@ -305,15 +305,14 @@ describe('a settlement in cash', () => {
     ]);
   });
 
-  it('is counted by leaving and by the suggestions, and not by the statement, which lists expenses only', async () => {
+  it('is counted by the suggestions, and not by the statement, which lists expenses only; settled, Bob leaves even', async () => {
     const { ann, bob, groupId } = await settledUpFrom();
-    expect((await leave(bob.token, groupId)).status).toBeGreaterThanOrEqual(400);
     expect((await suggest(groupId, ann.token)).body).toEqual([{ from: bob.id, to: ann.id, amount: 30 }]);
 
     await settle(ann.token, groupId, { from: bob.id, amount: 30 });
 
-    expect((await leave(bob.token, groupId)).status).toBeLessThan(300);
     expect((await suggest(groupId, ann.token)).body).toEqual([]);
+    expect((await leave(bob.token, groupId)).status).toBe(204);
     const statement = await http.request('GET', `${api}/groups/${groupId}/members/${bob.id}/statement`, {
       token: ann.token,
     });

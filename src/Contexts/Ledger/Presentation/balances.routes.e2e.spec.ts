@@ -176,7 +176,7 @@ describe('Ledger → Groups (request 9)', () => {
   const deleteExpense = (expenseId: string, token: string) =>
     http.request('DELETE', `${api}/expenses/${expenseId}`, { token });
 
-  it('refuses a leave while the balance is not 0, and lets the member leave once it is', async () => {
+  it('lets a member leave at any balance: what it owed passes to the owner, and the balances still add up to 0', async () => {
     const ada = await signedIn('lv-ada@example.com', 'Ada');
     const bob = await signedIn('lv-bob@example.com', 'Bob');
     const groupId = await groupWith(ada, [bob]);
@@ -190,25 +190,41 @@ describe('Ledger → Groups (request 9)', () => {
         })
       ).status,
     ).toBe(201);
+    expect((await readBalances(groupId, ada.token)).body).toEqual([
+      { memberId: ada.id, balance: 500 },
+      { memberId: bob.id, balance: -500 },
+    ]);
 
-    expect(await leave(groupId, bob.token)).toMatchObject({ status: 422, body: { type: 'BalanceNotZero' } });
+    // Bob owes 500: it leaves owing, and the 500 passes to Ada, the owner, in the same step (request 20).
+    expect((await leave(groupId, bob.token)).status).toBe(204);
 
-    // Bob paid 1000 for the two of them: Bob is even (-500 + 1000 - 500), and Ada is even too.
-    expect(
-      (
-        await record(bob.token, groupId, {
-          description: 'Taxi',
-          amount: 1000,
-          date: PAST,
-          splitBetween: [ada.id, bob.id],
-        })
-      ).status,
-    ).toBe(201);
+    expect((await readBalances(groupId, ada.token)).body).toEqual([{ memberId: ada.id, balance: 0 }]);
+    // Bob's expense stays as it was, and its statement is still read by the members.
+    expect((await statement(groupId, bob.id, ada.token)).status).toBe(200);
+  });
+
+  it('counts a member who leaves owing and joins again from 0, and the owner keeps what passed', async () => {
+    const ada = await signedIn('lv-ada2@example.com', 'Ada');
+    const bob = await signedIn('lv-bob2@example.com', 'Bob');
+    const groupId = await groupWith(ada, [bob]);
+    await record(ada.token, groupId, {
+      description: 'Hotel',
+      amount: 1000,
+      date: PAST,
+      splitBetween: [ada.id, bob.id],
+    });
+    expect((await leave(groupId, bob.token)).status).toBe(204);
+
+    const again = await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token });
+    const invitation = await http.request('POST', `${api}/invitations/${(again.body as { id: string }).id}/accept`, {
+      token: bob.token,
+    });
+    expect(invitation.status).toBe(204);
+
     expect((await readBalances(groupId, ada.token)).body).toEqual([
       { memberId: ada.id, balance: 0 },
       { memberId: bob.id, balance: 0 },
     ]);
-    expect((await leave(groupId, bob.token)).status).toBe(204);
   });
 
   it("keeps a former member's expenses as they were, readable in its statement, and the balances at 0", async () => {
@@ -259,5 +275,31 @@ describe('Ledger → Groups (request 9)', () => {
     expect((read.body as { entries: unknown[] }).entries).toHaveLength(2);
     expect(await statement(groupId, UNKNOWN_MEMBER, cy.token)).toMatchObject({ status: 404 });
     expect(await readBalances(groupId, bob.token)).toMatchObject({ status: 404 });
+  });
+});
+
+describe('Ledger → Groups, at the same moment (request 20)', () => {
+  it('lets an expense and a leave arrive together: the expense counts in what passes or is refused, and the balances add up to 0', async () => {
+    const ada = await signedIn('lv-race-ada@example.com', 'Ada');
+    const bob = await signedIn('lv-race-bob@example.com', 'Bob');
+    const cy = await signedIn('lv-race-cy@example.com', 'Cy');
+    const groupId = await groupWith(ada, [bob, cy]);
+    await record(ada.token, groupId, {
+      description: 'Hotel',
+      amount: 900,
+      date: PAST,
+      splitBetween: [ada.id, bob.id, cy.id],
+    });
+
+    const [left, recorded] = await Promise.all([
+      http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token }),
+      record(ada.token, groupId, { description: 'Taxi', amount: 300, date: PAST, splitBetween: [ada.id, bob.id] }),
+    ]);
+
+    expect(left.status).toBe(204);
+    // Recorded before the leave, it is in what passed; read after it, Bob is no longer a member and it is refused.
+    expect([201, 404, 422]).toContain(recorded.status);
+    const balances = (await readBalances(groupId, ada.token)).body as Array<{ balance: number }>;
+    expect(balances.reduce((sum, each) => sum + each.balance, 0)).toBe(0);
   });
 });

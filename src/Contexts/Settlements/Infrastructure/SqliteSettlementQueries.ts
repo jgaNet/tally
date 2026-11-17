@@ -110,6 +110,17 @@ export class SqliteSettlementQueries implements ISettlementQueries {
     );
   }
 
+  async providerWaitingOf(groupId: string, memberId: string): Promise<boolean> {
+    return this.database.exclusive(
+      () =>
+        this.database.connection
+          .prepare(
+            "SELECT 1 FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?) LIMIT 1",
+          )
+          .get(groupId, memberId, memberId) !== undefined,
+    );
+  }
+
   async waitingOf(groupId: string): Promise<WaitingMember[]> {
     return this.database.exclusive(() =>
       totalsOf(this.database, groupId, ['pending']).map((member): WaitingMember => ({ ...member })),

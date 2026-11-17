@@ -7,7 +7,7 @@ feature: leave-with-a-balance
 intent: >-
   A member leaves whatever their balance, which passes to the group's owner in the same step; not while a payment of theirs waits at the provider; an expense or a settlement sent at the same moment is either counted in what passes or refused.
 
-done: false
+done: true
 
 hotSpots:
   - question: Who decides what passes, and where is it kept?

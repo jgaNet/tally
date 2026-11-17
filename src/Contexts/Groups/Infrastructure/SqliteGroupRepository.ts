@@ -15,7 +15,7 @@ import { MemberSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
  */
 export const GROUPS_SCHEMA = [
   'CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, currency TEXT NOT NULL, owner_id TEXT NOT NULL, created_at TEXT NOT NULL, version INTEGER NOT NULL)',
-  'CREATE TABLE IF NOT EXISTS group_members (group_id TEXT NOT NULL REFERENCES groups (id), account_id TEXT NOT NULL, role TEXT NOT NULL, position INTEGER NOT NULL, joined_at TEXT NOT NULL, left_at TEXT, PRIMARY KEY (group_id, account_id))',
+  'CREATE TABLE IF NOT EXISTS group_members (group_id TEXT NOT NULL REFERENCES groups (id), account_id TEXT NOT NULL, role TEXT NOT NULL, position INTEGER NOT NULL, joined_at TEXT NOT NULL, left_at TEXT, passed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (group_id, account_id))',
   'CREATE INDEX IF NOT EXISTS group_members_by_account ON group_members (account_id)',
 ].join(';\n');
 
@@ -35,10 +35,13 @@ export function prepareGroupsSchema(connection: DatabaseSync): void {
     );
   }
   if (!columns.includes('left_at')) connection.exec('ALTER TABLE group_members ADD COLUMN left_at TEXT');
+  // Before a leave passed its balance to the owner (request 20, docs/adr/0019): there, nothing has passed.
+  if (!columns.includes('passed'))
+    connection.exec('ALTER TABLE group_members ADD COLUMN passed INTEGER NOT NULL DEFAULT 0');
 }
 
 type GroupRow = { id: string; name: string; currency: string; owner_id: string; created_at: string; version: number };
-type MemberRow = { account_id: string; role: string; joined_at: string; left_at: string | null };
+type MemberRow = { account_id: string; role: string; joined_at: string; left_at: string | null; passed: number };
 
 /** The groups' store over SQLite (docs/adr/0001). Its methods run inside a transaction: the use case's. */
 export class SqliteGroupRepository implements IGroupRepository {
@@ -53,7 +56,9 @@ export class SqliteGroupRepository implements IGroupRepository {
       .get(id) as GroupRow | undefined;
     if (!row) return undefined;
     const members = connection
-      .prepare('SELECT account_id, role, joined_at, left_at FROM group_members WHERE group_id = ? ORDER BY position')
+      .prepare(
+        'SELECT account_id, role, joined_at, left_at, passed FROM group_members WHERE group_id = ? ORDER BY position',
+      )
       .all(id) as MemberRow[];
     return Group.fromSnapshot({
       id: String(row.id),
@@ -66,6 +71,7 @@ export class SqliteGroupRepository implements IGroupRepository {
         role: member.role === 'owner' ? 'owner' : 'member',
         joinedAt: String(member.joined_at),
         ...(member.left_at === null ? {} : { leftAt: String(member.left_at) }),
+        ...(Number(member.passed) === 0 ? {} : { passed: Number(member.passed) }),
       })),
       version: Number(row.version),
     });
@@ -90,10 +96,18 @@ export class SqliteGroupRepository implements IGroupRepository {
     // Every membership is written, in the order the snapshot keeps them: a new one is inserted, a former one that joined
     // again or left is updated in place (docs/adr/0009).
     const upsertMember = connection.prepare(
-      'INSERT INTO group_members (group_id, account_id, role, position, joined_at, left_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (group_id, account_id) DO UPDATE SET role = excluded.role, position = excluded.position, joined_at = excluded.joined_at, left_at = excluded.left_at',
+      'INSERT INTO group_members (group_id, account_id, role, position, joined_at, left_at, passed) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (group_id, account_id) DO UPDATE SET role = excluded.role, position = excluded.position, joined_at = excluded.joined_at, left_at = excluded.left_at, passed = excluded.passed',
     );
     snapshot.members.forEach((member, position) => {
-      upsertMember.run(snapshot.id, member.accountId, member.role, position, member.joinedAt, member.leftAt ?? null);
+      upsertMember.run(
+        snapshot.id,
+        member.accountId,
+        member.role,
+        position,
+        member.joinedAt,
+        member.leftAt ?? null,
+        member.passed ?? 0,
+      );
     });
     return Result.ok(undefined);
   }

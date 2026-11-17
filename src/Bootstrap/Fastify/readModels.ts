@@ -1,6 +1,8 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/SqliteGroupQueries';
+import { WaitingPaymentsOfSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsOfSettlements';
+import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
 import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
 import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/SqliteSettlementQueries';
@@ -21,7 +23,15 @@ export const groupsReadModel = new SqliteGroupQueries(new SqliteDatabase());
 export const settlementsReadModel = new SqliteSettlementQueries(new SqliteDatabase());
 /** Ledger's SettledAmounts: the settlements, counted by every balance Ledger reads. */
 export const settledAmountsOfSettlements = new SettledAmountsOfSettlements(settlementsReadModel);
-export const ledgerReadModel = new SqliteExpenseQueries(new SqliteDatabase(), settledAmountsOfSettlements);
+/** Ledger's GroupMembers over Groups' read model: who is a member, and what the leaves passed to the owner (docs/adr/0019). */
+export const groupMembersOfGroups = new GroupMembersOfGroups(groupsReadModel);
+export const ledgerReadModel = new SqliteExpenseQueries(
+  new SqliteDatabase(),
+  settledAmountsOfSettlements,
+  groupMembersOfGroups,
+);
+/** Groups' WaitingPayments over Settlements' read model: a leave waits while a payment of the member is pending or refunding (docs/adr/0019). */
+export const waitingPaymentsOfSettlements = new WaitingPaymentsOfSettlements(settlementsReadModel);
 /**
  * Settlements' what-is-still-owed, read by Notifications' sweep (docs/adr/0018): the balances of every group, less the payments waiting
  * at the provider. It reads Ledger's balances and Settlements' read model, both opened above, so it is opened here as well.

@@ -1,11 +1,12 @@
 import { AggregateRoot, AlreadyExistsException, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
 import {
+  BalancePassedEvent,
   GroupCreatedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
 } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
-import { BalanceNotZeroException, OwnerCannotLeaveException } from '@Contexts/Groups/Domain/Group/GroupExceptions';
+import { OwnerCannotLeaveException, PaymentWaitingException } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import { Currency, CurrencyCode } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupSnapshot, MemberSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
@@ -139,23 +140,40 @@ export class Group extends AggregateRoot {
       return Result.fail(new AlreadyExistsException('Groups', 'You are already a member of this group'));
     }
     const former = this.#members.findIndex(member => member.accountId === accountId);
+    // What its earlier leaves passed to the owner stays on the membership: a member who joins again starts at 0 (docs/adr/0019).
+    const passed = former === -1 ? undefined : this.#members[former].passed;
     if (former !== -1) this.#members.splice(former, 1);
-    this.#members.push({ accountId, role: 'member', joinedAt: at.toISOString() });
+    this.#members.push({ accountId, role: 'member', joinedAt: at.toISOString(), ...(passed ? { passed } : {}) });
     this.record(MemberJoinedEvent.set({ groupId: this._id.value, accountId }));
     return Result.ok(undefined);
   }
 
   /**
-   * Takes a member out of the group, once its balance in it is 0 (request 9, docs/adr/0009). Only a current member may
-   * leave: for anyone else the group does not exist. The owner never leaves, and a balance that is not 0 is refused. The
-   * departure is kept on the member, and MemberLeft is recorded for the store to make durable with it.
+   * Takes a member out of the group, at whatever its balance (request 20, docs/adr/0019). Only a current member may leave: for
+   * anyone else the group does not exist. The owner never leaves, and not while a payment of the member waits at the provider
+   * (`waitingPayment`, read by the use case in the same transaction). Its `balance` passes to the owner in the same step:
+   * BalancePassed and MemberLeft are recorded for the store to make durable with the departure.
    */
-  leave({ accountId, balance, at }: { accountId: string; balance: number; at: Date }): IResult<undefined> {
+  leave({
+    accountId,
+    balance,
+    waitingPayment,
+    at,
+  }: {
+    accountId: string;
+    balance: number;
+    waitingPayment: boolean;
+    at: Date;
+  }): IResult<undefined> {
     const member = this.#members.find(entry => entry.accountId === accountId && entry.leftAt === undefined);
     if (!member) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
     if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
-    if (balance !== 0) return Result.fail(new BalanceNotZeroException());
+    if (waitingPayment) return Result.fail(new PaymentWaitingException());
     member.leftAt = at.toISOString();
+    if (balance !== 0) member.passed = (member.passed ?? 0) + balance;
+    this.record(
+      BalancePassedEvent.set({ groupId: this._id.value, from: accountId, to: this.#ownerId, amount: balance }),
+    );
     this.record(MemberLeftEvent.set({ groupId: this._id.value, accountId }));
     return Result.ok(undefined);
   }

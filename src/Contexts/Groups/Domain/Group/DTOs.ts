@@ -11,6 +11,11 @@ export interface MemberSnapshot {
    * been a member is known; it is not among the members (docs/adr/0009).
    */
   leftAt?: string;
+  /**
+   * The balance this account's leaves passed to the owner, cumulative (request 20, docs/adr/0019): the balance it had at each
+   * leave, added up. It is kept on the membership, so that a member who joins again starts at 0. Absent when nothing passed.
+   */
+  passed?: number;
 }
 
 /** The state of a group as the store keeps it: what `Group.fromSnapshot()` reads and `toSnapshot()` writes. */

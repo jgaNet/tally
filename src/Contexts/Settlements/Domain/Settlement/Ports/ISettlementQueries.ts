@@ -17,4 +17,9 @@ export interface ISettlementQueries {
   settledOf(groupId: string): Promise<SettledMember[]>;
   /** What each member of the group is waiting to pay and to receive in its pending settlements, one read (request 13). */
   waitingOf(groupId: string): Promise<WaitingMember[]>;
+  /**
+   * Whether a settlement the member pays or receives through the provider, in the group, is pending or refunding: a member with one
+   * may not leave the group (request 20, docs/adr/0019). Answered to Groups through its WaitingPayments port.
+   */
+  providerWaitingOf(groupId: string, memberId: string): Promise<boolean>;
 }

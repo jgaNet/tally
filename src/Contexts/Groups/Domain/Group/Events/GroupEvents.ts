@@ -22,3 +22,9 @@ export class MemberJoinedEvent extends DomainEvent<{ groupId: string; accountId:
  * stored. No integration event carries it: Ledger asks Groups who the members are when it decides (docs/adr/0009).
  */
 export class MemberLeftEvent extends DomainEvent<{ groupId: string; accountId: string }> {}
+
+/**
+ * A member's balance passed to the group's owner when it left (request 20, docs/adr/0019): `amount` is what the member owed
+ * (negative) or was owed, which the owner now carries. Recorded by `Group.leave()` beside MemberLeft, in the same step.
+ */
+export class BalancePassedEvent extends DomainEvent<{ groupId: string; from: string; to: string; amount: number }> {}
