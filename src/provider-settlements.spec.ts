@@ -175,6 +175,34 @@ describe('paying through the provider', () => {
     return send(app, 'GET', `/settlements/${id}`, { token });
   }
 
+  /** The webhook the provider sends about `paymentId` with `status` under the event id `eventId`, signed. */
+  function webhookWithId(eventId: string, paymentId: string, status: string): { body: string; signature: string } {
+    const body = JSON.stringify({ id: eventId, paymentId, status, at: new Date().toISOString() });
+    return { body, signature: signed(body) };
+  }
+
+  /** Sends `webhook` to `server` and answers its status: what the provider gets back from that server. */
+  async function deliver(server: Application, webhook: { body: string; signature: string }): Promise<number> {
+    const response = await fetch(`${server.address}/${server.apiPrefix}/provider/webhooks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'provider-signature': webhook.signature },
+      body: webhook.body,
+    });
+    return response.status;
+  }
+
+  /** Starts an application on the file of this test, as Tally starts again after it was stopped. */
+  async function startApplicationOnFile(): Promise<Application> {
+    const started = await createApplication({
+      databasePath: directory.databasePath,
+      providerUrl,
+      providerWebhookSecret: SECRET,
+      providerTimeoutMs: 200,
+    });
+    await started.start(0);
+    return started;
+  }
+
   function settlementCount(): number {
     return (db.prepare('SELECT COUNT(*) AS n FROM settlements').get() as { n: number }).n;
   }
@@ -426,6 +454,109 @@ describe('paying through the provider', () => {
     expect((await readSettlement(ben.token, second)).body).toMatchObject({ status: 'failed' });
     // Only the paid 500 counts: the failed 300 never does.
     expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 1000, [ben.id]: -1000 });
+  });
+
+  it('counts a payment once, however many times its webhook arrives, and however many webhooks say it succeeded', async () => {
+    const { ann, ben, groupId } = await annAndBenOwing1500();
+    const id = ((await askToPay(ben.token, groupId, ann.id, 1500)).body as { id: string }).id;
+    const { body, signature } = webhookAbout('pay_1', 'succeeded');
+    for (let i = 0; i < 3; i++) expect(await postWebhook(body, signature)).toEqual({ status: 204 });
+    // Another webhook, under another id, says the same of the same payment: acknowledged, and nothing more.
+    const other = webhookWithId('evt_another', 'pay_1', 'succeeded');
+    expect(await deliver(app, other)).toBe(204);
+
+    expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'paid' });
+    expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
+    expect(await suggestionsAs(ann.token, groupId)).toEqual([]);
+  });
+
+  it('moves a payment only forward: a webhook saying a status it has passed, or has gone past, changes nothing', async () => {
+    const { ann, ben, groupId } = await annAndBenOwing1500();
+    const paid = ((await askToPay(ben.token, groupId, ann.id, 500)).body as { id: string }).id;
+    const failed = ((await askToPay(ben.token, groupId, ann.id, 300)).body as { id: string }).id;
+    // Arriving out of order: a pending after the success it precedes, a pending and a success after the failure.
+    const overtaking: [string, string][] = [
+      ['pay_1', 'succeeded'],
+      ['pay_1', 'pending'],
+      ['pay_2', 'failed'],
+      ['pay_2', 'pending'],
+      ['pay_2', 'succeeded'],
+    ];
+    for (const [paymentId, status] of overtaking) {
+      const { body, signature } = webhookAbout(paymentId, status);
+      expect(await postWebhook(body, signature)).toEqual({ status: 204 });
+    }
+
+    expect((await readSettlement(ben.token, paid)).body).toMatchObject({ status: 'paid' });
+    expect((await readSettlement(ben.token, failed)).body).toMatchObject({ status: 'failed' });
+    expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 1000, [ben.id]: -1000 });
+  });
+
+  it('applies a webhook that arrives after Tally was stopped and started again, as it would have on time', async () => {
+    const { ann, ben, groupId } = await annAndBenOwing1500();
+    const id = ((await askToPay(ben.token, groupId, ann.id, 1500)).body as { id: string }).id;
+    await app.stop();
+    app = await startApplicationOnFile();
+
+    const { body, signature } = webhookAbout('pay_1', 'succeeded');
+    expect(await postWebhook(body, signature)).toEqual({ status: 204 });
+    expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'paid' });
+    expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
+  });
+
+  it('is sent again by the provider when Tally was stopped, and acknowledged and applied then', async () => {
+    const { ann, ben, groupId } = await annAndBenOwing1500();
+    const id = ((await askToPay(ben.token, groupId, ann.id, 1500)).body as { id: string }).id;
+    const webhook = webhookAbout('pay_1', 'succeeded');
+    await app.stop();
+    // Nothing listens while Tally is stopped: the delivery fails, so the provider sends the webhook again.
+    await expect(deliver(app, webhook)).rejects.toThrow();
+
+    app = await startApplicationOnFile();
+    expect(await deliver(app, webhook)).toBe(204);
+    expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'paid' });
+    expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
+  });
+
+  it('counts a webhook once when two servers on the same file receive it at the same moment', async () => {
+    const { ann, ben, groupId } = await annAndBenOwing1500();
+    const id = ((await askToPay(ben.token, groupId, ann.id, 1500)).body as { id: string }).id;
+    const second = await startApplicationOnFile();
+    extra.push(second);
+    const webhook = webhookAbout('pay_1', 'succeeded');
+
+    const statuses = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => deliver(i % 2 === 0 ? app : second, webhook)),
+    );
+    expect(statuses).toEqual(Array.from({ length: 10 }, () => 204));
+    expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'paid' });
+    expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
+  });
+
+  it('lets exactly one of two outcomes that arrive at the same moment decide a payment, and balances agree with it', async () => {
+    const { ann, ben, groupId } = await annAndBenOwing1500();
+    const second = await startApplicationOnFile();
+    extra.push(second);
+    let paidTotal = 0;
+    for (let round = 0; round < 5; round++) {
+      const id = ((await askToPay(ben.token, groupId, ann.id, 100)).body as { id: string }).id;
+      const { provider_payment_id: paymentId } = db
+        .prepare('SELECT provider_payment_id FROM settlements WHERE id = ?')
+        .get(id) as { provider_payment_id: string };
+      const [succeeded, failed] = await Promise.all([
+        deliver(app, webhookWithId(`evt_success_${round}`, paymentId, 'succeeded')),
+        deliver(second, webhookWithId(`evt_failure_${round}`, paymentId, 'failed')),
+      ]);
+      expect([succeeded, failed]).toEqual([204, 204]);
+
+      const { status } = (await readSettlement(ben.token, id)).body as { status: string };
+      expect(['paid', 'failed']).toContain(status);
+      if (status === 'paid') paidTotal += 100;
+      expect(await balancesAs(ann.token, groupId)).toEqual({
+        [ann.id]: 1500 - paidTotal,
+        [ben.id]: paidTotal - 1500,
+      });
+    }
   });
 
   it('keeps the settlements of a file written before payments through the provider, as paid cash settlements', async () => {
