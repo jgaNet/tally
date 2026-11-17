@@ -10,6 +10,7 @@ import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnit
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
+import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
@@ -20,10 +21,12 @@ import { localLedgerModule } from '@Contexts/Ledger/module.local';
  * after each commit. The caller of a request is the one the Groups context proves by its bearer token.
  *
  * A context is added here: its schema given to the database, its wiring built over it, its module registered, its
- * routes under its own prefix, the module in the routes' options —
+ * routes mounted, the module in the routes' options. A context has one mount (the contract's binding reads it per context),
+ * so its routes write their whole paths under it, and the Groups context mounts at the root (ADR 5):
  *
  *   .registerModule(groups.module)
- *   .registerRoutes('/accounts', accountRoutes, { module: groups.module });
+ *   .registerRoutes('/', accountRoutes, { module: groups.module })
+ *   .registerRoutes('/', groupRoutes, { module: groups.module });
  */
 export async function createApplication({
   logger = new ConsoleLogger({ debug: false }),
@@ -55,7 +58,8 @@ export async function createApplication({
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(groups.module)
     .registerModule(localLedgerModule)
-    .registerRoutes('/accounts', accountRoutes, { module: groups.module })
+    .registerRoutes('/', accountRoutes, { module: groups.module })
+    .registerRoutes('/', groupRoutes, { module: groups.module })
     .onStop(() => database.close());
 
   await app.startModules();
