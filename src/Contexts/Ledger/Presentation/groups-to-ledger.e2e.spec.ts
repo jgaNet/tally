@@ -166,4 +166,43 @@ describe('Groups → Ledger', () => {
     });
     expect(answer.status).toBe(404);
   });
+
+  it('reads, by the id Groups answered, the group’s expenses and a member’s statement, and a member who never joined has none', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const stranger = await signedInPerson('Stranger');
+
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as { id: string };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+
+    const { id: expenseId } = (
+      await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+        body: { description: 'Bread', amount: 300, date: '2020-01-15', splitBetween: [ada.id, grace.id] },
+        token: ada.token,
+      })
+    ).body as { id: string };
+
+    const listed = await http.request('GET', `${api}/groups/${groupId}/expenses`, { token: grace.token });
+    expect(listed.status).toBe(200);
+    expect((listed.body as { id: string }[]).map(expense => expense.id)).toEqual([expenseId]);
+
+    const statement = await http.request('GET', `${api}/groups/${groupId}/members/${grace.id}/statement`, {
+      token: grace.token,
+    });
+    expect(statement.status).toBe(200);
+    expect(statement.body).toEqual({
+      memberId: grace.id,
+      balance: -150,
+      entries: [{ expenseId, date: '2020-01-15', description: 'Bread', paid: 0, share: 150, balance: -150 }],
+    });
+
+    expect(
+      (await http.request('GET', `${api}/groups/${groupId}/members/${stranger.id}/statement`, { token: ada.token }))
+        .status,
+    ).toBe(404);
+  });
 });

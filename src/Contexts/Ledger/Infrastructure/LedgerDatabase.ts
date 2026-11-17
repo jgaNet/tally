@@ -48,6 +48,8 @@ export class LedgerDatabase {
    *   was recorded and never edited;
    * - the way each expense was split (request 7): every expense a file holds before it was split equally, as feature 4
    *   recorded them;
+   * - the order each expense was first recorded in (request 8): `recorded_seq`, a number an insert takes one more than
+   *   the last, which an edit never changes; the expenses a file holds take their rows' order;
    * - the table of balances, the read model `GetGroupBalances` reads: one row per member per group, kept in the same
    *   transaction as the expenses that move it. When a file had expenses before it existed, it is filled from them.
    */
@@ -65,6 +67,14 @@ export class LedgerDatabase {
         .get();
       if (!hasSplitKind) {
         connection.exec("ALTER TABLE ledger_expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
+      }
+      const hasRecordedSeq = connection
+        .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'recorded_seq'")
+        .get();
+      if (!hasRecordedSeq) {
+        connection.exec('ALTER TABLE ledger_expenses ADD COLUMN recorded_seq INTEGER NOT NULL DEFAULT 0');
+        // Every expense a file holds was recorded before this column existed, in the order its rows were written.
+        connection.exec('UPDATE ledger_expenses SET recorded_seq = rowid');
       }
       const hasBalances = connection
         .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_balances'")

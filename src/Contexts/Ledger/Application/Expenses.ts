@@ -11,7 +11,7 @@ import {
 } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 
 import { IGroupMembers, MemberOfGroup } from './IGroupMembers';
-import { BalanceView, ExpenseView, IExpenseQueries } from './IExpenseQueries';
+import { BalanceView, ExpenseView, IExpenseQueries, StatementView } from './IExpenseQueries';
 import { IExpenseRepository } from './IExpenseRepository';
 
 /**
@@ -153,6 +153,42 @@ export const getGroupBalances = query(
         memberId,
         balance: balances.get(memberId) ?? 0,
       }));
+      return Result.ok(answer);
+    },
+);
+
+/**
+ * A member of a group reads its expenses that are not deleted, each as `GetExpense` reads it, the latest date first and, on
+ * the same date, the most recently recorded first (request 8). Anyone who is not a member gets the answer for a group that
+ * does not exist.
+ */
+export const getGroupExpenses = query(
+  'GetGroupExpenses',
+  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+    async ({ id }: { id: string }, context) => {
+      if (!(await groupMembers.membersOf(id, callerOf(context)))) {
+        return Result.fail(new NotFoundException('Ledger', 'No group is found'));
+      }
+      return Result.ok(await expenses.expensesOf(id));
+    },
+);
+
+/**
+ * A member of a group reads the statement of any member of the group, themselves included (request 8): every expense that
+ * member paid or is in the split of, the earliest date first, with the balance after each entry. Anyone who is not a
+ * member gets the answer for a group that does not exist; a member who has never been one of the group does not exist
+ * either, so the answer for them is the same as for a member who is not there.
+ */
+export const getMemberStatement = query(
+  'GetMemberStatement',
+  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+    async ({ id, memberId }: { id: string; memberId: string }, context) => {
+      const members = await groupMembers.membersOf(id, callerOf(context));
+      if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
+      if (!memberIdsOf(members).includes(memberId)) {
+        return Result.fail(new NotFoundException('Ledger', 'No member is found'));
+      }
+      const answer: StatementView = await expenses.statementOf(id, memberId);
       return Result.ok(answer);
     },
 );

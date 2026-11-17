@@ -26,8 +26,36 @@ export interface BalanceView {
   balance: number;
 }
 
+/** One entry of a member's statement (request 8): what the member paid for an expense, their share of it, and their balance after it. */
+export interface StatementEntryView {
+  expenseId: string;
+  date: string;
+  description: string;
+  paid: number;
+  share: number;
+  balance: number;
+}
+
+/** What `GetMemberStatement` answers: a member's entries in the order of a bank statement, and their balance (the last entry's, or 0). */
+export interface StatementView {
+  memberId: string;
+  balance: number;
+  entries: StatementEntryView[];
+}
+
 /** The read side of the expenses: read models, never aggregates (QUERY-READ-MODELS). */
 export interface IExpenseQueries {
+  /**
+   * Every expense of the group that is not deleted, each as `expenseOf` reads it, the latest date first and, on the same
+   * date, the most recently recorded first (request 8). An edit does not change when an expense was recorded.
+   */
+  expensesOf(groupId: string): Promise<ExpenseView[]>;
+  /**
+   * The statement of a member of the group: every expense not deleted that the member paid or is in the split of, the
+   * earliest date first and, on the same date, the earliest recorded first. The running balance is computed here, at the
+   * read, in that order; nothing is stored per entry.
+   */
+  statementOf(groupId: string, memberId: string): Promise<StatementView>;
   /** The expense, if it is recorded. Who may read it is the use case's to say (a member of its group). */
   expenseOf(id: string): Promise<ExpenseView | undefined>;
   /**

@@ -1,7 +1,12 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IExpenseRepository } from '@Contexts/Ledger/Application/IExpenseRepository';
-import { ExpenseView, IExpenseQueries } from '@Contexts/Ledger/Application/IExpenseQueries';
+import {
+  ExpenseView,
+  IExpenseQueries,
+  StatementEntryView,
+  StatementView,
+} from '@Contexts/Ledger/Application/IExpenseQueries';
 
 import { LedgerDatabase } from './LedgerDatabase';
 
@@ -54,7 +59,8 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
     try {
       connection
         .prepare(
-          'INSERT INTO ledger_expenses (id, group_id, description, amount, date, paid_by, version, split_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO ledger_expenses (id, group_id, description, amount, date, paid_by, version, split_kind, recorded_seq) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM ledger_expenses))',
         )
         .run(id, groupId, description, amount, date, paidBy, version + 1, splitKind);
       this.#insertShares(id, shares);
@@ -130,6 +136,71 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       version: row.version,
     };
+  }
+
+  async expensesOf(groupId: string): Promise<ExpenseView[]> {
+    return this.#viewsOfGroup(groupId, true);
+  }
+
+  /**
+   * The statement, read in one pass: the expenses the member paid or is in the split of, in the order of a bank statement
+   * (the earliest date first, then the earliest recorded), each with what the member paid, their share, and the balance once
+   * the entry is counted. The balance of the statement is the last entry's, or 0 when it has none.
+   */
+  async statementOf(groupId: string, memberId: string): Promise<StatementView> {
+    const entries: StatementEntryView[] = [];
+    let balance = 0;
+    for (const expense of await this.#viewsOfGroup(groupId, false)) {
+      const share = expense.shares.find(line => line.memberId === memberId);
+      if (expense.paidBy !== memberId && !share) continue;
+      const paid = expense.paidBy === memberId ? expense.amount : 0;
+      const shared = share?.amount ?? 0;
+      balance += paid - shared;
+      entries.push({
+        expenseId: expense.id,
+        date: expense.date,
+        description: expense.description,
+        paid,
+        share: shared,
+        balance,
+      });
+    }
+    return { memberId, balance, entries };
+  }
+
+  /** Every expense of the group, in the order of `latestFirst` (by date, then by when it was recorded), each with its shares. */
+  #viewsOfGroup(groupId: string, latestFirst: boolean): ExpenseView[] {
+    const direction = latestFirst ? 'DESC' : 'ASC';
+    const connection = this.database.connection;
+    const rows = connection
+      .prepare(
+        `SELECT id, group_id, description, amount, date, paid_by, version, split_kind FROM ledger_expenses
+           WHERE group_id = ? ORDER BY date ${direction}, recorded_seq ${direction}`,
+      )
+      .all(groupId) as ExpenseRow[];
+    const sharesByExpense = new Map<string, Share[]>();
+    const shareRows = connection
+      .prepare(
+        `SELECT s.expense_id, s.member_id, s.amount FROM ledger_expense_shares s
+           JOIN ledger_expenses e ON e.id = s.expense_id WHERE e.group_id = ? ORDER BY s.expense_id, s.position`,
+      )
+      .all(groupId) as (ShareRow & { expense_id: string })[];
+    for (const row of shareRows) {
+      const lines = sharesByExpense.get(row.expense_id) ?? [];
+      lines.push({ memberId: row.member_id, amount: row.amount });
+      sharesByExpense.set(row.expense_id, lines);
+    }
+    return rows.map(row => ({
+      id: row.id,
+      groupId: row.group_id,
+      description: row.description,
+      amount: row.amount,
+      date: row.date,
+      paidBy: row.paid_by,
+      splitKind: row.split_kind,
+      shares: sharesByExpense.get(row.id) ?? [],
+      version: row.version,
+    }));
   }
 
   async balancesOf(groupId: string): Promise<ReadonlyMap<string, number>> {
