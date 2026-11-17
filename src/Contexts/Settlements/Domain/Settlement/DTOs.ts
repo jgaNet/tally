@@ -40,3 +40,13 @@ export interface WaitingMember {
   paid: number;
   received: number;
 }
+
+/**
+ * What a member of a group still owes, counting the payments waiting at the provider as paid (request 18, docs/adr/0018): `amount`
+ * is positive, and a member who owes nothing is not listed.
+ */
+export interface OutstandingDebt {
+  groupId: string;
+  memberId: string;
+  amount: number;
+}

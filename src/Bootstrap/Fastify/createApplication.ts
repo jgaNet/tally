@@ -13,7 +13,7 @@ import { operationRoutes } from '@Bootstrap/Fastify/operations.routes';
 import { localGroupsModule, authenticatedAccountOf } from '@Contexts/Groups/module.local';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
-import { localNotificationsModule } from '@Contexts/Notifications/module.local';
+import { localNotificationsModule, sweepNotificationDebts } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
@@ -30,7 +30,7 @@ import { providerWebhookRoutes } from '@Contexts/Settlements/Presentation/provid
  * relays the outbox every `JOBS_INTERVAL_SECONDS` (60 when unset).
  *
  * Configuration is in the environment: `PORT`, `API_PREFIX` (`v1`), `DATABASE_PATH` (`tally.db`),
- * `JOBS_INTERVAL_SECONDS` (60), `WEB_ORIGINS` (a comma-separated list), and for payments through the provider (request 13):
+ * `JOBS_INTERVAL_SECONDS` (60), `REMINDER_PERIOD_SECONDS` (604800, a week), `WEB_ORIGINS` (a comma-separated list), and for payments through the provider (request 13):
  * `PROVIDER_URL`, the base of the provider's API without a trailing slash, and `PROVIDER_WEBHOOK_SECRET`, the secret it signs with.
  *
  * A context is added here: its `LiteModule` registered, its routes under its own prefix with `{ module }`, or at the
@@ -80,5 +80,10 @@ export async function createApplication({
     relayOutbox(new SqliteUnitOfWork(sharedDatabase).outbox, app.getEventBus(), app.executionContext('relay'));
   await relay();
   app.every(Number(process.env.JOBS_INTERVAL_SECONDS || 60) * 1000, relay);
+  // Each run of the background job also sweeps the debts of every group, for the reminders (request 18, docs/adr/0018).
+  const reminderPeriodMs = Number(process.env.REMINDER_PERIOD_SECONDS || 604800) * 1000;
+  app.every(Number(process.env.JOBS_INTERVAL_SECONDS || 60) * 1000, () =>
+    sweepNotificationDebts(app.executionContext('sweep'), reminderPeriodMs),
+  );
   return app;
 }

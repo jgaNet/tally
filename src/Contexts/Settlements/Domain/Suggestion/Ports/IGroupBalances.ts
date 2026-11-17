@@ -7,4 +7,6 @@ import { MemberBalance } from '@Contexts/Settlements/Domain/Suggestion/DTOs';
  */
 export interface IGroupBalances {
   balancesOf(groupId: string): Promise<MemberBalance[]>;
+  /** Every group that has an expense, so that a sweep over every group's debts can read each one (docs/adr/0018). */
+  groupIds(): Promise<string[]>;
 }

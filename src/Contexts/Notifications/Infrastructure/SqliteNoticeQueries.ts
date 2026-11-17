@@ -18,16 +18,18 @@ export class SqliteNoticeQueries implements INoticeQueries {
         )
         .all(accountId) as Array<{
         id: string;
+        kind: string;
         group_id: string;
-        expense_id: string;
+        expense_id: string | null;
         amount: number;
         at: string;
       }>;
-      return rows.map(row => ({
+      return rows.map((row): NoticeView => ({
         id: String(row.id),
-        kind: 'expense' as const,
+        kind: row.kind === 'reminder' ? 'reminder' : 'expense',
         groupId: String(row.group_id),
-        expenseId: String(row.expense_id),
+        // A reminder names no expense: the answer omits the field, rather than naming a null (request 18).
+        ...(row.expense_id === null ? {} : { expenseId: String(row.expense_id) }),
         amount: Number(row.amount),
         at: String(row.at),
       }));

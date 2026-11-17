@@ -81,6 +81,14 @@ export class SqliteExpenseQueries implements IExpenseQueries {
     return [...balances].map(([memberId, balance]): BalanceView => ({ memberId, balance }));
   }
 
+  async groupIds(): Promise<string[]> {
+    return this.database.exclusive(() =>
+      (
+        this.database.connection.prepare('SELECT DISTINCT group_id FROM expenses').all() as Array<{ group_id: string }>
+      ).map(row => String(row.group_id)),
+    );
+  }
+
   async expensesOf(groupId: string): Promise<ExpenseView[]> {
     // The rowid is the order of recording: an edit updates the row in place, so it keeps the rowid it was inserted with (docs/adr/0008).
     return this.database.exclusive(() => {

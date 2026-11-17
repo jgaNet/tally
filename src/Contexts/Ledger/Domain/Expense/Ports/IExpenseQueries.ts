@@ -12,6 +12,11 @@ export interface IExpenseQueries {
    */
   balancesOf(groupId: string): Promise<BalanceView[]>;
   /**
+   * Every group that has an expense, in no particular order (docs/adr/0018). A group with none owes nothing, so a sweep over the
+   * debts of every group reads these and then each one's balances.
+   */
+  groupIds(): Promise<string[]>;
+  /**
    * Every expense of the group, each as `findExpense` answers it, the latest date first and, on the same date, the most
    * recently recorded first (request 8, docs/adr/0008). An edit does not change when an expense was recorded.
    */

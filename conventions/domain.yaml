@@ -97,6 +97,8 @@ contexts:
         meaning: one message owed to one member about one fact, made once from the fact.
       - term: Reminder
         meaning: a notice the sweep makes for a lasting debt, at most once a week per member and group.
+      - term: DebtWatch
+        meaning: the sweep's memory of one member's debt in one group, since which run it owes more than 2000 and when it was last reminded.
 relationships:
   - upstream: Groups
     downstream: Ledger
@@ -148,7 +150,6 @@ relationships:
     downstream: Notifications
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       A reminder is for a debt that lasts, and only Settlements knows what each member still owes once the paid
-      settlements count. Notifications' sweep asks through a port it owns (OutstandingDebts) (T9).
+      settlements count. Notifications' sweep asks through a port it owns (OutstandingDebts), answered by Settlements (docs/adr/0018).

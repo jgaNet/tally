@@ -9,6 +9,10 @@ import { IGroupBalances } from '@Contexts/Settlements/Domain/Suggestion/Ports/IG
 export class GroupBalancesOfLedger implements IGroupBalances {
   constructor(private readonly expenses: IExpenseQueries) {}
 
+  async groupIds(): Promise<string[]> {
+    return this.expenses.groupIds();
+  }
+
   async balancesOf(groupId: string): Promise<MemberBalance[]> {
     const balances = await this.expenses.balancesOf(groupId);
     return balances.map(({ memberId, balance }) => ({ memberId, balance }));

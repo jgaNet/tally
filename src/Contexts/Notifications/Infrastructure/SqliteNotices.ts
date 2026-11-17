@@ -7,11 +7,12 @@ import { INotices } from '@Contexts/Notifications/Domain/Notice/Ports/INotices';
 
 /**
  * The table of the notices: one row per notice, at most one for a person and an expense (the key), so that a fact handed to the
- * reaction twice across a restart, which the bus's in-memory inbox does not remember, still makes one (request 17).
+ * reaction twice across a restart, which the bus's in-memory inbox does not remember, still makes one (request 17). A reminder names no
+ * expense (request 18): its `expense_id` is NULL, and NULLs do not meet in the key.
  */
 export function prepareNoticeSchema(connection: DatabaseSync): void {
   connection.exec(
-    'CREATE TABLE IF NOT EXISTS notices (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, kind TEXT NOT NULL, group_id TEXT NOT NULL, expense_id TEXT NOT NULL, amount INTEGER NOT NULL, at TEXT NOT NULL, UNIQUE (account_id, expense_id))',
+    'CREATE TABLE IF NOT EXISTS notices (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, kind TEXT NOT NULL, group_id TEXT NOT NULL, expense_id TEXT, amount INTEGER NOT NULL, at TEXT NOT NULL, UNIQUE (account_id, expense_id))',
   );
 }
 
@@ -28,7 +29,7 @@ export class SqliteNotices implements INotices {
       .prepare(
         'INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (account_id, expense_id) DO NOTHING',
       )
-      .run(s.id, s.accountId, s.kind, s.groupId, s.expenseId, s.amount, s.at);
+      .run(s.id, s.accountId, s.kind, s.groupId, s.expenseId ?? null, s.amount, s.at);
     return Number(changes) > 0;
   }
 }

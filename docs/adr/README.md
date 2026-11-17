@@ -22,6 +22,7 @@ why, what it costs, and when to revisit it.
 | [15](0015-a-refund-through-the-provider-is-a-status-of-the-settlement.md) | A refund through the provider is a status of the settlement |
 | [16](0016-a-payout-account-is-known-to-the-provider-and-required-to-be-paid.md) | A payout account is an aggregate of Settlements, known to the provider, and required to be paid through it |
 | [17](0017-an-expense-recorded-is-told-to-notifications-which-issues-a-notice-per-member.md) | An expense recorded is told to Notifications, which issues one notice per member but the payer |
+| [18](0018-a-debt-that-lasts-is-reminded-by-the-sweep-of-notifications.md) | A debt that lasts is reminded by Notifications' sweep, which reads what is owed from Settlements |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

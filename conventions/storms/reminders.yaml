@@ -5,7 +5,7 @@ feature: reminders
 intent: >-
   At each run of the background job, a member who has still owed more than 2000 in a group for a period is reminded, and again each period while it lasts, at most once a period whatever the servers.
 
-done: false
+done: true
 
 hotSpots:
   - question: Who notices that a debt has lasted?
