@@ -19,6 +19,7 @@ import { registerRecurringRoutes } from './routes/recurring';
 import { registerRateRoutes } from './routes/rates';
 import { registerSettlementRoutes } from './routes/settlements';
 import { registerStatementRoutes } from './routes/statements';
+import { registerTemplateRoutes } from './routes/templates';
 import type { RatesConfig } from './rates';
 
 /** The running application: what the server entry point and the tests start and stop. */
@@ -117,6 +118,7 @@ export async function createApplication({
       registerProviderRoutes(api, db, provider);
       registerPayoutAccountRoutes(api, db, provider);
       registerNoticeRoutes(api, db);
+      registerTemplateRoutes(api, db);
       registerOperationRoutes(api, db);
     },
     { prefix: `/${apiPrefix}` },

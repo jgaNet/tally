@@ -134,6 +134,27 @@ const SCHEMA = `
     passed_at TEXT NOT NULL,
     PRIMARY KEY (group_id, category, month)
   );
+  /*
+   * A split saved under a name in a group, by a member. Its name is unique in the group whatever its case (name_key).
+   * Its parts (one row per member in template_parts: the shares of a split by shares, nothing for an equal one).
+   */
+  CREATE TABLE IF NOT EXISTS templates (
+    id          TEXT PRIMARY KEY,
+    group_id    TEXT NOT NULL REFERENCES groups (id),
+    saved_by    TEXT NOT NULL REFERENCES accounts (id),
+    name        TEXT NOT NULL,
+    name_key    TEXT NOT NULL,
+    split_kind  TEXT NOT NULL CHECK (split_kind IN ('equal', 'shares')),
+    created_at  TEXT NOT NULL,
+    UNIQUE (group_id, name_key)
+  );
+  CREATE TABLE IF NOT EXISTS template_parts (
+    template_id TEXT NOT NULL REFERENCES templates (id),
+    position    INTEGER NOT NULL,
+    member_id   TEXT NOT NULL REFERENCES accounts (id),
+    shares      INTEGER CHECK (shares IS NULL OR shares >= 1),
+    PRIMARY KEY (template_id, position)
+  );
 `;
 
 /**

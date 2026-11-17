@@ -9,6 +9,7 @@ import { millionthsOf, offeredRate, RATE_SHAPE, type RatesConfig } from './rates
 import { Refusal } from './refusal';
 import { characters } from './text';
 import { inReadSnapshot, inTransaction } from './transactions';
+import { splitOfTemplate } from './templates';
 
 /** A description has 1 to this many characters. */
 const MAX_DESCRIPTION_LENGTH = 100;
@@ -93,6 +94,12 @@ export type SplitInput =
   | { readonly kind: 'shares'; readonly parts: readonly { readonly memberId: string; readonly shares: number }[] };
 
 /**
+ * A split as an expense gives it: the split itself, or `template`, the id of one of its group's templates, whose split it
+ * is split by (under the same rules, as it stands when the expense is recorded or edited).
+ */
+export type SplitGiven = SplitInput | { readonly kind: 'template'; readonly templateId: string };
+
+/**
  * Divides `amount` equally between `memberIds`, in their order: each share is the amount divided by
  * their number, rounded down; the remainder, less than their number, goes whole to the share of the
  * first member listed, whoever paid. The shares add up to `amount` exactly.
@@ -167,7 +174,7 @@ export interface ExpenseFields {
   readonly description: string;
   readonly amount: ExpenseAmount;
   readonly date: string;
-  readonly split: SplitInput;
+  readonly split: SplitGiven;
   readonly category?: string;
 }
 
@@ -260,6 +267,16 @@ function amountInGroupCurrency(
   return { amount: converted, original: { currency: currency as Currency, amount, rate } };
 }
 
+/** The split an expense gives, with a template's split in place of it: it is then the split of the template in the group. */
+function resolveSplit(db: DatabaseSync, groupId: string, given: SplitGiven): SplitInput {
+  if (given.kind !== 'template') return given;
+  const split = splitOfTemplate(db, groupId, given.templateId);
+  if (!split) {
+    throw new Refusal(422, 'TemplateNotInGroup', 'The template must be one of the templates of the group.');
+  }
+  return split;
+}
+
 /** The members a split names, in the order it names them. */
 function membersOfSplit(split: SplitInput): string[] {
   return split.kind === 'equal' ? [...split.memberIds] : split.parts.map(part => part.memberId);
@@ -315,8 +332,15 @@ export function checkExpenseFields(
   fields: ExpenseFields,
   offer: RateOffer,
   today: string = todayInUtc(),
-): { description: string; amount: number; original: OriginalAmount | undefined; shares: Share[]; category: Category } {
-  const { description, date, split } = fields;
+): {
+  description: string;
+  amount: number;
+  original: OriginalAmount | undefined;
+  shares: Share[];
+  category: Category;
+  splitKind: SplitKind;
+} {
+  const { description, date } = fields;
   const category = fields.category ?? DEFAULT_CATEGORY;
   if (!isCategory(category)) {
     throw new Refusal(422, 'CategoryIsUnsupported', `The category must be one of ${CATEGORIES.join(', ')}.`);
@@ -339,6 +363,7 @@ export function checkExpenseFields(
   if (date > today) {
     throw new Refusal(422, 'DateIsInTheFuture', 'The date must not be after today (UTC).');
   }
+  const split = resolveSplit(db, groupId, fields.split);
   const members = membersOfSplit(split);
   if (members.length === 0) {
     throw new Refusal(422, 'SplitIsEmpty', 'The expense must be split between at least one member.');
@@ -354,7 +379,14 @@ export function checkExpenseFields(
     throw new Refusal(422, 'PayerNotInSplit', 'The payer must be one of the members the expense is split between.');
   }
   checkSplitValues(amount, split);
-  return { description: trimmedDescription, amount, original, shares: sharesOfSplit(amount, split), category };
+  return {
+    description: trimmedDescription,
+    amount,
+    original,
+    shares: sharesOfSplit(amount, split),
+    category,
+    splitKind: split.kind,
+  };
 }
 
 /** Writes the expense's shares, in the order of the split. */
@@ -387,13 +419,13 @@ export function insertExpense(
     groupId: string;
     payerId: string;
     date: string;
-    split: SplitInput;
     checked: {
       description: string;
       amount: number;
       original: OriginalAmount | undefined;
       shares: Share[];
       category: Category;
+      splitKind: SplitKind;
     };
     at: string;
     recurring?: string;
@@ -412,7 +444,7 @@ export function insertExpense(
     checked.amount,
     date,
     payerId,
-    input.split.kind,
+    checked.splitKind,
     originalCurrency,
     originalAmount,
     rate,
@@ -476,7 +508,7 @@ export async function recordExpense(db: DatabaseSync, rates: RatesConfig, input:
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
     const checked = checkExpenseFields(db, groupId, group.currency, payerId, input, offer);
-    insertExpense(db, { id, groupId, payerId, date, split: input.split, checked, at: new Date().toISOString() });
+    insertExpense(db, { id, groupId, payerId, date, checked, at: new Date().toISOString() });
   });
   return id;
 }
@@ -636,7 +668,7 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
         checked.description,
         checked.amount,
         date,
-        input.split.kind,
+        checked.splitKind,
         originalCurrency,
         originalAmount,
         rate,

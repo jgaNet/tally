@@ -12,14 +12,18 @@ import {
   findExpenseOfMember,
   recordExpense,
   type ExpenseAmount,
-  type SplitInput,
+  type SplitGiven,
 } from '../expenses';
 
-/** The split a body names: exactly one of its three fields (the shape is checked by the schema). */
+/**
+ * The split a body names: exactly one of its three fields, or `template`, the id of a template of the group whose split it
+ * is (the shape is checked by the schema).
+ */
 interface SplitBody {
   splitBetween?: string[];
   splitExactly?: { memberId: string; amount: number }[];
   splitByShares?: { memberId: string; shares: number }[];
+  template?: string;
 }
 
 /**
@@ -71,8 +75,8 @@ const ORIGINAL = {
 
 /**
  * Only the shape is checked here (a missing or wrongly typed field is `400`, and so is a body that names
- * none of the three splits or more than one, or neither of `amount` and `original` or both); values are checked by
- * the rules.
+ * none of the three splits and no template, or more than one of them, or neither of `amount` and `original` or both); values
+ * are checked by the rules.
  */
 const RECORD_EXPENSE_BODY = {
   type: 'object',
@@ -86,9 +90,17 @@ const RECORD_EXPENSE_BODY = {
     splitBetween: SPLIT_BETWEEN,
     splitExactly: SPLIT_EXACTLY,
     splitByShares: SPLIT_BY_SHARES,
+    template: { type: 'string' },
   },
   allOf: [
-    { oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }] },
+    {
+      oneOf: [
+        { required: ['splitBetween'] },
+        { required: ['splitExactly'] },
+        { required: ['splitByShares'] },
+        { required: ['template'] },
+      ],
+    },
     { oneOf: [{ required: ['amount'] }, { required: ['original'] }] },
   ],
 };
@@ -139,8 +151,9 @@ const EXPENSE = {
   },
 };
 
-/** The split the body names; the schema has checked that it names exactly one. */
-function splitOf(body: SplitBody): SplitInput {
+/** The split the body gives; the schema has checked that it gives exactly one. */
+function splitOf(body: SplitBody): SplitGiven {
+  if (body.template !== undefined) return { kind: 'template', templateId: body.template };
   if (body.splitBetween) return { kind: 'equal', memberIds: body.splitBetween };
   if (body.splitExactly) {
     return {

@@ -254,7 +254,6 @@ export function recordRecurring(db: DatabaseSync, now: Date): number {
           groupId: row.group_id,
           payerId: row.paid_by,
           date: day,
-          split,
           checked,
           at,
           recurring: row.id,
