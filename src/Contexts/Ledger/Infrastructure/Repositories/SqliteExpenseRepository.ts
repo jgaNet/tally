@@ -5,9 +5,17 @@ import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 
-/** The tables of expenses: one row per expense, and one per share, in the order of the split. */
+/**
+ * The tables of expenses: one row per expense, one per share in the order of the split, and the balance read model's
+ * entries: one per payer (the amount owed to them) and one per share (what its member owes), so an expense's entries add
+ * up to 0 (ADR 1, T4). A database that held expenses before the entries existed is backfilled from them, once.
+ */
 export function createExpensesTables(database: SqliteDatabase): void {
-  database.connection.exec(`
+  const connection = database.connection;
+  const hadEntries = connection
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'balance_entries'")
+    .get();
+  connection.exec(`
     CREATE TABLE IF NOT EXISTS expenses (
       id TEXT PRIMARY KEY,
       group_id TEXT NOT NULL,
@@ -24,7 +32,22 @@ export function createExpensesTables(database: SqliteDatabase): void {
       amount INTEGER NOT NULL,
       PRIMARY KEY (expense_id, position)
     );
+    CREATE TABLE IF NOT EXISTS balance_entries (
+      expense_id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      member_id TEXT NOT NULL,
+      amount INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS balance_entries_by_group ON balance_entries (group_id);
   `);
+  if (!hadEntries) {
+    connection.exec(`
+      INSERT INTO balance_entries (expense_id, group_id, member_id, amount)
+        SELECT id, group_id, paid_by, amount FROM expenses;
+      INSERT INTO balance_entries (expense_id, group_id, member_id, amount)
+        SELECT s.expense_id, e.group_id, s.member_id, -s.amount FROM expense_shares s JOIN expenses e ON e.id = s.expense_id;
+    `);
+  }
 }
 
 interface ExpenseRow {
@@ -97,6 +120,14 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         .prepare('INSERT INTO expense_shares (expense_id, position, member_id, amount) VALUES (?, ?, ?, ?)')
         .run(snapshot._id, position, share.memberId, share.amount),
     );
+
+    // The balance read model counts the expense in the same transaction that stores it: the payer is owed the amount,
+    // each share is owed by its member, so the entries of this expense add up to 0.
+    const entry = connection.prepare(
+      'INSERT INTO balance_entries (expense_id, group_id, member_id, amount) VALUES (?, ?, ?, ?)',
+    );
+    entry.run(snapshot._id, snapshot.groupId, snapshot.paidBy, snapshot.amount);
+    snapshot.shares.forEach(share => entry.run(snapshot._id, snapshot.groupId, share.memberId, -share.amount));
     return Result.ok();
   }
 }

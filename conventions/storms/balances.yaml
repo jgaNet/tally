@@ -5,7 +5,7 @@ feature: balances
 intent: >-
   A member reads every member's balance, in the order they joined; the balances add up to zero, whatever is recorded at once.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where do the balances live?

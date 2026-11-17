@@ -13,6 +13,7 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/acc
 import { groupRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/invitation.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes';
+import { balanceRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/balance.routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
@@ -57,7 +58,8 @@ export async function createApplication({
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', invitationRoutes, { module: localGroupsModule })
-    .registerRoutes('/', expenseRoutes, { module: localLedgerModule });
+    .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
+    .registerRoutes('/', balanceRoutes, { module: localLedgerModule });
 
   await app.startModules();
 
