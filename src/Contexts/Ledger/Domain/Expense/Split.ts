@@ -25,7 +25,8 @@ interface SplitValue {
 /**
  * How an expense is shared between the members it concerns: the payer, who is one of them, how it was split, and each
  * member's share in the order the split was given. Made once, when the expense is recorded or edited, and kept as it was
- * decided: the shares add up to the amount exactly. Whatever the kind, what a split leaves over goes whole to the payer.
+ * decided: the shares add up to the amount exactly. An equal split or a split by shares leaves over a remainder, which
+ * goes whole to the share of the member listed first; a split by exact amounts leaves none.
  */
 export class Split extends ValueObject<SplitValue> {
   private constructor(value: SplitValue) {
@@ -34,7 +35,7 @@ export class Split extends ValueObject<SplitValue> {
 
   /**
    * An equal split: each share is the amount divided by the number of members, rounded down; what that leaves over
-   * (less than one share per member) goes whole to the payer's share.
+   * (less than one share per member) goes whole to the share of the member listed first.
    */
   static equally({ amount, payer, between }: { amount: Amount; payer: Id; between: readonly Id[] }): IResult<Split> {
     const listed = Split.membersListedOnce(payer, between);
@@ -82,8 +83,8 @@ export class Split extends ValueObject<SplitValue> {
 
   /**
    * A split by shares: each member has a whole number of shares, at least 1. A member's share is the amount times their
-   * shares, divided by the total of the shares, rounded down; the remainder goes whole to the payer's share, as in an
-   * equal split. 1000 by shares of 1, 1 and 1 is the equal split of 1000.
+   * shares, divided by the total of the shares, rounded down; the remainder goes whole to the share of the member listed
+   * first, as in an equal split. 1000 by shares of 1, 1 and 1 is the equal split of 1000.
    */
   static byShares({
     amount,
@@ -198,7 +199,8 @@ export class Split extends ValueObject<SplitValue> {
 
   /**
    * Divides the amount by the weights of the members: each share is the amount times its weight over the total of the
-   * weights, rounded down (in whole numbers, without losing precision); what is left over goes whole to the payer.
+   * weights, rounded down (in whole numbers, without losing precision); what is left over goes whole to the share of
+   * the member listed first, whoever paid.
    */
   private static divided(
     kind: SplitKind,
@@ -211,7 +213,7 @@ export class Split extends ValueObject<SplitValue> {
     const remainder = amount.value - floors.reduce((sum, share) => sum + share, 0);
     const shares = parts.map((part, index) => ({
       memberId: part.memberId,
-      amount: floors[index] + (part.memberId.equals(payer) ? remainder : 0),
+      amount: floors[index] + (index === 0 ? remainder : 0),
     }));
     return Result.ok(new Split({ kind, payer, shares }));
   }

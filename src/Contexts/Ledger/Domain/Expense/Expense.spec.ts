@@ -47,10 +47,19 @@ describe('ExpenseDate', () => {
 });
 
 describe('Split', () => {
-  it('divides the amount equally, rounded down, the remainder whole to the payer', () => {
+  it('divides the amount equally, rounded down, the remainder whole to the member listed first', () => {
     const s = split(1000, alice, [bob, carol, alice]);
-    expect(s.shares.map(share => share.amount)).toEqual([333, 333, 334]);
+    expect(s.shares.map(share => share.amount)).toEqual([334, 333, 333]);
     expect(s.shares.map(share => share.memberId.value)).toEqual(['bob', 'carol', 'alice']);
+  });
+
+  it('gives the remainder to the first member even when the payer is listed first', () => {
+    const s = split(1000, alice, [alice, bob, carol]);
+    expect(s.shares.map(share => [share.memberId.value, share.amount])).toEqual([
+      ['alice', 334],
+      ['bob', 333],
+      ['carol', 333],
+    ]);
   });
 
   it('never loses a unit: the shares add up to the amount', () => {
@@ -155,14 +164,14 @@ describe('Split by shares', () => {
       shares: parts.map(([memberId, count]) => ({ memberId, shares: count })),
     });
 
-  it('divides by the shares, rounded down, the remainder whole to the payer', () => {
-    // 1001 by 2 and 1 shares, the payer (alice) listed second: 667 for bob, 333 + the remainder 1 for alice.
+  it('divides by the shares, rounded down, the remainder whole to the member listed first', () => {
+    // 1001 by 2 and 1 shares, the payer (alice) listed second: 667 + the remainder 1 for bob, 333 for alice.
     const s = shares(1001, alice, [
       [bob, 2],
       [alice, 1],
     ]).data!;
     expect(s.kind).toBe('shares');
-    expect(s.shares.map(share => share.amount)).toEqual([667, 334]);
+    expect(s.shares.map(share => share.amount)).toEqual([668, 333]);
   });
 
   it('is the equal split when every member has one share', () => {

@@ -103,7 +103,7 @@ describe('recording an expense, split equally', () => {
     expect(done).toMatchObject({ status: 'SUCCESS', result: { id: expect.any(String) } });
   });
 
-  it('splits 1000 between three members: 333 each for two, and 334 for the payer', async () => {
+  it('splits 1000 between three members: 334 for the member listed first, 333 for the others, the payer listed last', async () => {
     const { alice, bob, carol, groupId } = await threeMembers();
     const { done } = await record(alice.token, groupId, {
       description: 'Groceries',
@@ -124,9 +124,9 @@ describe('recording an expense, split equally', () => {
       paidBy: alice.id,
       splitKind: 'equal',
       shares: [
-        { memberId: bob.id, amount: 333 },
+        { memberId: bob.id, amount: 334 },
         { memberId: carol.id, amount: 333 },
-        { memberId: alice.id, amount: 334 },
+        { memberId: alice.id, amount: 333 },
       ],
       version: 1,
     });
@@ -670,7 +670,7 @@ describe('splitting unequally', () => {
     });
   });
 
-  it('splits by shares: 1001 by 2 and 1 shares, the payer listed second, is 667 and 334', async () => {
+  it('splits by shares: 1001 by 2 and 1 shares, the payer listed second, is 668 and 333', async () => {
     const { alice, bob, groupId } = await threeMembers();
     const { done } = await byShares(
       alice.token,
@@ -688,13 +688,13 @@ describe('splitting unequally', () => {
     expect(body).toMatchObject({
       splitKind: 'shares',
       shares: [
-        { memberId: bob.id, amount: 667 },
-        { memberId: alice.id, amount: 334 },
+        { memberId: bob.id, amount: 668 },
+        { memberId: alice.id, amount: 333 },
       ],
     });
   });
 
-  it('splits by shares of 1, 1 and 1 as the equal split does: 333, 333 and 334', async () => {
+  it('splits by shares of 1, 1 and 1 as the equal split does: 334, 333 and 333', async () => {
     const { alice, bob, carol, groupId } = await threeMembers();
     const { done } = await byShares(
       alice.token,
@@ -711,9 +711,9 @@ describe('splitting unequally', () => {
     expect(body).toMatchObject({
       splitKind: 'shares',
       shares: [
-        { memberId: bob.id, amount: 333 },
+        { memberId: bob.id, amount: 334 },
         { memberId: carol.id, amount: 333 },
-        { memberId: alice.id, amount: 334 },
+        { memberId: alice.id, amount: 333 },
       ],
     });
   });

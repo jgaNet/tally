@@ -115,10 +115,10 @@ describe("a group's balances", () => {
     });
     const { status, body } = await balances(groupId, bob.token);
     expect(status).toBe(200);
-    // Alice paid 1000 and owes her share of 334: she is owed 666; Bob and Carol owe 333 each.
+    // Alice paid 1000 and owes her share of 333: she is owed 667; Bob, listed first, owes 334 and Carol owes 333.
     expect(body).toEqual([
-      { memberId: alice.id, balance: 666 },
-      { memberId: bob.id, balance: -333 },
+      { memberId: alice.id, balance: 667 },
+      { memberId: bob.id, balance: -334 },
       { memberId: carol.id, balance: -333 },
     ]);
     expect(sum(body as Balance[])).toBe(0);
