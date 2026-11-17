@@ -46,10 +46,13 @@ describe('paying through the provider', () => {
   let provider: Server;
   let providerUrl: string;
   let calls: ProviderCall[];
-  let answerWith: (reference: string, path: string | undefined) => ProviderAnswer;
+  let answerWith: (reference: string | undefined, path: string | undefined) => ProviderAnswer;
   let nextPayment: number;
   /** Applications started by a test beyond `app`, stopped after it. */
   const extra: Application[] = [];
+
+  /** The provider's id of Ann's payout account, which the fixture sets; the fake provider knows every account. */
+  const ANN_PAYOUT = 'acct_ann';
 
   /** A payment the fake provider answers as created: `201 { id, payUrl }`, unless a test says otherwise. */
   function createdPayment(): ProviderAnswer {
@@ -71,14 +74,17 @@ describe('paying through the provider', () => {
     directory = testDirectory();
     calls = [];
     nextPayment = 1;
-    answerWith = (_reference, path) => (path?.endsWith('/refunds') ? refundCreated() : createdPayment());
+    answerWith = (_reference, path) => {
+      if (path?.startsWith('/accounts/')) return { status: 200, body: { id: decodeURIComponent(path.slice(10)) } };
+      return path?.endsWith('/refunds') ? refundCreated() : createdPayment();
+    };
     provider = createServer((request, response) => {
       let raw = '';
       request.on('data', chunk => (raw += chunk));
       request.on('end', async () => {
         const body: unknown = raw === '' ? undefined : JSON.parse(raw);
         calls.push({ method: request.method, path: request.url, body });
-        const answer = answerWith((body as { reference: string }).reference, request.url);
+        const answer = answerWith((body as { reference: string } | undefined)?.reference, request.url);
         if (answer.delayMs) await sleep(answer.delayMs);
         try {
           response.writeHead(answer.status, { 'content-type': 'application/json' });
@@ -133,6 +139,27 @@ describe('paying through the provider', () => {
     await join(ann.token, groupId, ben.token);
     const expense = await send(app, 'POST', `/groups/${groupId}/expenses`, {
       token: ann.token,
+      body: { description: 'Dinner', amount: 3000, date: utcDay(0), splitBetween: [ann.id, ben.id] },
+    });
+    if (expense.status !== 201) throw new Error(`record answered ${expense.status}`);
+    // Ann is the one paid through the provider in these tests, so she has a payout account.
+    const payout = await send(app, 'PUT', '/accounts/me/payout-account', {
+      token: ann.token,
+      body: { accountId: ANN_PAYOUT },
+    });
+    if (payout.status !== 204) throw new Error(`payout account answered ${payout.status}`);
+    calls.length = 0;
+    return { ann, ben, groupId };
+  }
+
+  /** Ben paid 3000 split equally: Ann owes Ben 1500, and Ben, the one paid, has no payout account. */
+  async function benOwedWithoutPayoutAccount() {
+    const ann = await signedUpAccount(app, { email: 'ann@example.org', name: 'Ann' });
+    const ben = await signedUpAccount(app, { email: 'ben@example.org', name: 'Ben' });
+    const groupId = await createGroup(ben.token);
+    await join(ben.token, groupId, ann.token);
+    const expense = await send(app, 'POST', `/groups/${groupId}/expenses`, {
+      token: ben.token,
       body: { description: 'Dinner', amount: 3000, date: utcDay(0), splitBetween: [ann.id, ben.id] },
     });
     if (expense.status !== 201) throw new Error(`record answered ${expense.status}`);
@@ -223,7 +250,11 @@ describe('paying through the provider', () => {
     expect(asked.status).toBe(201);
     const id = (asked.body as { id: string }).id;
     expect(calls).toEqual([
-      { method: 'POST', path: '/payments', body: { reference: id, amount: 1000, currency: 'EUR' } },
+      {
+        method: 'POST',
+        path: '/payments',
+        body: { reference: id, amount: 1000, currency: 'EUR', payee: ANN_PAYOUT },
+      },
     ]);
 
     const before = settlementCount();
@@ -373,6 +404,61 @@ describe('paying through the provider', () => {
 
     expect(calls).toEqual([]);
     expect(settlementCount()).toBe(0);
+  });
+
+  it('refuses paying a member who has no payout account, by its rule, before the provider is asked', async () => {
+    const { ann, ben, groupId } = await benOwedWithoutPayoutAccount();
+    const asked = await send(app, 'POST', `/groups/${groupId}/settlements/provider`, {
+      token: ann.token,
+      body: { to: ben.id, amount: 500 },
+    });
+    expect(asked.status).toBe(409);
+    expect(asked.body).toMatchObject({ error: 'PayoutAccountRequired' });
+    expect(calls).toEqual([]);
+    expect(settlementCount()).toBe(0);
+    expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: -1500, [ben.id]: 1500 });
+
+    // Once Ben has a payout account, the same payment is asked, and it is made to that account.
+    const benPayout = await send(app, 'PUT', '/accounts/me/payout-account', {
+      token: ben.token,
+      body: { accountId: 'acct_ben' },
+    });
+    expect(benPayout.status).toBe(204);
+    calls.length = 0;
+    const later = await send(app, 'POST', `/groups/${groupId}/settlements/provider`, {
+      token: ann.token,
+      body: { to: ben.id, amount: 500 },
+    });
+    expect(later.status).toBe(201);
+    expect(calls).toEqual([
+      {
+        method: 'POST',
+        path: '/payments',
+        body: { reference: (later.body as { id: string }).id, amount: 500, currency: 'EUR', payee: 'acct_ben' },
+      },
+    ]);
+  });
+
+  it('sends the payee the payout account it has when the payment is asked, and not one it had before', async () => {
+    const { ann, ben, groupId } = await annAndBenOwing1500();
+    const replaced = await send(app, 'PUT', '/accounts/me/payout-account', {
+      token: ann.token,
+      body: { accountId: 'acct_ann_2' },
+    });
+    expect(replaced.status).toBe(204);
+    calls.length = 0;
+    expect((await askToPay(ben.token, groupId, ann.id, 1500)).status).toBe(201);
+    expect(calls).toEqual([
+      expect.objectContaining({ path: '/payments', body: expect.objectContaining({ payee: 'acct_ann_2' }) }),
+    ]);
+  });
+
+  it('settles in cash with no payout account, as before: a payee who has none can record cash paid to them', async () => {
+    const { ann, ben, groupId } = await benOwedWithoutPayoutAccount();
+    const cash = await settleInCash(ben.token, groupId, ann.id, 1500);
+    expect(cash.status).toBe(201);
+    expect(calls).toEqual([]);
+    expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
   });
 
   it('refuses a webhook with no signature, or a wrong one, with 401, and changes nothing', async () => {

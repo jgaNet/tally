@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { type Balance, balancesOfGroup } from './balances';
 import { findGroupOfMember, membersOfGroup } from './groups';
 import { type ProviderConfig, requestPayment, requestRefund } from './provider';
+import { payoutAccountOf } from './payout-accounts';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
 
@@ -179,9 +180,11 @@ export function recordCashSettlement(
  *
  * The rules of {@link checkSettlement} are checked first, so a refused request never reaches the provider.
  * Refused with `404` when the payer is not a member of the group, with `422` when the payee is not a member of
- * the group, and as {@link checkSettlement} says otherwise. Refused with `424` when paying through the provider
- * is not configured, or when the provider does not answer a payment in time (see {@link requestPayment}); then
- * nothing is kept.
+ * the group, and as {@link checkSettlement} says otherwise. A payee with no payout account (see
+ * `payout-accounts.ts`) is refused with `409` as `PayoutAccountRequired`, before the provider is asked: the
+ * payment is made to the payee's payout account, as it is at this moment. Refused with `424` when paying through
+ * the provider is not configured, or when the provider does not answer a payment in time (see
+ * {@link requestPayment}); then nothing is kept.
  *
  * The provider is asked outside any transaction, so that no write is held while it answers; the rules are
  * checked again in the transaction that keeps the settlement, so two requests at once cannot both pay more
@@ -194,19 +197,27 @@ export async function requestProviderSettlement(
   input: { groupId: string; payerId: string; payeeId: string; amount: number },
 ): Promise<string> {
   const { groupId, payerId, payeeId, amount } = input;
-  const decide = (): { currency: string } => {
+  const decide = (): { currency: string; payee: string } => {
     const group = findGroupOfMember(db, payerId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     if (!membersOfGroup(db, groupId).some(member => member.memberId === payeeId)) {
       throw new Refusal(422, 'PayeeNotInGroup', 'The payee must be a member of the group.');
     }
     checkSettlement(db, { groupId, payerId, payeeId, amount });
-    return { currency: group.currency };
+    const payee = payoutAccountOf(db, payeeId);
+    if (payee === undefined) {
+      throw new Refusal(
+        409,
+        'PayoutAccountRequired',
+        'The member who is paid must have a payout account to be paid through the provider.',
+      );
+    }
+    return { currency: group.currency, payee };
   };
 
-  const { currency } = inReadSnapshot(db, decide);
+  const { currency, payee } = inReadSnapshot(db, decide);
   const id = randomUUID();
-  const payment = await requestPayment(provider, { reference: id, amount, currency });
+  const payment = await requestPayment(provider, { reference: id, amount, currency, payee });
   inTransaction(db, () => {
     decide();
     db.prepare(

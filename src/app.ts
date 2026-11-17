@@ -9,6 +9,7 @@ import { registerExpenseRoutes } from './routes/expenses';
 import { registerGroupRoutes } from './routes/groups';
 import { registerInvitationRoutes } from './routes/invitations';
 import { registerOperationRoutes } from './routes/operations';
+import { registerPayoutAccountRoutes } from './routes/payout-accounts';
 import { registerProviderRoutes } from './routes/provider';
 import { registerSettlementRoutes } from './routes/settlements';
 import { registerStatementRoutes } from './routes/statements';
@@ -69,6 +70,7 @@ export async function createApplication({
       registerStatementRoutes(api, db);
       registerSettlementRoutes(api, db, provider);
       registerProviderRoutes(api, db, provider);
+      registerPayoutAccountRoutes(api, db, provider);
       registerOperationRoutes(api, db);
     },
     { prefix: `/${apiPrefix}` },

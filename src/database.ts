@@ -68,6 +68,11 @@ const SCHEMA = `
     amount     INTEGER NOT NULL,
     PRIMARY KEY (expense_id, position)
   );
+  CREATE TABLE IF NOT EXISTS payout_accounts (
+    account_id          TEXT PRIMARY KEY REFERENCES accounts (id),
+    provider_account_id TEXT NOT NULL,
+    set_at              TEXT NOT NULL
+  );
 `;
 
 /**
