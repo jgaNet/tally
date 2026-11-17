@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-2",
+  "ref": "cb39b6a40e1b66e43a0f9af4717f1e3c5917f731",
+  "commit": "cb39b6a40e1b66e43a0f9af4717f1e3c5917f731",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../cb39b6a40e1b.storms/accounts.yaml is done, but Groups: typescript lacks the command expected by ../cb39b6a40e1b.storms/accounts.yaml has: SignUp (anyone, POST /accounts, Account → AccountRegistered)",
+          "../cb39b6a40e1b.storms/accounts.yaml is done, but Groups: typescript has a command expected by ../cb39b6a40e1b.storms/accounts.yaml does not: SignUp (anyone, POST /accounts, Account → AccountRegistered; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "create-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../cb39b6a40e1b.storms/create-a-group.yaml is done, but Groups: typescript lacks the command expected by ../cb39b6a40e1b.storms/create-a-group.yaml has: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated)",
+          "../cb39b6a40e1b.storms/create-a-group.yaml is done, but Groups: typescript has a command expected by ../cb39b6a40e1b.storms/create-a-group.yaml does not: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "invite-and-join",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../cb39b6a40e1b.storms/invite-and-join.yaml is done, but Groups: typescript lacks the command expected by ../cb39b6a40e1b.storms/invite-and-join.yaml has: AcceptInvitation (a signed-in account, POST /invitations/{param}/accept, Group → MemberJoined)",
+          "../cb39b6a40e1b.storms/invite-and-join.yaml is done, but Groups: typescript lacks the command expected by ../cb39b6a40e1b.storms/invite-and-join.yaml has: CreateInvitation (a signed-in account, POST /groups/{param}/invitations, Invitation → InvitationCreated)",
+          "../cb39b6a40e1b.storms/invite-and-join.yaml is done, but Groups: typescript has a command expected by ../cb39b6a40e1b.storms/invite-and-join.yaml does not: AcceptInvitation (a signed-in account, POST /invitations/{param}/accept, Group → MemberJoined; answered at once)",
+          "../cb39b6a40e1b.storms/invite-and-join.yaml is done, but Groups: typescript has a command expected by ../cb39b6a40e1b.storms/invite-and-join.yaml does not: CreateInvitation (a signed-in account, POST /groups/{param}/invitations, Invitation → InvitationCreated; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "record-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../cb39b6a40e1b.storms/record-an-expense.yaml is done, but Ledger: typescript lacks the command expected by ../cb39b6a40e1b.storms/record-an-expense.yaml has: RecordExpense (a signed-in account, POST /groups/{param}/expenses, Expense → ExpenseRecorded)",
+          "../cb39b6a40e1b.storms/record-an-expense.yaml is done, but Ledger: typescript has a command expected by ../cb39b6a40e1b.storms/record-an-expense.yaml does not: RecordExpense (a signed-in account, POST /groups/{param}/expenses, Expense → ExpenseRecorded; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "balances",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "edit-and-delete-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../cb39b6a40e1b.storms/edit-and-delete-an-expense.yaml is done, but Ledger: typescript lacks the command expected by ../cb39b6a40e1b.storms/edit-and-delete-an-expense.yaml has: DeleteExpense (a signed-in account, DELETE /expenses/{param}, Expense → ExpenseDeleted)",
+          "../cb39b6a40e1b.storms/edit-and-delete-an-expense.yaml is done, but Ledger: typescript lacks the command expected by ../cb39b6a40e1b.storms/edit-and-delete-an-expense.yaml has: EditExpense (a signed-in account, PUT /expenses/{param}, Expense → ExpenseEdited)",
+          "../cb39b6a40e1b.storms/edit-and-delete-an-expense.yaml is done, but Ledger: typescript has a command expected by ../cb39b6a40e1b.storms/edit-and-delete-an-expense.yaml does not: DeleteExpense (a signed-in account, DELETE /expenses/{param}, Expense → ExpenseDeleted; answered at once)",
+          "../cb39b6a40e1b.storms/edit-and-delete-an-expense.yaml is done, but Ledger: typescript has a command expected by ../cb39b6a40e1b.storms/edit-and-delete-an-expense.yaml does not: EditExpense (a signed-in account, PUT /expenses/{param}, Expense → ExpenseEdited; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "unequal-splits",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "history-and-statement",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "leave-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../cb39b6a40e1b.storms/leave-a-group.yaml is done, but Groups: typescript lacks the command expected by ../cb39b6a40e1b.storms/leave-a-group.yaml has: LeaveGroup (a signed-in account, POST /groups/{param}/leave, Group → MemberLeft)",
+          "../cb39b6a40e1b.storms/leave-a-group.yaml is done, but Groups: typescript has a command expected by ../cb39b6a40e1b.storms/leave-a-group.yaml does not: LeaveGroup (a signed-in account, POST /groups/{param}/leave, Group → MemberLeft; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "remainder-to-the-first",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "d925a252bfe6b4b6fab7019013ed975d780956d5",
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 45545,
+  "workers": 2
+}
