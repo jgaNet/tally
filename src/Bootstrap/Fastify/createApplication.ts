@@ -6,6 +6,8 @@ import { localTrackerModule, trackedEventBus } from '@Contexts/Tracker/module.lo
 import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
+import { localGroupsModule } from '@Contexts/Groups/module.local';
+import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
  * The composition root an application starts from (ADR 27): `clean-ddd create` gives it as
@@ -29,6 +31,8 @@ export async function createApplication({
   const app = new FastifyApplication({ logger, apiPrefix, port, webOrigins })
     .setEventBus(trackedEventBus)
     .registerModule(localTrackerModule)
+    .registerModule(localGroupsModule)
+    .registerModule(localLedgerModule)
     .registerRoutes('/tracker/operations', operationRoutes, { operationsModule: localTrackerModule });
 
   await app.startModules();

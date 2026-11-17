@@ -17,6 +17,8 @@ language: typescript
 name: TypeScript
 root: .
 contexts:
+  - Groups
+  - Ledger
   - Tracker
 contexts_tree:
   alias: '@Contexts'
