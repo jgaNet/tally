@@ -1,6 +1,10 @@
 import { createHmac } from 'crypto';
+import { mkdtempSync, rmSync } from 'fs';
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
+import { tmpdir } from 'os';
+
+import { jest } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
@@ -365,5 +369,148 @@ describe('Ledger → Settlements (request 13)', () => {
     expect(await http.get(`${api}/settlements/${settlementId}`, { token: bob.token })).toMatchObject({
       body: { id: settlementId, status: 'paid' },
     });
+  });
+});
+
+/** The provider's webhook, followed to its end: acknowledged at once with a 202, and the operation it made. */
+async function deliver(body: object): Promise<Operation> {
+  const answer = await webhook(body);
+  expect(answer.status).toBe(202);
+  return outcome((answer.body as { operationId: string }).operationId);
+}
+
+/** Starts a fresh application on the database file `DATABASE_PATH` names, as a server started after a stop does. */
+async function startOnFile(): Promise<FastifyApplication> {
+  jest.resetModules();
+  const { createApplication: create } = await import('@Bootstrap/Fastify/createApplication');
+  const started = await create();
+  await started.start(0);
+  http = apiClient(started.address);
+  api = `/${started.apiPrefix}`;
+  return started;
+}
+
+describe('webhooks late, twice or out of order (request 14)', () => {
+  it('counts a payment once however many webhooks say it succeeded, and acknowledges each of them', async () => {
+    const { ann, bob, groupId } = await dinnerGroup('wh1');
+    const settlementId = (await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 30 })).result as string;
+    const { paymentId } = lastPayment();
+    const settlement = () => http.get(`${api}/settlements/${settlementId}`, { token: bob.token });
+
+    // The same webhook twice, and a second webhook under another id that says the same thing.
+    const succeeded = { id: 'wh_w1', paymentId, status: 'succeeded', at: '2026-11-17T10:00:00Z' };
+    expect(await deliver(succeeded)).toMatchObject({ status: 'SUCCESS' });
+    expect(await deliver(succeeded)).toMatchObject({ status: 'SUCCESS' });
+    expect(await deliver({ ...succeeded, id: 'wh_w2', at: '2026-11-17T10:00:05Z' })).toMatchObject({
+      status: 'SUCCESS',
+    });
+
+    expect(await settlement()).toMatchObject({ body: { status: 'paid' } });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 0 },
+        { memberId: bob.id, balance: 0 },
+      ],
+    });
+  });
+
+  it('keeps a payment that succeeded paid when a pending webhook arrives after it, and a failed one after a success changes nothing', async () => {
+    const { ann, bob, groupId } = await dinnerGroup('wh2');
+    const settlementId = (await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 30 })).result as string;
+    const { paymentId } = lastPayment();
+    const settlement = () => http.get(`${api}/settlements/${settlementId}`, { token: bob.token });
+
+    expect(await deliver({ id: 'wh_o1', paymentId, status: 'succeeded', at: '2026-11-17T10:00:00Z' })).toMatchObject({
+      status: 'SUCCESS',
+    });
+    // The pending webhook was sent first and arrives last.
+    expect(await deliver({ id: 'wh_o2', paymentId, status: 'pending', at: '2026-11-17T09:59:00Z' })).toMatchObject({
+      status: 'SUCCESS',
+    });
+    expect(await deliver({ id: 'wh_o3', paymentId, status: 'failed', at: '2026-11-17T10:01:00Z' })).toMatchObject({
+      status: 'SUCCESS',
+    });
+
+    expect(await settlement()).toMatchObject({ body: { status: 'paid' } });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 0 },
+        { memberId: bob.id, balance: 0 },
+      ],
+    });
+  });
+
+  it('counts a webhook that reaches Tally more than once at the same moment once', async () => {
+    const { ann, bob, groupId } = await dinnerGroup('wh3');
+    const settlementId = (await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 30 })).result as string;
+    const { paymentId } = lastPayment();
+
+    const body = { id: 'wh_c1', paymentId, status: 'succeeded', at: '2026-11-17T10:00:00Z' };
+    const answers = await Promise.all([webhook(body), webhook(body), webhook(body)]);
+    expect(answers.map(answer => answer.status)).toEqual([202, 202, 202]);
+    for (const answer of answers) {
+      expect(await outcome((answer.body as { operationId: string }).operationId)).toMatchObject({ status: 'SUCCESS' });
+    }
+
+    expect(await http.get(`${api}/settlements/${settlementId}`, { token: bob.token })).toMatchObject({
+      body: { status: 'paid' },
+    });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 0 },
+        { memberId: bob.id, balance: 0 },
+      ],
+    });
+  });
+
+  it('applies a webhook that arrives after Tally was stopped and started again on the same file, and acknowledges one that changes nothing', async () => {
+    const directory = mkdtempSync(`${tmpdir()}/tally-webhooks-`);
+    const previousDatabase = process.env.DATABASE_PATH;
+    const previousHttp = { http, api };
+    process.env.DATABASE_PATH = `${directory}/tally.sqlite`;
+    let running: FastifyApplication | undefined;
+    try {
+      running = await startOnFile();
+      const { ann, bob, groupId } = await dinnerGroup('wh4');
+      const settlementId = (await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 30 })).result as string;
+      const { paymentId } = lastPayment();
+
+      // Tally stops before the provider's webhook arrives, and is started again on the same file.
+      await running.stop();
+      running = await startOnFile();
+
+      // The accounts are the same; each signs in again, as after a restart.
+      const login = async (email: string) =>
+        (await http.request('POST', `${api}/accounts/login`, { body: { email, password: 'correct horse' } })).body as {
+          token: string;
+        };
+      const bobToken = (await login('wh4-bob@example.com')).token;
+      const annToken = (await login('wh4-ann@example.com')).token;
+
+      expect(await deliver({ id: 'wh_s1', paymentId, status: 'succeeded', at: '2026-11-19T08:00:00Z' })).toMatchObject({
+        status: 'SUCCESS',
+      });
+      // A webhook about the same payment, days after it was decided, changes nothing.
+      expect(await deliver({ id: 'wh_s2', paymentId, status: 'failed', at: '2026-11-22T08:00:00Z' })).toMatchObject({
+        status: 'SUCCESS',
+      });
+
+      expect(await http.get(`${api}/settlements/${settlementId}`, { token: bobToken })).toMatchObject({
+        body: { status: 'paid' },
+      });
+      expect(await balances(annToken, groupId)).toMatchObject({
+        body: [
+          { memberId: ann.id, balance: 0 },
+          { memberId: bob.id, balance: 0 },
+        ],
+      });
+    } finally {
+      if (running) await running.stop();
+      http = previousHttp.http;
+      api = previousHttp.api;
+      if (previousDatabase === undefined) delete process.env.DATABASE_PATH;
+      else process.env.DATABASE_PATH = previousDatabase;
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
