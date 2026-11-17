@@ -13,6 +13,8 @@ declare module 'fastify' {
     auth: AuthInfo;
     /** Set by the preHandler hook: the request's trace, caller, bus, unit of work and logger. */
     executionContext: ExecutionContext;
+    /** The body of a JSON request as it was sent, before it was parsed: what a provider's signature is checked over (request 13). */
+    rawBody?: string;
   }
 
   /**

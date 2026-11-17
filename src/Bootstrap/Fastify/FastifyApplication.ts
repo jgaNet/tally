@@ -63,6 +63,17 @@ export class FastifyApplication extends Application {
     // A field of the wrong type is a 400, not a value converted into the type the schema asks for.
     this.fastify = Fastify({ logger: false, ajv: { customOptions: { coerceTypes: false } } });
 
+    // A JSON body is kept as it was sent, beside its parsed value: a provider's webhook is signed over the bytes it sent (request 13).
+    this.fastify.removeContentTypeParser('application/json');
+    this.fastify.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
+      request.rawBody = String(body);
+      try {
+        done(null, JSON.parse(String(body)));
+      } catch {
+        done(Object.assign(new Error('Body is not valid JSON'), { statusCode: 400 }), undefined);
+      }
+    });
+
     // Anonymous until the authentication says otherwise; without one, anonymous throughout.
     this.fastify.addHook('onRequest', async request => {
       request.auth = ANONYMOUS;

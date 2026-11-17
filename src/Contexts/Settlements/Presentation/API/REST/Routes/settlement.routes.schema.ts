@@ -38,9 +38,10 @@ const SettlementSchema = {
     from: { type: 'string' },
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
-    method: { enum: ['cash'] },
-    status: { enum: ['paid'] },
+    method: { enum: ['cash', 'provider'] },
+    status: { enum: ['pending', 'paid', 'failed'] },
     at: { type: 'string' },
+    payUrl: { type: 'string', minLength: 1 },
   },
 } as const;
 
@@ -49,4 +50,23 @@ export const GetSettlementResSchema = {
   200: { description: 'Success', ...SettlementSchema },
   401: RefusedSchema,
   404: RefusedSchema,
+} as const;
+
+/** The shape of a body only: a payment through the provider asks for a whole amount to a member; whether it is allowed is the book's. */
+export const PayThroughProviderBodySchema = {
+  type: 'object',
+  required: ['to', 'amount'],
+  properties: { to: { type: 'string' }, amount: { type: 'integer' } },
+} as const;
+
+/** The provider's webhook, as it is sent: its shape only; whether the signature is the provider's is checked before the body is read. */
+export const ReceivePaymentWebhookBodySchema = {
+  type: 'object',
+  required: ['id', 'paymentId', 'status', 'at'],
+  properties: {
+    id: { type: 'string' },
+    paymentId: { type: 'string' },
+    status: { type: 'string' },
+    at: { type: 'string' },
+  },
 } as const;

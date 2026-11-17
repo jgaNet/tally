@@ -4,6 +4,8 @@ import { Exception, NotAllowedException, NotFoundException } from '@Architecture
 import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
+import { PayThroughProviderCommandEvent } from '@Contexts/Settlements/Application/Commands/PayThroughProvider';
+import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook';
 import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RecordCashSettlement';
 import {
   GetSettlementQueryHandler,
@@ -35,6 +37,29 @@ export class FastifySettlementController {
       reply,
       this.#module,
       RecordCashSettlementCommandEvent.set({ groupId: req.params.id, from, amount }),
+    );
+  }
+
+  async payThroughProvider(
+    req: FastifyRequest<{ Params: { id: string }; Body: { to: string; amount: number } }>,
+    reply: FastifyReply,
+  ) {
+    const { to, amount } = req.body;
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      PayThroughProviderCommandEvent.set({ groupId: req.params.id, to, amount }),
+    );
+  }
+
+  async receivePaymentWebhook(req: FastifyRequest, reply: FastifyReply) {
+    const { id, paymentId, status, at } = req.body as { id: string; paymentId: string; status: string; at: string };
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      ReceivePaymentWebhookCommandEvent.set({ webhookId: id, paymentId, status, at }),
     );
   }
 

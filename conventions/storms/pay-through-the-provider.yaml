@@ -5,7 +5,7 @@ feature: pay-through-the-provider
 intent: >-
   A payer asks to pay through the payment provider and gets its link; the provider's signed webhook says the payment succeeded or failed, and a payment that succeeded is counted by the balances.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where is the provider in the model?

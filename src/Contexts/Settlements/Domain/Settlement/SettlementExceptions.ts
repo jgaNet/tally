@@ -41,3 +41,17 @@ export class ExceedsWhatIsOwedToPayee extends SettlementsException {
     super('ExceedsWhatIsOwedToPayee', 'The payee is owed less than the amount');
   }
 }
+
+/** A settlement is paid to a member of the group. */
+export class PayeeNotAMember extends SettlementsException {
+  constructor() {
+    super('PayeeNotAMember', 'The payee is a member of the group');
+  }
+}
+
+/** A payment through the provider needs the provider to answer with a payment link; when it does not, nothing is kept. */
+export class ProviderUnavailable extends SettlementsException {
+  constructor() {
+    super('ProviderUnavailable', 'The payment provider did not give a payment link');
+  }
+}

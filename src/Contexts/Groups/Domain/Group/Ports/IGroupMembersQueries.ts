@@ -21,4 +21,6 @@ export interface IGroupMembersQueries {
    * by the members of the group (ADR 4). Asked by a query, outside any transaction.
    */
   hasBeenMemberOf(groupId: string, accountId: string): Promise<boolean>;
+  /** The group's currency, fixed when it was created; null when there is no such group. Read by a command that prices a payment. */
+  currencyOf(groupId: string): Promise<string | null>;
 }

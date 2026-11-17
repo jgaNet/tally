@@ -41,6 +41,7 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
       payee: caller.data,
       amount: payload.amount,
       payerIsMember: members.includes(payload.from),
+      payeeIsMember: true,
       payerBalance: await this.balances.balanceOf(payload.groupId, payload.from),
       payeeBalance: await this.balances.balanceOf(payload.groupId, caller.data.value),
       now: this.clock(),

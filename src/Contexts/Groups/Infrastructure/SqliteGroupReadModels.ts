@@ -88,6 +88,13 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
     );
   }
 
+  /** The group's currency, read inside the command pricing a payment, so it takes no lock (as `memberIdsOf` does). */
+  async currencyOf(groupId: string): Promise<string | null> {
+    return (
+      this.database.get<{ currency: string }>('SELECT currency FROM groups WHERE id = ?', groupId)?.currency ?? null
+    );
+  }
+
   /** The role of a member, read inside the command deciding on it, so it takes no lock (as `memberIdsOf` does). */
   async roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null> {
     const row = this.database.get<{ owner_id: string }>(

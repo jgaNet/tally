@@ -2,17 +2,20 @@ import { FastifyInstance } from 'fastify';
 
 import { Module } from '@Architecture/Application';
 
+import { IWebhookSignatures } from '@Contexts/Settlements/Application/Ports/IWebhookSignatures';
 import { FastifySettlementController } from '@Contexts/Settlements/Presentation/API/REST/Controllers/FastifySettlementController';
 import {
   GetSettlementResSchema,
   GetSuggestedSettlementsResSchema,
   LaterCommandResSchema,
+  PayThroughProviderBodySchema,
+  ReceivePaymentWebhookBodySchema,
   RecordCashSettlementBodySchema,
 } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
 
 export const settlementRoutes = function (
   fastify: FastifyInstance,
-  { settlementsModule }: { settlementsModule: Module },
+  { settlementsModule, webhookSignatures }: { settlementsModule: Module; webhookSignatures: IWebhookSignatures },
   done: () => void,
 ) {
   const controller = new FastifySettlementController({ module: settlementsModule });
@@ -29,6 +32,29 @@ export const settlementRoutes = function (
     '/groups/:id/settlements/cash',
     { schema: { tags: ['settlements'], body: RecordCashSettlementBodySchema, response: LaterCommandResSchema } },
     controller.recordCash.bind(controller),
+  );
+
+  // Answered 202 and read at the operation: a payment through the provider the caller makes (request 13).
+  fastify.post(
+    '/groups/:id/settlements/provider',
+    { schema: { tags: ['settlements'], body: PayThroughProviderBodySchema, response: LaterCommandResSchema } },
+    controller.payThroughProvider.bind(controller),
+  );
+
+  // The provider's webhook: signed over the body as sent, so the signature is checked before the body is validated or decided
+  // (a missing or wrong one is a 401, and nothing changes). Anyone may send it: the signature is the proof.
+  fastify.post(
+    '/provider/webhooks',
+    {
+      schema: { tags: ['settlements'], body: ReceivePaymentWebhookBodySchema, response: LaterCommandResSchema },
+      preValidation: async (request, reply) => {
+        if (!webhookSignatures.isSigned(request.rawBody ?? '', request.headers['provider-signature'] as string)) {
+          reply.code(401);
+          return reply.send({ message: 'Invalid signature' });
+        }
+      },
+    },
+    controller.receivePaymentWebhook.bind(controller),
   );
 
   fastify.get(
