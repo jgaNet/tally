@@ -10,11 +10,17 @@ import {
   RecordExpenseCommandEvent,
   RecordExpenseCommandHandler,
 } from '@Contexts/Ledger/Application/Commands';
-import { GetExpenseQueryHandler, GetGroupBalancesQueryHandler } from '@Contexts/Ledger/Application/Queries';
+import {
+  GetExpenseQueryHandler,
+  GetGroupBalancesQueryHandler,
+  GetGroupExpensesQueryHandler,
+  GetMemberStatementQueryHandler,
+} from '@Contexts/Ledger/Application/Queries';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
 import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/SqliteBalanceQueries';
 import { GroupsMembers } from '@Contexts/Ledger/Infrastructure/GroupsMembers';
+import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/SqliteStatementQueries';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3): the expenses of each group, recorded with their equal
@@ -60,5 +66,7 @@ export const localLedgerModule = new Module({
   queries: [
     new GetExpenseQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
     new GetGroupBalancesQueryHandler(new SqliteBalanceQueries(database), new GroupsMembers(groupMembership)),
+    new GetGroupExpensesQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
+    new GetMemberStatementQueryHandler(new SqliteStatementQueries(database), new GroupsMembers(groupMembership)),
   ],
 });

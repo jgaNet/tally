@@ -87,6 +87,13 @@ export const GetExpenseResSchema = {
   404: RefusedSchema,
 } as const;
 
+/** A group's expenses, each as `GetExpenseResSchema` reads it: the latest date first, then the most recently recorded first. */
+export const GetGroupExpensesResSchema = {
+  200: { type: 'array', items: ExpenseSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;
+
 /** The shape of an edit: the expense given again, whole, and the version it was read at. Whether the values are allowed is the domain's. */
 export const EditExpenseBodySchema = {
   type: 'object',

@@ -6,6 +6,7 @@ import {
   EditExpenseBodySchema,
   EditExpenseResSchema,
   GetExpenseResSchema,
+  GetGroupExpensesResSchema,
   RecordExpenseBodySchema,
   RecordExpenseResSchema,
 } from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes.schema';
@@ -23,6 +24,11 @@ export const expenseRoutes = function (
       schema: { tags: ['expenses'], body: RecordExpenseBodySchema, response: RecordExpenseResSchema },
     },
     controller.recordExpense.bind(controller),
+  );
+  fastify.get(
+    '/groups/:id/expenses',
+    { schema: { tags: ['expenses'], response: GetGroupExpensesResSchema } },
+    controller.getGroupExpenses.bind(controller),
   );
   fastify.get(
     '/expenses/:id',

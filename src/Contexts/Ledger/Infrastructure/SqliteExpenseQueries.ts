@@ -28,4 +28,34 @@ export class SqliteExpenseQueries implements IExpenseQueries {
       return { ...row, shares };
     });
   }
+
+  listByGroup(groupId: string): Promise<ExpenseReadModel[]> {
+    return this.database.exclusive(connection => {
+      // `rowid` breaks a tie of the same instant: the expenses were inserted in the order they were recorded.
+      const rows = connection
+        .prepare(
+          `SELECT e.id, e.group_id AS groupId, e.description, e.amount, e.date, e.paid_by AS paidBy,
+                  k.split_kind AS splitKind, e.version
+             FROM ledger_expenses e JOIN ledger_expense_splits k ON k.expense_id = e.id
+            WHERE e.group_id = ?
+            ORDER BY e.date DESC, e.recorded_at DESC, e.rowid DESC`,
+        )
+        .all(groupId) as Omit<ExpenseReadModel, 'shares'>[];
+      const shareRows = connection
+        .prepare(
+          `SELECT s.expense_id AS expenseId, s.member_id AS memberId, s.amount
+             FROM ledger_expense_shares s JOIN ledger_expenses e ON e.id = s.expense_id
+            WHERE e.group_id = ?
+            ORDER BY s.expense_id, s.position`,
+        )
+        .all(groupId) as unknown as (ShareReadModel & { expenseId: string })[];
+      const sharesOf = new Map<string, ShareReadModel[]>();
+      for (const { expenseId, memberId, amount } of shareRows) {
+        const shares = sharesOf.get(expenseId) ?? [];
+        shares.push({ memberId, amount });
+        sharesOf.set(expenseId, shares);
+      }
+      return rows.map(row => ({ ...row, shares: sharesOf.get(row.id) ?? [] }));
+    });
+  }
 }
