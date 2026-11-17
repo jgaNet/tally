@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-3",
+  "ref": "fdfe9a97e7f5167d06da1199c9b3cd699c4c2f02",
+  "commit": "fdfe9a97e7f5167d06da1199c9b3cd699c4c2f02",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../fdfe9a97e7f5.storms/accounts.yaml is done, but Groups: typescript lacks the command expected by ../fdfe9a97e7f5.storms/accounts.yaml has: SignUp (anyone, POST /accounts, Account → AccountRegistered)",
+          "../fdfe9a97e7f5.storms/accounts.yaml is done, but Groups: typescript has a command expected by ../fdfe9a97e7f5.storms/accounts.yaml does not: SignUp (anyone, POST /accounts, Account → AccountRegistered; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "create-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../fdfe9a97e7f5.storms/create-a-group.yaml is done, but Groups: typescript lacks the command expected by ../fdfe9a97e7f5.storms/create-a-group.yaml has: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated)",
+          "../fdfe9a97e7f5.storms/create-a-group.yaml is done, but Groups: typescript has a command expected by ../fdfe9a97e7f5.storms/create-a-group.yaml does not: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "invite-and-join",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../fdfe9a97e7f5.storms/invite-and-join.yaml is done, but Groups: typescript lacks the command expected by ../fdfe9a97e7f5.storms/invite-and-join.yaml has: AcceptInvitation (a signed-in account, POST /invitations/{param}/accept, Group → MemberJoined)",
+          "../fdfe9a97e7f5.storms/invite-and-join.yaml is done, but Groups: typescript lacks the command expected by ../fdfe9a97e7f5.storms/invite-and-join.yaml has: CreateInvitation (a signed-in account, POST /groups/{param}/invitations, Invitation → InvitationCreated)",
+          "../fdfe9a97e7f5.storms/invite-and-join.yaml is done, but Groups: typescript has a command expected by ../fdfe9a97e7f5.storms/invite-and-join.yaml does not: AcceptInvitation (a signed-in account, POST /invitations/{param}/accept, Group → MemberJoined; answered at once)",
+          "../fdfe9a97e7f5.storms/invite-and-join.yaml is done, but Groups: typescript has a command expected by ../fdfe9a97e7f5.storms/invite-and-join.yaml does not: CreateInvitation (a signed-in account, POST /groups/{param}/invitations, Invitation → InvitationCreated; answered at once)"
+        ]
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 16121,
+  "workers": 2
+}
