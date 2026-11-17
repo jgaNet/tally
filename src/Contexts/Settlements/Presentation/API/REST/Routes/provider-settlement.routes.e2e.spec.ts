@@ -302,3 +302,91 @@ describe('a webhook of the provider', () => {
     expect((await http.get(`/v1/settlements/${id}`, { token: bob.token })).body).toMatchObject({ status: 'pending' });
   });
 });
+
+/** A webhook the provider sent, acknowledged: any 2xx, so that the provider stops sending it (request 14). */
+const expectAcknowledged = (response: { status: number }) => expect([200, 201, 202, 204]).toContain(response.status);
+
+describe('webhooks late, twice or out of order (request 14)', () => {
+  it('counts a payment once, however many webhooks say it succeeded: the same webhook twice, or two under two ids', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    const paymentId = lastPayment();
+
+    expectAcknowledged(await webhook({ id: 'wh_a', paymentId, status: 'succeeded' }));
+    expectAcknowledged(await webhook({ id: 'wh_a', paymentId, status: 'succeeded' }));
+    expectAcknowledged(await webhook({ id: 'wh_b', paymentId, status: 'succeeded' }));
+
+    expect((await http.get(`/v1/settlements/${id}`, { token: bob.token })).body).toMatchObject({ status: 'paid' });
+    expect(await balancesOf(groupId, ann.token)).toEqual([
+      { memberId: ann.id, balance: 0 },
+      { memberId: bob.id, balance: 0 },
+    ]);
+  });
+
+  it('keeps a paid payment paid when a pending or a failed webhook arrives after the succeeded one', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    const paymentId = lastPayment();
+
+    expectAcknowledged(await webhook({ id: 'wh_1', paymentId, status: 'succeeded' }));
+    expectAcknowledged(await webhook({ id: 'wh_2', paymentId, status: 'pending' }));
+    expectAcknowledged(await webhook({ id: 'wh_3', paymentId, status: 'failed' }));
+
+    expect((await http.get(`/v1/settlements/${id}`, { token: bob.token })).body).toMatchObject({ status: 'paid' });
+    expect(await balancesOf(groupId, ann.token)).toEqual([
+      { memberId: ann.id, balance: 0 },
+      { memberId: bob.id, balance: 0 },
+    ]);
+  });
+
+  it('keeps a failed payment failed when a succeeded webhook arrives after it', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    const paymentId = lastPayment();
+
+    expectAcknowledged(await webhook({ id: 'wh_1', paymentId, status: 'failed' }));
+    expectAcknowledged(await webhook({ id: 'wh_2', paymentId, status: 'succeeded' }));
+
+    expect((await http.get(`/v1/settlements/${id}`, { token: bob.token })).body).toMatchObject({ status: 'failed' });
+    expect((await balancesOf(groupId, ann.token)).find(b => b.memberId === bob.id)?.balance).toBe(-30);
+  });
+
+  it('counts a webhook that arrives long after the payment was decided as it would have on time', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    const paymentId = lastPayment();
+
+    // The provider's `at` is when it sent the webhook; a day later, the status still moves the payment on, and only once.
+    expectAcknowledged(await webhook({ id: 'wh_late', paymentId, status: 'succeeded', at: '2026-11-18T10:00:00Z' }));
+    expect((await http.get(`/v1/settlements/${id}`, { token: bob.token })).body).toMatchObject({ status: 'paid' });
+  });
+
+  it('is counted once when the same webhook reaches the server several times at the same moment, and every copy is acknowledged', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    const asked = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const id = (asked.body as { id: string }).id;
+    const paymentId = lastPayment();
+
+    const copies = await Promise.all([1, 2, 3].map(() => webhook({ id: 'wh_same', paymentId, status: 'succeeded' })));
+    copies.forEach(expectAcknowledged);
+
+    expect((await http.get(`/v1/settlements/${id}`, { token: bob.token })).body).toMatchObject({ status: 'paid' });
+    expect(await balancesOf(groupId, ann.token)).toEqual([
+      { memberId: ann.id, balance: 0 },
+      { memberId: bob.id, balance: 0 },
+    ]);
+  });
+
+  it('is acknowledged, with no change, when it says a status the settlement already had', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    const paymentId = lastPayment();
+    expectAcknowledged(await webhook({ id: 'wh_1', paymentId, status: 'succeeded' }));
+    expectAcknowledged(await webhook({ id: 'wh_1', paymentId, status: 'succeeded' }));
+    expect(await suggestedOf(groupId, ann.token)).toEqual([]);
+  });
+});
