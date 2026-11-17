@@ -1,5 +1,7 @@
 import { DomainEvent } from '@Architecture/Domain';
 
+import { SplitKind } from './Split';
+
 /**
  * An expense was recorded, by the member who paid it. Recorded by the expense's creation and published after its save;
  * nothing reacts to it yet (the balances, feature 5, will), so it is not an integration event.
@@ -9,6 +11,7 @@ export class ExpenseRecordedEvent extends DomainEvent<{
   groupId: string;
   paidBy: string;
   amount: number;
+  splitKind: SplitKind;
 }> {}
 
 /**
@@ -21,6 +24,7 @@ export class ExpenseEditedEvent extends DomainEvent<{
   groupId: string;
   paidBy: string;
   amount: number;
+  splitKind: SplitKind;
 }> {}
 
 /**

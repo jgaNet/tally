@@ -23,7 +23,8 @@ export class LedgerDatabase {
           amount INTEGER NOT NULL,
           date TEXT NOT NULL,
           paid_by TEXT NOT NULL,
-          version INTEGER NOT NULL DEFAULT 1
+          version INTEGER NOT NULL DEFAULT 1,
+          split_kind TEXT NOT NULL DEFAULT 'equal'
         );
         CREATE INDEX IF NOT EXISTS ledger_expenses_by_group ON ledger_expenses (group_id);
         CREATE TABLE IF NOT EXISTS ledger_expense_shares (
@@ -45,6 +46,8 @@ export class LedgerDatabase {
    * once cannot do it twice (feature 6, feature 5):
    * - the version of each expense, which a file of feature 4 did not keep: every expense it holds is at version 1, as it
    *   was recorded and never edited;
+   * - the way each expense was split (request 7): every expense a file holds before it was split equally, as feature 4
+   *   recorded them;
    * - the table of balances, the read model `GetGroupBalances` reads: one row per member per group, kept in the same
    *   transaction as the expenses that move it. When a file had expenses before it existed, it is filled from them.
    */
@@ -56,6 +59,12 @@ export class LedgerDatabase {
         .get();
       if (!hasVersion) {
         connection.exec('ALTER TABLE ledger_expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+      }
+      const hasSplitKind = connection
+        .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'split_kind'")
+        .get();
+      if (!hasSplitKind) {
+        connection.exec("ALTER TABLE ledger_expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
       }
       const hasBalances = connection
         .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_balances'")

@@ -13,6 +13,7 @@ type ExpenseRow = {
   date: string;
   paid_by: string;
   version: number;
+  split_kind: 'equal' | 'exact' | 'shares';
 };
 type ShareRow = { member_id: string; amount: number };
 type BalanceRow = { member_id: string; balance: number };
@@ -40,21 +41,22 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       amount: view.amount,
       date: view.date,
       paidBy: view.paidBy,
+      splitKind: view.splitKind,
       shares: view.shares,
       version: view.version,
     });
   }
 
   async insert(expense: Expense): Promise<void> {
-    const { id, groupId, description, amount, date, paidBy, shares, version } = expense.toSnapshot();
+    const { id, groupId, description, amount, date, paidBy, splitKind, shares, version } = expense.toSnapshot();
     const connection = this.database.connection;
     connection.exec('BEGIN IMMEDIATE');
     try {
       connection
         .prepare(
-          'INSERT INTO ledger_expenses (id, group_id, description, amount, date, paid_by, version) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO ledger_expenses (id, group_id, description, amount, date, paid_by, version, split_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         )
-        .run(id, groupId, description, amount, date, paidBy, version + 1);
+        .run(id, groupId, description, amount, date, paidBy, version + 1, splitKind);
       this.#insertShares(id, shares);
       this.#moveBalances(groupId, paidBy, amount, shares, 1);
       connection.exec('COMMIT');
@@ -65,7 +67,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
   }
 
   async save(expense: Expense): Promise<void> {
-    const { id, groupId, description, amount, date, paidBy, shares, version } = expense.toSnapshot();
+    const { id, groupId, description, amount, date, paidBy, splitKind, shares, version } = expense.toSnapshot();
     const connection = this.database.connection;
     connection.exec('BEGIN IMMEDIATE');
     try {
@@ -74,8 +76,10 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       // The balances the stored expense counted are taken back, and the edited expense's counted, in this transaction.
       this.#moveBalances(groupId, stored.paid_by, stored.amount, this.#storedShares(id), -1);
       connection
-        .prepare('UPDATE ledger_expenses SET description = ?, amount = ?, date = ?, version = ? WHERE id = ?')
-        .run(description, amount, date, version + 1, id);
+        .prepare(
+          'UPDATE ledger_expenses SET description = ?, amount = ?, date = ?, split_kind = ?, version = ? WHERE id = ?',
+        )
+        .run(description, amount, date, splitKind, version + 1, id);
       connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
       this.#insertShares(id, shares);
       this.#moveBalances(groupId, paidBy, amount, shares, 1);
@@ -107,7 +111,9 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
   async expenseOf(id: string): Promise<ExpenseView | undefined> {
     const connection = this.database.connection;
     const row = connection
-      .prepare('SELECT id, group_id, description, amount, date, paid_by, version FROM ledger_expenses WHERE id = ?')
+      .prepare(
+        'SELECT id, group_id, description, amount, date, paid_by, version, split_kind FROM ledger_expenses WHERE id = ?',
+      )
       .get(id) as ExpenseRow | undefined;
     if (!row) return undefined;
     const shares = connection
@@ -120,6 +126,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       amount: row.amount,
       date: row.date,
       paidBy: row.paid_by,
+      splitKind: row.split_kind,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       version: row.version,
     };

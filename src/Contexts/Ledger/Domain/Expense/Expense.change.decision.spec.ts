@@ -14,6 +14,7 @@ const stored: ExpenseSnapshot = {
   amount: 1000,
   date: '2026-11-16',
   paidBy: payer,
+  splitKind: 'equal',
   shares: [
     { memberId: payer, amount: 334 },
     { memberId: owner, amount: 333 },
@@ -28,7 +29,7 @@ const edit = (overrides: Partial<EditExpenseCommand> = {}): EditExpenseCommand =
   description: 'Groceries, again',
   amount: 900,
   date: '2026-11-15',
-  splitBetween: [payer, owner],
+  split: { kind: 'equal', memberIds: [payer, owner] },
   version: 1,
   ...overrides,
 });
@@ -41,7 +42,11 @@ describe('who may edit an expense', () => {
   });
 
   it('keeps the payer when the owner edits, and the split still holds the payer', () => {
-    const decision = decideEditExpense(access, edit({ by: owner, splitBetween: [payer, other] }), now);
+    const decision = decideEditExpense(
+      access,
+      edit({ by: owner, split: { kind: 'equal', memberIds: [payer, other] } }),
+      now,
+    );
     expect(decision.isSuccess()).toBe(true);
     expect(decision.data?.state.split.payer).toBe(payer);
     expect(decision.data?.state.split.shares).toEqual([
@@ -51,7 +56,9 @@ describe('who may edit an expense', () => {
   });
 
   it('refuses an edit that leaves the payer out of the split, whoever makes it', () => {
-    expect(decideEditExpense(access, edit({ by: owner, splitBetween: [owner, other] }), now).error).toMatchObject({
+    expect(
+      decideEditExpense(access, edit({ by: owner, split: { kind: 'equal', memberIds: [owner, other] } }), now).error,
+    ).toMatchObject({
       type: 'PayerNotInSplit',
     });
   });
@@ -81,13 +88,19 @@ describe('the values of an edit', () => {
     expect(decideEditExpense(access, edit({ date: '2026-11-18' }), now).error).toMatchObject({
       type: 'InvalidExpenseDate',
     });
-    expect(decideEditExpense(access, edit({ splitBetween: [payer, 'stranger'] }), now).error).toMatchObject({
+    expect(
+      decideEditExpense(access, edit({ split: { kind: 'equal', memberIds: [payer, 'stranger'] } }), now).error,
+    ).toMatchObject({
       type: 'SplitMemberNotInGroup',
     });
   });
 
   it('computes the shares again from what the edit gives', () => {
-    const decision = decideEditExpense(access, edit({ amount: 10, splitBetween: [payer, owner, other] }), now);
+    const decision = decideEditExpense(
+      access,
+      edit({ amount: 10, split: { kind: 'equal', memberIds: [payer, owner, other] } }),
+      now,
+    );
     expect(decision.data?.state.split.shares).toEqual([
       { memberId: payer, amount: 4 },
       { memberId: owner, amount: 3 },
@@ -125,7 +138,7 @@ describe('an expense as it is stored', () => {
 
   it('records ExpenseEdited when it is revised, and ExpenseDeleted when it is deleted', () => {
     const expense = Expense.fromSnapshot(stored);
-    const decision = decideEditExpense(access, edit({ splitBetween: [payer, owner] }), now);
+    const decision = decideEditExpense(access, edit({ split: { kind: 'equal', memberIds: [payer, owner] } }), now);
     expense.revise(decision.data!.state);
     expect(expense.toSnapshot().version).toBe(1);
     expect(expense.pullDomainEvents().map(event => event.name)).toEqual(['ExpenseEditedEvent']);

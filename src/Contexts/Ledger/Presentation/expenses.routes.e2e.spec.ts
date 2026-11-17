@@ -82,6 +82,7 @@ describe('recording an expense', () => {
       amount: 1000,
       date: '2020-01-15',
       paidBy: ada.id,
+      splitKind: 'equal',
       shares: [
         { memberId: ada.id, amount: 334 },
         { memberId: grace.id, amount: 333 },
@@ -208,5 +209,176 @@ describe('reading an expense', () => {
     expect((await getExpense(id, stranger.token)).status).toBe(404);
     expect((await getExpense('no-such-expense', ada.token)).status).toBe(404);
     expect((await getExpense(id)).status).toBe(401);
+  });
+});
+
+describe('splitting an expense by exact amounts or by shares (request 7)', () => {
+  const edit = (id: string, body: Record<string, unknown>, token?: string) =>
+    http.request('PUT', `${api}/expenses/${id}`, { body, token });
+
+  it('records an expense by exact amounts, and reads it back as exact, the shares in the order given', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const groupId = await groupWith(ada, [grace]);
+
+    const answer = await record(
+      groupId,
+      {
+        description: 'Dinner',
+        amount: 1000,
+        date: '2020-01-15',
+        splitExactly: [
+          { memberId: grace.id, amount: 700 },
+          { memberId: ada.id, amount: 300 },
+        ],
+      },
+      ada.token,
+    );
+    expect(answer.status).toBe(201);
+    const { id } = answer.body as { id: string };
+
+    const { body } = await getExpense(id, grace.token);
+    expect(body).toMatchObject({
+      amount: 1000,
+      paidBy: ada.id,
+      splitKind: 'exact',
+      shares: [
+        { memberId: grace.id, amount: 700 },
+        { memberId: ada.id, amount: 300 },
+      ],
+    });
+  });
+
+  it('records an expense by shares, the remainder to the payer, and reads it back as shares', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const groupId = await groupWith(ada, [grace]);
+
+    const { id } = (
+      await record(
+        groupId,
+        {
+          description: 'Cottage',
+          amount: 1001,
+          date: '2020-01-15',
+          splitByShares: [
+            { memberId: grace.id, shares: 2 },
+            { memberId: ada.id, shares: 1 },
+          ],
+        },
+        ada.token,
+      )
+    ).body as { id: string };
+
+    const { body } = await getExpense(id, ada.token);
+    expect(body).toMatchObject({
+      splitKind: 'shares',
+      shares: [
+        { memberId: grace.id, amount: 667 },
+        { memberId: ada.id, amount: 334 },
+      ],
+    });
+  });
+
+  it('refuses a body with none of the three splits, or more than one, with 400 of its shape', async () => {
+    const ada = await signedInPerson('Ada');
+    const groupId = await groupWith(ada, []);
+    const body = { description: 'Bread', amount: 5, date: '2020-01-15' };
+
+    expect((await record(groupId, body, ada.token)).status).toBe(400);
+    const two = await record(
+      groupId,
+      { ...body, splitBetween: [ada.id], splitByShares: [{ memberId: ada.id, shares: 1 }] },
+      ada.token,
+    );
+    expect(two.status).toBe(400);
+    const wrongLine = await record(groupId, { ...body, splitExactly: [{ memberId: ada.id, amount: '5' }] }, ada.token);
+    expect(wrongLine.status).toBe(400);
+  });
+
+  it('refuses exact amounts that do not add up, a negative one, and shares below one, by name, with 400', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const groupId = await groupWith(ada, [grace]);
+    const body = { description: 'Bread', amount: 100, date: '2020-01-15' };
+
+    const short = await record(
+      groupId,
+      {
+        ...body,
+        splitExactly: [
+          { memberId: ada.id, amount: 60 },
+          { memberId: grace.id, amount: 30 },
+        ],
+      },
+      ada.token,
+    );
+    expect(short.status).toBe(400);
+    expect(short.body).toEqual({ type: 'SplitAmountsDoNotAddUp', message: expect.any(String) });
+
+    const negative = await record(
+      groupId,
+      {
+        ...body,
+        splitExactly: [
+          { memberId: ada.id, amount: 150 },
+          { memberId: grace.id, amount: -50 },
+        ],
+      },
+      ada.token,
+    );
+    expect(negative.body).toEqual({ type: 'InvalidSplitAmount', message: expect.any(String) });
+
+    const noShares = await record(
+      groupId,
+      {
+        ...body,
+        splitByShares: [
+          { memberId: ada.id, shares: 0 },
+          { memberId: grace.id, shares: 1 },
+        ],
+      },
+      ada.token,
+    );
+    expect(noShares.body).toEqual({ type: 'InvalidSplitShares', message: expect.any(String) });
+  });
+
+  it('edits an expense into another split, from the version read, and reads it as that split', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const groupId = await groupWith(ada, [grace]);
+    const { id } = (
+      await record(
+        groupId,
+        { description: 'Gas', amount: 100, date: '2020-01-15', splitBetween: [ada.id, grace.id] },
+        ada.token,
+      )
+    ).body as { id: string };
+
+    const answer = await edit(
+      id,
+      {
+        description: 'Gas',
+        amount: 100,
+        date: '2020-01-15',
+        version: 1,
+        splitByShares: [
+          { memberId: grace.id, shares: 3 },
+          { memberId: ada.id, shares: 1 },
+        ],
+      },
+      ada.token,
+    );
+    expect(answer.status).toBe(204);
+
+    const { body } = await getExpense(id, ada.token);
+    expect(body).toMatchObject({
+      splitKind: 'shares',
+      version: 2,
+      shares: [
+        { memberId: grace.id, amount: 75 },
+        { memberId: ada.id, amount: 25 },
+      ],
+    });
   });
 });

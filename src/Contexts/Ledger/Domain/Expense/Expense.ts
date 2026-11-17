@@ -4,7 +4,7 @@ import { ExpenseAmount } from './ExpenseAmount';
 import { ExpenseDate } from './ExpenseDate';
 import { ExpenseDescription } from './ExpenseDescription';
 import { ExpenseDeletedEvent, ExpenseEditedEvent, ExpenseRecordedEvent } from './ExpenseEvents';
-import { Share, Split } from './Split';
+import { Share, Split, SplitKind } from './Split';
 
 /**
  * An expense as it is stored: what it was for, what it cost, when, who paid, each member's share in the order of the split,
@@ -17,12 +17,14 @@ export interface ExpenseSnapshot {
   amount: number;
   date: string;
   paidBy: string;
+  splitKind: SplitKind;
   shares: Share[];
   version: number;
 }
 
 /**
- * An amount a member paid for some members of a group, split equally, kept as it was recorded (ADR 5). Its id is born
+ * An amount a member paid for some members of a group, split one of the three ways, kept as it was recorded (ADR 5,
+ * request 7). Its id is born
  * here, once; its shares are the split's, which keep that they add up to the amount. It is given again, whole, by an edit
  * (`revise`), and removed by a deletion (`delete`); its payer never changes. It carries the version it was loaded at, and
  * its repository refuses to save it over a newer one (CONC-OPTIMISTIC). The balances of a group are read from the
@@ -73,6 +75,7 @@ export class Expense extends AggregateRoot {
         groupId,
         paidBy: split.payer,
         amount: amount.value,
+        splitKind: split.kind,
       }),
     );
     return expense;
@@ -80,7 +83,7 @@ export class Expense extends AggregateRoot {
 
   /**
    * Rebuilds an expense as it was stored, at the version it was stored at. Records nothing, and throws on data no
-   * `register()` or `revise()` could have made: a split that is not the equal split of the amount among its members.
+   * `register()` or `revise()` could have made: a split whose kind and amounts are not one the split could have given.
    */
   static fromSnapshot(snapshot: ExpenseSnapshot): Expense {
     const description = ExpenseDescription.create(snapshot.description);
@@ -93,13 +96,13 @@ export class Expense extends AggregateRoot {
       !Number.isInteger(snapshot.version) ||
       snapshot.version < 1;
     if (corrupted) throw new Error(`The stored expense ${snapshot.id} is corrupted`);
-    const split = Split.create({
-      amount: amount.data!,
-      memberIds: snapshot.shares.map(share => share.memberId),
+    const split = Split.restore({
+      amount: amount.data!.value,
       payer: snapshot.paidBy,
+      kind: snapshot.splitKind,
+      shares: snapshot.shares,
     });
-    const sharesAsDecided = split.isSuccess() && sameShares(split.data!.shares, snapshot.shares);
-    if (!sharesAsDecided) throw new Error(`The stored expense ${snapshot.id} is corrupted`);
+    if (!split) throw new Error(`The stored expense ${snapshot.id} is corrupted`);
     return new Expense(
       new Id(snapshot.id),
       snapshot.version,
@@ -107,7 +110,7 @@ export class Expense extends AggregateRoot {
       description.data!,
       amount.data!,
       date.data!,
-      split.data!,
+      split,
     );
   }
 
@@ -138,6 +141,7 @@ export class Expense extends AggregateRoot {
         groupId: this.#groupId,
         paidBy: split.payer,
         amount: amount.value,
+        splitKind: split.kind,
       }),
     );
   }
@@ -162,15 +166,9 @@ export class Expense extends AggregateRoot {
       amount: this.#amount.value,
       date: this.#date.value,
       paidBy: this.#split.payer,
+      splitKind: this.#split.kind,
       shares: [...this.#split.shares],
       version: this.version,
     };
   }
-}
-
-/** Whether two lists of shares say the same: the same members, in the same order, for the same amounts. */
-function sameShares(a: readonly Share[], b: readonly Share[]): boolean {
-  return (
-    a.length === b.length && a.every((share, i) => share.memberId === b[i].memberId && share.amount === b[i].amount)
-  );
 }

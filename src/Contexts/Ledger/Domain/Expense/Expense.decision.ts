@@ -6,27 +6,29 @@ import { ExpenseDate } from './ExpenseDate';
 import { ExpenseDescription } from './ExpenseDescription';
 import { ExpenseChangedSinceReadException, SplitMemberNotInGroupException } from './ExpenseExceptions';
 import { ExpenseSnapshot } from './Expense';
-import { Split } from './Split';
+import { memberIdsOfSplit, Split, SplitRequest } from './Split';
 
-/** What a recording says: the expense as typed, the members it is split between in order, and the payer (the caller). */
+/**
+ * What a recording says: the expense as typed, how it is split (one of the three ways, request 7), and the payer (the caller).
+ */
 export interface RecordExpenseCommand {
   description: string;
   amount: number;
   date: string;
-  splitBetween: string[];
+  split: SplitRequest;
   payer: string;
 }
 
 /**
- * What a change says (feature 6): the expense as typed, the members it is split between in order, the caller, and the
- * version the caller read the expense at. The payer is not given: an edit never changes it.
+ * What a change says (feature 6): the expense as typed, how it is split (request 7), the caller, and the version the caller
+ * read the expense at. The payer is not given: an edit never changes it.
  */
 export interface EditExpenseCommand {
   by: string;
   description: string;
   amount: number;
   date: string;
-  splitBetween: string[];
+  split: SplitRequest;
   version: number;
 }
 
@@ -57,10 +59,11 @@ export interface StoredExpenseAccess {
 const MAY_NOT_CHANGE = "Only the expense's payer or the group's owner may change it";
 
 /**
- * Recording an expense, as the storm decided it (ADR 5): a description of 1 to 100 characters, an amount from 1 to
- * 100 000 000, a real day of the calendar not after today in UTC, and a split whose members are all members of the group
- * (`memberIds`, given by the use case from Groups), each listed once, the payer among them. It answers the validated
- * values, with the split's shares computed once; the use case makes the expense from them with `Expense.register`.
+ * Recording an expense, as the storm decided it (ADR 5, ADR 6): a description of 1 to 100 characters, an amount from 1 to
+ * 100 000 000, a real day of the calendar not after today in UTC, and a split (one of the three ways, request 7) whose
+ * members are all members of the group (`memberIds`, given by the use case from Groups), each listed once, the payer among
+ * them. It answers the validated values, with the split's shares computed once; the use case makes the expense from them
+ * with `Expense.register`.
  */
 export const decideRecordExpense: Decision<
   NewExpenseValues,
@@ -88,7 +91,7 @@ export const decideEditExpense: Decision<NewExpenseValues, EditExpenseCommand, n
       description: command.description,
       amount: command.amount,
       date: command.date,
-      splitBetween: command.splitBetween,
+      split: command.split,
       payer: expense.paidBy,
     },
     memberIds,
@@ -118,9 +121,9 @@ function newValues(
     description: rawDescription,
     amount: rawAmount,
     date: rawDate,
-    splitBetween,
+    split: request,
     payer,
-  }: { description: string; amount: number; date: string; splitBetween: string[]; payer: string },
+  }: { description: string; amount: number; date: string; split: SplitRequest; payer: string },
   memberIds: readonly string[],
   now: Date,
 ) {
@@ -130,10 +133,10 @@ function newValues(
   if (amount.isFailure()) return amount;
   const date = ExpenseDate.create(rawDate, now.toISOString().slice(0, 10));
   if (date.isFailure()) return date;
-  if (splitBetween.some(member => !memberIds.includes(member))) {
+  if (memberIdsOfSplit(request).some(member => !memberIds.includes(member))) {
     return Result.fail(new SplitMemberNotInGroupException());
   }
-  const split = Split.create({ amount: amount.data, memberIds: splitBetween, payer });
+  const split = Split.create({ amount: amount.data, request, payer });
   if (split.isFailure()) return split;
   return decided({ description: description.data, amount: amount.data, date: date.data, split: split.data });
 }

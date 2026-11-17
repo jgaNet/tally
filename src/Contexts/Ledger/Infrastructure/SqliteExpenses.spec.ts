@@ -22,7 +22,13 @@ const newDatabasePath = () => join(mkdtempSync(join(tmpdir(), 'tally-ledger-stor
 function recorded(): Expense {
   const decision = decideRecordExpense(
     { memberIds: [ada, grace, linus] },
-    { description: 'Groceries', amount: 1000, date: '2026-11-16', splitBetween: [ada, grace, linus], payer: ada },
+    {
+      description: 'Groceries',
+      amount: 1000,
+      date: '2026-11-16',
+      split: { kind: 'equal', memberIds: [ada, grace, linus] },
+      payer: ada,
+    },
     now,
   );
   return Expense.register({ groupId, ...decision.data!.state });
@@ -63,7 +69,7 @@ describe('saving an expense over a newer version of it (CONC-OPTIMISTIC, feature
           description: 'Groceries',
           amount,
           date: '2026-11-16',
-          splitBetween: [ada, grace, linus],
+          split: { kind: 'equal', memberIds: [ada, grace, linus] },
           version: 1,
         },
         now,
@@ -94,7 +100,14 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
     const edited = (await store.get(expense._id.value))!;
     const decision = decideEditExpense(
       { expense: edited.toSnapshot(), memberIds: [ada, grace, linus], ownerId: ada },
-      { by: ada, description: 'Groceries', amount: 300, date: '2026-11-16', splitBetween: [grace, ada], version: 1 },
+      {
+        by: ada,
+        description: 'Groceries',
+        amount: 300,
+        date: '2026-11-16',
+        split: { kind: 'equal', memberIds: [grace, ada] },
+        version: 1,
+      },
       now,
     );
     edited.revise(decision.data!.state);
@@ -132,7 +145,7 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
           description: 'Groceries',
           amount: 600,
           date: '2026-11-16',
-          splitBetween: [ada, grace, linus],
+          split: { kind: 'equal', memberIds: [ada, grace, linus] },
           version: 1,
         },
         now,

@@ -3,6 +3,7 @@ import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
   decideRecordExpense,
   decideEditExpense,
@@ -13,41 +14,44 @@ import { IGroupMembers, MemberOfGroup } from './IGroupMembers';
 import { BalanceView, ExpenseView, IExpenseQueries } from './IExpenseQueries';
 import { IExpenseRepository } from './IExpenseRepository';
 
-/** What a member records: the group, the expense as typed, and the members it is split between, in the order chosen. */
+/**
+ * What a member records: the group, the expense as typed, and how it is split (request 7): between members equally, by
+ * exact amounts, or by shares, the members in the order chosen.
+ */
 export interface RecordExpenseInput {
   groupId: string;
   description: string;
   amount: number;
   date: string;
-  splitBetween: string[];
+  split: SplitRequest;
 }
 
-/** What a change to an expense says: which expense, the expense as typed, and the version its author read it at. */
+/** What a change to an expense says: which expense, the expense as typed, how it is split, and the version its author read it at. */
 export interface EditExpenseInput {
   id: string;
   description: string;
   amount: number;
   date: string;
-  splitBetween: string[];
+  split: SplitRequest;
   version: number;
 }
 
 /**
- * A member of a group records an expense they paid, split equally between members of the group, the payer among them.
- * The payer is the caller. Anyone who is not a member gets the answer for a group that does not exist. Answers the new
+ * A member of a group records an expense they paid, split between members of the group, the payer among them, one of the
+ * three ways (equally, by exact amounts, or by shares). The payer is the caller. Anyone who is not a member gets the answer for a group that does not exist. Answers the new
  * expense's id.
  */
 export const recordExpense = command(
   'RecordExpense',
   (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ groupId, description, amount, date, splitBetween }: RecordExpenseInput, context) => {
+    async ({ groupId, description, amount, date, split }: RecordExpenseInput, context) => {
       const payer = callerOf(context);
       const members = await groupMembers.membersOf(groupId, payer);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
 
       const decision = decideRecordExpense(
         { memberIds: memberIdsOf(members) },
-        { description, amount, date, splitBetween, payer },
+        { description, amount, date, split, payer },
         clock(),
       );
       if (decision.isFailure()) return decision;
@@ -68,7 +72,7 @@ export const recordExpense = command(
 export const editExpense = command(
   'EditExpense',
   (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ id, description, amount, date, splitBetween, version }: EditExpenseInput, context) => {
+    async ({ id, description, amount, date, split, version }: EditExpenseInput, context) => {
       const by = callerOf(context);
       const expense = await expenses.get(id);
       if (!expense) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
@@ -78,7 +82,7 @@ export const editExpense = command(
 
       const decision = decideEditExpense(
         { expense: stored, memberIds: memberIdsOf(members), ownerId: ownerIdOf(members) },
-        { by, description, amount, date, splitBetween, version },
+        { by, description, amount, date, split, version },
         clock(),
       );
       if (decision.isFailure()) return decision;

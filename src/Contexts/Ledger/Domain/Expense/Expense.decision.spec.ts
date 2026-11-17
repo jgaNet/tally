@@ -11,14 +11,18 @@ const command = (overrides: Partial<RecordExpenseCommand> = {}): RecordExpenseCo
   description: 'Groceries',
   amount: 1000,
   date: '2026-11-16',
-  splitBetween: [ada, grace, linus],
+  split: { kind: 'equal', memberIds: [ada, grace, linus] },
   payer: ada,
   ...overrides,
 });
 
 describe('the equal split', () => {
   it('gives each member the amount divided by their number, rounded down, the remainder to the payer', () => {
-    const split = Split.create({ amount: amountOf(1000), memberIds: [ada, grace, linus], payer: ada });
+    const split = Split.create({
+      amount: amountOf(1000),
+      request: { kind: 'equal', memberIds: [ada, grace, linus] },
+      payer: ada,
+    });
     expect(split.data?.shares).toEqual([
       { memberId: ada, amount: 334 },
       { memberId: grace, amount: 333 },
@@ -27,7 +31,11 @@ describe('the equal split', () => {
   });
 
   it('keeps the order the split was given, and the shares add up to the amount exactly', () => {
-    const split = Split.create({ amount: amountOf(10), memberIds: [grace, ada, linus], payer: ada });
+    const split = Split.create({
+      amount: amountOf(10),
+      request: { kind: 'equal', memberIds: [grace, ada, linus] },
+      payer: ada,
+    });
     expect(split.data?.shares).toEqual([
       { memberId: grace, amount: 3 },
       { memberId: ada, amount: 4 },
@@ -37,8 +45,16 @@ describe('the equal split', () => {
   });
 
   it('refuses a split that lists a member twice, or leaves the payer out', () => {
-    expect(Split.create({ amount: amountOf(10), memberIds: [ada, ada], payer: ada }).isFailure()).toBe(true);
-    expect(Split.create({ amount: amountOf(10), memberIds: [grace, linus], payer: ada }).isFailure()).toBe(true);
+    expect(
+      Split.create({ amount: amountOf(10), request: { kind: 'equal', memberIds: [ada, ada] }, payer: ada }).isFailure(),
+    ).toBe(true);
+    expect(
+      Split.create({
+        amount: amountOf(10),
+        request: { kind: 'equal', memberIds: [grace, linus] },
+        payer: ada,
+      }).isFailure(),
+    ).toBe(true);
   });
 });
 
@@ -81,7 +97,9 @@ describe('deciding an expense', () => {
   });
 
   it('refuses a split with someone who is not a member of the group', () => {
-    expect(decideRecordExpense(members, command({ splitBetween: [ada, 'stranger'] }), now).error).toMatchObject({
+    expect(
+      decideRecordExpense(members, command({ split: { kind: 'equal', memberIds: [ada, 'stranger'] } }), now).error,
+    ).toMatchObject({
       type: 'SplitMemberNotInGroup',
     });
   });
@@ -91,7 +109,7 @@ describe('deciding an expense', () => {
 function amountOf(value: number) {
   const decision = decideRecordExpense(
     members,
-    command({ amount: value, splitBetween: [ada, grace, linus] }),
+    command({ amount: value, split: { kind: 'equal', memberIds: [ada, grace, linus] } }),
     new Date('2026-11-17T10:00:00Z'),
   );
   return decision.data!.state.amount;

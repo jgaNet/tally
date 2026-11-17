@@ -5,8 +5,8 @@ export interface ShareView {
 }
 
 /**
- * What `GetExpense` answers: an expense as it is stored, its shares in the order of the split, and the version it is at (1
- * when it is recorded, one more at each edit).
+ * What `GetExpense` answers: an expense as it is stored, how it was split (`equal`, `exact` or `shares`, request 7), its
+ * shares in the order of the split, and the version it is at (1 when it is recorded, one more at each edit).
  */
 export interface ExpenseView {
   id: string;
@@ -15,6 +15,7 @@ export interface ExpenseView {
   amount: number;
   date: string;
   paidBy: string;
+  splitKind: 'equal' | 'exact' | 'shares';
   shares: ShareView[];
   version: number;
 }
