@@ -2,7 +2,7 @@ import { FastifyPluginCallback } from 'fastify';
 
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
-import { getExpense, recordExpense, RecordExpenseInput } from '@Contexts/Ledger/Application/Expenses';
+import { getExpense, getGroupBalances, recordExpense, RecordExpenseInput } from '@Contexts/Ledger/Application/Expenses';
 
 const SHAPE_REFUSAL =
   'The body must have description (a string), amount (a whole number), date (a string) and splitBetween (a list of strings)';
@@ -55,6 +55,10 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.get('/expenses/:id', { schema: { tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getExpense), { id: (req.params as { id: string }).id }),
+  );
+
+  fastify.get('/groups/:id/balances', { schema: { tags: ['balances'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getGroupBalances), { id: (req.params as { id: string }).id }),
   );
 
   done();

@@ -6,6 +6,7 @@ import { LedgerDatabase } from './LedgerDatabase';
 
 type ExpenseRow = { id: string; group_id: string; description: string; amount: number; date: string; paid_by: string };
 type ShareRow = { member_id: string; amount: number };
+type BalanceRow = { member_id: string; balance: number };
 
 /**
  * The expenses in SQLite: the repository `RecordExpense` inserts into, and the read side `GetExpense` reads. An expense and
@@ -28,6 +29,12 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
         'INSERT INTO ledger_expense_shares (expense_id, position, member_id, amount) VALUES (?, ?, ?, ?)',
       );
       shares.forEach((share, position) => insertShare.run(id, position, share.memberId, share.amount));
+      const moveBalance = connection.prepare(
+        'INSERT INTO ledger_balances (group_id, member_id, balance) VALUES (?, ?, ?) ' +
+          'ON CONFLICT (group_id, member_id) DO UPDATE SET balance = balance + excluded.balance',
+      );
+      moveBalance.run(groupId, paidBy, amount);
+      shares.forEach(share => moveBalance.run(groupId, share.memberId, -share.amount));
       connection.exec('COMMIT');
     } catch (error) {
       connection.exec('ROLLBACK');
@@ -53,5 +60,12 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       paidBy: row.paid_by,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
     };
+  }
+
+  async balancesOf(groupId: string): Promise<ReadonlyMap<string, number>> {
+    const rows = this.database.connection
+      .prepare('SELECT member_id, balance FROM ledger_balances WHERE group_id = ?')
+      .all(groupId) as BalanceRow[];
+    return new Map(rows.map(row => [row.member_id, row.balance]));
   }
 }

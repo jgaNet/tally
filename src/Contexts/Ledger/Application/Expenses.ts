@@ -6,7 +6,7 @@ import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { decideRecordExpense } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 
 import { IGroupMembers } from './IGroupMembers';
-import { ExpenseView, IExpenseQueries } from './IExpenseQueries';
+import { BalanceView, ExpenseView, IExpenseQueries } from './IExpenseQueries';
 import { IExpenseRepository } from './IExpenseRepository';
 
 /** What a member records: the group, the expense as typed, and the members it is split between, in the order chosen. */
@@ -52,5 +52,22 @@ export const getExpense = query(
         return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
       }
       return Result.ok(expense);
+    },
+);
+
+/**
+ * A member of a group reads every member's balance, in the order they joined (the order Groups gives them): what the
+ * member paid for the group's expenses less their shares in them, so the balances add up to 0. Anyone who is not a member
+ * gets the answer for a group that does not exist.
+ */
+export const getGroupBalances = query(
+  'GetGroupBalances',
+  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+    async ({ id }: { id: string }, context) => {
+      const memberIds = await groupMembers.membersOf(id, callerOf(context));
+      if (!memberIds) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
+      const balances = await expenses.balancesOf(id);
+      const answer: BalanceView[] = memberIds.map(memberId => ({ memberId, balance: balances.get(memberId) ?? 0 }));
+      return Result.ok(answer);
     },
 );

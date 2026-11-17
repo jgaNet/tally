@@ -1,7 +1,7 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { groupsMembersReadModel } from '@Contexts/Groups/module.local';
-import { getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import { getExpense, getGroupBalances, recordExpense } from '@Contexts/Ledger/Application/Expenses';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { LedgerDatabase } from '@Contexts/Ledger/Infrastructure/LedgerDatabase';
 import { SqliteExpenses } from '@Contexts/Ledger/Infrastructure/SqliteExpenses';
@@ -20,5 +20,9 @@ const groupMembers = new GroupMembersOfGroups(groupsMembersReadModel);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
-  useCases: [recordExpense(expenses, groupMembers, systemClock), getExpense(expenses, groupMembers)],
+  useCases: [
+    recordExpense(expenses, groupMembers, systemClock),
+    getExpense(expenses, groupMembers),
+    getGroupBalances(expenses, groupMembers),
+  ],
 });

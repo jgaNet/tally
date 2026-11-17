@@ -84,6 +84,34 @@ describe('Groups → Ledger', () => {
     });
   });
 
+  it('reads, by the id Groups answered, the balances of its members in the order they joined, the one who joined later included', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const linus = await signedInPerson('Linus');
+
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    for (const person of [grace, linus]) {
+      const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+        .body as { id: string };
+      await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: person.token });
+    }
+
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Groceries', amount: 300, date: '2020-01-15', splitBetween: [ada.id, grace.id, linus.id] },
+      token: ada.token,
+    });
+
+    const answer = await http.request('GET', `${api}/groups/${groupId}/balances`, { token: linus.token });
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual([
+      { memberId: ada.id, balance: 200 },
+      { memberId: grace.id, balance: -100 },
+      { memberId: linus.id, balance: -100 },
+    ]);
+  });
+
   it('does not find a group Groups does not have a member in: Ledger answers it as a group that does not exist', async () => {
     const ada = await signedInPerson('Ada');
     const stranger = await signedInPerson('Stranger');

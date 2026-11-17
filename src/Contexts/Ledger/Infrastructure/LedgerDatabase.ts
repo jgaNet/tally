@@ -33,8 +33,44 @@ export class LedgerDatabase {
           PRIMARY KEY (expense_id, position)
         );
       `);
+      this.#createBalances(connection);
       this.#connection = connection;
     }
     return this.#connection;
+  }
+
+  /**
+   * The table of balances, the read model `GetGroupBalances` reads: one row per member per group, kept in the same
+   * transaction as the expenses that move it. Made once: when a file had expenses before it existed, it is filled from them
+   * in the same transaction, so two servers opening the file at once cannot count an expense twice.
+   */
+  #createBalances(connection: DatabaseSync): void {
+    connection.exec('BEGIN IMMEDIATE');
+    try {
+      const present = connection
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_balances'")
+        .get();
+      if (!present) {
+        connection.exec(`
+          CREATE TABLE ledger_balances (
+            group_id TEXT NOT NULL,
+            member_id TEXT NOT NULL,
+            balance INTEGER NOT NULL,
+            PRIMARY KEY (group_id, member_id)
+          );
+          INSERT INTO ledger_balances (group_id, member_id, balance)
+            SELECT group_id, member_id, SUM(balance) FROM (
+              SELECT group_id, paid_by AS member_id, amount AS balance FROM ledger_expenses
+              UNION ALL
+              SELECT e.group_id, s.member_id, -s.amount
+                FROM ledger_expense_shares s JOIN ledger_expenses e ON e.id = s.expense_id
+            ) GROUP BY group_id, member_id;
+        `);
+      }
+      connection.exec('COMMIT');
+    } catch (error) {
+      connection.exec('ROLLBACK');
+      throw error;
+    }
   }
 }
