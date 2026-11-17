@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto';
 import { mkdtempSync } from 'fs';
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
@@ -157,5 +158,51 @@ describe('Groups → Settlements', () => {
       token: outsider.token,
     });
     expect(notAMember.status).toBe(404);
+  });
+
+  it('refuses to refund a payment whose payer has left the group Groups made, found by the id it answered (request 15)', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const linus = await signedInPerson('Linus');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'CHF' }, token: ada.token })
+    ).body as { id: string };
+    for (const person of [grace, linus]) {
+      const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+        .body as { id: string };
+      await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: person.token });
+    }
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Dinner', amount: 60, date: '2026-03-01', splitBetween: [ada.id, grace.id] },
+      token: ada.token,
+    });
+    const asking = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      body: { to: ada.id, amount: 30 },
+      token: grace.token,
+    });
+    const { id } = asking.body as { id: string };
+
+    // The provider says the payment succeeded; its signed webhook is the proof.
+    const webhook = {
+      id: 'evt_paid',
+      paymentId: `pay_${asked.length}`,
+      status: 'succeeded',
+      at: '2026-03-01T10:00:00Z',
+    };
+    const signature = createHmac('sha256', SECRET).update(JSON.stringify(webhook)).digest('hex');
+    await http.request('POST', `${api}/provider/webhooks`, {
+      body: webhook,
+      headers: { 'content-type': 'application/json', 'provider-signature': signature },
+    });
+
+    // Grace leaves with a balance of 0 (request 9): Ada may not refund what Grace paid, as the balances of the group must still add up to 0.
+    const left = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: grace.token });
+    expect(left.status).toBeLessThan(300);
+    const refused = await http.request('POST', `${api}/settlements/${id}/refund`, { token: ada.token });
+    expect(refused.status).toBe(400);
+    expect(refused.body).toMatchObject({ type: 'RefundPartyNotMember' });
+    expect((await http.request('GET', `${api}/settlements/${id}`, { token: ada.token })).body).toMatchObject({
+      status: 'paid',
+    });
   });
 });

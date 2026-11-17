@@ -37,6 +37,31 @@ export class SettlementPaidEvent extends DomainEvent<{
 }> {}
 
 /**
+ * A refund of a settlement paid through the provider was requested (request 15): the money has not gone back yet, so the settlement is
+ * `refunding` and the balances still count it. Recorded by `SettlementBook.requestRefund`, published after the save; nothing reacts to
+ * it yet, so it is not an integration event (ADR 13).
+ */
+export class RefundRequestedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}
+
+/**
+ * The provider says a settlement through it is refunded (request 15): the settlement is refunded, and the balances no longer count it,
+ * as they were before it was paid. Recorded by `SettlementBook.settlePayment`, published after the save (ADR 13).
+ */
+export class SettlementRefundedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}
+
+/**
  * A payment through the provider failed (request 13): the settlement is failed, the balances never count it, and what it held is
  * freed. Recorded by `SettlementBook.settlePayment`, published after the save (ADR 12).
  */

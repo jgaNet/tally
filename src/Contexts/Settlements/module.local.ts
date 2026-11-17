@@ -8,6 +8,7 @@ import {
   payThroughProvider,
   receivePaymentWebhook,
   recordCashSettlement,
+  refundSettlement,
 } from '@Contexts/Settlements/Application/Settlements';
 import { GroupBalancesOfLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesOfLedger';
 import { PaymentProviderOverHttp } from '@Contexts/Settlements/Infrastructure/PaymentProviderOverHttp';
@@ -47,6 +48,7 @@ export const localSettlementsModule = new LiteModule({
     getSuggestedSettlements(groupBalances, settlementMembers, settlementsReadModel),
     recordCashSettlement(settlementsReadModel, groupBalances, settlementMembers, systemClock),
     payThroughProvider(settlementsReadModel, groupBalances, settlementMembers, paymentProvider, systemClock),
+    refundSettlement(settlementsReadModel, settlementsReadModel, settlementMembers, paymentProvider, systemClock),
     receivePaymentWebhook(settlementsReadModel),
     getSettlement(settlementsReadModel, settlementMembers),
   ],

@@ -5,7 +5,7 @@ feature: refund-through-the-provider
 intent: >-
   The payee of a settlement paid through the provider refunds it whole; once the provider says it is refunded, the balances no longer count it.
 
-done: false
+done: true
 
 hotSpots:
   - question: Is a refund a settlement of its own, the other way?

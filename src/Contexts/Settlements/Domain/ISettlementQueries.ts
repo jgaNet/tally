@@ -11,7 +11,7 @@ export interface SettlementView {
   to: string;
   amount: number;
   method: 'cash' | 'provider';
-  status: 'pending' | 'paid' | 'failed';
+  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
   at: string;
   payUrl?: string;
 }
@@ -27,7 +27,10 @@ export type SettledTransfer = PendingTransfer;
 export interface ISettlementQueries {
   /** The settlement with this id, if it is stored. */
   settlementOf(id: string): Promise<SettlementView | undefined>;
-  /** Every settlement paid in the group, in no order: one statement, so it is one state of the group's paid settlements. */
+  /**
+   * Every settlement counted in the group, in no order: paid, and being refunded (the money has not gone back yet, request 15). One
+   * statement, so it is one state of the group's counted settlements.
+   */
   settledOf(groupId: string): Promise<SettledTransfer[]>;
   /** Every payment waiting at the provider in the group, in no order: what is still owed counts them as paid (ADR 12). */
   pendingOf(groupId: string): Promise<PendingTransfer[]>;

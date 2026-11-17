@@ -38,4 +38,26 @@ export class PaymentProviderOverHttp implements IPaymentProvider {
       return undefined;
     }
   }
+
+  /**
+   * `POST {PROVIDER_URL}/payments/{paymentId}/refunds` with `{ reference }` (request 15): `201 { id }` is the refund accepted. Any other
+   * answer, a timeout, a network failure, or no `PROVIDER_URL` is a refusal (`false`), and the request is refused with nothing changed.
+   */
+  async refundPayment({ paymentId, reference }: { paymentId: string; reference: string }): Promise<boolean> {
+    const base = this.baseUrl();
+    if (!base) return false;
+    try {
+      const response = await fetch(`${base}/payments/${encodeURIComponent(paymentId)}/refunds`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reference }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (response.status !== 201) return false;
+      const body = (await response.json()) as { id?: unknown };
+      return typeof body.id === 'string' && body.id !== '';
+    } catch {
+      return false;
+    }
+  }
 }

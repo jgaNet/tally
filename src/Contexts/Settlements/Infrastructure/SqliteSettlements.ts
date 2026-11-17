@@ -3,7 +3,7 @@ import { ISettlementBooks } from '@Contexts/Settlements/Application/ISettlementB
 import { ISettlementQueries, SettledTransfer, SettlementView } from '@Contexts/Settlements/Domain/ISettlementQueries';
 import { PendingTransfer } from '@Contexts/Settlements/Domain/SettlementBook/StillOwed';
 import {
-  PendingPayment,
+  ProviderPayment,
   SettlementBook,
   SettlementMethod,
   SettlementStatus,
@@ -24,21 +24,26 @@ type SettlementRow = {
   provider_payment_id: string | null;
   pay_url: string | null;
 };
-type PendingRow = {
+type LiveRow = {
   id: string;
   payer: string;
   payee: string;
   amount: number;
   provider_payment_id: string;
   pay_url: string;
+  status: 'pending' | 'paid' | 'refunding';
 };
 
-const PENDING_COLUMNS = 'id, payer, payee, amount, provider_payment_id, pay_url';
+const LIVE_COLUMNS = 'id, payer, payee, amount, provider_payment_id, pay_url, status';
+/** The statuses a provider payment is held in the book in: waiting, paid, or being refunded (request 15). */
+const LIVE_STATUSES = "('pending', 'paid', 'refunding')";
+/** The statuses the balances count: paid, and being refunded, as the money has not gone back yet (request 15). */
+const COUNTED_STATUSES = "('paid', 'refunding')";
 
 /**
  * The settlements in SQLite: the book the use cases load and save (`ISettlementBooks`), and the read side `GetSettlement`, Ledger's
  * `SettledAmounts` and the suggestions read (`ISettlementQueries`). The book's version is checked and stored with the settlements it
- * recorded and the outcomes of its payments, in one transaction that holds the database's write lock, so of two writers from one version
+ * recorded and the statuses they moved to, in one transaction that holds the database's write lock, so of two writers from one version
  * the second is refused and nothing of its change is kept (CONC-OPTIMISTIC, ADR 11).
  */
 export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
@@ -49,21 +54,27 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
       .prepare('SELECT id, version FROM settlement_books WHERE group_id = ?')
       .get(groupId) as BookRow | undefined;
     if (!row) return SettlementBook.open(groupId);
-    const pending = this.database.connection
-      .prepare(`SELECT ${PENDING_COLUMNS} FROM settlements WHERE group_id = ? AND status = 'pending'`)
-      .all(groupId) as PendingRow[];
+    const live = this.database.connection
+      .prepare(`SELECT ${LIVE_COLUMNS} FROM settlements WHERE group_id = ? AND status IN ${LIVE_STATUSES}`)
+      .all(groupId) as LiveRow[];
     return SettlementBook.fromSnapshot({
       id: row.id,
       groupId,
       version: row.version,
-      pending: pending.map(toPending),
+      payments: live.map(toPayment),
     });
   }
 
   async bookOfPayment(providerPaymentId: string): Promise<SettlementBook | undefined> {
     const row = this.database.connection
-      .prepare(`SELECT group_id FROM settlements WHERE provider_payment_id = ? AND status = 'pending'`)
+      .prepare(`SELECT group_id FROM settlements WHERE provider_payment_id = ? AND status IN ${LIVE_STATUSES}`)
       .get(providerPaymentId) as { group_id: string } | undefined;
+    return row ? this.bookOf(row.group_id) : undefined;
+  }
+
+  async bookOfSettlement(settlementId: string): Promise<SettlementBook | undefined> {
+    const row = this.database.connection.prepare('SELECT group_id FROM settlements WHERE id = ?').get(settlementId) as
+      { group_id: string } | undefined;
     return row ? this.bookOf(row.group_id) : undefined;
   }
 
@@ -107,7 +118,7 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
         );
       }
       const update = connection.prepare('UPDATE settlements SET status = ? WHERE id = ?');
-      for (const { id, status } of book.settled()) update.run(status, id);
+      for (const { id, status } of book.moved()) update.run(status, id);
       connection.exec('COMMIT');
     } catch (error) {
       connection.exec('ROLLBACK');
@@ -135,24 +146,25 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
 
   async settledOf(groupId: string): Promise<SettledTransfer[]> {
     const rows = this.database.connection
-      .prepare(`SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND status = 'paid'`)
+      .prepare(`SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND status IN ${COUNTED_STATUSES}`)
       .all(groupId) as { payer: string; payee: string; amount: number }[];
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
   }
 
   async pendingOf(groupId: string): Promise<PendingTransfer[]> {
     const rows = this.database.connection
-      .prepare(`SELECT ${PENDING_COLUMNS} FROM settlements WHERE group_id = ? AND status = 'pending'`)
-      .all(groupId) as PendingRow[];
+      .prepare(`SELECT ${LIVE_COLUMNS} FROM settlements WHERE group_id = ? AND status = 'pending'`)
+      .all(groupId) as LiveRow[];
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
   }
 }
 
-const toPending = (row: PendingRow): PendingPayment => ({
+const toPayment = (row: LiveRow): ProviderPayment => ({
   id: row.id,
   from: row.payer,
   to: row.payee,
   amount: row.amount,
   providerPaymentId: row.provider_payment_id,
   payUrl: row.pay_url,
+  status: row.status,
 });

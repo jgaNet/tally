@@ -71,7 +71,7 @@ describe('SettlementBook with payments through the provider (request 13)', () =>
       id: 'b',
       groupId: 'group-1',
       version: 3,
-      pending: [
+      payments: [
         {
           id: 'settlement-1',
           from: 'grace',
@@ -79,6 +79,7 @@ describe('SettlementBook with payments through the provider (request 13)', () =>
           amount: 30,
           providerPaymentId: 'pay_1',
           payUrl: 'https://pay.example/1',
+          status: 'pending',
         },
       ],
     });
@@ -95,15 +96,15 @@ describe('SettlementBook with payments through the provider (request 13)', () =>
 
     book.settlePayment('pay_1', 'paid');
     book.settlePayment('pay_1', 'failed');
-    expect(book.settled()).toEqual([{ id: 'settlement-1', status: 'paid' }]);
+    expect(book.moved()).toEqual([{ id: 'settlement-1', status: 'paid' }]);
     expect(book.pendingPayments()).toEqual([]);
     expect(book.pullDomainEvents().map(event => event.constructor.name)).toEqual(['SettlementPaidEvent']);
   });
 
-  it('answers the provider outcome of a status: succeeded is paid, failed is failed, anything else changes nothing', () => {
+  it('answers the provider outcome of a status: succeeded is paid, failed is failed, refunded is refunded, anything else changes nothing', () => {
     expect(providerOutcomeOf('succeeded')).toBe('paid');
     expect(providerOutcomeOf('failed')).toBe('failed');
+    expect(providerOutcomeOf('refunded')).toBe('refunded');
     expect(providerOutcomeOf('pending')).toBeUndefined();
-    expect(providerOutcomeOf('refunded')).toBeUndefined();
   });
 });

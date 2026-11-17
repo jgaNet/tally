@@ -79,3 +79,47 @@ export class ProviderUnavailableException extends Exception {
     });
   }
 }
+
+/** A refund is asked of a settlement paid in cash: only a settlement paid through the provider is refunded through Tally (request 15). */
+export class SettlementNotThroughProviderException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementNotThroughProvider',
+      message: 'Only a settlement paid through the provider is refunded through Tally',
+    });
+  }
+}
+
+/** A refund is asked of a settlement that is not paid: pending, failed, already being refunded, or refunded (request 15). */
+export class SettlementNotPaidException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementNotPaid',
+      message: 'Only a paid settlement is refunded',
+    });
+  }
+}
+
+/** The payer or the payee of the settlement has left the group, so the settlement is not refunded (request 9, request 15). */
+export class RefundPartyNotMemberException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'RefundPartyNotMember',
+      message: 'The payer and the payee must both still be members of the group',
+    });
+  }
+}
+
+/** The provider did not refund the payment within its limit, or answered anything else: the refund is refused and nothing changes. */
+export class ProviderRefundUnavailableException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'ProviderRefundUnavailable',
+      message: 'The payment provider did not refund the payment',
+    });
+  }
+}

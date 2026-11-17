@@ -11,6 +11,7 @@ import {
   receivePaymentWebhook,
   recordCashSettlement,
   RecordCashSettlementInput,
+  refundSettlement,
 } from '@Contexts/Settlements/Application/Settlements';
 
 const SHAPE_REFUSAL = 'The body must have from (the payer account id, a string) and amount (a whole number)';
@@ -130,6 +131,11 @@ export const settlementRoutes: FastifyPluginCallback<{
         status: body.status,
       });
     },
+  );
+
+  // The payee refunds a settlement paid through the provider; answered at once, `204` (request 15).
+  fastify.post('/settlements/:id/refund', { schema: { tags: ['settlements'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(refundSettlement), { id: (req.params as { id: string }).id }),
   );
 
   fastify.get('/settlements/:id', { schema: { tags: ['settlements'] } }, (req, reply) =>

@@ -13,4 +13,9 @@ export interface PaymentLink {
 export interface IPaymentProvider {
   /** A payment link for `amount` in `currency`, whose reference is the settlement's id; `undefined` when the provider gave none. */
   paymentLinkFor(payment: { reference: string; amount: number; currency: string }): Promise<PaymentLink | undefined>;
+  /**
+   * Asks the provider to refund a payment, whole, with the settlement's id as the reference (request 15); `true` when the provider
+   * accepted it, `false` when it answered anything else, or not within its limit, or is not configured: the refund is then refused.
+   */
+  refundPayment(refund: { paymentId: string; reference: string }): Promise<boolean>;
 }

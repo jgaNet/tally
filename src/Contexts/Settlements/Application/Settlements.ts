@@ -7,10 +7,14 @@ import { ISettlementQueries, SettlementView } from '@Contexts/Settlements/Domain
 import { stillOwed } from '@Contexts/Settlements/Domain/SettlementBook/StillOwed';
 import {
   decideRecordCashSettlement,
+  decideRefundSettlement,
   decideRequestProviderPayment,
   providerOutcomeOf,
 } from '@Contexts/Settlements/Domain/SettlementBook/SettlementBook.decision';
-import { ProviderUnavailableException } from '@Contexts/Settlements/Domain/SettlementBook/SettlementExceptions';
+import {
+  ProviderRefundUnavailableException,
+  ProviderUnavailableException,
+} from '@Contexts/Settlements/Domain/SettlementBook/SettlementExceptions';
 
 import { IGroupBalances } from './IGroupBalances';
 import { IPaymentProvider } from './IPaymentProvider';
@@ -149,6 +153,58 @@ export const receivePaymentWebhook = command(
       return Result.ok(undefined);
     },
   { caller: 'anyone' },
+);
+
+/** What a member asks to refund: the settlement's id (request 15). */
+export interface RefundSettlementInput {
+  id: string;
+}
+
+/**
+ * The payee of a settlement paid through the provider refunds it, whole (request 15, ADR 13). The book is read first, then the settlement
+ * and the members of its group, so a change to the settlement since the book was read moves the book's version and the save refuses this
+ * decision (CONC-OPTIMISTIC). The decision allows it only for the payee, while the settlement is `paid` through the provider and both
+ * its payer and payee are still members; the provider is then asked to refund the payment, within its limit, and when it does not
+ * accept, the request is refused and nothing changes. Otherwise the book moves the settlement to `refunding`, where the balances still
+ * count it, until the provider's webhook says it is refunded. A payment the provider has refunded before this request is never refunded
+ * twice here: the book no longer holds it as paid. Answers nothing (`204`). Anyone who is not a member gets the answer for a settlement
+ * that does not exist.
+ */
+export const refundSettlement = command(
+  'RefundSettlement',
+  (
+    books: ISettlementBooks,
+    settlements: ISettlementQueries,
+    members: ISettlementMembers,
+    provider: IPaymentProvider,
+    clock: Clock,
+  ) =>
+    async ({ id }: RefundSettlementInput, context) => {
+      const payee = callerOf(context);
+      // The book is read before the settlement and the members: as the other decisions, a change after this read moves the version.
+      const book = await books.bookOfSettlement(id);
+      if (!book) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+      const settlement = await settlements.settlementOf(id);
+      if (!settlement) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+      const memberIds = await members.membersOf(book.groupId, payee);
+      if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+
+      const decision = decideRefundSettlement({ memberIds, settlement }, { caller: payee }, clock());
+      if (decision.isFailure()) return decision;
+
+      // A paid settlement is held by the book, with the provider's id for it: a settlement the book does not hold is not one it can refund.
+      const paymentId = book.providerPaymentOf(id);
+      if (paymentId === undefined) throw new Error(`The paid settlement ${id} is not held by its book`);
+      // The provider is asked outside the write; a refusal keeps nothing.
+      if (!(await provider.refundPayment({ paymentId, reference: id }))) {
+        return Result.fail(new ProviderRefundUnavailableException());
+      }
+
+      book.requestRefund(id);
+      await books.save(book);
+      await publishDomainEvents(book, context);
+      return Result.ok(undefined);
+    },
 );
 
 /**

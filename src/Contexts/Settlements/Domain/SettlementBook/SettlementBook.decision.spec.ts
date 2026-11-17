@@ -60,6 +60,6 @@ describe('SettlementBook', () => {
   });
 
   it('refuses a stored book whose version no save could have stored', () => {
-    expect(() => SettlementBook.fromSnapshot({ id: 'b', groupId: 'g', version: 0, pending: [] })).toThrow();
+    expect(() => SettlementBook.fromSnapshot({ id: 'b', groupId: 'g', version: 0, payments: [] })).toThrow();
   });
 });
