@@ -183,6 +183,12 @@ describe('paying through the provider', () => {
     return Object.fromEntries(rows.map(row => [row.memberId, row.balance]));
   }
 
+  /** The members of `groupId`, read as `token`'s account, in the order they joined. */
+  async function memberIdsAs(token: string, groupId: string): Promise<string[]> {
+    const reply = await send(app, 'GET', `/groups/${groupId}/members`, { token });
+    return (reply.body as { memberId: string }[]).map(member => member.memberId);
+  }
+
   /** The suggested settlements of `groupId`, read as `token`'s account. */
   async function suggestionsAs(token: string, groupId: string) {
     const reply = await send(app, 'GET', `/groups/${groupId}/settlements/suggested`, { token });
@@ -864,6 +870,32 @@ describe('paying through the provider', () => {
       expect(await refund(ann.token, id)).toMatchObject({ status: 409, body: { error: 'MemberHasLeft' } });
       expect(refundCalls()).toEqual([]);
       expect((await readSettlement(ann.token, id)).body).toMatchObject({ status: 'paid' });
+      expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0 });
+    });
+
+    it('refuses a member to leave while a settlement through the provider they pay is pending or refunding, and lets them leave once it has ended', async () => {
+      const { ann, ben, groupId, id } = await benPaidAnnThroughProvider();
+      const leave = () => send(app, 'POST', `/groups/${groupId}/leave`, { token: ben.token });
+      // Ben's balance is 0 once paid, but a refund he may be asked for is not yet over: he stays.
+      providerRefundsWith(refundCreated());
+      expect((await refund(ann.token, id)).status).toBe(204);
+      expect(await leave()).toMatchObject({ status: 409, body: { error: 'SettlementIsInProgress' } });
+      expect(await memberIdsAs(ann.token, groupId)).toEqual([ann.id, ben.id]);
+
+      await say(paymentOf(id), 'refunded');
+      expect((await leave()).status).toBe(204);
+      expect(await memberIdsAs(ann.token, groupId)).toEqual([ann.id]);
+    });
+
+    it('refuses a member to leave while a payment they asked for is pending, and lets them leave once it has succeeded', async () => {
+      const { ann, ben, groupId } = await annAndBenOwing1500();
+      const id = ((await askToPay(ben.token, groupId, ann.id, 1500)).body as { id: string }).id;
+      const leave = () => send(app, 'POST', `/groups/${groupId}/leave`, { token: ben.token });
+      expect(await leave()).toMatchObject({ status: 409, body: { error: 'SettlementIsInProgress' } });
+      expect(await memberIdsAs(ann.token, groupId)).toEqual([ann.id, ben.id]);
+
+      await say(paymentOf(id), 'succeeded');
+      expect((await leave()).status).toBe(204);
       expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0 });
     });
 

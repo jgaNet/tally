@@ -227,11 +227,21 @@ describe('settling up in cash', () => {
     expect((await send(app, 'GET', `/groups/${groupId}/settlements/suggested`, { token: ben.token })).body).toEqual([]);
   });
 
-  it('lets a member who settled up to a balance of 0 leave the group', async () => {
+  it('lets a member leave still owing, and the owner takes over what they owed, so the balances add up to 0', async () => {
     const { ann, ben, groupId } = await annAndBenOwing1500();
-    expect((await send(app, 'POST', `/groups/${groupId}/leave`, { token: ben.token })).status).toBe(409);
+    expect((await send(app, 'POST', `/groups/${groupId}/leave`, { token: ben.token })).status).toBe(204);
+    expect((await send(app, 'GET', `/groups/${groupId}/balances`, { token: ann.token })).body).toEqual([
+      { memberId: ann.id, balance: 0 },
+    ]);
+  });
+
+  it('lets a member who settled up to a balance of 0 leave the group, and leaves nothing to the owner', async () => {
+    const { ann, ben, groupId } = await annAndBenOwing1500();
     await settle(ann.token, groupId, ben.id, 1500);
     expect((await send(app, 'POST', `/groups/${groupId}/leave`, { token: ben.token })).status).toBe(204);
+    expect((await send(app, 'GET', `/groups/${groupId}/balances`, { token: ann.token })).body).toEqual([
+      { memberId: ann.id, balance: 0 },
+    ]);
   });
 
   it('keeps a member’s statement to the expenses alone, so its balance can differ from the balance in the group', async () => {

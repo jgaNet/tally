@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { rawBalanceOf } from './balances';
 import { Refusal } from './refusal';
 import { inTransaction } from './transactions';
 
@@ -50,7 +51,8 @@ export function findInvitation(db: DatabaseSync, id: string): Invitation | undef
 /**
  * Makes `accountId` a member of the group the invitation `id` leads to, with the rights of a member.
  * An unknown invitation is refused with `404`; an account already in the group with `409`, and its
- * membership stays as it was. An account that left the group joins again, last in the order of the members.
+ * membership stays as it was. An account that left the group joins again, last in the order of the members, with a
+ * balance of 0: what it had passed to the owner when it left stays with the owner.
  */
 export function acceptInvitation(db: DatabaseSync, input: { id: string; accountId: string }): void {
   const { id, accountId } = input;
@@ -62,14 +64,28 @@ export function acceptInvitation(db: DatabaseSync, input: { id: string; accountI
       .get(invitation.groupId, accountId);
     if (alreadyMember) throw new Refusal(409, 'AlreadyMember', 'The account is already a member of this group.');
     // An account that left is joined afresh: its earlier record goes, so it is last in the order of the members.
+    const earlier = db
+      .prepare('SELECT balance_base FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NOT NULL')
+      .get(invitation.groupId, accountId) as { balance_base: number } | undefined;
+    let base = 0;
+    if (earlier !== undefined) {
+      // Its balance passed to the owner when it left, and stays with the owner; the member joins at 0, so its base
+      // becomes its raw balance now, and the owner takes on what the base moves by, so the balances still add up to 0.
+      base = rawBalanceOf(db, invitation.groupId, accountId);
+      const passedOn = base - Number(earlier.balance_base);
+      db.prepare(
+        'UPDATE group_members SET balance_base = balance_base - ? WHERE group_id = ? AND account_id = (SELECT owner_id FROM groups WHERE id = ?)',
+      ).run(passedOn, invitation.groupId, invitation.groupId);
+    }
     db.prepare('DELETE FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NOT NULL').run(
       invitation.groupId,
       accountId,
     );
-    db.prepare('INSERT INTO group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)').run(
+    db.prepare('INSERT INTO group_members (group_id, account_id, joined_at, balance_base) VALUES (?, ?, ?, ?)').run(
       invitation.groupId,
       accountId,
       new Date().toISOString(),
+      base,
     );
   });
 }

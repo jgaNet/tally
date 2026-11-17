@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { balancesOfGroup } from './balances';
 import { inTransaction } from './transactions';
 import { Refusal } from './refusal';
 import { characters } from './text';
@@ -142,9 +141,13 @@ export function isOrWasMember(db: DatabaseSync, accountId: string, groupId: stri
 
 /**
  * Makes `accountId` leave the group, which they must be a current member of (else `404`, as if the group
- * did not exist). The owner, who created the group, cannot leave it (`403`). The member's balance in the
- * group must be 0 (else `409`): what they owe or are owed is settled. A member who left is no longer among
- * the group's members or balances, and the group is not among their groups; their expenses stay as they were.
+ * did not exist). The owner, who created the group, cannot leave it (`403`). Whatever the member's balance,
+ * they may leave: it passes to the owner (see {@link balancesOfGroup}), in this same step, so the balances
+ * still add up to 0. But not while a settlement through the payment provider that they pay or receive is
+ * `pending` or `refunding` (`409`): they leave once it has ended. A member who left is no longer among the
+ * group's members or balances, and the group is not among their groups; their expenses stay as they were.
+ * The check and the leaving are one transaction, so an expense or settlement recorded at the same moment
+ * is either counted before the member leaves, or refused because they are no longer a member.
  */
 export function leaveGroup(db: DatabaseSync, input: { groupId: string; accountId: string }): void {
   const { groupId, accountId } = input;
@@ -154,9 +157,19 @@ export function leaveGroup(db: DatabaseSync, input: { groupId: string; accountId
     if (group.ownerId === accountId) {
       throw new Refusal(403, 'OwnerCannotLeave', 'The owner created the group and cannot leave it.');
     }
-    const balance = balancesOfGroup(db, groupId).find(member => member.memberId === accountId)?.balance ?? 0;
-    if (balance !== 0) {
-      throw new Refusal(409, 'BalanceIsNotZero', 'The balance must be 0 to leave the group.');
+    const waiting = db
+      .prepare(
+        `SELECT 1 FROM settlements
+         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')
+           AND (payer_id = ? OR payee_id = ?)`,
+      )
+      .get(groupId, accountId, accountId);
+    if (waiting !== undefined) {
+      throw new Refusal(
+        409,
+        'SettlementIsInProgress',
+        'A settlement through the provider that the member pays or receives has not ended yet.',
+      );
     }
     db.prepare('UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?').run(
       new Date().toISOString(),

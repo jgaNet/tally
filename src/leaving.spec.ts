@@ -125,21 +125,40 @@ describe('leaving a group', () => {
       expect(await memberIds(ana.token, groupId)).toEqual([ana.id]);
     });
 
-    it('refuses a member whose balance is not 0 with 409, and the member stays, with the same balance', async () => {
+    it('lets a member whose balance is not 0 leave, and passes it to the owner in the same step: the balances add up to 0', async () => {
+      const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+      const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+      const cleo = await signedUpAccount(app, { email: 'cleo@example.org' });
+      const groupId = await createGroup(ana.token);
+      await joinGroup(ana.token, groupId, ben.token);
+      await joinGroup(ana.token, groupId, cleo.token);
+      await record(ana.token, groupId, { amount: 900, splitBetween: [ana.id, ben.id, cleo.id] });
+      const before = await send(app, 'GET', `/groups/${groupId}/balances`, { token: ana.token });
+      expect(before.body).toEqual([
+        { memberId: ana.id, balance: 600 },
+        { memberId: ben.id, balance: -300 },
+        { memberId: cleo.id, balance: -300 },
+      ]);
+
+      expect((await leave(ben.token, groupId)).status).toBe(204);
+
+      const after = await send(app, 'GET', `/groups/${groupId}/balances`, { token: ana.token });
+      expect(after.body).toEqual([
+        { memberId: ana.id, balance: 300 },
+        { memberId: cleo.id, balance: -300 },
+      ]);
+      expect(await memberIds(ana.token, groupId)).toEqual([ana.id, cleo.id]);
+    });
+
+    it('passes a balance owed to the member to the owner, who then owes it', async () => {
       const ana = await signedUpAccount(app, { email: 'ana@example.org' });
       const ben = await signedUpAccount(app, { email: 'ben@example.org' });
       const groupId = await createGroup(ana.token);
       await joinGroup(ana.token, groupId, ben.token);
-      await record(ana.token, groupId, { amount: 1000, splitBetween: [ana.id, ben.id] });
-      const reply = await leave(ben.token, groupId);
-      expect(reply.status).toBe(409);
-      expect(reply.body).toMatchObject({ error: 'BalanceIsNotZero' });
+      await record(ben.token, groupId, { amount: 1000, splitBetween: [ben.id, ana.id] });
+      expect((await leave(ben.token, groupId)).status).toBe(204);
       const balances = await send(app, 'GET', `/groups/${groupId}/balances`, { token: ana.token });
-      expect(balances.body).toEqual([
-        { memberId: ana.id, balance: 500 },
-        { memberId: ben.id, balance: -500 },
-      ]);
-      expect(await memberIds(ana.token, groupId)).toEqual([ana.id, ben.id]);
+      expect(balances.body).toEqual([{ memberId: ana.id, balance: 0 }]);
     });
 
     it('lets a member leave once their balance is back at 0', async () => {
@@ -380,6 +399,45 @@ describe('leaving a group', () => {
     });
   });
 
+  describe('at the same moment', () => {
+    it('counts an expense recorded as the member leaves, or refuses it, and the balances add up to 0 either way', async () => {
+      const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+      const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+      const cleo = await signedUpAccount(app, { email: 'cleo@example.org' });
+      const groupId = await createGroup(ana.token);
+      await joinGroup(ana.token, groupId, ben.token);
+      await joinGroup(ana.token, groupId, cleo.token);
+      await record(ana.token, groupId, { amount: 900, splitBetween: [ana.id, ben.id, cleo.id] });
+
+      // Ben pays 600 split with Cleo, as he leaves: recorded first, it moves 300 onto Ann; refused, it moves nothing.
+      const [left, paid] = await Promise.all([
+        leave(ben.token, groupId),
+        send(app, 'POST', `/groups/${groupId}/expenses`, {
+          token: ben.token,
+          body: { description: 'Taxi', amount: 600, date: today(), splitBetween: [ben.id, cleo.id] },
+        }),
+      ]);
+      expect(left.status).toBe(204);
+      expect([201, 404]).toContain(paid.status);
+      const balances = (await send(app, 'GET', `/groups/${groupId}/balances`, { token: ana.token })).body as {
+        memberId: string;
+        balance: number;
+      }[];
+      const expected =
+        paid.status === 201
+          ? [
+              { memberId: ana.id, balance: 600 },
+              { memberId: cleo.id, balance: -600 },
+            ]
+          : [
+              { memberId: ana.id, balance: 300 },
+              { memberId: cleo.id, balance: -300 },
+            ];
+      expect(balances).toEqual(expected);
+      expect(balances.reduce((total, row) => total + row.balance, 0)).toBe(0);
+    });
+  });
+
   describe('coming back', () => {
     it('joins again with an invitation: last in the order of the members, with the balance 0, and the group back among their groups', async () => {
       const ana = await signedUpAccount(app, { email: 'ana@example.org' });
@@ -404,6 +462,36 @@ describe('leaving a group', () => {
       ]);
       const mine = await send(app, 'GET', '/groups/mine', { token: ben.token });
       expect(mine.body).toEqual([expect.objectContaining({ id: groupId })]);
+    });
+
+    it('joins again at a balance of 0, and what they passed to the owner when they left stays with the owner', async () => {
+      const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+      const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+      const cleo = await signedUpAccount(app, { email: 'cleo@example.org' });
+      const groupId = await createGroup(ana.token);
+      const invitation = await invite(ana.token, groupId);
+      await accept(ben.token, invitation);
+      await joinGroup(ana.token, groupId, cleo.token);
+      await record(ana.token, groupId, { amount: 900, splitBetween: [ana.id, ben.id, cleo.id] });
+      await leaveOrFail(ben.token, groupId);
+
+      await accept(ben.token, invitation);
+      expect(await memberIds(ana.token, groupId)).toEqual([ana.id, cleo.id, ben.id]);
+      const joined = await send(app, 'GET', `/groups/${groupId}/balances`, { token: ana.token });
+      expect(joined.body).toEqual([
+        { memberId: ana.id, balance: 300 },
+        { memberId: cleo.id, balance: -300 },
+        { memberId: ben.id, balance: 0 },
+      ]);
+
+      // Counted from the new start: Ben pays 600 split with Ann, so Ben is owed 300 and Ann owes 300.
+      await record(ben.token, groupId, { amount: 600, splitBetween: [ben.id, ana.id] });
+      const later = await send(app, 'GET', `/groups/${groupId}/balances`, { token: ana.token });
+      expect(later.body).toEqual([
+        { memberId: ana.id, balance: 0 },
+        { memberId: cleo.id, balance: -300 },
+        { memberId: ben.id, balance: 300 },
+      ]);
     });
 
     it('leaves a rejoined member to leave again, once their balance is 0 again', async () => {
@@ -450,6 +538,9 @@ describe('leaving a group', () => {
         const columns = db.prepare('PRAGMA table_info(group_members)').all() as unknown as { name: string }[];
         expect(columns.map(column => column.name)).toContain('left_at');
         expect(db.prepare('SELECT left_at FROM group_members').all()).toEqual([{ left_at: null }]);
+        // Nothing had been passed on before, so every membership's base is 0.
+        expect(columns.map(column => column.name)).toContain('balance_base');
+        expect(db.prepare('SELECT balance_base FROM group_members').all()).toEqual([{ balance_base: 0 }]);
       } finally {
         db.close();
       }

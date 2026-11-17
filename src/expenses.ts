@@ -326,7 +326,7 @@ export function expensesOfGroup(db: DatabaseSync, accountId: string, groupId: st
 /**
  * The expense `editorId` may change: they must be a member of its group (else `404`, as if it did not
  * exist), and its payer or the group's owner (else `403`). An expense whose payer or a member of whose
- * split has left the group cannot be changed (`409`), so that their balance stays 0. Answers the expense
+ * split has left the group cannot be changed (`409`): an expense of a member who left stays as it was. Answers the expense
  * as it is now.
  */
 function expenseChangeableBy(db: DatabaseSync, editorId: string, expenseId: string): Expense {
