@@ -19,7 +19,12 @@ describe('Split.equally', () => {
 
 describe('Expense.create', () => {
   it('records the expense with its shares in the order of the split, and records ExpenseRecorded', () => {
-    const created = Expense.create({ ...base, paidBy: 'ana', splitBetween: ['ben', 'ana'], members: ['ana', 'ben'] });
+    const created = Expense.create({
+      ...base,
+      paidBy: 'ana',
+      split: { kind: 'equal', memberIds: ['ben', 'ana'] },
+      members: ['ana', 'ben'],
+    });
 
     expect(created.isSuccess()).toBe(true);
     if (created.isFailure()) return;
@@ -38,9 +43,24 @@ describe('Expense.create', () => {
   });
 
   it('refuses a split with a stranger, a member listed twice, or no payer, as a failed Result', () => {
-    const stranger = Expense.create({ ...base, paidBy: 'ana', splitBetween: ['ana', 'zoe'], members: ['ana', 'ben'] });
-    const twice = Expense.create({ ...base, paidBy: 'ana', splitBetween: ['ana', 'ana'], members: ['ana', 'ben'] });
-    const noPayer = Expense.create({ ...base, paidBy: 'ana', splitBetween: ['ben'], members: ['ana', 'ben'] });
+    const stranger = Expense.create({
+      ...base,
+      paidBy: 'ana',
+      split: { kind: 'equal', memberIds: ['ana', 'zoe'] },
+      members: ['ana', 'ben'],
+    });
+    const twice = Expense.create({
+      ...base,
+      paidBy: 'ana',
+      split: { kind: 'equal', memberIds: ['ana', 'ana'] },
+      members: ['ana', 'ben'],
+    });
+    const noPayer = Expense.create({
+      ...base,
+      paidBy: 'ana',
+      split: { kind: 'equal', memberIds: ['ben'] },
+      members: ['ana', 'ben'],
+    });
 
     expect(stranger.isFailure() && stranger.error.type).toBe('SplitWithStranger');
     expect(twice.isFailure() && twice.error.type).toBe('SplitListsTwice');
@@ -52,14 +72,14 @@ describe('Expense.create', () => {
       ...base,
       date: '2026-11-18',
       paidBy: 'ana',
-      splitBetween: ['ana'],
+      split: { kind: 'equal', memberIds: ['ana'] },
       members: ['ana'],
     });
     const leap = Expense.create({
       ...base,
       date: '2026-02-29',
       paidBy: 'ana',
-      splitBetween: ['ana'],
+      split: { kind: 'equal', memberIds: ['ana'] },
       members: ['ana'],
       today,
     });
@@ -79,7 +99,7 @@ describe('Expense.edit and Expense.delete', () => {
     const created = Expense.create({
       ...base,
       paidBy: 'ben',
-      splitBetween: ['ben', 'ana'],
+      split: { kind: 'equal', memberIds: ['ben', 'ana'] },
       members: ['ana', 'ben', 'cara'],
     });
     if (created.isFailure()) throw created.error;
@@ -93,7 +113,7 @@ describe('Expense.edit and Expense.delete', () => {
       description: 'Groceries, again',
       amount: 1001,
       date: '2026-11-16',
-      splitBetween: ['ben', 'ana', 'cara'],
+      split: { kind: 'equal', memberIds: ['ben', 'ana', 'cara'] },
       today,
       ...overrides,
     });
@@ -129,7 +149,7 @@ describe('Expense.edit and Expense.delete', () => {
   });
 
   it('refuses an edit whose split leaves out the payer, as the rules refuse a recording', () => {
-    const refused = edit({ splitBetween: ['ana', 'cara'] });
+    const refused = edit({ split: { kind: 'equal', memberIds: ['ana', 'cara'] } });
 
     expect(refused.isFailure() && refused.error.type).toBe('SplitWithoutPayer');
   });
@@ -142,5 +162,196 @@ describe('Expense.edit and Expense.delete', () => {
     expect(refused.isFailure() && refused.error.type).toBe('NotAllowed');
     expect(deleted.isSuccess()).toBe(true);
     expect(expense.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseDeletedEvent']);
+  });
+});
+
+describe('Expense.create by exact amounts', () => {
+  const exact = (amounts: { memberId: string; amount: number }[], amount = 1000) =>
+    Expense.create({
+      ...base,
+      amount,
+      paidBy: 'ana',
+      split: { kind: 'exact', amounts },
+      members: ['ana', 'ben', 'cara'],
+    });
+
+  it('gives each member the amount they were given, in the order given, and says the split was exact', () => {
+    const created = exact([
+      { memberId: 'ben', amount: 600 },
+      { memberId: 'ana', amount: 0 },
+      { memberId: 'cara', amount: 400 },
+    ]);
+
+    expect(created.isSuccess()).toBe(true);
+    if (created.isFailure()) return;
+    expect(created.data.splitKind).toBe('exact');
+    expect(created.data.toSnapshot()).toMatchObject({
+      splitKind: 'exact',
+      shares: [
+        { memberId: 'ben', amount: 600 },
+        { memberId: 'ana', amount: 0 },
+        { memberId: 'cara', amount: 400 },
+      ],
+    });
+  });
+
+  it('refuses amounts that do not add up to the amount of the expense, as a failed Result', () => {
+    const short = exact([
+      { memberId: 'ben', amount: 600 },
+      { memberId: 'ana', amount: 300 },
+    ]);
+
+    expect(short.isFailure() && short.error.type).toBe('SplitAmountsDoNotAddUp');
+  });
+
+  it('refuses an amount below 0, or not whole, as InvalidSplitAmount', () => {
+    const negative = exact([
+      { memberId: 'ben', amount: 1100 },
+      { memberId: 'ana', amount: -100 },
+    ]);
+    const fraction = exact([
+      { memberId: 'ben', amount: 500.5 },
+      { memberId: 'ana', amount: 499.5 },
+    ]);
+
+    expect(negative.isFailure() && negative.error.type).toBe('InvalidSplitAmount');
+    expect(fraction.isFailure() && fraction.error.type).toBe('InvalidSplitAmount');
+  });
+
+  it('refuses a stranger, and a split that leaves out the payer, as the rules refuse any split', () => {
+    const stranger = Expense.create({
+      ...base,
+      paidBy: 'ana',
+      split: {
+        kind: 'exact',
+        amounts: [
+          { memberId: 'ana', amount: 500 },
+          { memberId: 'zoe', amount: 500 },
+        ],
+      },
+      members: ['ana', 'ben'],
+    });
+    const noPayer = exact([{ memberId: 'ben', amount: 1000 }]);
+
+    expect(stranger.isFailure() && stranger.error.type).toBe('SplitWithStranger');
+    expect(noPayer.isFailure() && noPayer.error.type).toBe('SplitWithoutPayer');
+  });
+});
+
+describe('Expense.create by shares', () => {
+  const byShares = (shares: { memberId: string; shares: number }[], amount = 1000, paidBy = 'ana') =>
+    Expense.create({
+      ...base,
+      amount,
+      paidBy,
+      split: { kind: 'shares', shares },
+      members: ['ana', 'ben', 'cara'],
+    });
+
+  it('gives 1000 by shares of 1, 1 and 1 the equal split of request 4, the remainder to the payer', () => {
+    const created = byShares([
+      { memberId: 'ben', shares: 1 },
+      { memberId: 'cara', shares: 1 },
+      { memberId: 'ana', shares: 1 },
+    ]);
+
+    expect(created.isSuccess()).toBe(true);
+    if (created.isFailure()) return;
+    expect(created.data.toSnapshot()).toMatchObject({
+      splitKind: 'shares',
+      shares: [
+        { memberId: 'ben', amount: 333 },
+        { memberId: 'cara', amount: 333 },
+        { memberId: 'ana', amount: 334 },
+      ],
+    });
+  });
+
+  it('gives 1001 by shares of 2 and 1, the payer listed second, 667 and 334', () => {
+    const created = byShares(
+      [
+        { memberId: 'ben', shares: 2 },
+        { memberId: 'ana', shares: 1 },
+      ],
+      1001,
+    );
+
+    expect(created.isSuccess()).toBe(true);
+    if (created.isFailure()) return;
+    expect(created.data.toSnapshot().shares).toEqual([
+      { memberId: 'ben', amount: 667 },
+      { memberId: 'ana', amount: 334 },
+    ]);
+  });
+
+  it('refuses a member with less than 1 share, or not a whole number of them, as InvalidShares', () => {
+    const none = byShares([
+      { memberId: 'ben', shares: 0 },
+      { memberId: 'ana', shares: 1 },
+    ]);
+    const fraction = byShares([
+      { memberId: 'ben', shares: 1.5 },
+      { memberId: 'ana', shares: 1 },
+    ]);
+
+    expect(none.isFailure() && none.error.type).toBe('InvalidShares');
+    expect(fraction.isFailure() && fraction.error.type).toBe('InvalidShares');
+  });
+
+  it('does not lose precision in a share of a large amount and large shares', () => {
+    const created = byShares(
+      [
+        { memberId: 'ben', shares: 9_007_199_254_740_991 },
+        { memberId: 'ana', shares: 1 },
+      ],
+      100_000_000,
+    );
+
+    expect(created.isSuccess()).toBe(true);
+    if (created.isFailure()) return;
+    const total = created.data.toSnapshot().shares.reduce((sum, share) => sum + share.amount, 0);
+    expect(total).toBe(100_000_000);
+  });
+
+  it('keeps the kind of an expense it was edited into, and says so when it is read again', () => {
+    const recorded = Expense.create({
+      ...base,
+      paidBy: 'ben',
+      split: { kind: 'equal', memberIds: ['ben', 'ana'] },
+      members: ['ana', 'ben'],
+    });
+    if (recorded.isFailure()) throw recorded.error;
+    const expense = Expense.fromSnapshot({ ...recorded.data.toSnapshot(), version: 1 });
+
+    const edited = expense.edit({
+      editedBy: 'ben',
+      members: [
+        { memberId: 'ana', role: 'owner' },
+        { memberId: 'ben', role: 'member' },
+      ],
+      version: 1,
+      description: 'Groceries',
+      amount: 1000,
+      date: '2026-11-16',
+      split: {
+        kind: 'shares',
+        shares: [
+          { memberId: 'ben', shares: 3 },
+          { memberId: 'ana', shares: 1 },
+        ],
+      },
+      today,
+    });
+
+    expect(edited.isSuccess()).toBe(true);
+    if (edited.isFailure()) return;
+    expect(edited.data.toSnapshot()).toMatchObject({
+      splitKind: 'shares',
+      shares: [
+        { memberId: 'ben', amount: 750 },
+        { memberId: 'ana', amount: 250 },
+      ],
+    });
+    expect(Expense.fromSnapshot(edited.data.toSnapshot()).splitKind).toBe('shares');
   });
 });

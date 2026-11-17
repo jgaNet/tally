@@ -27,7 +27,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (caller.isFailure()) return Result.fail(caller.error);
     const editor = caller.data.value;
 
-    const { expenseId, description, amount, date, splitBetween, version } = event.payload;
+    const { expenseId, description, amount, date, split, version } = event.payload;
     const expense = await this.expenses.findById(expenseId);
     if (!expense) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     const members = await this.groupMembers.membersOf(expense.groupId, editor);
@@ -40,7 +40,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
       description,
       amount,
       date,
-      splitBetween,
+      split,
       today: this.clock(),
     });
     if (edited.isFailure()) return Result.fail(edited.error);

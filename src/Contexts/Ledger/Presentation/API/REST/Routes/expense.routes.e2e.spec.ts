@@ -439,3 +439,164 @@ describe('deleting an expense', () => {
     expect((await readExpense(expenseId, ben.token)).status).toBe(200);
   });
 });
+
+describe('Ledger: unequal splits (request 7)', () => {
+  it('records a split by exact amounts, reads it as exact, and counts each amount in the balances', async () => {
+    const ana = await accountOf('ana.exact@example.com', 'Ana');
+    const ben = await accountOf('ben.exact@example.com', 'Ben');
+    const cara = await accountOf('cara.exact@example.com', 'Cara');
+    const groupId = await groupWith(ana, [ben, cara]);
+
+    const recorded = await record(groupId, ana.token, {
+      description: 'Lobster',
+      amount: 1000,
+      date: SPENT,
+      splitExactly: [
+        { memberId: cara.id, amount: 700 },
+        { memberId: ana.id, amount: 0 },
+        { memberId: ben.id, amount: 300 },
+      ],
+    });
+    expect(recorded.status).toBe(201);
+    const expenseId = (recorded.body as { id: string }).id;
+
+    const read = await readExpense(expenseId, ben.token);
+    expect(read.body).toMatchObject({
+      splitKind: 'exact',
+      paidBy: ana.id,
+      shares: [
+        { memberId: cara.id, amount: 700 },
+        { memberId: ana.id, amount: 0 },
+        { memberId: ben.id, amount: 300 },
+      ],
+    });
+
+    const balances = await balancesOf(groupId, ana.token);
+    expect(balances.body).toEqual([
+      { memberId: ana.id, balance: 1000 },
+      { memberId: ben.id, balance: -300 },
+      { memberId: cara.id, balance: -700 },
+    ]);
+  });
+
+  it('records a split by shares, the remainder to the payer, and reads it as shares', async () => {
+    const ana = await accountOf('ana.shares@example.com', 'Ana');
+    const ben = await accountOf('ben.shares@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+
+    const recorded = await record(groupId, ben.token, {
+      description: 'Cottage',
+      amount: 1001,
+      date: SPENT,
+      splitByShares: [
+        { memberId: ana.id, shares: 2 },
+        { memberId: ben.id, shares: 1 },
+      ],
+    });
+    expect(recorded.status).toBe(201);
+    const expenseId = (recorded.body as { id: string }).id;
+
+    const read = await readExpense(expenseId, ana.token);
+    expect(read.body).toMatchObject({
+      splitKind: 'shares',
+      paidBy: ben.id,
+      shares: [
+        { memberId: ana.id, amount: 667 },
+        { memberId: ben.id, amount: 334 },
+      ],
+    });
+  });
+
+  it('says an expense recorded by an equal split is equal, and an edit gives it the split it now has', async () => {
+    const ana = await accountOf('ana.kinds@example.com', 'Ana');
+    const ben = await accountOf('ben.kinds@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+
+    const recorded = await record(groupId, ana.token, {
+      description: 'Bread',
+      amount: 1000,
+      date: SPENT,
+      splitBetween: [ana.id, ben.id],
+    });
+    const expenseId = (recorded.body as { id: string }).id;
+    expect((await readExpense(expenseId, ana.token)).body).toMatchObject({ splitKind: 'equal' });
+
+    const edited = await editExpense(expenseId, ana.token, {
+      description: 'Bread and cheese',
+      amount: 1000,
+      date: SPENT,
+      splitByShares: [
+        { memberId: ana.id, shares: 1 },
+        { memberId: ben.id, shares: 3 },
+      ],
+      version: 1,
+    });
+    expect(edited.status).toBe(201);
+    expect(await readExpense(expenseId, ben.token)).toMatchObject({
+      status: 200,
+      body: {
+        splitKind: 'shares',
+        version: 2,
+        shares: [
+          { memberId: ana.id, amount: 250 },
+          { memberId: ben.id, amount: 750 },
+        ],
+      },
+    });
+  });
+
+  it('answers 400 to a body with none of the three splits, or with more than one', async () => {
+    const ana = await accountOf('ana.shape@example.com', 'Ana');
+    const ben = await accountOf('ben.shape@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+    const base = { description: 'Taxi', amount: 1000, date: SPENT };
+
+    const none = await record(groupId, ana.token, base);
+    const twoKinds = await record(groupId, ana.token, {
+      ...base,
+      splitBetween: [ana.id, ben.id],
+      splitByShares: [{ memberId: ana.id, shares: 1 }],
+    });
+    const allThree = await record(groupId, ana.token, {
+      ...base,
+      splitBetween: [ana.id],
+      splitExactly: [{ memberId: ana.id, amount: 1000 }],
+      splitByShares: [{ memberId: ana.id, shares: 1 }],
+    });
+
+    expect(none.status).toBe(400);
+    expect(twoKinds.status).toBe(400);
+    expect(allThree.status).toBe(400);
+  });
+
+  it('refuses a split whose amounts do not add up, or a share below 1, by name, and records nothing', async () => {
+    const ana = await accountOf('ana.refusals.split@example.com', 'Ana');
+    const ben = await accountOf('ben.refusals.split@example.com', 'Ben');
+    const groupId = await groupWith(ana, [ben]);
+    const base = { description: 'Hotel', amount: 1000, date: SPENT };
+
+    const short = await record(groupId, ana.token, {
+      ...base,
+      splitExactly: [
+        { memberId: ana.id, amount: 500 },
+        { memberId: ben.id, amount: 400 },
+      ],
+    });
+    const noShares = await record(groupId, ana.token, {
+      ...base,
+      splitByShares: [
+        { memberId: ana.id, shares: 0 },
+        { memberId: ben.id, shares: 1 },
+      ],
+    });
+
+    expect(short.status).toBe(400);
+    expect(short.body).toMatchObject({ type: 'SplitAmountsDoNotAddUp' });
+    expect(noShares.status).toBe(400);
+    expect(noShares.body).toMatchObject({ type: 'InvalidShares' });
+    expect((await balancesOf(groupId, ana.token)).body).toEqual([
+      { memberId: ana.id, balance: 0 },
+      { memberId: ben.id, balance: 0 },
+    ]);
+  });
+});

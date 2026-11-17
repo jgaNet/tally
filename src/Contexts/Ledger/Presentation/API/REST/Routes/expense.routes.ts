@@ -4,7 +4,9 @@ import { Module } from '@Architecture/Application';
 
 import { FastifyExpenseController } from '@Contexts/Ledger/Presentation/API/REST/Controllers/FastifyExpenseController';
 import {
+  CreateExpenseBody,
   CreateExpenseReqBodySchema,
+  EditExpenseBody,
   CreateExpenseResSchema,
   DeleteExpenseResSchema,
   EditExpenseReqBodySchema,
@@ -18,7 +20,7 @@ export const expenseRoutes = function (fastify: FastifyInstance, { module }: { m
 
   fastify.post<{
     Params: { id: string };
-    Body: { description: string; amount: number; date: string; splitBetween: string[] };
+    Body: CreateExpenseBody;
   }>(
     '/groups/:id/expenses',
     { schema: { tags, body: CreateExpenseReqBodySchema, response: CreateExpenseResSchema } },
@@ -33,7 +35,7 @@ export const expenseRoutes = function (fastify: FastifyInstance, { module }: { m
 
   fastify.put<{
     Params: { id: string };
-    Body: { description: string; amount: number; date: string; splitBetween: string[]; version: number };
+    Body: EditExpenseBody;
   }>(
     '/expenses/:id',
     { schema: { tags, body: EditExpenseReqBodySchema, response: EditExpenseResSchema } },

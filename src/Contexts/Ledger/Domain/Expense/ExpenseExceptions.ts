@@ -76,3 +76,36 @@ export class ExpenseChangedException extends ConflictException {
     });
   }
 }
+
+/** An exact amount of a split is not a whole number of 0 or more. */
+export class InvalidSplitAmountException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidSplitAmount',
+      message: 'Each exact amount of a split is a whole number, 0 or more',
+    });
+  }
+}
+
+/** The exact amounts of a split do not add up to the amount of the expense. */
+export class SplitAmountsDoNotAddUpException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'SplitAmountsDoNotAddUp',
+      message: 'The exact amounts of a split add up to the amount of the expense',
+    });
+  }
+}
+
+/** A member of a split by shares has less than 1 share, or not a whole number of them. */
+export class InvalidSharesException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidShares',
+      message: 'Each member of a split by shares has a whole number of shares, at least 1',
+    });
+  }
+}

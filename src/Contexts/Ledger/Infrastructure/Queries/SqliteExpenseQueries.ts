@@ -1,5 +1,6 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
+import { SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 import { ExpenseView, IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
 import { createExpensesTables } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteExpenseRepository';
 
@@ -10,6 +11,7 @@ interface ExpenseViewRow {
   amount: number;
   spent_on: string;
   paid_by: string;
+  split_kind: SplitKind;
   version: number;
 }
 
@@ -35,6 +37,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
         date: row.spent_on,
         paidBy: row.paid_by,
         shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
+        splitKind: row.split_kind,
         version: row.version,
       };
     });

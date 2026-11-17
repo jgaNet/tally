@@ -27,7 +27,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     if (caller.isFailure()) return Result.fail(caller.error);
     const payer = caller.data.value;
 
-    const { groupId, description, amount, date, splitBetween } = event.payload;
+    const { groupId, description, amount, date, split } = event.payload;
     const members = await this.groupMembers.membersOf(groupId, payer);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
 
@@ -37,7 +37,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       amount,
       date,
       paidBy: payer,
-      splitBetween,
+      split,
       members: members.map(member => member.memberId),
       today: this.clock(),
     });

@@ -7,11 +7,15 @@ import { acceptCommandAtOnce, notAllowedStatus } from '@Architecture/Presentatio
 import {
   DeleteExpenseCommandEvent,
   EditExpenseCommandEvent,
-  EditExpensePayload,
   RecordExpenseCommandEvent,
-  RecordExpensePayload,
 } from '@Contexts/Ledger/Application/Commands';
 import { GetExpenseQueryHandler } from '@Contexts/Ledger/Application/Queries';
+import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
+import {
+  CreateExpenseBody,
+  EditExpenseBody,
+  SplitBody,
+} from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes.schema';
 
 /** The routes of expenses: a member records one of their group, and reads one of theirs. */
 export class FastifyExpenseController {
@@ -21,27 +25,36 @@ export class FastifyExpenseController {
     this.#module = module;
   }
 
-  recordExpense(
-    req: FastifyRequest<{ Params: { id: string }; Body: Omit<RecordExpensePayload, 'groupId'> }>,
-    reply: FastifyReply,
-  ) {
+  recordExpense(req: FastifyRequest<{ Params: { id: string }; Body: CreateExpenseBody }>, reply: FastifyReply) {
+    const { description, amount, date } = req.body;
     return acceptCommandAtOnce(
       req,
       reply,
       this.#module,
-      RecordExpenseCommandEvent.set({ ...req.body, groupId: req.params.id }),
+      RecordExpenseCommandEvent.set({
+        groupId: req.params.id,
+        description,
+        amount,
+        date,
+        split: splitOf(req.body),
+      }),
     );
   }
 
-  editExpense(
-    req: FastifyRequest<{ Params: { id: string }; Body: Omit<EditExpensePayload, 'expenseId'> }>,
-    reply: FastifyReply,
-  ) {
+  editExpense(req: FastifyRequest<{ Params: { id: string }; Body: EditExpenseBody }>, reply: FastifyReply) {
+    const { description, amount, date, version } = req.body;
     return acceptCommandAtOnce(
       req,
       reply,
       this.#module,
-      EditExpenseCommandEvent.set({ ...req.body, expenseId: req.params.id }),
+      EditExpenseCommandEvent.set({
+        expenseId: req.params.id,
+        description,
+        amount,
+        date,
+        version,
+        split: splitOf(req.body),
+      }),
     );
   }
 
@@ -65,3 +78,13 @@ export class FastifyExpenseController {
     return { type: error.type, message: error.message };
   }
 }
+
+/**
+ * The split the body gives. The transport has let exactly one of the three through (the schema answers 400 to any other
+ * body), so the one given is the split; an equal split is the default only for a body the schema has not seen.
+ */
+const splitOf = (body: SplitBody): SplitRequest => {
+  if (body.splitExactly) return { kind: 'exact', amounts: body.splitExactly };
+  if (body.splitByShares) return { kind: 'shares', shares: body.splitByShares };
+  return { kind: 'equal', memberIds: body.splitBetween ?? [] };
+};

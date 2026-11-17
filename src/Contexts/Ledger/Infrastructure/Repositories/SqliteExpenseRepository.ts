@@ -4,6 +4,7 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
+import { SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /**
  * The tables of expenses: one row per expense, one per share in the order of the split, and the balance read model's
@@ -23,6 +24,7 @@ export function createExpensesTables(database: SqliteDatabase): void {
       amount INTEGER NOT NULL,
       spent_on TEXT NOT NULL,
       paid_by TEXT NOT NULL,
+      split_kind TEXT NOT NULL DEFAULT 'equal',
       version INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS expense_shares (
@@ -40,6 +42,11 @@ export function createExpensesTables(database: SqliteDatabase): void {
     );
     CREATE INDEX IF NOT EXISTS balance_entries_by_group ON balance_entries (group_id);
   `);
+  // An expense recorded before the split kinds existed was split equally, which the default says.
+  const columns = connection.prepare('PRAGMA table_info(expenses)').all() as unknown as { name: string }[];
+  if (!columns.some(column => column.name === 'split_kind')) {
+    connection.exec("ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
+  }
   if (!hadEntries) {
     connection.exec(`
       INSERT INTO balance_entries (expense_id, group_id, member_id, amount)
@@ -57,6 +64,7 @@ interface ExpenseRow {
   amount: number;
   spent_on: string;
   paid_by: string;
+  split_kind: SplitKind;
   version: number;
 }
 
@@ -87,6 +95,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       date: row.spent_on,
       paidBy: row.paid_by,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
+      splitKind: row.split_kind,
       version: row.version,
     });
   }
@@ -124,7 +133,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     }
     connection
       .prepare(
-        'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, split_kind, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         snapshot._id,
@@ -133,6 +142,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         snapshot.amount,
         snapshot.date,
         snapshot.paidBy,
+        snapshot.splitKind,
         snapshot.version + 1,
       );
     this.writeShares(snapshot);
@@ -141,13 +151,13 @@ export class SqliteExpenseRepository implements IExpenseRepository {
 
   private update(snapshot: IExpenseSnapshot): IResult {
     const connection = this.database.connection;
-    const { _id: id, description, amount, date, version } = snapshot;
+    const { _id: id, description, amount, date, splitKind, version } = snapshot;
 
     const updated = connection
       .prepare(
-        'UPDATE expenses SET description = :description, amount = :amount, spent_on = :date, version = :next WHERE id = :id AND version = :version',
+        'UPDATE expenses SET description = :description, amount = :amount, spent_on = :date, split_kind = :splitKind, version = :next WHERE id = :id AND version = :version',
       )
-      .run({ id, description, amount, date, version, next: version + 1 });
+      .run({ id, description, amount, date, splitKind, version, next: version + 1 });
     if (updated.changes === 0) {
       return Result.fail(new ConcurrencyConflictException('Ledger', 'The expense changed since it was read', { id }));
     }

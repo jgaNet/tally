@@ -4,26 +4,21 @@ import { IExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { ExpenseAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
-import {
-  ExpenseChangedException,
-  SplitListsTwiceException,
-  SplitWithStrangerException,
-  SplitWithoutPayerException,
-} from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
+import { ExpenseChangedException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import {
   ExpenseDeletedEvent,
   ExpenseEditedEvent,
   ExpenseRecordedEvent,
 } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
-import { ExpenseShare, Split } from '@Contexts/Ledger/Domain/Expense/Split';
+import { ExpenseShare, Split, SplitKind, SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /**
- * Expense is the aggregate root of one expense: what a member paid for some members of a group, split equally between
- * them. It keeps that its shares add up to its amount, since they are computed by Split, here, from what was given, and
- * kept as they were decided. The split is refused when it lists someone who is not a current member of the group, lists
- * someone twice, or leaves out the payer; the current members, with their roles, are asked of Groups by the handler and
- * given here.
+ * Expense is the aggregate root of one expense: what a member paid for some members of a group, split equally, by exact
+ * amounts, or by shares. It keeps that its shares add up to its amount, since they are computed by Split, here, from what
+ * was given, and kept as they were decided, with the kind of split they came from. The split is refused when it lists
+ * someone who is not a current member of the group, lists someone twice, or leaves out the payer; the current members,
+ * with their roles, are asked of Groups by the handler and given here.
  *
  * Its behaviours: its creation records ExpenseRecorded; an edit, from the version its author read, gives the expense
  * again whole and records ExpenseEdited; its deletion records ExpenseDeleted. The payer is who paid, and an edit never
@@ -36,6 +31,7 @@ export class Expense extends AggregateRoot {
   readonly #date: ExpenseDate;
   readonly #paidBy: string;
   readonly #shares: ExpenseShare[];
+  readonly #splitKind: SplitKind;
 
   private constructor(
     id: Id,
@@ -45,6 +41,7 @@ export class Expense extends AggregateRoot {
     date: ExpenseDate,
     paidBy: string,
     shares: ExpenseShare[],
+    splitKind: SplitKind,
     version: number,
   ) {
     super(id, version);
@@ -54,10 +51,11 @@ export class Expense extends AggregateRoot {
     this.#date = date;
     this.#paidBy = paidBy;
     this.#shares = shares;
+    this.#splitKind = splitKind;
   }
 
   /**
-   * Records an expense paid by `paidBy`, split equally between `splitBetween` in the order given. `members` are the
+   * Records an expense paid by `paidBy`, split as `split` says, in the order the members were given. `members` are the
    * group's current members, as Groups answers them; `today` is the application's clock, the day an expense may not
    * be after. Every value is validated here, and the split is refused as a failed Result, never thrown.
    */
@@ -67,7 +65,7 @@ export class Expense extends AggregateRoot {
     amount,
     date,
     paidBy,
-    splitBetween,
+    split,
     members,
     today,
   }: {
@@ -76,11 +74,11 @@ export class Expense extends AggregateRoot {
     amount: number;
     date: string;
     paidBy: string;
-    splitBetween: string[];
+    split: SplitRequest;
     members: string[];
     today: Date;
   }): IResult<Expense> {
-    const decided = Expense.decide({ description, amount, date, paidBy, splitBetween, memberIds: members, today });
+    const decided = Expense.decide({ description, amount, date, paidBy, split, memberIds: members, today });
     if (decided.isFailure()) return Result.fail(decided.error);
 
     const expense = new Expense(
@@ -91,9 +89,12 @@ export class Expense extends AggregateRoot {
       decided.data.date,
       paidBy,
       decided.data.shares,
+      decided.data.splitKind,
       0,
     );
-    expense.record(ExpenseRecordedEvent.set({ expenseId: expense._id.value, groupId, paidBy }));
+    expense.record(
+      ExpenseRecordedEvent.set({ expenseId: expense._id.value, groupId, paidBy, splitKind: expense.#splitKind }),
+    );
     return Result.ok(expense);
   }
 
@@ -101,8 +102,8 @@ export class Expense extends AggregateRoot {
    * Gives the expense again, whole, as `editedBy` made it from `version`, the version they read. Only the payer and the
    * group's owner may edit it; any other member is refused. An edit from another version than this one is refused, since
    * the expense changed since it was read; the values are then checked as when it was recorded, and the payer stays the
-   * one who paid. The shares are computed again from what the edit gives. Answers the edited expense, at the version it
-   * was read at: the store makes it the next one.
+   * one who paid. The shares are computed again from what the edit gives, split as the edit says. Answers the edited
+   * expense, at the version it was read at: the store makes it the next one.
    */
   edit({
     editedBy,
@@ -111,7 +112,7 @@ export class Expense extends AggregateRoot {
     description,
     amount,
     date,
-    splitBetween,
+    split,
     today,
   }: {
     editedBy: string;
@@ -120,7 +121,7 @@ export class Expense extends AggregateRoot {
     description: string;
     amount: number;
     date: string;
-    splitBetween: string[];
+    split: SplitRequest;
     today: Date;
   }): IResult<Expense> {
     if (!this.mayChange(editedBy, members)) return Result.fail(notAllowed());
@@ -131,7 +132,7 @@ export class Expense extends AggregateRoot {
       amount,
       date,
       paidBy: this.#paidBy,
-      splitBetween,
+      split,
       memberIds: memberIdsOf(members),
       today,
     });
@@ -145,9 +146,17 @@ export class Expense extends AggregateRoot {
       decided.data.date,
       this.#paidBy,
       decided.data.shares,
+      decided.data.splitKind,
       this.version,
     );
-    edited.record(ExpenseEditedEvent.set({ expenseId: this._id.value, groupId: this.#groupId, paidBy: this.#paidBy }));
+    edited.record(
+      ExpenseEditedEvent.set({
+        expenseId: this._id.value,
+        groupId: this.#groupId,
+        paidBy: this.#paidBy,
+        splitKind: edited.#splitKind,
+      }),
+    );
     return Result.ok(edited);
   }
 
@@ -174,7 +183,8 @@ export class Expense extends AggregateRoot {
       amount.isFailure() ||
       date.isFailure() ||
       total !== snapshot.amount ||
-      !snapshot.shares.some(share => share.memberId === snapshot.paidBy)
+      !snapshot.shares.some(share => share.memberId === snapshot.paidBy) ||
+      !SPLIT_KINDS.includes(snapshot.splitKind)
     ) {
       throw new Error(`Corrupted expense ${snapshot._id}`);
     }
@@ -186,6 +196,7 @@ export class Expense extends AggregateRoot {
       date.data,
       snapshot.paidBy,
       snapshot.shares.map(share => ({ ...share })),
+      snapshot.splitKind,
       snapshot.version,
     );
   }
@@ -199,12 +210,18 @@ export class Expense extends AggregateRoot {
       date: this.#date.value,
       paidBy: this.#paidBy,
       shares: this.#shares.map(share => ({ ...share })),
+      splitKind: this.#splitKind,
       version: this.version,
     };
   }
 
   get groupId(): string {
     return this.#groupId;
+  }
+
+  /** How the expense was split: equally, by exact amounts, or by shares. */
+  get splitKind(): SplitKind {
+    return this.#splitKind;
   }
 
   get paidBy(): string {
@@ -222,7 +239,7 @@ export class Expense extends AggregateRoot {
     amount,
     date,
     paidBy,
-    splitBetween,
+    split,
     memberIds,
     today,
   }: {
@@ -230,7 +247,7 @@ export class Expense extends AggregateRoot {
     amount: number;
     date: string;
     paidBy: string;
-    splitBetween: string[];
+    split: SplitRequest;
     memberIds: string[];
     today: Date;
   }): IResult<{
@@ -238,6 +255,7 @@ export class Expense extends AggregateRoot {
     amount: ExpenseAmount;
     date: ExpenseDate;
     shares: ExpenseShare[];
+    splitKind: SplitKind;
   }> {
     const validDescription = ExpenseDescription.create(description);
     if (validDescription.isFailure()) return Result.fail(validDescription.error);
@@ -246,24 +264,20 @@ export class Expense extends AggregateRoot {
     const validDate = ExpenseDate.create(date, today);
     if (validDate.isFailure()) return Result.fail(validDate.error);
 
-    if (splitBetween.some(memberId => !memberIds.includes(memberId))) {
-      return Result.fail(new SplitWithStrangerException());
-    }
-    if (new Set(splitBetween).size !== splitBetween.length) {
-      return Result.fail(new SplitListsTwiceException());
-    }
-    if (!splitBetween.includes(paidBy)) {
-      return Result.fail(new SplitWithoutPayerException());
-    }
+    const shares = Split.decide({ request: split, amount: validAmount.data.value, payerId: paidBy, memberIds });
+    if (shares.isFailure()) return Result.fail(shares.error);
 
     return Result.ok({
       description: validDescription.data,
       amount: validAmount.data,
       date: validDate.data,
-      shares: Split.equally({ amount: validAmount.data.value, memberIds: splitBetween, payerId: paidBy }),
+      shares: shares.data,
+      splitKind: split.kind,
     });
   }
 }
+
+const SPLIT_KINDS: readonly string[] = ['equal', 'exact', 'shares'];
 
 const memberIdsOf = (members: GroupMember[]): string[] => members.map(member => member.memberId);
 
