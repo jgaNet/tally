@@ -1,9 +1,18 @@
-import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
 
 import { ExpenseSnapshot, ShareSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
-import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import {
+  ExpenseDeletedEvent,
+  ExpenseEditedEvent,
+  ExpenseRecordedEvent,
+} from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
-import { InvalidAmountException, InvalidDateException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
+import {
+  ExpenseChangedException,
+  InvalidAmountException,
+  InvalidDateException,
+} from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
+import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** The largest amount of an expense, in whole units of the group's currency. */
@@ -18,6 +27,11 @@ export const MAX_EXPENSE_AMOUNT = 100_000_000;
  * generates the id, and records ExpenseRecorded for the store to make durable with it. The date is a real day of the
  * calendar, not after today in UTC, today being the one clock's now. `members` are the group's current members, which the
  * use case asked Groups for. `fromSnapshot()` reads what the store kept, records nothing, and throws on corrupted data.
+ *
+ * `edit()` and `remove()` are the two changes after the creation (request 6, docs/adr/0006). Both are refused to anyone
+ * but the payer and the group's owner; `edit()` is refused when the version it was made from is not the one the expense
+ * was read at. The payer never changes. An edit answers a new expense at the same version, which the store checks when it
+ * saves it: the aggregate never changes its own version (ADR 8).
  */
 export class Expense extends AggregateRoot {
   readonly #groupId: string;
@@ -65,21 +79,77 @@ export class Expense extends AggregateRoot {
     members: string[];
     at: Date;
   }): IResult<Expense> {
-    const text = ExpenseDescription.create(description);
-    if (text.isFailure()) return text;
-    if (!Number.isInteger(amount) || amount < 1 || amount > MAX_EXPENSE_AMOUNT) {
-      return Result.fail(new InvalidAmountException());
-    }
-    if (!isRealDay(date) || date > dayOf(at)) {
-      return Result.fail(new InvalidDateException());
-    }
-    const split = Split.equally({ amount, between: splitBetween, payerId: paidBy, members });
-    if (split.isFailure()) return split;
+    const checked = checkExpense({ description, amount, date, paidBy, splitBetween, members, at });
+    if (checked.isFailure()) return checked;
 
     const id = Id.generate();
-    const expense = new Expense(id, groupId, text.data, amount, date, paidBy, split.data, 0);
+    const expense = new Expense(id, groupId, checked.data.description, amount, date, paidBy, checked.data.split, 0);
     expense.record(ExpenseRecordedEvent.set({ expenseId: id.value, groupId, amount, paidBy }));
     return Result.ok(expense);
+  }
+
+  /**
+   * Gives the expense again, whole, as its author read it at `version` (request 6). Only its payer or the group's owner may
+   * do it; the rules of a creation hold again on what it gives, with the payer kept as the one who paid. The answer is the
+   * expense as it is to be stored: at the version it was read at, the store checks that and stores one more.
+   */
+  edit({
+    by,
+    members,
+    version,
+    description,
+    amount,
+    date,
+    splitBetween,
+    at,
+  }: {
+    by: string;
+    members: GroupMember[];
+    version: number;
+    description: string;
+    amount: number;
+    date: string;
+    splitBetween: string[];
+    at: Date;
+  }): IResult<Expense> {
+    if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
+    if (version !== this.version) return Result.fail(new ExpenseChangedException());
+
+    const checked = checkExpense({
+      description,
+      amount,
+      date,
+      paidBy: this.#paidBy,
+      splitBetween,
+      members: members.map(member => member.memberId),
+      at,
+    });
+    if (checked.isFailure()) return checked;
+
+    const edited = new Expense(
+      this._id,
+      this.#groupId,
+      checked.data.description,
+      amount,
+      date,
+      this.#paidBy,
+      checked.data.split,
+      this.version,
+    );
+    edited.record(
+      ExpenseEditedEvent.set({ expenseId: this._id.value, groupId: this.#groupId, amount, paidBy: this.#paidBy }),
+    );
+    return Result.ok(edited);
+  }
+
+  /**
+   * Removes the expense, for its payer or the group's owner (request 6). A deleted expense is gone from every read and
+   * counts in no balance: the store removes it and its shares with it, in the same transaction.
+   */
+  remove({ by, members }: { by: string; members: GroupMember[] }): IResult<Expense> {
+    if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
+    this.record(ExpenseDeletedEvent.set({ expenseId: this._id.value, groupId: this.#groupId, paidBy: this.#paidBy }));
+    return Result.ok(this);
   }
 
   static fromSnapshot(snapshot: ExpenseSnapshot): Expense {
@@ -133,7 +203,47 @@ export class Expense extends AggregateRoot {
   get shares(): ShareSnapshot[] {
     return this.#split.shares;
   }
+
+  /** The payer, or the group's owner, may change the expense; any other member may not. */
+  private mayChange(by: string, members: GroupMember[]): boolean {
+    if (by === this.#paidBy) return true;
+    return members.some(member => member.memberId === by && member.role === 'owner');
+  }
 }
+
+/** The rules of an expense as it is given, shared by its creation and its edit: the description, the amount, the date and the split. */
+function checkExpense({
+  description,
+  amount,
+  date,
+  paidBy,
+  splitBetween,
+  members,
+  at,
+}: {
+  description: string;
+  amount: number;
+  date: string;
+  paidBy: string;
+  splitBetween: string[];
+  members: string[];
+  at: Date;
+}): IResult<{ description: ExpenseDescription; split: Split }> {
+  const text = ExpenseDescription.create(description);
+  if (text.isFailure()) return text;
+  if (!Number.isInteger(amount) || amount < 1 || amount > MAX_EXPENSE_AMOUNT) {
+    return Result.fail(new InvalidAmountException());
+  }
+  if (!isRealDay(date) || date > dayOf(at)) {
+    return Result.fail(new InvalidDateException());
+  }
+  const split = Split.equally({ amount, between: splitBetween, payerId: paidBy, members });
+  if (split.isFailure()) return split;
+  return Result.ok({ description: text.data, split: split.data });
+}
+
+const notAllowedToChange = () =>
+  new NotAllowedException('Ledger', "Only the payer of an expense or the group's owner may change it");
 
 /** Whether `raw` is a day of the calendar written `YYYY-MM-DD`: `2026-02-30` is not one. */
 function isRealDay(raw: string): boolean {

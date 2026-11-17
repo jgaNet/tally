@@ -1,3 +1,5 @@
+import { ConcurrencyConflictException } from '@Architecture/Domain';
+
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 
 const NOW = new Date('2026-11-17T09:30:00Z');
@@ -98,5 +100,93 @@ describe('Expense.fromSnapshot', () => {
         version: 1,
       }),
     ).toThrow(/corrupted/);
+  });
+});
+
+describe('Expense.edit and Expense.remove', () => {
+  // Ada owns the group; Bob paid the expense; Cy is a plain member.
+  const roles = [
+    { memberId: 'ada', role: 'owner' as const },
+    { memberId: 'bob', role: 'member' as const },
+    { memberId: 'cy', role: 'member' as const },
+  ];
+  /** The expense as the store keeps it after its recording: version 1, paid by Bob, split equally. */
+  const stored = () =>
+    Expense.fromSnapshot({
+      id: 'e1',
+      groupId: 'flat',
+      description: 'Groceries',
+      amount: 1000,
+      date: '2026-11-16',
+      paidBy: 'bob',
+      shares: [
+        { memberId: 'bob', amount: 334 },
+        { memberId: 'ada', amount: 333 },
+        { memberId: 'cy', amount: 333 },
+      ],
+      version: 1,
+    });
+  const edit = (overrides: Partial<Parameters<Expense['edit']>[0]> = {}) =>
+    stored().edit({
+      by: 'bob',
+      members: roles,
+      version: 1,
+      description: 'Groceries, again',
+      amount: 900,
+      date: '2026-11-16',
+      splitBetween: ['bob', 'ada'],
+      at: NOW,
+      ...overrides,
+    });
+
+  it('gives the expense again, whole, keeping the payer, and records ExpenseEdited at the version it was read at', () => {
+    const edited = edit({ splitBetween: ['cy', 'bob', 'ada'] });
+
+    expect(edited.isSuccess()).toBe(true);
+    expect(edited.data?.toSnapshot()).toMatchObject({
+      description: 'Groceries, again',
+      amount: 900,
+      paidBy: 'bob',
+      shares: [
+        { memberId: 'cy', amount: 300 },
+        { memberId: 'bob', amount: 300 },
+        { memberId: 'ada', amount: 300 },
+      ],
+      version: 1,
+    });
+    expect(edited.data?.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseEditedEvent']);
+  });
+
+  it('lets the group owner edit an expense another member paid, and the payer stays the one who paid', () => {
+    const edited = edit({ by: 'ada', splitBetween: ['ada', 'bob'] });
+    expect(edited.isSuccess()).toBe(true);
+    expect(edited.data?.paidBy).toBe('bob');
+  });
+
+  it('refuses an edit to anyone but the payer and the group owner, by name', () => {
+    expect(edit({ by: 'cy' }).error?.type).toBe('NotAllowed');
+  });
+
+  it('refuses an edit made from a version the expense has moved past, by name, as a conflict', () => {
+    const refused = edit({ version: 0 });
+
+    expect(refused.error?.type).toBe('ExpenseChanged');
+    expect(refused.error).toBeInstanceOf(ConcurrencyConflictException);
+  });
+
+  it('refuses an edit that the rules of a creation refuse: a split without the payer, a future date, a bad amount', () => {
+    expect(edit({ by: 'ada', splitBetween: ['ada', 'cy'] }).error?.type).toBe('PayerNotInSplit');
+    expect(edit({ date: '2026-11-18' }).error?.type).toBe('InvalidDate');
+    expect(edit({ amount: 0 }).error?.type).toBe('InvalidAmount');
+    expect(edit({ splitBetween: ['bob', 'zed'] }).error?.type).toBe('NotAMemberInSplit');
+  });
+
+  it('removes the expense for its payer or the owner, and records ExpenseDeleted; another member is refused', () => {
+    const removed = stored().remove({ by: 'bob', members: roles });
+    expect(removed.isSuccess()).toBe(true);
+    expect(removed.data?.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseDeletedEvent']);
+
+    expect(stored().remove({ by: 'ada', members: roles }).isSuccess()).toBe(true);
+    expect(stored().remove({ by: 'cy', members: roles }).error?.type).toBe('NotAllowed');
   });
 });

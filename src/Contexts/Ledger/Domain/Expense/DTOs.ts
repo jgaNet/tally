@@ -28,6 +28,8 @@ export interface ExpenseView {
   date: string;
   paidBy: string;
   shares: ShareSnapshot[];
+  /** The version the expense is at: 1 when it is recorded, one more at each edit (request 6). */
+  version: number;
 }
 
 /** What a member is owed (positive) or owes (negative) in a group, whole units: a read model (docs/adr/0005). */

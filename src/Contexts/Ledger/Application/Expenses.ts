@@ -35,7 +35,7 @@ export const recordExpense = command(
         date,
         paidBy,
         splitBetween,
-        members,
+        members: members.map(member => member.memberId),
         at: clock(),
       });
       if (expense.isFailure()) return expense;
@@ -60,6 +60,63 @@ export const getExpense = query(
     },
 );
 
+/** What a member asks to change: the expense, and the whole of it as the member gives it, from the version they read. */
+export interface EditExpenseInput {
+  id: string;
+  description: string;
+  amount: number;
+  date: string;
+  splitBetween: string[];
+  version: number;
+}
+
+/**
+ * Gives an expense again, whole, from the version its author read (request 6, docs/adr/0006). The caller must be a member
+ * of its group, for anyone else the expense does not exist; the payer or the group's owner may change it. The payer stays
+ * the one who paid. A version the expense has moved past is refused by name, after the store's conflict is re-read.
+ */
+export const editExpense = command(
+  'EditExpense',
+  (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
+    async ({ id, description, amount, date, splitBetween, version }: EditExpenseInput, context) => {
+      const by = callerOf(context);
+      const stored = await expenses.get(id);
+      if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
+      const members = await groupMembers.membersOf(by, stored.groupId);
+      if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
+
+      const edited = stored.edit({ by, members, version, description, amount, date, splitBetween, at: clock() });
+      if (edited.isFailure()) return edited;
+      const saved = await expenses.save(edited.data);
+      if (saved.isFailure()) return saved;
+      await publishDomainEvents(edited.data, context);
+      return Result.ok(undefined);
+    },
+);
+
+/**
+ * Deletes an expense, for its payer or the group's owner (request 6, docs/adr/0006). It is gone from every read and counts in
+ * no balance from the commit on. For anyone outside its group the expense does not exist.
+ */
+export const deleteExpense = command(
+  'DeleteExpense',
+  (expenses: IExpenseRepository, groupMembers: IGroupMembers) =>
+    async ({ id }: { id: string }, context) => {
+      const by = callerOf(context);
+      const stored = await expenses.get(id);
+      if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
+      const members = await groupMembers.membersOf(by, stored.groupId);
+      if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
+
+      const removed = stored.remove({ by, members });
+      if (removed.isFailure()) return removed;
+      const saved = await expenses.remove(removed.data);
+      if (saved.isFailure()) return saved;
+      await publishDomainEvents(removed.data, context);
+      return Result.ok(undefined);
+    },
+);
+
 /**
  * A group's balances, for its members only: each member, in the order they joined, with what they are owed (positive) or
  * owe (negative), 0 when nothing is recorded for them. For anyone else the group does not exist.
@@ -75,6 +132,6 @@ export const getGroupBalances = query(
       const members = await groupMembers.membersOf(callerOf(context), groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
       const owed = new Map(balances.map(({ memberId, balance }) => [memberId, balance]));
-      return Result.ok(members.map(memberId => ({ memberId, balance: owed.get(memberId) ?? 0 })));
+      return Result.ok(members.map(({ memberId }) => ({ memberId, balance: owed.get(memberId) ?? 0 })));
     },
 );

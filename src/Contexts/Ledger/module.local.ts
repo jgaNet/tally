@@ -3,7 +3,13 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { groupsReadModel } from '@Contexts/Groups/module.local';
-import { getExpense, getGroupBalances, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import {
+  deleteExpense,
+  editExpense,
+  getExpense,
+  getGroupBalances,
+  recordExpense,
+} from '@Contexts/Ledger/Application/Expenses';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
@@ -23,5 +29,7 @@ export const localLedgerModule = new LiteModule({
     recordExpense(expenses, groupMembers, systemClock),
     getExpense(expenseQueries, groupMembers),
     getGroupBalances(expenseQueries, groupMembers),
+    editExpense(expenses, groupMembers, systemClock),
+    deleteExpense(expenses, groupMembers),
   ],
 });

@@ -10,3 +10,24 @@ export class ExpenseRecordedEvent extends DomainEvent<{
   amount: number;
   paidBy: string;
 }> {}
+
+/**
+ * An expense was given again, whole, by its payer or the group's owner. Recorded by `Expense.edit()`, once the edit is
+ * stored (docs/adr/0006). No integration event carries it: the balances are Ledger's own read model.
+ */
+export class ExpenseEditedEvent extends DomainEvent<{
+  expenseId: string;
+  groupId: string;
+  amount: number;
+  paidBy: string;
+}> {}
+
+/**
+ * An expense was deleted by its payer or the group's owner. Recorded by `Expense.remove()`, once the deletion is stored
+ * (docs/adr/0006). It is gone from every read and counts in no balance from that transaction on.
+ */
+export class ExpenseDeletedEvent extends DomainEvent<{
+  expenseId: string;
+  groupId: string;
+  paidBy: string;
+}> {}

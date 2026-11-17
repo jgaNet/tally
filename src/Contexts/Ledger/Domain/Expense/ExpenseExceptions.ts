@@ -1,4 +1,4 @@
-import { Exception } from '@Architecture/Domain';
+import { ConcurrencyConflictException, Exception } from '@Architecture/Domain';
 
 /** The description is empty, only spaces, or longer than 100 characters. */
 export class InvalidDescriptionException extends Exception {
@@ -63,5 +63,16 @@ export class PayerNotInSplitException extends Exception {
       type: 'PayerNotInSplit',
       message: 'The payer of an expense is one of the members it is split between',
     });
+  }
+}
+
+/**
+ * The expense changed since the version the edit was made from: its author reads it again and decides (request 6). It is a
+ * conflict, so a use case re-reads and re-decides it first, and the last conflict is the refusal (`409`, ADR 0006).
+ */
+export class ExpenseChangedException extends ConcurrencyConflictException {
+  constructor() {
+    super('Ledger', 'The expense changed since it was read: read it again and decide');
+    this.type = 'ExpenseChanged';
   }
 }

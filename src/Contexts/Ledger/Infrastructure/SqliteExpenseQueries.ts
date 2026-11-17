@@ -4,7 +4,15 @@ import { BalanceView, ExpenseView, ShareSnapshot } from '@Contexts/Ledger/Domain
 import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
 import { LEDGER_SCHEMA } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 
-type ExpenseRow = { id: string; group_id: string; description: string; amount: number; date: string; paid_by: string };
+type ExpenseRow = {
+  id: string;
+  group_id: string;
+  description: string;
+  amount: number;
+  date: string;
+  paid_by: string;
+  version: number;
+};
 type ShareRow = { member_id: string; amount: number };
 type BalanceRow = { member_id: string; balance: number };
 
@@ -18,7 +26,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
     return this.database.exclusive(() => {
       const connection = this.database.connection;
       const row = connection
-        .prepare('SELECT id, group_id, description, amount, date, paid_by FROM expenses WHERE id = ?')
+        .prepare('SELECT id, group_id, description, amount, date, paid_by, version FROM expenses WHERE id = ?')
         .get(expenseId) as ExpenseRow | undefined;
       if (!row) return undefined;
       const shares = connection
@@ -31,6 +39,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
         amount: Number(row.amount),
         date: String(row.date),
         paidBy: String(row.paid_by),
+        version: Number(row.version),
         shares: shares.map((share): ShareSnapshot => ({
           memberId: String(share.member_id),
           amount: Number(share.amount),
