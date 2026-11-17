@@ -3,6 +3,7 @@ import Fastify, { FastifyError, FastifyInstance } from 'fastify';
 import { registerAccountRoutes } from './accounts/routes';
 import { openDatabase } from './database';
 import { registerGroupRoutes } from './groups/routes';
+import { registerInvitationRoutes } from './invitations/routes';
 import { Refusal } from './refusal';
 import { registerOperationRoutes } from './operations/routes';
 
@@ -51,6 +52,7 @@ export async function createApplication({
     async routes => {
       registerAccountRoutes(routes, db);
       registerGroupRoutes(routes, db);
+      registerInvitationRoutes(routes, db);
       registerOperationRoutes(routes, db);
     },
     { prefix: `/${apiPrefix}` },

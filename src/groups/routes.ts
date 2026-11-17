@@ -2,8 +2,19 @@ import type { FastifyInstance } from 'fastify';
 import { requireAccount } from '../auth';
 import type { Database } from '../database';
 import { Refusal } from '../refusal';
-import { createGroup, groupForMember, groupsOfMember } from './groups';
+import { createGroup, groupForMember, groupsOfMember, membersOf, requireMembership } from './groups';
 import { CURRENCIES } from './validation';
+
+const memberSchema = {
+  type: 'object',
+  required: ['memberId', 'name', 'role', 'joinedAt'],
+  properties: {
+    memberId: { type: 'string' },
+    name: { type: 'string' },
+    role: { type: 'string', enum: ['owner', 'member'] },
+    joinedAt: { type: 'string' },
+  },
+};
 
 const groupSchema = {
   type: 'object',
@@ -63,6 +74,21 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
         throw new Refusal(404, 'NotFound', 'There is no such group.');
       }
       return group;
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    '/groups/:id/members',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        response: { 200: { type: 'array', items: memberSchema } },
+      },
+    },
+    async request => {
+      const account = requireAccount(db, request);
+      requireMembership(db, request.params.id, account.id);
+      return membersOf(db, request.params.id);
     },
   );
 }

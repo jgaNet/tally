@@ -33,6 +33,28 @@ export const validSignup = {
   name: 'Ada',
 };
 
+/**
+ * Makes the account of `joinerToken` a member of `groupId`, through an invitation that the member
+ * `inviterToken` creates and the joiner accepts.
+ */
+export async function joinThroughInvitation(
+  app: Application,
+  inviterToken: string,
+  joinerToken: string,
+  groupId: string,
+): Promise<void> {
+  const created = await send(app, 'POST', `/groups/${groupId}/invitations`, { token: inviterToken });
+  if (created.statusCode !== 201) {
+    throw new Error(`invitation failed: ${created.statusCode} ${created.body}`);
+  }
+  const accepted = await send(app, 'POST', `/invitations/${created.json<{ id: string }>().id}/accept`, {
+    token: joinerToken,
+  });
+  if (accepted.statusCode !== 201) {
+    throw new Error(`joining failed: ${accepted.statusCode} ${accepted.body}`);
+  }
+}
+
 /** Signs an account up and in; returns its id and token. */
 export async function signedUpAccount(app: Application, overrides: Partial<typeof validSignup> = {}) {
   const body = { ...validSignup, ...overrides };

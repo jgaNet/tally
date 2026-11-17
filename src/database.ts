@@ -48,6 +48,15 @@ const migrations: readonly string[] = [
   );
   CREATE INDEX memberships_by_account ON memberships (account_id);
   `,
+  `
+  -- The invitation's id is the secret a link carries, so only its hash is kept, as a session's is.
+  CREATE TABLE invitations (
+    id_hash    TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    invited_by TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

@@ -1,6 +1,5 @@
 import { type Application, createApplication } from '../app';
-import { openDatabase } from '../database';
-import { send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
 
 describe('groups', () => {
   let app: Application;
@@ -21,23 +20,6 @@ describe('groups', () => {
     const response = await send(app, 'POST', '/groups', { token, payload: { ...group, ...overrides } });
     expect(response.statusCode).toBe(201);
     return response.json<{ id: string }>().id;
-  }
-
-  /**
-   * Makes `accountId` a member of a group, as a later feature (an invitation) would, through the
-   * same file the application keeps what it knows in.
-   */
-  function addMember(groupId: string, accountId: string): void {
-    const db = openDatabase(databasePath);
-    try {
-      db.prepare('INSERT INTO memberships (group_id, account_id, joined_at) VALUES (?, ?, ?)').run(
-        groupId,
-        accountId,
-        new Date().toISOString(),
-      );
-    } finally {
-      db.close();
-    }
   }
 
   describe('creating a group', () => {
@@ -144,7 +126,7 @@ describe('groups', () => {
       const ada = await signedUpAccount(app);
       const grace = await signedUpAccount(app, { email: 'grace@example.com', name: 'Grace' });
       const id = await createdGroup(ada.token);
-      addMember(id, grace.id);
+      await joinThroughInvitation(app, ada.token, grace.token, id);
 
       const forAda = await send(app, 'GET', `/groups/${id}`, { token: ada.token });
       const forGrace = await send(app, 'GET', `/groups/${id}`, { token: grace.token });
@@ -231,7 +213,7 @@ describe('groups', () => {
       const ada = await signedUpAccount(app);
       const grace = await signedUpAccount(app, { email: 'grace@example.com', name: 'Grace' });
       const id = await createdGroup(ada.token);
-      addMember(id, grace.id);
+      await joinThroughInvitation(app, ada.token, grace.token, id);
 
       const seenByAda = await send(app, 'GET', `/groups/${id}`, { token: ada.token });
       const listed = await send(app, 'GET', '/groups/mine', { token: grace.token });
@@ -254,6 +236,61 @@ describe('groups', () => {
       app = await createApplication({ databasePath });
       expect((await send(app, 'GET', `/groups/${id}`, { token })).json().name).toBe('Lisbon');
       expect((await send(app, 'GET', '/groups/mine', { token })).json().map((g: { id: string }) => g.id)).toEqual([id]);
+    });
+  });
+
+  describe('the members', () => {
+    const joinedAtPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?00)$/;
+
+    it('lists the owner first, with the owner role, then each member in the order they joined', async () => {
+      const ada = await signedUpAccount(app);
+      const grace = await signedUpAccount(app, { email: 'grace@example.com', name: 'Grace' });
+      const linus = await signedUpAccount(app, { email: 'linus@example.com', name: 'Linus' });
+      const id = await createdGroup(ada.token);
+      await joinThroughInvitation(app, ada.token, linus.token, id);
+      await joinThroughInvitation(app, ada.token, grace.token, id);
+
+      const response = await send(app, 'GET', `/groups/${id}/members`, { token: ada.token });
+      expect(response.statusCode).toBe(200);
+      const members = response.json();
+      expect(members).toEqual([
+        { memberId: ada.id, name: 'Ada', role: 'owner', joinedAt: expect.stringMatching(joinedAtPattern) },
+        { memberId: linus.id, name: 'Linus', role: 'member', joinedAt: expect.stringMatching(joinedAtPattern) },
+        { memberId: grace.id, name: 'Grace', role: 'member', joinedAt: expect.stringMatching(joinedAtPattern) },
+      ]);
+      const joinedTimes = members.map((m: { joinedAt: string }) => Date.parse(m.joinedAt));
+      expect(joinedTimes).toEqual([...joinedTimes].sort((a, b) => a - b));
+    });
+
+    it('answers the same list to a member who joined', async () => {
+      const ada = await signedUpAccount(app);
+      const grace = await signedUpAccount(app, { email: 'grace@example.com', name: 'Grace' });
+      const id = await createdGroup(ada.token);
+      await joinThroughInvitation(app, ada.token, grace.token, id);
+
+      const forAda = await send(app, 'GET', `/groups/${id}/members`, { token: ada.token });
+      const forGrace = await send(app, 'GET', `/groups/${id}/members`, { token: grace.token });
+      expect(forGrace.statusCode).toBe(200);
+      expect(forGrace.json()).toEqual(forAda.json());
+    });
+
+    it('answers 404 to a signed-in person who is not a member, as if the group did not exist', async () => {
+      const ada = await signedUpAccount(app);
+      const grace = await signedUpAccount(app, { email: 'grace@example.com', name: 'Grace' });
+      const id = await createdGroup(ada.token);
+
+      const outsider = await send(app, 'GET', `/groups/${id}/members`, { token: grace.token });
+      const missing = await send(app, 'GET', '/groups/no-such-group/members', { token: grace.token });
+      expect(outsider.statusCode).toBe(404);
+      expect(outsider.json().type).toBe('NotFound');
+      expect(outsider.json()).toEqual(missing.json());
+    });
+
+    it('answers 401 to a request with no token, and to a token that proves nothing', async () => {
+      const { token } = await signedUpAccount(app);
+      const id = await createdGroup(token);
+      expect((await send(app, 'GET', `/groups/${id}/members`)).statusCode).toBe(401);
+      expect((await send(app, 'GET', `/groups/${id}/members`, { token: 'not-a-real-token' })).statusCode).toBe(401);
     });
   });
 });
