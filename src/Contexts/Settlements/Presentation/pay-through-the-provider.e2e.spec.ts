@@ -141,6 +141,7 @@ describe('Payment through the provider (request 13)', () => {
       status: 'pending',
       at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/),
       payUrl: expect.stringMatching(/^https:\/\/pay\.example\//),
+      history: [{ status: 'pending', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/) }],
     });
 
     // Not yet counted by the balances, and counted as paid for what is still owed: nothing is left to suggest, and no more can be asked.

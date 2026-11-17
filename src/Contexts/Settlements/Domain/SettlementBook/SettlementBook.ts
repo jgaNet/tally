@@ -60,7 +60,7 @@ export class SettlementBook extends AggregateRoot {
   readonly #groupId: string;
   #payments: ProviderPayment[];
   #recorded: SettlementSnapshot[] = [];
-  #moved: { id: string; status: SettlementStatus }[] = [];
+  #moved: { id: string; status: SettlementStatus; at: string }[] = [];
 
   private constructor(id: Id, version: number, groupId: string, payments: ProviderPayment[]) {
     super(id, version);
@@ -105,8 +105,11 @@ export class SettlementBook extends AggregateRoot {
     return this.#recorded;
   }
 
-  /** The statuses the settlements of this book moved to since it was read, in the order they moved: what the store updates. */
-  moved(): readonly { id: string; status: SettlementStatus }[] {
+  /**
+   * The statuses the settlements of this book moved to since it was read, in the order they moved, each with the time Tally learned
+   * it: what the store updates, and what each settlement's history gains (request 19).
+   */
+  moved(): readonly { id: string; status: SettlementStatus; at: string }[] {
     return this.#moved;
   }
 
@@ -192,9 +195,10 @@ export class SettlementBook extends AggregateRoot {
    * The provider's verdict on a payment: paid or failed for a pending one (it succeeded, or it failed), or refunded for one that is live
    * whatever it is: pending (the refund overtook its success), paid, or being refunded (request 15). A payment moves forward only, so a
    * payment that is not waiting is left as it is for paid and failed, and one already refunded is no longer held, so it is left alone
-   * too: a webhook counts once (ADR 12). Records `SettlementPaid`, `SettlementFailed` or `SettlementRefunded`.
+   * too: a webhook counts once (ADR 12). Records `SettlementPaid`, `SettlementFailed` or `SettlementRefunded`, and moves the settlement
+   * to the status at `at`, the time Tally learned it (request 19). A webhook that changes nothing moves nothing.
    */
-  settlePayment(providerPaymentId: string, outcome: 'paid' | 'failed' | 'refunded'): void {
+  settlePayment(providerPaymentId: string, outcome: 'paid' | 'failed' | 'refunded', at: Date): void {
     const payment = this.#payments.find(live => live.providerPaymentId === providerPaymentId);
     if (!payment) return;
     if (outcome !== 'refunded' && payment.status !== 'pending') return;
@@ -203,7 +207,7 @@ export class SettlementBook extends AggregateRoot {
       outcome === 'paid'
         ? this.#payments.map(live => (live === payment ? { ...live, status: 'paid' } : live))
         : this.#payments.filter(live => live !== payment);
-    this.#moved = [...this.#moved, { id: payment.id, status: outcome }];
+    this.#moved = [...this.#moved, { id: payment.id, status: outcome, at: at.toISOString() }];
     const fact = {
       settlementId: payment.id,
       groupId: this.#groupId,
@@ -219,15 +223,15 @@ export class SettlementBook extends AggregateRoot {
   /**
    * Asks the book to refund a paid settlement through the provider (request 15): it is refunding, and still counted, until the provider
    * says it is refunded. The decision has allowed it and the provider has accepted the refund; the save checks the book has not moved.
-   * Records `RefundRequested`, published once the book is saved.
+   * Records `RefundRequested`, published once the book is saved, and moves the settlement to refunding at `at`, the time Tally learned it.
    */
-  requestRefund(settlementId: string): void {
+  requestRefund(settlementId: string, at: Date): void {
     const payment = this.#payments.find(live => live.id === settlementId);
     if (!payment || payment.status !== 'paid') {
       throw new Error(`The settlement ${settlementId} is not paid in its book, so it cannot be refunded`);
     }
     this.#payments = this.#payments.map(live => (live === payment ? { ...live, status: 'refunding' } : live));
-    this.#moved = [...this.#moved, { id: payment.id, status: 'refunding' }];
+    this.#moved = [...this.#moved, { id: payment.id, status: 'refunding', at: at.toISOString() }];
     this.record(
       RefundRequestedEvent.set({
         settlementId,

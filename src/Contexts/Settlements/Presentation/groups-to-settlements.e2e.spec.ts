@@ -216,6 +216,39 @@ describe('Groups → Settlements', () => {
       status: 'paid',
     });
   });
+
+  it('lists, by the id Groups answered, the settlements of the group a member of it asks for, a member who joined later included (request 19)', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const linus = await signedInPerson('Linus');
+    const created = await http.request('POST', `${api}/groups`, {
+      body: { name: 'Flat', currency: 'EUR' },
+      token: ada.token,
+    });
+    expect(created.status).toBe(201);
+    const { id: groupId } = created.body as { id: string };
+    for (const person of [grace, linus]) {
+      const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+        .body as { id: string };
+      await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: person.token });
+    }
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Dinner', amount: 60, date: '2026-03-01', splitBetween: [ada.id, grace.id] },
+      token: ada.token,
+    });
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      body: { from: grace.id, amount: 30 },
+      token: ada.token,
+    });
+    const { id } = recorded.body as { id: string };
+
+    // Settlements finds the group's settlements by the id Groups answered: the one recorded, with its history.
+    const listed = await http.request('GET', `${api}/groups/${groupId}/settlements`, { token: linus.token });
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual([
+      expect.objectContaining({ id, groupId, history: [expect.objectContaining({ status: 'paid' })] }),
+    ]);
+  });
 });
 
 describe('Groups → Settlements', () => {

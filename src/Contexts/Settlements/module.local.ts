@@ -3,6 +3,7 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ledgerBalancesReadModel } from '@Contexts/Ledger/module.local';
 import { groupsMembersReadModel } from '@Contexts/Groups/module.local';
 import {
+  getGroupSettlements,
   getSettlement,
   getSuggestedSettlements,
   payThroughProvider,
@@ -71,7 +72,8 @@ export const localSettlementsModule = new LiteModule({
       systemClock,
     ),
     refundSettlement(settlementsReadModel, settlementsReadModel, settlementMembers, paymentProvider, systemClock),
-    receivePaymentWebhook(settlementsReadModel),
+    receivePaymentWebhook(settlementsReadModel, systemClock),
     getSettlement(settlementsReadModel, settlementMembers),
+    getGroupSettlements(settlementsReadModel, settlementMembers),
   ],
 });

@@ -119,9 +119,9 @@ describe('SettlementBook with payments through the provider (request 13)', () =>
         .get('grace'),
     ).toBe(0);
 
-    book.settlePayment('pay_1', 'paid');
-    book.settlePayment('pay_1', 'failed');
-    expect(book.moved()).toEqual([{ id: 'settlement-1', status: 'paid' }]);
+    book.settlePayment('pay_1', 'paid', new Date('2026-05-01T10:00:00Z'));
+    book.settlePayment('pay_1', 'failed', new Date('2026-05-01T10:05:00Z'));
+    expect(book.moved()).toEqual([{ id: 'settlement-1', status: 'paid', at: '2026-05-01T10:00:00.000Z' }]);
     expect(book.pendingPayments()).toEqual([]);
     expect(book.pullDomainEvents().map(event => event.constructor.name)).toEqual(['SettlementPaidEvent']);
   });

@@ -1,6 +1,11 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { ISettlementBooks } from '@Contexts/Settlements/Application/ISettlementBooks';
-import { ISettlementQueries, SettledTransfer, SettlementView } from '@Contexts/Settlements/Domain/ISettlementQueries';
+import {
+  ISettlementQueries,
+  SettledTransfer,
+  SettlementHistoryLine,
+  SettlementView,
+} from '@Contexts/Settlements/Domain/ISettlementQueries';
 import { PendingTransfer } from '@Contexts/Settlements/Domain/SettlementBook/StillOwed';
 import {
   ProviderPayment,
@@ -24,6 +29,8 @@ type SettlementRow = {
   provider_payment_id: string | null;
   pay_url: string | null;
 };
+type HistoryRow = { status: SettlementHistoryLine['status']; at: string };
+type HistoryOfGroupRow = HistoryRow & { settlement_id: string };
 type LiveRow = {
   id: string;
   payer: string;
@@ -103,6 +110,8 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
       const insert = connection.prepare(
         'INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, at, provider_payment_id, pay_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       );
+      // Each status a settlement has is a line of its history, written with the fact that moved it (request 19).
+      const history = connection.prepare('INSERT INTO settlement_history (settlement_id, status, at) VALUES (?, ?, ?)');
       for (const settlement of book.recorded()) {
         insert.run(
           settlement.id,
@@ -116,9 +125,13 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
           settlement.providerPaymentId ?? null,
           settlement.payUrl ?? null,
         );
+        history.run(settlement.id, settlement.status, settlement.at);
       }
       const update = connection.prepare('UPDATE settlements SET status = ? WHERE id = ?');
-      for (const { id, status } of book.moved()) update.run(status, id);
+      for (const { id, status, at } of book.moved()) {
+        update.run(status, id);
+        history.run(id, status, at);
+      }
       connection.exec('COMMIT');
     } catch (error) {
       connection.exec('ROLLBACK');
@@ -131,17 +144,29 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
       .prepare('SELECT id, group_id, payer, payee, amount, method, status, at, pay_url FROM settlements WHERE id = ?')
       .get(id) as SettlementRow | undefined;
     if (!row) return undefined;
-    return {
-      id: row.id,
-      groupId: row.group_id,
-      from: row.payer,
-      to: row.payee,
-      amount: row.amount,
-      method: row.method,
-      status: row.status,
-      at: row.at,
-      ...(row.pay_url !== null && { payUrl: row.pay_url }),
-    };
+    const history = this.database.connection
+      .prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq')
+      .all(id) as HistoryRow[];
+    return toView(row, history);
+  }
+
+  async settlementsOf(groupId: string): Promise<SettlementView[]> {
+    const rows = this.database.connection
+      .prepare(
+        'SELECT id, group_id, payer, payee, amount, method, status, at, pay_url FROM settlements WHERE group_id = ? ORDER BY at DESC, rowid DESC',
+      )
+      .all(groupId) as SettlementRow[];
+    const lines = this.database.connection
+      .prepare(
+        `SELECT h.settlement_id, h.status, h.at FROM settlement_history h
+         JOIN settlements s ON s.id = h.settlement_id WHERE s.group_id = ? ORDER BY h.seq`,
+      )
+      .all(groupId) as HistoryOfGroupRow[];
+    const historyOf = new Map<string, HistoryRow[]>();
+    for (const { settlement_id, status, at } of lines) {
+      historyOf.set(settlement_id, [...(historyOf.get(settlement_id) ?? []), { status, at }]);
+    }
+    return rows.map(row => toView(row, historyOf.get(row.id) ?? []));
   }
 
   async settledOf(groupId: string): Promise<SettledTransfer[]> {
@@ -158,6 +183,20 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
   }
 }
+
+/** A settlement as a read model has it: its row, and its history, the earliest first. */
+const toView = (row: SettlementRow, history: HistoryRow[]): SettlementView => ({
+  id: row.id,
+  groupId: row.group_id,
+  from: row.payer,
+  to: row.payee,
+  amount: row.amount,
+  method: row.method,
+  status: row.status,
+  at: row.at,
+  ...(row.pay_url !== null && { payUrl: row.pay_url }),
+  history: history.map(({ status, at }) => ({ status, at })),
+});
 
 const toPayment = (row: LiveRow): ProviderPayment => ({
   id: row.id,

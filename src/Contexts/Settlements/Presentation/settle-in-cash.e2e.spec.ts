@@ -88,6 +88,7 @@ describe('Settlements in cash (request 12)', () => {
       method: 'cash',
       status: 'paid',
       at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/),
+      history: [{ status: 'paid', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/) }],
     });
     expect((await http.request('GET', `${api}/settlements/${id}`, { token: zed.token })).status).toBe(404);
   });

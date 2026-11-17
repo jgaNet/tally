@@ -37,6 +37,13 @@ export class SettlementsDatabase {
           pay_url TEXT
         );
         CREATE INDEX IF NOT EXISTS settlements_by_group ON settlements (group_id);
+        CREATE TABLE IF NOT EXISTS settlement_history (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT,
+          settlement_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS settlement_history_by_settlement ON settlement_history (settlement_id);
         CREATE TABLE IF NOT EXISTS payout_accounts (
           id TEXT PRIMARY KEY,
           owner_id TEXT NOT NULL UNIQUE,
@@ -54,6 +61,13 @@ export class SettlementsDatabase {
       connection.exec(
         'CREATE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id)',
       );
+      // A settlement stored before its history was kept has no line of it: it gets the one it was recorded with, the only status Tally
+      // knows the time of (cash is recorded paid; through the provider, pending). Its later statuses are not known, and are not made up.
+      connection.exec(`
+        INSERT INTO settlement_history (settlement_id, status, at)
+        SELECT id, CASE WHEN method = 'cash' THEN 'paid' ELSE 'pending' END, at FROM settlements
+        WHERE id NOT IN (SELECT settlement_id FROM settlement_history);
+      `);
       this.#connection = connection;
     }
     return this.#connection;

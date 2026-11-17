@@ -145,13 +145,14 @@ export interface PaymentWebhookInput {
  */
 export const receivePaymentWebhook = command(
   'ReceivePaymentWebhook',
-  (books: ISettlementBooks) =>
+  (books: ISettlementBooks, clock: Clock) =>
     async ({ paymentId, status }: PaymentWebhookInput, context) => {
       const outcome = providerOutcomeOf(status);
       const book = await books.bookOfPayment(paymentId);
       if (!outcome || !book) return Result.ok(undefined);
 
-      book.settlePayment(paymentId, outcome);
+      // The status is learned now: its line of the settlement's history is the time of this webhook (request 19).
+      book.settlePayment(paymentId, outcome, clock());
       await books.save(book);
       await publishDomainEvents(book, context);
       return Result.ok(undefined);
@@ -185,6 +186,7 @@ export const refundSettlement = command(
   ) =>
     async ({ id }: RefundSettlementInput, context) => {
       const payee = callerOf(context);
+      const now = clock();
       // The book is read before the settlement and the members: as the other decisions, a change after this read moves the version.
       const book = await books.bookOfSettlement(id);
       if (!book) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
@@ -193,7 +195,7 @@ export const refundSettlement = command(
       const memberIds = await members.membersOf(book.groupId, payee);
       if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
 
-      const decision = decideRefundSettlement({ memberIds, settlement }, { caller: payee }, clock());
+      const decision = decideRefundSettlement({ memberIds, settlement }, { caller: payee }, now);
       if (decision.isFailure()) return decision;
 
       // A paid settlement is held by the book, with the provider's id for it: a settlement the book does not hold is not one it can refund.
@@ -204,7 +206,7 @@ export const refundSettlement = command(
         return Result.fail(new ProviderRefundUnavailableException());
       }
 
-      book.requestRefund(id);
+      book.requestRefund(id, now);
       await books.save(book);
       await publishDomainEvents(book, context);
       return Result.ok(undefined);
@@ -225,5 +227,26 @@ export const getSettlement = query(
         return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
       }
       return Result.ok(settlement);
+    },
+);
+
+/** What a member asks to list: the group (request 19). */
+export interface GetGroupSettlementsInput {
+  groupId: string;
+}
+
+/**
+ * A member of a group reads every settlement of the group, in cash or through the provider, the most recently recorded first, each with
+ * every status it has had, the earliest first (request 19). The members are the current ones: a settlement stays the group's after its
+ * payer or payee has left. Anyone who is not a member gets the answer for a group that does not exist.
+ */
+export const getGroupSettlements = query(
+  'GetGroupSettlements',
+  (settlements: ISettlementQueries, members: ISettlementMembers) =>
+    async ({ groupId }: GetGroupSettlementsInput, context) => {
+      if (!(await members.membersOf(groupId, callerOf(context)))) {
+        return Result.fail(new NotFoundException('Settlements', 'No group is found'));
+      }
+      return Result.ok(await settlements.settlementsOf(groupId));
     },
 );

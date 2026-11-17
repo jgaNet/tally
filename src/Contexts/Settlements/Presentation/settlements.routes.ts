@@ -4,6 +4,7 @@ import { Readable } from 'stream';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 import {
+  getGroupSettlements,
   getSettlement,
   getSuggestedSettlements,
   payThroughProvider,
@@ -76,6 +77,11 @@ export const settlementRoutes: FastifyPluginCallback<{
   module: LiteModule;
   providerSignedBy: ProviderSignatureCheck;
 }> = (fastify, { module, providerSignedBy }, done) => {
+  // A member lists the group's settlements, the most recent first, each with its history (request 19).
+  fastify.get('/groups/:id/settlements', { schema: { tags: ['settlements'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getGroupSettlements), { groupId: (req.params as { id: string }).id }),
+  );
+
   fastify.get('/groups/:id/settlements/suggested', { schema: { tags: ['settlements'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getSuggestedSettlements), { id: (req.params as { id: string }).id }),
   );
