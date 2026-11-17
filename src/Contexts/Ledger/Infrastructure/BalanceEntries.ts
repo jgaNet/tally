@@ -13,6 +13,14 @@ export function entrySumsOf(connection: DatabaseSync, groupId: string): Map<stri
   return new Map(rows.map(row => [row.memberId, Number(row.balance)]));
 }
 
+/** The groups with a balance entry, on the connection given: every group that has an expense recorded. */
+export function groupIdsOf(connection: DatabaseSync): string[] {
+  const rows = connection
+    .prepare('SELECT DISTINCT group_id AS groupId FROM ledger_balance_entries ORDER BY group_id')
+    .all() as { groupId: string }[];
+  return rows.map(row => row.groupId);
+}
+
 /** A balance is the expenses' part plus what the settlements paid to it (ADR 7): a member's balance, read by Ledger, counts both. */
 export function withSettled(entries: Map<string, number>, settled: Map<string, number>): Map<string, number> {
   const sums = new Map(entries);

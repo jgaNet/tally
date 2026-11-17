@@ -11,4 +11,8 @@ export class LedgerGroupBalances implements IGroupBalances {
   balancesOf(groupId: string): Promise<Map<string, number>> {
     return this.sums.sumsByMember(groupId);
   }
+
+  groupIds(): Promise<string[]> {
+    return this.sums.groupIds();
+  }
 }

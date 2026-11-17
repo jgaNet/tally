@@ -3,12 +3,13 @@ export const RefusedSchema = {
   properties: { message: { type: 'string' } },
 } as const;
 
+/** A notice: an expense's names its expense; a reminder's has none (request 18). */
 const NoticeSchema = {
   type: 'object',
-  required: ['id', 'kind', 'groupId', 'expenseId', 'amount', 'at'],
+  required: ['id', 'kind', 'groupId', 'amount', 'at'],
   properties: {
     id: { type: 'string' },
-    kind: { enum: ['expense'] },
+    kind: { enum: ['expense', 'reminder'] },
     groupId: { type: 'string' },
     expenseId: { type: 'string' },
     amount: { type: 'integer' },

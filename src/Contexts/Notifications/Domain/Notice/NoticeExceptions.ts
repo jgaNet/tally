@@ -12,3 +12,9 @@ export class InvalidNoticeAmount extends NoticeException {
     super('InvalidNoticeAmount', 'The amount of a notice must be a whole number of 0 or more');
   }
 }
+
+export class InvalidReminderAmount extends NoticeException {
+  constructor() {
+    super('InvalidReminderAmount', 'A reminder is for more than the threshold still owed, as a whole number');
+  }
+}

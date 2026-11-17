@@ -4,6 +4,7 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import { groupCurrencyInCommand, groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
 import { ISettlementEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementEffects';
 import { IGroupBalances } from '@Contexts/Settlements/Domain/Settlement/Ports/IGroupBalances';
+import { IMemberDebts } from '@Contexts/Settlements/Domain/Settlement/Ports/IMemberDebts';
 import {
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
@@ -30,6 +31,7 @@ import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/Sq
 import { SqliteSettlementEffects } from '@Contexts/Settlements/Infrastructure/SqliteSettlementEffects';
 import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountRepository';
 import { SqlitePayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountQueries';
+import { SettlementsMemberDebts } from '@Contexts/Settlements/Infrastructure/SettlementsMemberDebts';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADR 5, ADR 6, ADR 7, ADR 8), kept in the application's SQLite file. Its
@@ -54,6 +56,14 @@ export const settlementEffectsInCommand: ISettlementEffects = new SqliteSettleme
 
 /** What the payments waiting at the provider do to each balance, for the suggestions (ADR 8), outside any transaction. */
 const waitingEffects: IWaitingEffects = new SqliteSettlementEffects(database, false, ['pending']);
+
+/**
+ * Who still owes what, as Notifications' sweep asks it (ADR 12), given the balances it reads from Ledger for the sweep
+ * (outside any transaction). Exported for the composition root to hand Notifications; this wiring does not import it.
+ */
+export function memberDebtsWith(balances: IGroupBalances): IMemberDebts {
+  return new SettlementsMemberDebts(balances, waitingEffects, new GroupsSettlementMembers(groupMembership));
+}
 
 /**
  * The Settlements module, given the balances it decides on: `balances` for its queries (outside a transaction) and

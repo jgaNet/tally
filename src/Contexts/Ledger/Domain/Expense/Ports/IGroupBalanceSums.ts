@@ -5,4 +5,6 @@
  */
 export interface IGroupBalanceSums {
   sumsByMember(groupId: string): Promise<Map<string, number>>;
+  /** The groups that have a balance entry, that is, every group with an expense recorded; a group with none has no balance to read. */
+  groupIds(): Promise<string[]>;
 }

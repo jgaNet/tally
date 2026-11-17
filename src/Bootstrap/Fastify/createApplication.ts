@@ -1,5 +1,8 @@
-import { Logger, relayOutbox } from '@Architecture/Application';
+import { randomUUID } from 'node:crypto';
+
+import { Clock, Logger, relayOutbox } from '@Architecture/Application';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
+import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
 
@@ -16,11 +19,12 @@ import {
   localLedgerModule,
   memberBalanceSumsInCommand,
 } from '@Contexts/Ledger/module.local';
-import { settlementsModuleWith } from '@Contexts/Settlements/module.local';
+import { memberDebtsWith, settlementsModuleWith } from '@Contexts/Settlements/module.local';
 import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/LedgerGroupBalances';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
-import { localNotificationsModule } from '@Contexts/Notifications/module.local';
+import { debtSweepWith, localNotificationsModule } from '@Contexts/Notifications/module.local';
+import { SettlementsOutstandingDebts } from '@Contexts/Notifications/Infrastructure/SettlementsOutstandingDebts';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/API/REST/Routes';
 import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
@@ -39,7 +43,15 @@ export async function createApplication({
   webOrigins = String(process.env.WEB_ORIGINS || '')
     .split(',')
     .filter(Boolean),
-}: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
+  clock = systemClock,
+}: {
+  logger?: Logger;
+  apiPrefix?: string;
+  port?: number;
+  webOrigins?: string[];
+  /** The application's now, given to the background job (ADR 42); a test passes a clock it moves. */
+  clock?: Clock;
+} = {}): Promise<FastifyApplication> {
   const database = SqliteDatabase.shared();
   // Groups asks Ledger a member's balance when one leaves (ADR 4): the two wirings do not import each other, so the
   // composition root gives Groups the port over Ledger's read.
@@ -81,6 +93,20 @@ export async function createApplication({
     .registerRoutes('/', noticeRoutes, { notificationsModule: localNotificationsModule })
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule });
 
+  // The background job that notes the lasting debts and reminds them (request 18, ADR 12): every JOBS_INTERVAL_SECONDS,
+  // it reads what each member still owes from Settlements (its balances from Ledger, as Settlements reads them), and the
+  // reminder period is REMINDER_PERIOD_SECONDS. It is a job of the application, not a request: nothing reads it.
+  const sweep = debtSweepWith(
+    new SettlementsOutstandingDebts(memberDebtsWith(new LedgerGroupBalances(groupBalanceSums))),
+    clock,
+    seconds('REMINDER_PERIOD_SECONDS', 604800) * 1000,
+  );
+  app.registerJob({
+    name: 'sweep the debts',
+    every: seconds('JOBS_INTERVAL_SECONDS', 60) * 1000,
+    run: () => sweep.run(app.executionContext(randomUUID())),
+  });
+
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): the outbox is in the
   // database file, so a fact a crash kept from being published is published by the next server. The
@@ -89,4 +115,10 @@ export async function createApplication({
   const startup = app.executionContext('startup');
   if (startup.unitOfWork) await relayOutbox(startup.unitOfWork.outbox, app.getEventBus(), startup);
   return app;
+}
+
+/** A number of seconds from the environment, when it is set to a positive number; the default otherwise. */
+function seconds(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return process.env[name] && value > 0 ? value : fallback;
 }

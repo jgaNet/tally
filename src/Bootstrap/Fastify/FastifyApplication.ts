@@ -16,6 +16,16 @@ import { formatOf } from '@Architecture/Presentation/Format';
 
 const ANONYMOUS = { subjectId: '', role: Role.GUEST };
 
+/**
+ * A job of the application (request 1): run every `every` milliseconds while the server serves, and once by `runJobs()`,
+ * which a test uses to step time. A job that fails is logged; the others still run, and the next tick runs it again.
+ */
+export interface Job {
+  name: string;
+  every: number;
+  run(): Promise<unknown>;
+}
+
 export interface FastifyApplicationOptions {
   logger: Logger;
   /** Every route is served under it: `v1` serves `/notes` at `/v1/notes`. */
@@ -45,6 +55,8 @@ export class FastifyApplication extends Application {
   readonly apiPrefix: string;
   readonly port: number;
   private readonly unitOfWork: () => UnitOfWork;
+  #jobs: Job[] = [];
+  #timers: NodeJS.Timeout[] = [];
 
   constructor({ logger, apiPrefix, port = 0, webOrigins = [], authenticate, unitOfWork }: FastifyApplicationOptions) {
     super();
@@ -145,14 +157,49 @@ export class FastifyApplication extends Application {
       logger: this.logger,
     });
   }
+  /** Registers a job: it runs while the server serves, every `job.every` milliseconds, and never twice at once. */
+  registerJob(job: Job): this {
+    this.#jobs.push(job);
+    return this;
+  }
+
+  /** Runs every job once, in order, and waits for each. */
+  async runJobs(): Promise<void> {
+    for (const job of this.#jobs) await this.#runOnce(job);
+  }
+
   async start(port: number = this.port): Promise<void> {
     await this.fastify.listen({ port, host: '127.0.0.1' });
     await this.fastify.ready();
+    for (const job of this.#jobs) {
+      let busy = false;
+      this.#timers.push(
+        setInterval(async () => {
+          if (busy) return;
+          busy = true;
+          try {
+            await this.#runOnce(job);
+          } finally {
+            busy = false;
+          }
+        }, job.every),
+      );
+    }
     this.logger.info(`Listening on ${this.address}`);
   }
 
   async stop(): Promise<void> {
+    for (const timer of this.#timers) clearInterval(timer);
+    this.#timers = [];
     await this.fastify.close();
+  }
+
+  async #runOnce(job: Job): Promise<void> {
+    try {
+      await job.run();
+    } catch (error) {
+      this.logger.error(`The job ${job.name} failed`, error);
+    }
   }
 
   get address(): string {

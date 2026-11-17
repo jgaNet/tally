@@ -16,6 +16,7 @@ why, what it costs, and when to revisit it.
 | [9](0009-refund-through-the-provider.md) | Refund through the payment provider: the payee asks, and the balances go back when the provider says so |
 | [10](0010-payout-accounts-in-settlements.md) | Payout accounts live in Settlements, and a payment is paid to the payee's account |
 | [11](0011-notices-and-the-expense-event.md) | Notices: Ledger publishes ExpenseRecorded, and Notifications makes one notice per member |
+| [12](0012-reminders-the-sweep-and-the-debt-watch.md) | Reminders: a background sweep keeps a debt watch per member, and Settlements answers what is still owed |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
