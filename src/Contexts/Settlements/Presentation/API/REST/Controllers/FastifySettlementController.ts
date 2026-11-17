@@ -9,6 +9,7 @@ import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Applica
 import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RecordCashSettlement';
 import { RefundSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
 import {
+  GetGroupSettlementsQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
@@ -66,6 +67,14 @@ export class FastifySettlementController {
       this.#module,
       ReceivePaymentWebhookCommandEvent.set({ webhookId: id, paymentId, status, at }),
     );
+  }
+
+  async getGroupSettlements(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetGroupSettlementsQueryHandler)
+      .handle({ groupId: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }
 
   async getSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

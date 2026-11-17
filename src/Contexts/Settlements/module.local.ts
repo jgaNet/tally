@@ -21,6 +21,7 @@ import {
   RefundSettlementCommandHandler,
 } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
 import {
+  GetGroupSettlementsQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
@@ -92,11 +93,11 @@ export const localSettlementsModule = new Module({
     },
     {
       event: RefundSettlementCommandEvent,
-      handlers: [new RefundSettlementCommandHandler(books, members, provider)],
+      handlers: [new RefundSettlementCommandHandler(books, members, provider, systemClock)],
     },
     {
       event: ReceivePaymentWebhookCommandEvent,
-      handlers: [new ReceivePaymentWebhookCommandHandler(books)],
+      handlers: [new ReceivePaymentWebhookCommandHandler(books, systemClock)],
     },
     {
       event: SetPayoutAccountCommandEvent,
@@ -105,6 +106,7 @@ export const localSettlementsModule = new Module({
   ],
   queries: [
     new GetSuggestedSettlementsQueryHandler(balances, members, readModels),
+    new GetGroupSettlementsQueryHandler(readModels, members),
     new GetSettlementQueryHandler(readModels, members),
     new GetPayoutAccountQueryHandler(payoutAccountReadModels),
   ],

@@ -3,7 +3,12 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
-import { Settlement, SettlementMethod, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import {
+  Settlement,
+  SettlementLine,
+  SettlementMethod,
+  SettlementStatus,
+} from '@Contexts/Settlements/Domain/Settlement/Settlement';
 import { createSettlementsTables } from '@Contexts/Settlements/Infrastructure/SettlementsTables';
 
 interface BookRow {
@@ -43,13 +48,14 @@ export class SqliteSettlementBookRepository implements ISettlementBookRepository
       groupId.value,
     );
     if (!row) return null;
+    const history = historyOfGroup(this.database, groupId.value);
     const settlements = this.database
       .all<SettlementRow>(
         `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
          FROM settlements WHERE group_id = ? ORDER BY recorded_at, id`,
         groupId.value,
       )
-      .map(toSettlement);
+      .map(settled => toSettlement(settled, history.get(settled.id) ?? []));
     return SettlementBook.fromSnapshot({ id: row.id, groupId: row.group_id, version: row.version, settlements });
   }
 
@@ -106,12 +112,45 @@ export class SqliteSettlementBookRepository implements ISettlementBookRepository
     for (const settlement of book.statusChangedSinceRead) {
       this.database.run('UPDATE settlements SET status = ? WHERE id = ?', settlement.status, settlement.id.value);
     }
+    for (const line of book.learnedSinceRead) {
+      this.database.run(
+        'INSERT INTO settlement_history (settlement_id, position, status, learned_at) VALUES (?, ?, ?, ?)',
+        line.settlementId.value,
+        line.position,
+        line.status,
+        line.at.toISOString(),
+      );
+    }
     return Result.ok();
   }
 }
 
-/** A settlement as the book reads it: its status, and its provider's payment when it has one. */
-export const toSettlement = (row: SettlementRow): Settlement =>
+/** One line of a settlement's history as the table keeps it. */
+export interface HistoryRow {
+  settlement_id: string;
+  status: SettlementStatus;
+  learned_at: string;
+}
+
+/** The history of every settlement of a group, each settlement's lines the earliest first, read in the same snapshot as its book. */
+export const historyOfGroup = (database: SqliteDatabase, groupId: string): Map<string, SettlementLine[]> => {
+  const byId = new Map<string, SettlementLine[]>();
+  const rows = database.all<HistoryRow>(
+    `SELECT h.settlement_id, h.status, h.learned_at FROM settlement_history h
+       JOIN settlements s ON s.id = h.settlement_id
+     WHERE s.group_id = ? ORDER BY h.settlement_id, h.position`,
+    groupId,
+  );
+  for (const row of rows) {
+    const lines = byId.get(row.settlement_id) ?? [];
+    lines.push({ status: row.status, at: new Date(row.learned_at) });
+    byId.set(row.settlement_id, lines);
+  }
+  return byId;
+};
+
+/** A settlement as the book reads it: its status, its provider's payment when it has one, and the lines of its history. */
+export const toSettlement = (row: SettlementRow, history: readonly SettlementLine[]): Settlement =>
   new Settlement(
     new Id(row.id),
     new Id(row.group_id),
@@ -122,6 +161,7 @@ export const toSettlement = (row: SettlementRow): Settlement =>
     row.status,
     new Date(row.recorded_at),
     row.provider_payment_id && row.pay_url ? { paymentId: row.provider_payment_id, payUrl: row.pay_url } : null,
+    history,
   );
 
 const conflict = (groupId: string): IResult =>

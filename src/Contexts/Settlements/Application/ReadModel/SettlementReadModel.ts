@@ -1,8 +1,15 @@
 import { SettlementMethod, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
+/** A status a settlement had, and when Tally learned it, as an ISO string (request 19). */
+export interface SettlementHistoryLine {
+  status: SettlementStatus;
+  at: string;
+}
+
 /**
  * One settlement as a member of its group reads it: who paid whom, how much, how it is paid, where it stands and when it was
- * recorded. A settlement through the provider has the link its payer pays at (`payUrl`); one in cash has none.
+ * recorded. A settlement through the provider has the link its payer pays at (`payUrl`); one in cash has none. `history` is every
+ * status it has had, the earliest first, each with when Tally learned it.
  */
 export interface SettlementReadModel {
   id: string;
@@ -17,4 +24,5 @@ export interface SettlementReadModel {
   /** When it was recorded, as an ISO string. */
   at: string;
   payUrl?: string;
+  history: SettlementHistoryLine[];
 }

@@ -7,13 +7,13 @@ import {
   ISettledAmountsQueries,
   SettledAmountOf,
 } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettledAmountsQueries';
-import { SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { SettlementLine, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 import { createSettlementsTables } from '@Contexts/Settlements/Infrastructure/SettlementsTables';
-import { SettlementRow } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBookRepository';
+import { historyOfGroup, SettlementRow } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBookRepository';
 
 /**
- * The settlements' read models, in the application's file. `findById` is read outside any transaction, so it waits for the one in
- * progress. `settledOf` counts the paid settlements, and those being refunded, which the money has not left yet (request 15): a
+ * The settlements' read models, in the application's file. `findById` and `ofGroup` are read outside any transaction, so they wait
+ * for the one in progress. `settledOf` counts the paid settlements, and those being refunded, which the money has not left yet (request 15): a
  * balance counts a payment once it is paid, and stops counting it once it is refunded (the storm's T11). `pendingEffectOf`
  * counts the payments waiting at the provider, which the suggestions count as paid. Neither takes a lock of its own: Ledger reads
  * `settledOf` when it reads a balance, inside a command's transaction (it holds the file already) or inside its own exclusive read.
@@ -30,7 +30,23 @@ export class SqliteSettlementReadModels implements ISettlementQueries, ISettledA
          FROM settlements WHERE id = ?`,
         id,
       );
-      return row ? toReadModel(row) : null;
+      if (!row) return null;
+      const history = historyOfGroup(this.database, row.group_id).get(row.id) ?? [];
+      return toReadModel(row, history);
+    });
+  }
+
+  /** Every settlement of the group, in the order they were recorded, the earliest first, each with its history. */
+  async ofGroup(groupId: string): Promise<SettlementReadModel[]> {
+    return this.database.exclusive(() => {
+      const history = historyOfGroup(this.database, groupId);
+      return this.database
+        .all<SettlementRow>(
+          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
+           FROM settlements WHERE group_id = ? ORDER BY rowid`,
+          groupId,
+        )
+        .map(row => toReadModel(row, history.get(row.id) ?? []));
     });
   }
 
@@ -61,7 +77,7 @@ export class SqliteSettlementReadModels implements ISettlementQueries, ISettledA
   }
 }
 
-const toReadModel = (row: SettlementRow): SettlementReadModel => ({
+const toReadModel = (row: SettlementRow, history: readonly SettlementLine[]): SettlementReadModel => ({
   id: row.id,
   groupId: row.group_id,
   from: row.payer,
@@ -71,4 +87,5 @@ const toReadModel = (row: SettlementRow): SettlementReadModel => ({
   status: row.status,
   at: row.recorded_at,
   ...(row.pay_url ? { payUrl: row.pay_url } : {}),
+  history: history.map(line => ({ status: line.status, at: line.at.toISOString() })),
 });

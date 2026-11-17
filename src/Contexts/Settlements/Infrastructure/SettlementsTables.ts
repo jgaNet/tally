@@ -29,6 +29,20 @@ export function createSettlementsTables(database: SqliteDatabase): void {
   database.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id)',
   );
+  // Every status a settlement has had, the earliest first (request 19): one line per status Tally learned, written in the
+  // transaction of the change it records, and never changed. `position` counts from 1 within its settlement.
+  database.exec(`CREATE TABLE IF NOT EXISTS settlement_history (
+    settlement_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    learned_at TEXT NOT NULL,
+    PRIMARY KEY (settlement_id, position)
+  )`);
+  // A settlement stored before its history was kept has no line yet: the one it was recorded with is known, so it is given
+  // that line, at the time it was recorded. Later statuses of such a settlement were not kept, and cannot be recovered.
+  database.exec(`INSERT INTO settlement_history (settlement_id, position, status, learned_at)
+    SELECT id, 1, CASE method WHEN 'cash' THEN 'paid' ELSE 'pending' END, recorded_at FROM settlements
+    WHERE NOT EXISTS (SELECT 1 FROM settlement_history WHERE settlement_history.settlement_id = settlements.id)`);
   // A person's payout account at the provider (request 16): one row per person, unique by owner, at its version.
   database.exec(`CREATE TABLE IF NOT EXISTS payout_accounts (
     id TEXT PRIMARY KEY,

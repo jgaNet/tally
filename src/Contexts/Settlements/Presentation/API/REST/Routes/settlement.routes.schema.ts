@@ -31,7 +31,7 @@ export const LaterCommandResSchema = {
 
 const SettlementSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at'],
+  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -42,12 +42,31 @@ const SettlementSchema = {
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     payUrl: { type: 'string', minLength: 1 },
+    history: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        required: ['status', 'at'],
+        properties: {
+          status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+          at: { type: 'string' },
+        },
+      },
+    },
   },
 } as const;
 
 /** A read: a settlement, to a member of its group only; anyone else is told it does not exist. */
 export const GetSettlementResSchema = {
   200: { description: 'Success', ...SettlementSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;
+
+/** A read: the group's settlements, the most recently recorded first, to a member of the group only; anyone else is told it does not exist. */
+export const GetGroupSettlementsResSchema = {
+  200: { description: 'Success', type: 'array', items: SettlementSchema },
   401: RefusedSchema,
   404: RefusedSchema,
 } as const;

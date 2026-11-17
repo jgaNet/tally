@@ -5,6 +5,7 @@ import { Module } from '@Architecture/Application';
 import { IWebhookSignatures } from '@Contexts/Settlements/Application/Ports/IWebhookSignatures';
 import { FastifySettlementController } from '@Contexts/Settlements/Presentation/API/REST/Controllers/FastifySettlementController';
 import {
+  GetGroupSettlementsResSchema,
   GetSettlementResSchema,
   GetSuggestedSettlementsResSchema,
   LaterCommandResSchema,
@@ -62,6 +63,13 @@ export const settlementRoutes = function (
       },
     },
     controller.receivePaymentWebhook.bind(controller),
+  );
+
+  // The group's settlements, the most recently recorded first, each with its history (request 19). A whole path, like the group's others.
+  fastify.get(
+    '/groups/:id/settlements',
+    { schema: { tags: ['settlements'], response: GetGroupSettlementsResSchema } },
+    controller.getGroupSettlements.bind(controller),
   );
 
   fastify.get(

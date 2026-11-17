@@ -1,4 +1,4 @@
-import { CommandHandler, ExecutionContext } from '@Architecture/Application';
+import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -19,6 +19,7 @@ export class RefundSettlementCommandHandler extends CommandHandler<RefundSettlem
     private books: ISettlementBookRepository,
     private members: ISettlementMembers,
     private provider: IPaymentProvider,
+    private clock: Clock,
   ) {
     super();
   }
@@ -46,6 +47,7 @@ export class RefundSettlementCommandHandler extends CommandHandler<RefundSettlem
       caller.data,
       await this.members.membersOf(book.groupId.value),
       accepted,
+      this.clock(),
     );
     if (recorded.isFailure()) return recorded;
 

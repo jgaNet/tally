@@ -19,14 +19,22 @@ export interface ProviderPayment {
   readonly payUrl: string;
 }
 
+/** A status a settlement had, and when Tally learned it (request 19). */
+export interface SettlementLine {
+  readonly status: SettlementStatus;
+  readonly at: Date;
+}
+
 /**
  * One settlement, as the book keeps it: `payer` pays `payee` the `amount` of a group, by `method`, at `at`. A cash settlement is
  * `paid` from the moment it is recorded. A settlement through the provider is `pending` until the provider's webhook says it
  * `paid` or `failed` (`end`), and carries the provider's payment. A paid one may be refunded through the provider (`startRefund`, then
- * `end('refunded')`). It is decided by the book and never changed otherwise.
+ * `end('refunded')`). It is decided by the book and never changed otherwise. Every status it has had is kept in `history`, the
+ * earliest first, each with when Tally learned it: a line is added by each of those moves and by nothing else.
  */
 export class Settlement {
   private currentStatus: SettlementStatus;
+  private readonly lines: SettlementLine[];
 
   constructor(
     readonly id: Id,
@@ -38,21 +46,36 @@ export class Settlement {
     status: SettlementStatus,
     readonly at: Date,
     readonly provider: ProviderPayment | null,
+    /** The lines kept so far, the earliest first; the last one is the status the settlement has now. */
+    history: readonly SettlementLine[],
   ) {
     this.currentStatus = status;
+    this.lines = [...history];
   }
 
   get status(): SettlementStatus {
     return this.currentStatus;
   }
 
+  /** Every status the settlement has had, the earliest first. */
+  get history(): readonly SettlementLine[] {
+    return this.lines;
+  }
+
   /** The provider has said how the payment ended: it is no longer waiting, or it was refunded. The book decides the move. */
-  end(outcome: PaymentOutcome): void {
-    this.currentStatus = outcome;
+  end(outcome: PaymentOutcome, learnedAt: Date): SettlementLine {
+    return this.learn(outcome, learnedAt);
   }
 
   /** Tally asked the provider to refund the paid payment: the money has not gone back yet, so the settlement still counts. */
-  startRefund(): void {
-    this.currentStatus = 'refunding';
+  startRefund(learnedAt: Date): SettlementLine {
+    return this.learn('refunding', learnedAt);
+  }
+
+  private learn(status: SettlementStatus, learnedAt: Date): SettlementLine {
+    this.currentStatus = status;
+    const line: SettlementLine = { status, at: learnedAt };
+    this.lines.push(line);
+    return line;
   }
 }

@@ -22,7 +22,16 @@ import {
   SettlementRecordedEvent,
   SettlementRefundedEvent,
 } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
-import { PaymentOutcome, Settlement } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { PaymentOutcome, Settlement, SettlementLine } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+
+/**
+ * A line of a settlement's history that Tally learned in this book, and where it stands in that history (its position, from 1): the
+ * repository stores it in the same transaction as the change it records.
+ */
+export interface LearnedLine extends SettlementLine {
+  readonly settlementId: Id;
+  readonly position: number;
+}
 
 /**
  * What a settlement is decided on, read by the handler inside its transaction: the two balances as Ledger counts them (a negative
@@ -75,6 +84,8 @@ export interface PaymentLink {
 export class SettlementBook extends AggregateRoot {
   private readonly made: Settlement[] = [];
   private readonly statusChanged: Settlement[] = [];
+  /** The lines learned on settlements that were read (a settlement recorded here keeps its lines in `made`). */
+  private readonly learned: LearnedLine[] = [];
 
   private constructor(
     id: Id,
@@ -116,6 +127,22 @@ export class SettlementBook extends AggregateRoot {
     return this.statusChanged;
   }
 
+  /**
+   * Every line of history this book learned since it was read: the first line of each settlement recorded here, then the lines
+   * learned on the settlements that were read, in the order they were learned.
+   */
+  get learnedSinceRead(): readonly LearnedLine[] {
+    const recorded = this.made.flatMap(settlement =>
+      settlement.history.map((line, index) => ({
+        settlementId: settlement.id,
+        position: index + 1,
+        status: line.status,
+        at: line.at,
+      })),
+    );
+    return [...recorded, ...this.learned];
+  }
+
   /** The settlements of the group whose payment is waiting at the provider. */
   private get waiting(): Settlement[] {
     return this.settlements.filter(settlement => settlement.status === 'pending');
@@ -139,6 +166,7 @@ export class SettlementBook extends AggregateRoot {
       'paid',
       now,
       null,
+      [{ status: 'paid', at: now }],
     );
     this.keep(settlement);
     this.record(
@@ -197,6 +225,7 @@ export class SettlementBook extends AggregateRoot {
       'pending',
       planned.at,
       { paymentId: link.paymentId, payUrl: link.payUrl },
+      [{ status: 'pending', at: planned.at }],
     );
     this.keep(settlement);
     this.record(
@@ -216,16 +245,16 @@ export class SettlementBook extends AggregateRoot {
    * paid one (or one being refunded) is refunded, and a pending one may be refunded straight away when the refund overtakes its
    * success. Anything else changes nothing: a payment Tally does not know, a status it does not know, a status the payment has gone
    * past (a `succeeded` after a refund, or `pending` at any time), and a webhook that comes twice (request 14, request 15). Returns
-   * whether anything changed.
+   * whether anything changed. `now` is when Tally learned the status: the clock the handler reads, never a default.
    */
-  receivePayment(paymentId: string, status: string): boolean {
+  receivePayment(paymentId: string, status: string, now: Date): boolean {
     const settlement = this.settlements.find(known => known.provider?.paymentId === paymentId);
     if (!settlement) return false;
 
     const outcome = outcomeOf(status);
     if (!outcome || !movesTo(settlement.status, outcome)) return false;
 
-    settlement.end(outcome);
+    this.learn(settlement, settlement.end(outcome, now));
     this.statusChanged.push(settlement);
     const payload = {
       settlementId: settlement.id.value,
@@ -259,15 +288,16 @@ export class SettlementBook extends AggregateRoot {
 
   /**
    * Second half of a refund: the rules are decided again, on the members read after the provider answered, and the settlement is
-   * refunding (it still counts, the money is not back). A refusal by the provider (`accepted` false) changes nothing.
+   * refunding (it still counts, the money is not back). A refusal by the provider (`accepted` false) changes nothing. `now` is when
+   * Tally learned the provider accepted the refund.
    */
-  recordRefund(settlementId: Id, caller: Id, members: string[], accepted: boolean): IResult<Settlement> {
+  recordRefund(settlementId: Id, caller: Id, members: string[], accepted: boolean, now: Date): IResult<Settlement> {
     const decided = this.decideRefund(settlementId, caller, members);
     if (decided.isFailure()) return decided;
     if (!accepted) return Result.fail(new ProviderRefundUnavailable());
 
     const settlement = this.findSettlement(settlementId) as Settlement;
-    settlement.startRefund();
+    this.learn(settlement, settlement.startRefund(now));
     this.statusChanged.push(settlement);
     this.record(
       RefundRequestedEvent.set({
@@ -317,6 +347,16 @@ export class SettlementBook extends AggregateRoot {
   private keep(settlement: Settlement): void {
     this.made.push(settlement);
     this.settlements.push(settlement);
+  }
+
+  /** A line learned on a settlement that was read: kept for the repository, at its place in the settlement's history. */
+  private learn(settlement: Settlement, line: SettlementLine): void {
+    this.learned.push({
+      settlementId: settlement.id,
+      position: settlement.history.length,
+      status: line.status,
+      at: line.at,
+    });
   }
 }
 
