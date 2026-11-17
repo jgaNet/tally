@@ -2,6 +2,7 @@ import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { createLedgerTables } from '@Contexts/Ledger/Infrastructure/LedgerTables';
 
@@ -12,6 +13,7 @@ interface Row {
   amount: number;
   spent_on: string;
   paid_by: string;
+  split_kind: SplitKind;
   version: number;
 }
 
@@ -32,7 +34,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
 
   async findById(id: Id): Promise<Expense | null> {
     const row = this.database.get<Row>(
-      'SELECT id, group_id, description, amount, spent_on, paid_by, version FROM expenses WHERE id = ?',
+      'SELECT id, group_id, description, amount, spent_on, paid_by, split_kind, version FROM expenses WHERE id = ?',
       id.value,
     );
     if (!row) return null;
@@ -47,32 +49,35 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       amount: row.amount,
       date: row.spent_on,
       paidBy: row.paid_by,
+      splitKind: row.split_kind,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       version: row.version,
     });
   }
 
   async save(expense: Expense): Promise<IResult> {
-    const { id, groupId, description, amount, date, paidBy, shares, version } = expense.toSnapshot();
+    const { id, groupId, description, amount, date, paidBy, splitKind, shares, version } = expense.toSnapshot();
     if (version === 0) {
       this.database.run(
-        'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, split_kind, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         id,
         groupId,
         description,
         amount,
         date,
         paidBy,
+        splitKind,
         1,
       );
     } else {
       const changed = this.database.run(
-        `UPDATE expenses SET description = ?, amount = ?, spent_on = ?, paid_by = ?, version = ?
+        `UPDATE expenses SET description = ?, amount = ?, spent_on = ?, paid_by = ?, split_kind = ?, version = ?
          WHERE id = ? AND version = ?`,
         description,
         amount,
         date,
         paidBy,
+        splitKind,
         version + 1,
         id,
         version,

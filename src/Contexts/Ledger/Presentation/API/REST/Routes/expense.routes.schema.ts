@@ -5,7 +5,7 @@ const RefusedSchema = {
 
 const ExpenseSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'version', 'shares'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'splitKind', 'version', 'shares'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -13,6 +13,7 @@ const ExpenseSchema = {
     amount: { type: 'integer' },
     date: { type: 'string' },
     paidBy: { type: 'string' },
+    splitKind: { enum: ['equal', 'exact', 'shares'] },
     version: { type: 'integer', minimum: 1 },
     shares: {
       type: 'array',
@@ -25,29 +26,60 @@ const ExpenseSchema = {
   },
 } as const;
 
-/** The shape of a body only: whether a value is allowed is the expense's to decide, behind the 202 (API-BODY-SHAPE). */
-export const RecordExpenseBodySchema = {
-  type: 'object',
-  required: ['description', 'amount', 'date', 'splitBetween'],
-  properties: {
-    description: { type: 'string' },
-    amount: { type: 'integer' },
-    date: { type: 'string' },
-    splitBetween: { type: 'array', items: { type: 'string' } },
+/**
+ * The three ways to split, as a body gives them: exactly one of them (request 7). Each is listed by shape only; whether a
+ * value is allowed (the amounts add up, a share is at least 1, a member listed once) is the expense's to decide, behind the 202.
+ */
+const SplitBodyProperties = {
+  splitBetween: { type: 'array', items: { type: 'string' } },
+  splitExactly: {
+    type: 'array',
+    items: {
+      type: 'object',
+      required: ['memberId', 'amount'],
+      properties: { memberId: { type: 'string' }, amount: { type: 'integer' } },
+    },
+  },
+  splitByShares: {
+    type: 'array',
+    items: {
+      type: 'object',
+      required: ['memberId', 'shares'],
+      properties: { memberId: { type: 'string' }, shares: { type: 'integer' } },
+    },
   },
 } as const;
 
-/** The body of an edit: the expense as it is given again, and the version its author read (request 6). */
-export const EditExpenseBodySchema = {
+/** Exactly one of the three split fields: none, or two or more, is a body of the wrong shape (400). */
+const ExactlyOneSplit = {
+  oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
+} as const;
+
+/** The shape of a body only: whether a value is allowed is the expense's to decide, behind the 202 (API-BODY-SHAPE). */
+export const RecordExpenseBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date', 'splitBetween', 'version'],
+  required: ['description', 'amount', 'date'],
   properties: {
     description: { type: 'string' },
     amount: { type: 'integer' },
     date: { type: 'string' },
-    splitBetween: { type: 'array', items: { type: 'string' } },
-    version: { type: 'integer' },
+    ...SplitBodyProperties,
   },
+  ...ExactlyOneSplit,
+} as const;
+
+/** The body of an edit: the expense as it is given again, split one of the three ways, and the version its author read (request 6). */
+export const EditExpenseBodySchema = {
+  type: 'object',
+  required: ['description', 'amount', 'date', 'version'],
+  properties: {
+    description: { type: 'string' },
+    amount: { type: 'integer' },
+    date: { type: 'string' },
+    version: { type: 'integer' },
+    ...SplitBodyProperties,
+  },
+  ...ExactlyOneSplit,
 } as const;
 
 /** A command answered later: 202 with an operation, whose SUCCESS result is the expense's id. */

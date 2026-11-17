@@ -39,7 +39,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
       description: payload.description,
       amount: payload.amount,
       date: payload.date,
-      splitBetween: payload.splitBetween.map(id => new Id(id)),
+      split: payload.split,
       groupMembers: await this.groupMembers.membersOf(expense.groupId.value),
       now: this.clock(),
     });

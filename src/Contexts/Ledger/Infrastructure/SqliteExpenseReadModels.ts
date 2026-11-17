@@ -11,6 +11,7 @@ interface Row {
   amount: number;
   spent_on: string;
   paid_by: string;
+  split_kind: 'equal' | 'exact' | 'shares';
   version: number;
 }
 
@@ -23,7 +24,7 @@ export class SqliteExpenseReadModels implements IExpenseQueries {
   async findById(id: string): Promise<ExpenseReadModel | null> {
     return this.database.exclusive(() => {
       const row = this.database.get<Row>(
-        'SELECT id, group_id, description, amount, spent_on, paid_by, version FROM expenses WHERE id = ?',
+        'SELECT id, group_id, description, amount, spent_on, paid_by, split_kind, version FROM expenses WHERE id = ?',
         id,
       );
       if (!row) return null;
@@ -38,6 +39,7 @@ export class SqliteExpenseReadModels implements IExpenseQueries {
         amount: row.amount,
         date: row.spent_on,
         paidBy: row.paid_by,
+        splitKind: row.split_kind,
         version: row.version,
         shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       };

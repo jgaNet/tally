@@ -39,7 +39,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       description: payload.description,
       amount: payload.amount,
       date: payload.date,
-      splitBetween: payload.splitBetween.map(id => new Id(id)),
+      split: payload.split,
       groupMembers: members,
       now: this.clock(),
     });

@@ -31,6 +31,27 @@ export class DateInTheFuture extends LedgerException {
   }
 }
 
+/** An exact amount is a whole number, 0 or more: a split by exact amounts gives each member such an amount. */
+export class InvalidShareAmount extends LedgerException {
+  constructor() {
+    super('InvalidShareAmount', 'Each exact amount is a whole number, 0 or more');
+  }
+}
+
+/** The exact amounts of a split add up to the amount of the expense, exactly. */
+export class ShareAmountsDoNotAddUp extends LedgerException {
+  constructor() {
+    super('ShareAmountsDoNotAddUp', "The exact amounts add up to the expense's amount");
+  }
+}
+
+/** A member's shares are a whole number, at least 1. */
+export class InvalidShareCount extends LedgerException {
+  constructor() {
+    super('InvalidShareCount', 'Each member has a whole number of shares, at least 1');
+  }
+}
+
 /** A member is listed twice in the split: each member is in it once. */
 export class DuplicateSplitMember extends LedgerException {
   constructor() {

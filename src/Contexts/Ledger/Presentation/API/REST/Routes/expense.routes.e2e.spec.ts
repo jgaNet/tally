@@ -21,6 +21,7 @@ type Expense = {
   amount: number;
   date: string;
   paidBy: string;
+  splitKind: 'equal' | 'exact' | 'shares';
   version: number;
   shares: { memberId: string; amount: number }[];
 };
@@ -62,13 +63,23 @@ async function join(token: string, groupId: string, joiner: string): Promise<voi
   await outcome((accepted.body as { operationId: string }).operationId, joiner);
 }
 
+/** One of the three ways to split, as a body gives it: equally, by exact amounts, or by shares. */
+type SplitFields =
+  | { splitBetween: string[] }
+  | { splitExactly: { memberId: string; amount: number }[] }
+  | { splitByShares: { memberId: string; shares: number }[] };
+type ExpenseFields = { description: string; amount: number; date: string } & SplitFields;
+
 /** Records an expense, and follows its operation: the operation's answer, SUCCESS with the id or ERROR with the refusal. */
-async function record(
-  token: string,
-  groupId: string,
-  body: { description: string; amount: number; date: string; splitBetween: string[] },
-): Promise<Operation> {
+async function record(token: string, groupId: string, body: ExpenseFields): Promise<Operation> {
   const answer = await http.request('POST', `${api}/groups/${groupId}/expenses`, { token, body });
+  if (answer.status !== 202) return { status: `HTTP ${answer.status}` } as Operation;
+  return outcome((answer.body as { operationId: string }).operationId, token);
+}
+
+/** Edits an expense from the version given, and follows its operation the same way as recording one. */
+async function edit(token: string, expenseId: string, body: ExpenseFields & { version: number }): Promise<Operation> {
+  const answer = await http.request('PUT', `${api}/expenses/${expenseId}`, { token, body });
   if (answer.status !== 202) return { status: `HTTP ${answer.status}` } as Operation;
   return outcome((answer.body as { operationId: string }).operationId, token);
 }
@@ -103,6 +114,7 @@ describe('expenses', () => {
       amount: 1000,
       date: PAST_DAY,
       paidBy: alice.id,
+      splitKind: 'equal',
       version: 1,
       shares: [
         { memberId: bob.id, amount: 333 },
@@ -110,6 +122,147 @@ describe('expenses', () => {
         { memberId: carl.id, amount: 333 },
       ],
     } satisfies Expense & { version: number });
+  });
+
+  it('splits an expense by exact amounts, or by shares, and says which way it was split', async () => {
+    const alice = await signedIn('una@example.com', 'Alice');
+    const bob = await signedIn('vic@example.com', 'Bob');
+    const groupId = await createGroup(alice.token, 'Holiday');
+    await join(alice.token, groupId, bob.token);
+
+    const exact = await record(alice.token, groupId, {
+      description: 'Lobster',
+      amount: 4000,
+      date: PAST_DAY,
+      splitExactly: [
+        { memberId: alice.id, amount: 1000 },
+        { memberId: bob.id, amount: 3000 },
+      ],
+    });
+    expect(exact).toMatchObject({ status: 'SUCCESS', result: expect.any(String) });
+    const exactRead = await http.get(`${api}/expenses/${exact.result}`, { token: bob.token });
+    expect(exactRead.body).toMatchObject({
+      splitKind: 'exact',
+      paidBy: alice.id,
+      shares: [
+        { memberId: alice.id, amount: 1000 },
+        { memberId: bob.id, amount: 3000 },
+      ],
+    });
+
+    // Bob pays: 1001 by shares of 2 (Alice) and 1 (Bob), the payer listed second, is 667 for Alice and 334 for Bob.
+    const shared = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: bob.token,
+      body: {
+        description: 'Cottage',
+        amount: 1001,
+        date: PAST_DAY,
+        splitByShares: [
+          { memberId: alice.id, shares: 2 },
+          { memberId: bob.id, shares: 1 },
+        ],
+      },
+    });
+    const sharedOperation = await outcome((shared.body as { operationId: string }).operationId, bob.token);
+    expect(sharedOperation).toMatchObject({ status: 'SUCCESS', result: expect.any(String) });
+    const sharedRead = await http.get(`${api}/expenses/${sharedOperation.result}`, { token: alice.token });
+    expect(sharedRead.body).toMatchObject({
+      splitKind: 'shares',
+      paidBy: bob.id,
+      shares: [
+        { memberId: alice.id, amount: 667 },
+        { memberId: bob.id, amount: 334 },
+      ],
+    });
+  });
+
+  it('refuses a split by exact amounts that does not add up, or a share below 1, on its operation', async () => {
+    const alice = await signedIn('wes@example.com', 'Alice');
+    const bob = await signedIn('xan@example.com', 'Bob');
+    const groupId = await createGroup(alice.token, 'Flat');
+    await join(alice.token, groupId, bob.token);
+
+    const short = await record(alice.token, groupId, {
+      description: 'Rent part',
+      amount: 1000,
+      date: PAST_DAY,
+      splitExactly: [
+        { memberId: alice.id, amount: 400 },
+        { memberId: bob.id, amount: 500 },
+      ],
+    });
+    const noShare = await record(alice.token, groupId, {
+      description: 'Rent part',
+      amount: 1000,
+      date: PAST_DAY,
+      splitByShares: [
+        { memberId: alice.id, shares: 1 },
+        { memberId: bob.id, shares: 0 },
+      ],
+    });
+
+    expect(short).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'ShareAmountsDoNotAddUp', message: expect.any(String) },
+    });
+    expect(noShare).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'InvalidShareCount', message: expect.any(String) },
+    });
+  });
+
+  it('answers 400 to a body that gives none of the three ways to split, or more than one', async () => {
+    const alice = await signedIn('yan@example.com', 'Alice');
+    const groupId = await createGroup(alice.token, 'Flat');
+    const fields = { description: 'Milk', amount: 100, date: PAST_DAY };
+
+    const none = await http.request('POST', `${api}/groups/${groupId}/expenses`, { token: alice.token, body: fields });
+    const two = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: alice.token,
+      body: {
+        ...fields,
+        splitBetween: [alice.id],
+        splitByShares: [{ memberId: alice.id, shares: 1 }],
+      },
+    });
+
+    expect(none.status).toBe(400);
+    expect(two.status).toBe(400);
+  });
+
+  it('is edited into another way of splitting, from the version its author read', async () => {
+    const alice = await signedIn('zoe@example.com', 'Alice');
+    const bob = await signedIn('abe@example.com', 'Bob');
+    const groupId = await createGroup(alice.token, 'Trip');
+    await join(alice.token, groupId, bob.token);
+    const recorded = await record(alice.token, groupId, {
+      description: 'Fuel',
+      amount: 900,
+      date: PAST_DAY,
+      splitBetween: [alice.id, bob.id],
+    });
+
+    const edited = await edit(alice.token, recorded.result as string, {
+      description: 'Fuel',
+      amount: 900,
+      date: PAST_DAY,
+      version: 1,
+      splitByShares: [
+        { memberId: alice.id, shares: 2 },
+        { memberId: bob.id, shares: 1 },
+      ],
+    });
+    expect(edited).toMatchObject({ status: 'SUCCESS' });
+
+    const read = await http.get(`${api}/expenses/${recorded.result}`, { token: bob.token });
+    expect(read.body).toMatchObject({
+      splitKind: 'shares',
+      version: 2,
+      shares: [
+        { memberId: alice.id, amount: 600 },
+        { memberId: bob.id, amount: 300 },
+      ],
+    });
   });
 
   it('hides an expense from anyone who is not a member of its group, as if it did not exist', async () => {

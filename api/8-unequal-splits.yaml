@@ -1,0 +1,8 @@
+# Request 7 (feature 7): splits by exact amounts and by shares; an expense says how it was split. The routes are
+# request 4's and request 6's, with the bodies this request adds (split one of three ways, `splitBetween` equal,
+# `splitExactly` by exact amounts, `splitByShares` by shares). The fragment is numbered after 7-edit-and-delete-an-expense.yaml,
+# so the composition keeps its order; the request's own number is in the comment.
+resources:
+  expense:
+    gains:
+      splitKind: { enum: [equal, exact, shares] }

@@ -36,7 +36,7 @@ const groceries = {
   description: 'Groceries',
   amount: 1000,
   date: '2026-03-10',
-  splitBetween: ['alice', 'bob'],
+  split: { kind: 'equal' as const, members: ['alice', 'bob'] },
 };
 
 describe('RecordExpense', () => {
@@ -84,11 +84,80 @@ describe('RecordExpense', () => {
     const { handler, store, balanceStore } = setup();
 
     const result = await handler.execute(
-      RecordExpenseCommandEvent.set({ ...groceries, splitBetween: ['alice', 'carl'] }),
+      RecordExpenseCommandEvent.set({ ...groceries, split: { kind: 'equal', members: ['alice', 'carl'] } }),
       signedInAs('alice'),
     );
 
     expect(result.isFailure() && result.error.type).toBe('NotAMemberOfTheGroup');
+    expect(store.size).toBe(0);
+    expect(balanceStore.size).toBe(0);
+  });
+
+  it('records an expense split by exact amounts, and by shares, as the split it gives', async () => {
+    const { handler, store } = setup();
+
+    const exact = await handler.execute(
+      RecordExpenseCommandEvent.set({
+        ...groceries,
+        split: {
+          kind: 'exact',
+          amounts: [
+            { memberId: 'alice', amount: 300 },
+            { memberId: 'bob', amount: 700 },
+          ],
+        },
+      }),
+      signedInAs('alice'),
+    );
+    const shares = await handler.execute(
+      RecordExpenseCommandEvent.set({
+        ...groceries,
+        amount: 1001,
+        split: {
+          kind: 'shares',
+          shares: [
+            { memberId: 'alice', shares: 2 },
+            { memberId: 'bob', shares: 1 },
+          ],
+        },
+      }),
+      signedInAs('bob'),
+    );
+
+    expect(store.get(exact.data as string)).toMatchObject({
+      splitKind: 'exact',
+      shares: [
+        { memberId: 'alice', amount: 300 },
+        { memberId: 'bob', amount: 700 },
+      ],
+    });
+    expect(store.get(shares.data as string)).toMatchObject({
+      splitKind: 'shares',
+      shares: [
+        { memberId: 'alice', amount: 667 },
+        { memberId: 'bob', amount: 334 },
+      ],
+    });
+  });
+
+  it('refuses exact amounts that do not add up, and keeps nothing', async () => {
+    const { handler, store, balanceStore } = setup();
+
+    const result = await handler.execute(
+      RecordExpenseCommandEvent.set({
+        ...groceries,
+        split: {
+          kind: 'exact',
+          amounts: [
+            { memberId: 'alice', amount: 300 },
+            { memberId: 'bob', amount: 600 },
+          ],
+        },
+      }),
+      signedInAs('alice'),
+    );
+
+    expect(result.isFailure() && result.error.type).toBe('ShareAmountsDoNotAddUp');
     expect(store.size).toBe(0);
     expect(balanceStore.size).toBe(0);
   });

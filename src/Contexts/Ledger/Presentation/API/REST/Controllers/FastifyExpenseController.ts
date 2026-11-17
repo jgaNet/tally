@@ -8,9 +8,22 @@ import { DeleteExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense';
 import { GetExpenseQueryHandler } from '@Contexts/Ledger/Application/Queries';
+import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 
-type RecordExpenseBody = { description: string; amount: number; date: string; splitBetween: string[] };
+/** Exactly one of the three ways to split, as a body gives it (request 7). */
+type SplitBody =
+  | { splitBetween: string[] }
+  | { splitExactly: { memberId: string; amount: number }[] }
+  | { splitByShares: { memberId: string; shares: number }[] };
+type RecordExpenseBody = { description: string; amount: number; date: string } & SplitBody;
 type EditExpenseBody = RecordExpenseBody & { version: number };
+
+/** The split a body gives, by its kind: the transport has refused a body of none, or of more than one, of the three. */
+const splitOf = (body: SplitBody): SplitInput => {
+  if ('splitBetween' in body) return { kind: 'equal', members: body.splitBetween };
+  if ('splitExactly' in body) return { kind: 'exact', amounts: body.splitExactly };
+  return { kind: 'shares', shares: body.splitByShares };
+};
 
 export class FastifyExpenseController {
   #module: Module;
@@ -20,20 +33,29 @@ export class FastifyExpenseController {
   }
 
   async recordExpense(req: FastifyRequest<{ Params: { id: string }; Body: RecordExpenseBody }>, reply: FastifyReply) {
+    const { description, amount, date } = req.body;
     return acceptCommand(
       req,
       reply,
       this.#module,
-      RecordExpenseCommandEvent.set({ groupId: req.params.id, ...req.body }),
+      RecordExpenseCommandEvent.set({ groupId: req.params.id, description, amount, date, split: splitOf(req.body) }),
     );
   }
 
   async editExpense(req: FastifyRequest<{ Params: { id: string }; Body: EditExpenseBody }>, reply: FastifyReply) {
+    const { description, amount, date, version } = req.body;
     return acceptCommand(
       req,
       reply,
       this.#module,
-      EditExpenseCommandEvent.set({ expenseId: req.params.id, ...req.body }),
+      EditExpenseCommandEvent.set({
+        expenseId: req.params.id,
+        description,
+        amount,
+        date,
+        version,
+        split: splitOf(req.body),
+      }),
     );
   }
 
