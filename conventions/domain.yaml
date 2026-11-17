@@ -86,6 +86,8 @@ contexts:
         meaning: a settlement paid through the provider, pending until its webhook lands, counted once whatever the webhooks do.
       - term: PayoutAccount
         meaning: the account at the provider a person is paid on; required to be paid through the provider.
+      - term: Suggestion
+        meaning: the transfers that would bring every balance of a group to 0, by a stated algorithm; read, never recorded (request 11).
   - id: Notifications
     purpose: >-
       Telling members what concerns them: one notice per member when an expense includes them, and a reminder, at the
@@ -116,18 +118,16 @@ relationships:
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       A settlement is decided against what is owed now, and only Ledger knows the balances. Settlements asks through a
-      port it owns (GroupBalances) when its book decides, and for the suggestions (T7).
+      port it owns (GroupBalances) when its book decides, and for the suggestions (T7; carried by request 11, docs/adr/0012).
   - upstream: Groups
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       Only members of the group settle with each other, and only Groups knows who is a member. Settlements asks
-      through a port it owns (SettlementMembers).
+      through a port it owns (SettlementMembers), carried by request 11 (docs/adr/0012).
   - upstream: Settlements
     downstream: Ledger
     patterns: [customer-supplier, anti-corruption-layer]

@@ -18,6 +18,7 @@ import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
+import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
 
 /**
  * The composition root of the application (docs/adr/0002). It sets up the transport, which gives each
@@ -64,6 +65,7 @@ export async function createApplication({
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', invitationRoutes, { module: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
+    .registerRoutes('/', settlementRoutes, { module: localSettlementsModule })
     .registerRoutes('/', operationRoutes, {});
 
   await app.startModules();
