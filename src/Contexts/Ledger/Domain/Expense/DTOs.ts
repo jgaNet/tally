@@ -4,6 +4,9 @@ export interface ShareSnapshot {
   amount: number;
 }
 
+/** How an expense is split (request 7): equally, by exact amounts, or by whole shares. */
+export type SplitKind = 'equal' | 'exact' | 'shares';
+
 /** The state of an expense as the store keeps it: what `Expense.fromSnapshot()` reads and `toSnapshot()` writes. */
 export interface ExpenseSnapshot {
   id: string;
@@ -13,6 +16,8 @@ export interface ExpenseSnapshot {
   /** A day of the calendar, `YYYY-MM-DD`. */
   date: string;
   paidBy: string;
+  /** How the split was given: the shares are that split's, the kind says how they were made. */
+  splitKind: SplitKind;
   /** The shares, in the order the split was given. */
   shares: ShareSnapshot[];
   /** The version the expense was read at: the store stores version + 1 on every save. */
@@ -27,6 +32,8 @@ export interface ExpenseView {
   amount: number;
   date: string;
   paidBy: string;
+  /** How the expense is split: `equal`, `exact` or `shares` (request 7). The expenses recorded before it are `equal`. */
+  splitKind: SplitKind;
   shares: ShareSnapshot[];
   /** The version the expense is at: 1 when it is recorded, one more at each edit (request 6). */
   version: number;

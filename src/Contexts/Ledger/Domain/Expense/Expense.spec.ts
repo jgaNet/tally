@@ -10,7 +10,7 @@ const valid = {
   amount: 1000,
   date: '2026-11-16',
   paidBy: 'ada',
-  splitBetween: ['ada', 'bob', 'cy'],
+  split: { kind: 'equal' as const, between: ['ada', 'bob', 'cy'] },
   members,
   at: NOW,
 };
@@ -27,6 +27,7 @@ describe('Expense.register', () => {
       amount: 1000,
       date: '2026-11-16',
       paidBy: 'ada',
+      splitKind: 'equal',
       shares: [
         { memberId: 'ada', amount: 334 },
         { memberId: 'bob', amount: 333 },
@@ -61,9 +62,15 @@ describe('Expense.register', () => {
   });
 
   it('refuses a split the members do not allow', () => {
-    expect(Expense.register({ ...valid, splitBetween: ['ada', 'ada'] }).error?.type).toBe('DuplicateInSplit');
-    expect(Expense.register({ ...valid, splitBetween: ['ada', 'zed'] }).error?.type).toBe('NotAMemberInSplit');
-    expect(Expense.register({ ...valid, splitBetween: ['bob', 'cy'] }).error?.type).toBe('PayerNotInSplit');
+    expect(Expense.register({ ...valid, split: { kind: 'equal' as const, between: ['ada', 'ada'] } }).error?.type).toBe(
+      'DuplicateInSplit',
+    );
+    expect(Expense.register({ ...valid, split: { kind: 'equal' as const, between: ['ada', 'zed'] } }).error?.type).toBe(
+      'NotAMemberInSplit',
+    );
+    expect(Expense.register({ ...valid, split: { kind: 'equal' as const, between: ['bob', 'cy'] } }).error?.type).toBe(
+      'PayerNotInSplit',
+    );
   });
 });
 
@@ -76,6 +83,7 @@ describe('Expense.fromSnapshot', () => {
       amount: 10,
       date: '2026-11-16',
       paidBy: 'ada',
+      splitKind: 'equal',
       shares: [
         { memberId: 'ada', amount: 5 },
         { memberId: 'bob', amount: 5 },
@@ -96,6 +104,7 @@ describe('Expense.fromSnapshot', () => {
         amount: 10,
         date: '2026-11-16',
         paidBy: 'ada',
+        splitKind: 'equal',
         shares: [{ memberId: 'ada', amount: 9 }],
         version: 1,
       }),
@@ -119,6 +128,7 @@ describe('Expense.edit and Expense.remove', () => {
       amount: 1000,
       date: '2026-11-16',
       paidBy: 'bob',
+      splitKind: 'equal',
       shares: [
         { memberId: 'bob', amount: 334 },
         { memberId: 'ada', amount: 333 },
@@ -134,19 +144,20 @@ describe('Expense.edit and Expense.remove', () => {
       description: 'Groceries, again',
       amount: 900,
       date: '2026-11-16',
-      splitBetween: ['bob', 'ada'],
+      split: { kind: 'equal' as const, between: ['bob', 'ada'] },
       at: NOW,
       ...overrides,
     });
 
   it('gives the expense again, whole, keeping the payer, and records ExpenseEdited at the version it was read at', () => {
-    const edited = edit({ splitBetween: ['cy', 'bob', 'ada'] });
+    const edited = edit({ split: { kind: 'equal' as const, between: ['cy', 'bob', 'ada'] } });
 
     expect(edited.isSuccess()).toBe(true);
     expect(edited.data?.toSnapshot()).toMatchObject({
       description: 'Groceries, again',
       amount: 900,
       paidBy: 'bob',
+      splitKind: 'equal',
       shares: [
         { memberId: 'cy', amount: 300 },
         { memberId: 'bob', amount: 300 },
@@ -158,7 +169,7 @@ describe('Expense.edit and Expense.remove', () => {
   });
 
   it('lets the group owner edit an expense another member paid, and the payer stays the one who paid', () => {
-    const edited = edit({ by: 'ada', splitBetween: ['ada', 'bob'] });
+    const edited = edit({ by: 'ada', split: { kind: 'equal' as const, between: ['ada', 'bob'] } });
     expect(edited.isSuccess()).toBe(true);
     expect(edited.data?.paidBy).toBe('bob');
   });
@@ -175,10 +186,12 @@ describe('Expense.edit and Expense.remove', () => {
   });
 
   it('refuses an edit that the rules of a creation refuse: a split without the payer, a future date, a bad amount', () => {
-    expect(edit({ by: 'ada', splitBetween: ['ada', 'cy'] }).error?.type).toBe('PayerNotInSplit');
+    expect(edit({ by: 'ada', split: { kind: 'equal' as const, between: ['ada', 'cy'] } }).error?.type).toBe(
+      'PayerNotInSplit',
+    );
     expect(edit({ date: '2026-11-18' }).error?.type).toBe('InvalidDate');
     expect(edit({ amount: 0 }).error?.type).toBe('InvalidAmount');
-    expect(edit({ splitBetween: ['bob', 'zed'] }).error?.type).toBe('NotAMemberInSplit');
+    expect(edit({ split: { kind: 'equal' as const, between: ['bob', 'zed'] } }).error?.type).toBe('NotAMemberInSplit');
   });
 
   it('removes the expense for its payer or the owner, and records ExpenseDeleted; another member is refused', () => {

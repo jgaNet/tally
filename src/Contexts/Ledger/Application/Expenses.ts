@@ -6,24 +6,26 @@ import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpen
 import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 
-/** What a member asks to record: the group, and the expense as the member gives it. */
+/** What a member asks to record: the group, and the expense as the member gives it, with how it is split. */
 export interface RecordExpenseInput {
   groupId: string;
   description: string;
   amount: number;
   date: string;
-  splitBetween: string[];
+  split: SplitInput;
 }
 
 /**
- * Records an expense the caller paid, split equally between the members given, in the order given. The caller is its
- * payer and must be a member of the group: for anyone else the group does not exist. Its id is the answer.
+ * Records an expense the caller paid, split equally, by exact amounts or by shares between the members given (request 4 and
+ * request 7). The caller is its payer and must be a member of the group: for anyone else the group does not exist. Its id is
+ * the answer.
  */
 export const recordExpense = command(
   'RecordExpense',
   (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ groupId, description, amount, date, splitBetween }: RecordExpenseInput, context) => {
+    async ({ groupId, description, amount, date, split }: RecordExpenseInput, context) => {
       const paidBy = callerOf(context);
       const members = await groupMembers.membersOf(paidBy, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
@@ -34,7 +36,7 @@ export const recordExpense = command(
         amount,
         date,
         paidBy,
-        splitBetween,
+        split,
         members: members.map(member => member.memberId),
         at: clock(),
       });
@@ -66,7 +68,7 @@ export interface EditExpenseInput {
   description: string;
   amount: number;
   date: string;
-  splitBetween: string[];
+  split: SplitInput;
   version: number;
 }
 
@@ -78,14 +80,14 @@ export interface EditExpenseInput {
 export const editExpense = command(
   'EditExpense',
   (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ id, description, amount, date, splitBetween, version }: EditExpenseInput, context) => {
+    async ({ id, description, amount, date, split, version }: EditExpenseInput, context) => {
       const by = callerOf(context);
       const stored = await expenses.get(id);
       if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
       const members = await groupMembers.membersOf(by, stored.groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
 
-      const edited = stored.edit({ by, members, version, description, amount, date, splitBetween, at: clock() });
+      const edited = stored.edit({ by, members, version, description, amount, date, split, at: clock() });
       if (edited.isFailure()) return edited;
       const saved = await expenses.save(edited.data);
       if (saved.isFailure()) return saved;

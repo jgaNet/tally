@@ -1,8 +1,8 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { BalanceView, ExpenseView, ShareSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { BalanceView, ExpenseView, ShareSnapshot, SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
-import { LEDGER_SCHEMA } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
+import { prepareLedgerSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 
 type ExpenseRow = {
   id: string;
@@ -11,6 +11,7 @@ type ExpenseRow = {
   amount: number;
   date: string;
   paid_by: string;
+  split_kind: string;
   version: number;
 };
 type ShareRow = { member_id: string; amount: number };
@@ -19,14 +20,16 @@ type BalanceRow = { member_id: string; balance: number };
 /** The read side of the expenses over SQLite: reads of the file, taken alone, outside any transaction (docs/adr/0004). */
 export class SqliteExpenseQueries implements IExpenseQueries {
   constructor(private readonly database: SqliteDatabase) {
-    database.prepare(connection => connection.exec(LEDGER_SCHEMA));
+    database.prepare(prepareLedgerSchema);
   }
 
   async findExpense(expenseId: string): Promise<ExpenseView | undefined> {
     return this.database.exclusive(() => {
       const connection = this.database.connection;
       const row = connection
-        .prepare('SELECT id, group_id, description, amount, date, paid_by, version FROM expenses WHERE id = ?')
+        .prepare(
+          'SELECT id, group_id, description, amount, date, paid_by, split_kind, version FROM expenses WHERE id = ?',
+        )
         .get(expenseId) as ExpenseRow | undefined;
       if (!row) return undefined;
       const shares = connection
@@ -39,6 +42,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
         amount: Number(row.amount),
         date: String(row.date),
         paidBy: String(row.paid_by),
+        splitKind: String(row.split_kind) as SplitKind,
         version: Number(row.version),
         shares: shares.map((share): ShareSnapshot => ({
           memberId: String(share.member_id),

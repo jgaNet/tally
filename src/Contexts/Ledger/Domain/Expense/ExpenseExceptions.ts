@@ -55,6 +55,39 @@ export class DuplicateInSplitException extends Exception {
   }
 }
 
+/** A member's amount of an exact split is not a whole number of 0 or more (request 7). */
+export class InvalidSplitAmountException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidSplitAmount',
+      message: 'An exact split gives each member a whole amount of 0 or more',
+    });
+  }
+}
+
+/** The exact amounts of a split do not add up to the expense's amount (request 7). */
+export class SplitDoesNotAddUpException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'SplitDoesNotAddUp',
+      message: 'The exact amounts of an expense add up to its amount',
+    });
+  }
+}
+
+/** A member's shares are not a whole number of 1 or more (request 7). */
+export class InvalidSharesException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidShares',
+      message: 'A split by shares gives each member a whole number of 1 or more shares',
+    });
+  }
+}
+
 /** The payer is not one of the members the expense is split between. */
 export class PayerNotInSplitException extends Exception {
   constructor() {

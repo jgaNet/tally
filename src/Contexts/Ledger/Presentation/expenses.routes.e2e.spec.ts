@@ -76,6 +76,7 @@ describe('recording an expense', () => {
       amount: 1000,
       date: PAST,
       paidBy: ada.id,
+      splitKind: 'equal',
       shares: [
         { memberId: ada.id, amount: 334 },
         { memberId: bob.id, amount: 333 },
@@ -374,5 +375,234 @@ describe('Groups → Ledger', () => {
         { memberId: ada.id, amount: 45 },
       ],
     });
+  });
+});
+
+describe('splitting an expense unequally (request 7)', () => {
+  const edit = (id: string, token: string | undefined, body: unknown) =>
+    http.request('PUT', `${api}/expenses/${id}`, { body, token });
+
+  it('records an expense split by exact amounts, answering 201, and reads it back as exact, the shares in the order given', async () => {
+    const ada = await signedIn('exact-ada@example.com', 'Ada');
+    const bob = await signedIn('exact-bob@example.com', 'Bob');
+    const cy = await signedIn('exact-cy@example.com', 'Cy');
+    const groupId = await groupWith(ada, [bob, cy]);
+
+    const created = await record(ada.token, groupId, {
+      description: 'Lobster',
+      amount: 100,
+      date: PAST,
+      splitExactly: [
+        { memberId: bob.id, amount: 60 },
+        { memberId: ada.id, amount: 40 },
+        { memberId: cy.id, amount: 0 },
+      ],
+    });
+    expect(created.status).toBe(201);
+
+    const read = await readExpense((created.body as { id: string }).id, ada.token);
+    expect(read.body).toMatchObject({
+      splitKind: 'exact',
+      shares: [
+        { memberId: bob.id, amount: 60 },
+        { memberId: ada.id, amount: 40 },
+        { memberId: cy.id, amount: 0 },
+      ],
+    });
+  });
+
+  it('records an expense split by shares, answering 201, and reads it back as shares, each share in proportion', async () => {
+    const ada = await signedIn('shares-ada@example.com', 'Ada');
+    const bob = await signedIn('shares-bob@example.com', 'Bob');
+    const cy = await signedIn('shares-cy@example.com', 'Cy');
+    const groupId = await groupWith(ada, [bob, cy]);
+
+    // A couple takes two shares: Bob takes two of four, Ada (the payer) and Cy one each; the 1 left over goes to Ada.
+    const created = await record(ada.token, groupId, {
+      description: 'Cottage',
+      amount: 1001,
+      date: PAST,
+      splitByShares: [
+        { memberId: bob.id, shares: 2 },
+        { memberId: ada.id, shares: 1 },
+        { memberId: cy.id, shares: 1 },
+      ],
+    });
+    expect(created.status).toBe(201);
+
+    const read = await readExpense((created.body as { id: string }).id, ada.token);
+    expect(read.body).toMatchObject({
+      splitKind: 'shares',
+      shares: [
+        { memberId: bob.id, amount: 500 },
+        { memberId: ada.id, amount: 251 },
+        { memberId: cy.id, amount: 250 },
+      ],
+    });
+  });
+
+  it('gives the remainder of a split by shares to the payer, as an equal split does', async () => {
+    const ada = await signedIn('rem-ada@example.com', 'Ada');
+    const bob = await signedIn('rem-bob@example.com', 'Bob');
+    const groupId = await groupWith(ada, [bob]);
+
+    const created = await record(bob.token, groupId, {
+      description: 'Taxi',
+      amount: 1001,
+      date: PAST,
+      splitByShares: [
+        { memberId: ada.id, shares: 2 },
+        { memberId: bob.id, shares: 1 },
+      ],
+    });
+    const read = await readExpense((created.body as { id: string }).id, ada.token);
+    expect(read.body).toMatchObject({
+      splitKind: 'shares',
+      shares: [
+        { memberId: ada.id, amount: 667 },
+        { memberId: bob.id, amount: 334 },
+      ],
+    });
+  });
+
+  it('refuses a split that is none of the three, or more than one, as the wrong shape (400)', async () => {
+    const ada = await signedIn('none-ada@example.com', 'Ada');
+    const bob = await signedIn('none-bob@example.com', 'Bob');
+    const groupId = await groupWith(ada, [bob]);
+    const base = { description: 'Rent', amount: 100, date: PAST };
+
+    expect((await record(ada.token, groupId, base)).status).toBe(400);
+    expect(
+      (
+        await record(ada.token, groupId, {
+          ...base,
+          splitBetween: [ada.id, bob.id],
+          splitExactly: [{ memberId: ada.id, amount: 100 }],
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await record(ada.token, groupId, {
+          ...base,
+          splitExactly: [{ memberId: ada.id, amount: 100 }],
+          splitByShares: [{ memberId: ada.id, shares: 1 }],
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  it('refuses exact amounts that do not add up, a negative amount, and shares below 1, by name (422)', async () => {
+    const ada = await signedIn('bad-ada@example.com', 'Ada');
+    const bob = await signedIn('bad-bob@example.com', 'Bob');
+    const groupId = await groupWith(ada, [bob]);
+    const base = { description: 'Rent', amount: 100, date: PAST };
+
+    const refusals: Array<[unknown, string]> = [
+      [
+        {
+          ...base,
+          splitExactly: [
+            { memberId: ada.id, amount: 40 },
+            { memberId: bob.id, amount: 50 },
+          ],
+        },
+        'SplitDoesNotAddUp',
+      ],
+      [
+        {
+          ...base,
+          splitExactly: [
+            { memberId: ada.id, amount: -10 },
+            { memberId: bob.id, amount: 110 },
+          ],
+        },
+        'InvalidSplitAmount',
+      ],
+      [
+        {
+          ...base,
+          splitByShares: [
+            { memberId: ada.id, shares: 0 },
+            { memberId: bob.id, shares: 1 },
+          ],
+        },
+        'InvalidShares',
+      ],
+      [{ ...base, splitExactly: [{ memberId: bob.id, amount: 100 }] }, 'PayerNotInSplit'],
+    ];
+    for (const [body, type] of refusals) {
+      expect(await record(ada.token, groupId, body)).toMatchObject({ status: 422, body: { type } });
+    }
+  });
+
+  it('edits an expense into another kind of split, from the version read, and reads it back as that kind', async () => {
+    const ada = await signedIn('kind-ada@example.com', 'Ada');
+    const bob = await signedIn('kind-bob@example.com', 'Bob');
+    const groupId = await groupWith(ada, [bob]);
+    const created = await record(ada.token, groupId, {
+      description: 'Rent',
+      amount: 400,
+      date: PAST,
+      splitBetween: [ada.id, bob.id],
+    });
+    const id = (created.body as { id: string }).id;
+
+    const edited = await edit(id, ada.token, {
+      description: 'Rent',
+      amount: 400,
+      date: PAST,
+      splitByShares: [
+        { memberId: ada.id, shares: 1 },
+        { memberId: bob.id, shares: 3 },
+      ],
+      version: 1,
+    });
+    expect(edited.status).toBe(204);
+
+    const read = await readExpense(id, ada.token);
+    expect(read.body).toMatchObject({
+      splitKind: 'shares',
+      version: 2,
+      shares: [
+        { memberId: ada.id, amount: 100 },
+        { memberId: bob.id, amount: 300 },
+      ],
+    });
+  });
+
+  it('counts each share in the balances, however the expense was split', async () => {
+    const ada = await signedIn('bal-ada@example.com', 'Ada');
+    const bob = await signedIn('bal-bob@example.com', 'Bob');
+    const cy = await signedIn('bal-cy@example.com', 'Cy');
+    const groupId = await groupWith(ada, [bob, cy]);
+
+    await record(ada.token, groupId, {
+      description: 'Lobster',
+      amount: 100,
+      date: PAST,
+      splitExactly: [
+        { memberId: bob.id, amount: 60 },
+        { memberId: ada.id, amount: 40 },
+      ],
+    });
+    await record(bob.token, groupId, {
+      description: 'Cottage',
+      amount: 900,
+      date: PAST,
+      splitByShares: [
+        { memberId: ada.id, shares: 1 },
+        { memberId: bob.id, shares: 2 },
+      ],
+    });
+
+    const balances = await http.request('GET', `${api}/groups/${groupId}/balances`, { token: ada.token });
+    // Ada paid 100 and her shares are 40 (exact) and 300 (of 900 by shares): 100 - 40 - 300 = -240.
+    // Bob owes 60 (exact) and his share of the cottage is 600, and he paid 900: -60 + 900 - 600 = 240.
+    expect(balances.body).toEqual([
+      { memberId: ada.id, balance: 100 - 40 - 300 },
+      { memberId: bob.id, balance: -60 + 900 - 600 },
+      { memberId: cy.id, balance: 0 },
+    ]);
   });
 });
