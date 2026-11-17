@@ -20,8 +20,15 @@ import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
-import { settlementRoster, settlementsSchema, settlementsWiring } from '@Contexts/Settlements/module.local';
+import {
+  outstandingDebtRoster,
+  settlementRoster,
+  settlementsSchema,
+  settlementsWiring,
+} from '@Contexts/Settlements/module.local';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
+import { sweepDebts } from '@Contexts/Notifications/Application/DebtSweep';
+import { DebtsFromSettlements } from '@Contexts/Notifications/Infrastructure/DebtsFromSettlements';
 import { notificationsSchema, notificationsWiring } from '@Contexts/Notifications/module.local';
 
 /**
@@ -51,6 +58,8 @@ export async function createApplication({
     .filter(Boolean),
   providerUrl = process.env.PROVIDER_URL || undefined,
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || undefined,
+  jobsIntervalSeconds = Number(process.env.JOBS_INTERVAL_SECONDS || 60),
+  reminderPeriodSeconds = Number(process.env.REMINDER_PERIOD_SECONDS || 604800),
 }: {
   logger?: Logger;
   apiPrefix?: string;
@@ -62,6 +71,10 @@ export async function createApplication({
   providerUrl?: string;
   /** The secret the provider signs its webhooks with, shared with Tally (PROVIDER_WEBHOOK_SECRET). */
   providerWebhookSecret?: string;
+  /** How often the background jobs run, in seconds (JOBS_INTERVAL_SECONDS; 60 when it is not set): the debt sweep of request 18. */
+  jobsIntervalSeconds?: number;
+  /** How long a debt must last before its member is reminded, in seconds (REMINDER_PERIOD_SECONDS; a week when it is not set). */
+  reminderPeriodSeconds?: number;
 } = {}): Promise<FastifyApplication> {
   const database = SqliteDatabase.open(databasePath, [
     ...groupsSchema,
@@ -85,8 +98,14 @@ export async function createApplication({
     providerUrl,
     webhookSecret: providerWebhookSecret,
   });
-  // A notice to each member of an expense's split but its payer, made from ExpenseRecorded (request 17, ADR 13).
-  const notifications = notificationsWiring(database);
+  // What every member still owes is read from Settlements' read model, which counts the payments waiting at the provider as paid, and
+  // Notifications' sweep asks it through its own port (request 18, ADR 14). The sweep runs below, every JOBS_INTERVAL_SECONDS.
+  const debts = outstandingDebtRoster(database, groups.roster, ledgerBalanceRoster(database, settledAmounts));
+  // A notice to each member of an expense's split but its payer, made from ExpenseRecorded (request 17, ADR 13); a reminder to a member
+  // whose debt lasted, made by the sweep (request 18).
+  const notifications = notificationsWiring(database, new DebtsFromSettlements(debts), {
+    reminderPeriodMs: reminderPeriodSeconds * 1000,
+  });
 
   const app = new FastifyApplication({
     logger,
@@ -110,6 +129,13 @@ export async function createApplication({
     .registerRoutes('/', settlementRoutes, { module: settlements })
     .registerRoutes('/', noticeRoutes, { module: notifications })
     .onStop(() => database.close());
+
+  // The debt sweep (request 18): each run looks at what every member still owes, and notes, reminds or clears them, in its own
+  // transaction. A run that loses a race with another server's run is run again on what that run committed (ADR 25).
+  app.every(jobsIntervalSeconds * 1000, async () => {
+    const result = await notifications.useCase(sweepDebts).run(undefined, app.executionContext('sweep-debts'));
+    if (result.isFailure()) app.logger.warn('The debt sweep was refused', { error: result.error });
+  });
 
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): the outbox is the database's.

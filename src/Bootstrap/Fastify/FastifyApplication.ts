@@ -51,6 +51,8 @@ export class FastifyApplication extends Application {
   readonly port: number;
   readonly #unitOfWork: () => UnitOfWork;
   readonly #closers: (() => void)[] = [];
+  readonly #jobs: { intervalMs: number; run: () => Promise<void> }[] = [];
+  readonly #timers: NodeJS.Timeout[] = [];
 
   constructor({
     logger,
@@ -159,6 +161,16 @@ export class FastifyApplication extends Application {
     });
   }
 
+  /**
+   * A job the application runs every `intervalMs` milliseconds, from `start()` until `stop()` (the background jobs, such as the debt
+   * sweep of Notifications, feature 18). A run still going when the next is due is not started twice, and a run that fails is logged
+   * and the next one runs as due.
+   */
+  every(intervalMs: number, run: () => Promise<void>): this {
+    this.#jobs.push({ intervalMs, run });
+    return this;
+  }
+
   /** Something to release when the application stops, such as the database its requests write to. */
   onStop(close: () => void): this {
     this.#closers.push(close);
@@ -168,10 +180,25 @@ export class FastifyApplication extends Application {
   async start(port: number = this.port): Promise<void> {
     await this.fastify.listen({ port, host: '127.0.0.1' });
     await this.fastify.ready();
+    for (const { intervalMs, run } of this.#jobs) {
+      let running = false;
+      this.#timers.push(
+        setInterval(() => {
+          if (running) return;
+          running = true;
+          run()
+            .catch(error => this.logger.error('A background job failed', error))
+            .finally(() => {
+              running = false;
+            });
+        }, intervalMs),
+      );
+    }
     this.logger.info(`Listening on ${this.address}`);
   }
 
   async stop(): Promise<void> {
+    for (const timer of this.#timers.splice(0)) clearInterval(timer);
     await this.fastify.close();
     for (const close of this.#closers.splice(0)) close();
   }

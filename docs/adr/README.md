@@ -18,6 +18,7 @@ why, what it costs, and when to revisit it.
 | [11](0011-payout-accounts-are-an-aggregate-per-person-and-the-provider-knows-them.md) | A payout account is an aggregate per person, and the provider says whether it knows it |
 | [12](0012-the-inbox-is-in-the-database-and-a-reactions-mark-commits-with-its-writes.md) | The inbox is in the database, and a reaction's mark commits with its writes |
 | [13](0013-notices-are-made-from-an-integration-event-and-a-notice-is-an-aggregate.md) | Notices are made from ExpenseRecorded, and a notice is an aggregate that records NoticeIssued |
+| [14](0014-reminders-are-a-sweep-over-settlements-debts-and-a-watch-per-debt.md) | Reminders are a sweep in Notifications over Settlements' debts, and a watch per member and group |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

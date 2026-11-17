@@ -17,6 +17,8 @@ import { GroupRoster, MembersFromGroups } from '@Contexts/Settlements/Infrastruc
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
 import { HmacWebhookSignature } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignature';
 import { SqliteSettlementRoster } from '@Contexts/Settlements/Infrastructure/SqliteSettlementRoster';
+import { OutstandingDebtRoster } from '@Contexts/Settlements/Infrastructure/OutstandingDebtRoster';
+import { IDebtRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/IDebtRoster';
 import {
   SqliteSettlementStore,
   settlementsTablesSchema,
@@ -51,6 +53,19 @@ export interface PaymentsConfig {
  */
 export function settlementRoster(database: SqliteDatabase): ISettlementRoster {
   return new SqliteSettlementRoster(database);
+}
+
+/**
+ * What every member of every group still owes, as Settlements' read model gives it to Notifications' sweep (feature 18, ADR 14): the
+ * payments waiting at the provider counted as paid, and the current members only. Built over the database, Groups' roster and Ledger's
+ * balances, so the composition root can build it with the other read models.
+ */
+export function outstandingDebtRoster(
+  database: SqliteDatabase,
+  roster: GroupRoster,
+  balances: BalanceRoster,
+): IDebtRoster {
+  return new OutstandingDebtRoster(database, roster, balances);
 }
 
 export function settlementsWiring(

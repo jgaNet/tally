@@ -5,17 +5,18 @@ import { INoticeStore } from '@Contexts/Notifications/Application/INoticeStore';
 import { Notice, NoticeKind } from '@Contexts/Notifications/Domain/Notice/Notice';
 
 /**
- * The notices' table (request 17): one row per notice, its recipient, what it is about and when it was made. `seq` keeps the order
- * they were made in, so two made at the same instant are listed the latest first as well.
+ * The notices' table (requests 17 and 18): one row per notice, its kind, its recipient, what it is about and when it was made. A reminder
+ * names no expense, so its `expense_id` is null. `seq` keeps the order they were made in, so two made at the same instant are listed the
+ * latest first as well.
  */
 export const notificationsTablesSchema = [
   `CREATE TABLE IF NOT EXISTS notices (
      seq INTEGER PRIMARY KEY AUTOINCREMENT,
      id TEXT NOT NULL UNIQUE,
      recipient_id TEXT NOT NULL,
-     kind TEXT NOT NULL,
+     kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder')),
      group_id TEXT NOT NULL,
-     expense_id TEXT NOT NULL,
+     expense_id TEXT,
      amount INTEGER NOT NULL,
      at TEXT NOT NULL
    )`,
@@ -26,7 +27,7 @@ interface NoticeRow {
   id: string;
   kind: NoticeKind;
   group_id: string;
-  expense_id: string;
+  expense_id: string | null;
   amount: number;
   at: string;
 }
@@ -48,7 +49,7 @@ export class SqliteNoticeStore implements INoticeStore, INoticeReads {
         snapshot.recipientId,
         snapshot.kind,
         snapshot.groupId,
-        snapshot.expenseId,
+        snapshot.expenseId ?? null,
         snapshot.amount,
         snapshot.at,
       );
@@ -66,7 +67,7 @@ export class SqliteNoticeStore implements INoticeStore, INoticeReads {
       id: row.id,
       kind: row.kind,
       groupId: row.group_id,
-      expenseId: row.expense_id,
+      ...(row.expense_id !== null && { expenseId: row.expense_id }),
       amount: row.amount,
       at: row.at,
     }));

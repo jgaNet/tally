@@ -24,7 +24,13 @@ const password = 'a long enough password';
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-notification-links-'));
-  app = await createApplication({ databasePath: join(directory, 'tally.sqlite'), logger: silent });
+  // The background sweep runs often and a week is a fraction of a second, so the debts of this file are reminded or not within the test.
+  app = await createApplication({
+    databasePath: join(directory, 'tally.sqlite'),
+    logger: silent,
+    jobsIntervalSeconds: 0.05,
+    reminderPeriodSeconds: 0.3,
+  });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
@@ -87,5 +93,49 @@ describe('Ledger → Notifications (ExpenseRecorded)', () => {
     expect(
       (bobsNotices as Array<Record<string, unknown>>).filter(notice => notice.expenseId === expenseId),
     ).toHaveLength(1);
+  });
+});
+
+describe('Settlements → Notifications (OutstandingDebts)', () => {
+  it('the sweep reads what each member still owes with the settlements counted: a member who has paid down to 2000 is never reminded, one who has not is', async () => {
+    const ann = await person('Ann', 'ann@debts.example.com');
+    const bob = await person('Bob', 'bob@debts.example.com');
+    const cy = await person('Cy', 'cy@debts.example.com');
+
+    const { body: group } = await http.request('POST', `${api}/groups`, {
+      token: ann.token,
+      body: { name: 'Debts', currency: 'EUR' },
+    });
+    const groupId = (group as { id: string }).id;
+    for (const who of [bob, cy]) {
+      const invitation = await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ann.token });
+      await http.request('POST', `${api}/invitations/${(invitation.body as { id: string }).id}/accept`, {
+        token: who.token,
+      });
+    }
+
+    // Ann pays 9000 for three: Bob and Cy each owe 3000. Ann, the payee, is paid 2000 in cash by Bob, so Bob owes 1000 at the sweep.
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Trip', amount: 9000, date: '2020-01-10', splitBetween: [ann.id, bob.id, cy.id] },
+    });
+    const paid = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      token: ann.token,
+      body: { from: bob.id, amount: 2000 },
+    });
+    expect(paid.status).toBe(201);
+
+    // Cy is reminded, for what Cy still owes, and Bob never is.
+    let cyReminder: Record<string, unknown> | undefined;
+    for (let poll = 0; poll < 200 && !cyReminder; poll++) {
+      const { body } = await http.request('GET', `${api}/notices`, { token: cy.token });
+      cyReminder = (body as Array<Record<string, unknown>>).find(notice => notice.kind === 'reminder');
+      if (!cyReminder) await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    expect(cyReminder).toMatchObject({ kind: 'reminder', groupId, amount: 3000 });
+
+    await new Promise(resolve => setTimeout(resolve, 400));
+    const { body: bobsNotices } = await http.request('GET', `${api}/notices`, { token: bob.token });
+    expect((bobsNotices as Array<Record<string, unknown>>).filter(notice => notice.kind === 'reminder')).toEqual([]);
   });
 });
