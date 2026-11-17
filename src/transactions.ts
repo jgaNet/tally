@@ -1,0 +1,17 @@
+import type { DatabaseSync } from 'node:sqlite';
+
+/**
+ * Runs `work` in one write transaction, taken at once (`BEGIN IMMEDIATE`) so another server sharing
+ * the file cannot interleave. Its writes are committed together, or rolled back when it throws.
+ */
+export function inTransaction<T>(db: DatabaseSync, work: () => T): T {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = work();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}

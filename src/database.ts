@@ -29,6 +29,20 @@ const SCHEMA = `
     account_id    TEXT REFERENCES accounts (id),
     created_at    TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS groups (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    currency   TEXT NOT NULL CHECK (currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD')),
+    owner_id   TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS group_members (
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    joined_at  TEXT NOT NULL,
+    PRIMARY KEY (group_id, account_id)
+  );
+  CREATE INDEX IF NOT EXISTS group_members_by_account ON group_members (account_id);
 `;
 
 /** How long a connection waits for another server's write lock before it fails, in milliseconds. */

@@ -3,6 +3,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import { openDatabase } from './database';
 import { sendError } from './http';
 import { registerAccountRoutes } from './routes/accounts';
+import { registerGroupRoutes } from './routes/groups';
 import { registerOperationRoutes } from './routes/operations';
 
 /** The running application: what the server entry point and the tests start and stop. */
@@ -35,6 +36,7 @@ export async function createApplication({
   await server.register(
     async api => {
       registerAccountRoutes(api, db);
+      registerGroupRoutes(api, db);
       registerOperationRoutes(api, db);
     },
     { prefix: `/${apiPrefix}` },

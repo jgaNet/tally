@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { isUniqueViolation } from './database';
+import { characters } from './text';
 import { hashPassword, verifyPassword } from './passwords';
 import { Refusal } from './refusal';
 
@@ -24,11 +25,6 @@ const MAX_NAME_LENGTH = 60;
 
 /** A hash of a password nobody sends, checked against unknown emails so both cases cost the same. */
 const NO_ACCOUNT_PASSWORD_HASH = `scrypt$${'00'.repeat(16)}$${'00'.repeat(64)}`;
-
-/** Length in characters (code points), so an emoji counts once. */
-function characters(text: string): number {
-  return [...text].length;
-}
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');

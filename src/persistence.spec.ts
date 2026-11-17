@@ -55,6 +55,24 @@ describe('what the application knows, kept across restarts', () => {
     await second.stop();
   });
 
+  it('keeps the groups and their members across restarts', async () => {
+    const first = await startApplication(directory.databasePath);
+    const ana = await signedUpAccount(first, { email: 'ana@example.org' });
+    const created = await send(first, 'POST', '/groups', {
+      token: ana.token,
+      body: { name: 'Flat', currency: 'EUR' },
+    });
+    await first.stop();
+
+    const second = await startApplication(directory.databasePath);
+    const id = (created.body as { id: string }).id;
+    const group = await send(second, 'GET', `/groups/${id}`, { token: ana.token });
+    expect(group.body).toEqual({ id, name: 'Flat', currency: 'EUR', ownerId: ana.id });
+    const mine = await send(second, 'GET', '/groups/mine', { token: ana.token });
+    expect(mine.body).toEqual([{ id, name: 'Flat', currency: 'EUR', ownerId: ana.id }]);
+    await second.stop();
+  });
+
   it('shares the file between applications running at the same time', async () => {
     const first = await startApplication(directory.databasePath);
     const second = await startApplication(directory.databasePath);
