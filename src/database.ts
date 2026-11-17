@@ -192,6 +192,23 @@ const MIGRATIONS: readonly string[] = [
     set_at TEXT NOT NULL
   );
   `,
+  `
+  -- A notice tells a member of an expense's split, other than its payer, their share of it. It is written in the
+  -- same transaction that records the expense, so it exists exactly when the expense does, and once per member:
+  -- the unique index refuses a second one. It belongs to its account for good: it is not removed when the member
+  -- leaves the group, nor when the expense is deleted, so expense_id is not a foreign key.
+  CREATE TABLE notices (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind TEXT NOT NULL CHECK (kind IN ('expense')),
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    expense_id TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX notices_expense_account ON notices (expense_id, account_id);
+  CREATE INDEX notices_account ON notices (account_id, created_at);
+  `,
 ];
 
 /**

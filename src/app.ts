@@ -8,6 +8,7 @@ import { registerGroupRoutes } from './groups';
 import { registerHistoryRoutes } from './history';
 import { registerInvitationRoutes } from './invitations';
 import { registerLeaveRoutes } from './leaving';
+import { registerNoticeRoutes } from './notices';
 import { registerOperationRoutes } from './operations';
 import { registerPayoutAccountRoutes } from './payout-accounts';
 import { registerSettlementRoutes } from './settlements';
@@ -75,6 +76,7 @@ export async function createApplication({
       registerHistoryRoutes(instance, db);
       registerSettlementRoutes(instance, db, provider);
       registerProviderWebhookRoutes(instance, db, provider);
+      registerNoticeRoutes(instance, db);
       registerOperationRoutes(instance, db);
     },
     { prefix: `/${apiPrefix}` },

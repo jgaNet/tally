@@ -4,6 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { inTransaction } from './database';
 import { findGroupOf } from './groups';
 import { isMember } from './members';
+import { writeExpenseNotices } from './notices';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
@@ -239,15 +240,17 @@ export function createExpense(db: DatabaseSync, accountId: string, groupId: stri
   checkAmount(input.amount);
   checkDate(input.date);
   const id = randomUUID();
-  // The split is checked and the expense and its shares are written together, or not at all.
+  const recordedAt = new Date().toISOString();
+  // The split is checked and the expense, its shares and the notices of its members are written together, or not at all.
   inTransaction(db, () => {
     const split = splitOf(input);
     checkSplit(db, groupId, accountId, membersOf(split));
     const shares = sharesOf(split, input.amount);
     db.prepare(
       'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
-    ).run(id, groupId, description, input.amount, input.date, accountId, split.kind, new Date().toISOString());
+    ).run(id, groupId, description, input.amount, input.date, accountId, split.kind, recordedAt);
     writeShares(db, id, shares);
+    writeExpenseNotices(db, { id, groupId, paidBy: accountId, at: recordedAt }, shares);
   });
   return id;
 }

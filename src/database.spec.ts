@@ -97,7 +97,32 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('adds the notices to a file at version 12, with none in it, and refuses a second one per member', () => {
+    openDatabase(database.path).close();
+    const before = new DatabaseSync(database.path);
+    try {
+      before.exec('DROP TABLE notices');
+      before.exec('PRAGMA user_version = 12');
+    } finally {
+      before.close();
+    }
+
+    const db = openDatabase(database.path);
+    try {
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM notices').get()).toEqual({ count: 0 });
+      expect(() =>
+        db.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
+          INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
+          INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('n1', 'a', 'expense', 'g', 'e', 1, '2026-11-02T00:00:00.000Z');
+          INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('n2', 'a', 'expense', 'g', 'e', 1, '2026-11-02T00:00:00.000Z');`),
+      ).toThrow(/UNIQUE/);
     } finally {
       db.close();
     }
@@ -127,6 +152,7 @@ describe('the database', () => {
       before.exec('ALTER TABLE expenses DROP COLUMN split_kind');
       before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
       before.exec('ALTER TABLE group_members DROP COLUMN left_at');
+      before.exec('DROP TABLE notices');
       before.exec('PRAGMA user_version = 5');
     } finally {
       before.close();
@@ -161,6 +187,7 @@ describe('the database', () => {
       before.exec('DROP TABLE settlements');
       before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
       before.exec('ALTER TABLE group_members DROP COLUMN left_at');
+      before.exec('DROP TABLE notices');
       before.exec('PRAGMA user_version = 6');
     } finally {
       before.close();
@@ -198,6 +225,7 @@ describe('the database', () => {
       before.exec('DROP TABLE payment_decisions');
       before.exec('DROP TABLE payout_accounts');
       before.exec('DROP TABLE settlements');
+      before.exec('DROP TABLE notices');
       before.exec('PRAGMA user_version = 7');
     } finally {
       before.close();
@@ -241,6 +269,7 @@ describe('the database', () => {
         INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
         INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
           VALUES ('s', 'g', 'b', 'a', 300, 'cash', 'paid', '2026-11-02T00:00:00.000Z');
+        DROP TABLE notices;
         PRAGMA user_version = 8;
       `);
     } finally {
@@ -249,7 +278,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -297,6 +326,7 @@ describe('the database', () => {
         INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at)
           VALUES ('s', 'g', 'b', 'a', 300, 'provider', 'paid', 'pay_9', 'https://pay.example/pay_9', '2026-11-02T00:00:00.000Z');
         INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_9', 'paid');
+        DROP TABLE notices;
         PRAGMA user_version = 10;
       `);
     } finally {
@@ -305,7 +335,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
       expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
         { id: 's', status: 'paid', provider_id: 'pay_9' },
       ]);
@@ -337,6 +367,7 @@ describe('the database', () => {
       before.exec(`
         INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
         DROP TABLE payout_accounts;
+        DROP TABLE notices;
         PRAGMA user_version = 11;
       `);
     } finally {
@@ -345,7 +376,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
       expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
       db.exec(
         "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
