@@ -7,7 +7,9 @@ import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogge
 import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { localGroupsModule } from '@Contexts/Groups/module.local';
+import { groupsAccessTokens, localGroupsModule } from '@Contexts/Groups/module.local';
+import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
+import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
@@ -20,7 +22,7 @@ import { localLedgerModule } from '@Contexts/Ledger/module.local';
  * that owns accounts gives the transport its `authenticate`.
  *
  * A context is added here: its `LiteModule` registered, its routes under its own prefix, the module in
- * the routes' options —
+ * the routes' options (the Groups' accounts are served at the root of the API: `/v1/accounts`) —
  *
  *   .registerModule(localTasksModule)
  *   .registerRoutes('/tasks', taskRoutes, { module: localTasksModule });
@@ -33,10 +35,17 @@ export async function createApplication({
     .split(',')
     .filter(Boolean),
 }: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
-  const app = new FastifyApplication({ logger, apiPrefix, port, webOrigins })
+  const app = new FastifyApplication({
+    logger,
+    apiPrefix,
+    port,
+    webOrigins,
+    authenticate: authenticateWith(groupsAccessTokens),
+  })
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(localGroupsModule)
-    .registerModule(localLedgerModule);
+    .registerModule(localLedgerModule)
+    .registerRoutes('/', accountRoutes, { module: localGroupsModule });
 
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an
