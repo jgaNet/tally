@@ -11,9 +11,8 @@ import Fastify, {
 import fastifyCors from '@fastify/cors';
 
 import { Role } from '@SharedKernel/Domain';
-import { Application, ExecutionContext, Logger } from '@Architecture/Application';
+import { Application, ExecutionContext, Logger, UnitOfWork } from '@Architecture/Application';
 import { formatOf } from '@Architecture/Presentation/Format';
-import { InMemoryUnitOfWork } from '@Architecture/Infrastructure/UnitOfWork/InMemoryUnitOfWork';
 
 const ANONYMOUS = { subjectId: '', role: Role.GUEST };
 
@@ -30,6 +29,8 @@ export interface FastifyApplicationOptions {
    * Without one, every caller is anonymous.
    */
   authenticate?(request: FastifyRequest): Promise<void>;
+  /** A unit of work for each request and each reaction: where the application keeps what it knows. */
+  unitOfWork: () => UnitOfWork;
 }
 
 /**
@@ -43,13 +44,16 @@ export class FastifyApplication extends Application {
   readonly logger: Logger;
   readonly apiPrefix: string;
   readonly port: number;
+  private readonly unitOfWork: () => UnitOfWork;
 
-  constructor({ logger, apiPrefix, port = 0, webOrigins = [], authenticate }: FastifyApplicationOptions) {
+  constructor({ logger, apiPrefix, port = 0, webOrigins = [], authenticate, unitOfWork }: FastifyApplicationOptions) {
     super();
+    this.unitOfWork = unitOfWork;
     this.logger = logger;
     this.apiPrefix = apiPrefix;
     this.port = port;
-    this.fastify = Fastify({ logger: false });
+    // A body's field of the wrong type is a 400, never coerced into the right one (API-BODY-SHAPE).
+    this.fastify = Fastify({ logger: false, ajv: { customOptions: { coerceTypes: false } } });
 
     // Anonymous until the authentication says otherwise; without one, anonymous throughout.
     this.fastify.addHook('onRequest', async request => {
@@ -137,7 +141,7 @@ export class FastifyApplication extends Application {
       traceId,
       auth,
       eventBus: this.getEventBus(),
-      unitOfWork: new InMemoryUnitOfWork(),
+      unitOfWork: this.unitOfWork(),
       logger: this.logger,
     });
   }

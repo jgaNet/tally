@@ -2,10 +2,7 @@ import { FastifyInstance } from 'fastify';
 
 import { FastifyOperationController } from '@Contexts/Tracker/Presentation/API/REST/Controllers/FastifyOperationController';
 import { Module } from '@Architecture/Application';
-import {
-  GetOperationsResSchema,
-  GetOperationResSchema,
-} from '@Contexts/Tracker/Presentation/API/REST/Routes/operation.routes.schema';
+import { GetOperationResSchema } from '@Contexts/Tracker/Presentation/API/REST/Routes/operation.routes.schema';
 
 export const operationRoutes = function (
   fastify: FastifyInstance,
@@ -15,23 +12,6 @@ export const operationRoutes = function (
   const operationController = new FastifyOperationController({ module: operationsModule });
 
   fastify.get(
-    '/',
-    {
-      schema: {
-        tags: ['tracker'],
-        querystring: {
-          type: 'object',
-          properties: {
-            traceId: { type: 'string', format: 'uuid' },
-          },
-        },
-        response: GetOperationsResSchema,
-      },
-    },
-    operationController.getOperations.bind(operationController),
-  );
-
-  fastify.get(
     '/:id',
     {
       schema: {
@@ -39,7 +19,7 @@ export const operationRoutes = function (
         params: {
           type: 'object',
           properties: {
-            id: { type: 'string', format: 'uuid' },
+            id: { type: 'string' },
           },
         },
         response: GetOperationResSchema,

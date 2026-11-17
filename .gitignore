@@ -2,3 +2,6 @@ node_modules
 dist
 coverage
 *.tsbuildinfo
+tally.sqlite*
+*.sqlite-wal
+*.sqlite-shm

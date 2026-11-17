@@ -1,24 +1,23 @@
 import { Logger, relayOutbox } from '@Architecture/Application';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
-import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
+import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
 
 import { localTrackerModule, trackedEventBus } from '@Contexts/Tracker/module.local';
 import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { localGroupsModule } from '@Contexts/Groups/module.local';
+import { authenticate, localGroupsModule } from '@Contexts/Groups/module.local';
+import { accountRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
- * The composition root an application starts from (ADR 27): `clean-ddd create` gives it as
- * `src/Bootstrap/Fastify/createApplication.ts`, in place of this repository's, which knows four
- * contexts. It knows one, the Tracker, because a command is answered `202 { operationId }` and
- * the Tracker is what a client follows that operation at, up to its outcome and its result
- * (`GET /v1/tracker/operations/:id`). Nobody signs in here: every caller is anonymous until a
- * context that owns accounts gives the transport its `authenticate`.
+ * The composition root: the transport, the one event bus (which records every operation), the
+ * modules and their routes, all over the one SQLite file `DATABASE_PATH` names (ADR 2). Groups
+ * owns accounts and so gives the transport its `authenticate`; the Tracker is what a client
+ * follows a command's operation at (`GET /v1/operations/:id`).
  *
- * A new context is added here, as the Tracker is: its module after the Tracker's, its routes
- * under its own prefix.
+ * A new context is added here, as the others are: its module, its routes under its own prefix.
  */
 export async function createApplication({
   logger = new ConsoleLogger({ debug: false }),
@@ -28,18 +27,28 @@ export async function createApplication({
     .split(',')
     .filter(Boolean),
 }: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
-  const app = new FastifyApplication({ logger, apiPrefix, port, webOrigins })
+  const database = SqliteDatabase.shared();
+  const app = new FastifyApplication({
+    logger,
+    apiPrefix,
+    port,
+    webOrigins,
+    authenticate,
+    unitOfWork: () => new SqliteUnitOfWork(database),
+  })
     .setEventBus(trackedEventBus)
     .registerModule(localTrackerModule)
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
-    .registerRoutes('/tracker/operations', operationRoutes, { operationsModule: localTrackerModule });
+    .registerRoutes('/accounts', accountRoutes, { accountsModule: localGroupsModule })
+    .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule });
 
   await app.startModules();
-  // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with
-  // an in-memory outbox, and the line is where a store's outbox would be relayed. The context is
-  // one a request would get, with a unit of work of its own, so that each reaction it delivers
-  // runs in a transaction of its own and publishes through the outbox, as after a request.
-  await relayOutbox(InMemoryOutbox.shared, app.getEventBus(), app.executionContext('startup'));
+  // What a previous run made durable and did not publish goes out now (ADR 24): the outbox is in the
+  // database file, so a fact a crash kept from being published is published by the next server. The
+  // context is one a request would get, with a unit of work of its own, so that each reaction it
+  // delivers runs in a transaction of its own and publishes through the outbox, as after a request.
+  const startup = app.executionContext('startup');
+  if (startup.unitOfWork) await relayOutbox(startup.unitOfWork.outbox, app.getEventBus(), startup);
   return app;
 }

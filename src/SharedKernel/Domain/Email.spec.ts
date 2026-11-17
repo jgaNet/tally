@@ -17,6 +17,10 @@ describe('Email', () => {
     expect(email.error).toBeInstanceOf(InvalidEmailFormat);
   });
 
+  it('asks only for something, an @, and something with a dot', () => {
+    expect(Email.create('a@b.c').isSuccess()).toBe(true);
+  });
+
   it('compares by value', () => {
     expect(Email.create('a@b.io').data?.equals(Email.create('A@B.IO').data as Email)).toBe(true);
   });
