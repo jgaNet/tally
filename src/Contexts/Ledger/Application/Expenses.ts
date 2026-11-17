@@ -59,3 +59,22 @@ export const getExpense = query(
       return Result.ok(expense);
     },
 );
+
+/**
+ * A group's balances, for its members only: each member, in the order they joined, with what they are owed (positive) or
+ * owe (negative), 0 when nothing is recorded for them. For anyone else the group does not exist.
+ *
+ * The balances are read before the members, and membership only grows (leaving is a later feature, docs/adr/0005): so
+ * the members read after include every member the balances count, and the balances listed add up to 0 exactly.
+ */
+export const getGroupBalances = query(
+  'GetGroupBalances',
+  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+    async ({ groupId }: { groupId: string }, context) => {
+      const balances = await expenses.balancesOf(groupId);
+      const members = await groupMembers.membersOf(callerOf(context), groupId);
+      if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      const owed = new Map(balances.map(({ memberId, balance }) => [memberId, balance]));
+      return Result.ok(members.map(memberId => ({ memberId, balance: owed.get(memberId) ?? 0 })));
+    },
+);

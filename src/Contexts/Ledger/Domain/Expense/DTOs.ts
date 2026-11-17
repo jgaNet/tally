@@ -29,3 +29,9 @@ export interface ExpenseView {
   paidBy: string;
   shares: ShareSnapshot[];
 }
+
+/** What a member is owed (positive) or owes (negative) in a group, whole units: a read model (docs/adr/0005). */
+export interface BalanceView {
+  memberId: string;
+  balance: number;
+}

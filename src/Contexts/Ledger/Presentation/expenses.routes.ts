@@ -3,7 +3,7 @@ import { FastifyPluginCallback } from 'fastify';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
-import { getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import { getExpense, getGroupBalances, recordExpense } from '@Contexts/Ledger/Application/Expenses';
 
 /** The bodies say their shape only (API-BODY-SHAPE): whether an amount, a date or a split is allowed is the domain's to refuse. */
 const recordExpenseBody = {
@@ -28,6 +28,10 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.get<{ Params: { id: string } }>('/expenses/:id', { schema: { tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getExpense), { id: req.params.id }),
+  );
+
+  fastify.get<{ Params: { id: string } }>('/groups/:id/balances', { schema: { tags: ['expenses'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getGroupBalances), { groupId: req.params.id }),
   );
 
   done();
