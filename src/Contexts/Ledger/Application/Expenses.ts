@@ -7,6 +7,7 @@ import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQ
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
+import { StatementView } from '@Contexts/Ledger/Domain/Expense/DTOs';
 
 /** What a member asks to record: the group, and the expense as the member gives it, with how it is split. */
 export interface RecordExpenseInput {
@@ -135,5 +136,43 @@ export const getGroupBalances = query(
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
       const owed = new Map(balances.map(({ memberId, balance }) => [memberId, balance]));
       return Result.ok(members.map(({ memberId }) => ({ memberId, balance: owed.get(memberId) ?? 0 })));
+    },
+);
+
+/**
+ * A group's expenses, for its members only: each as `GetExpense` reads it, the latest date first and, on the same date, the most
+ * recently recorded first (request 8, docs/adr/0008). For anyone else the group does not exist.
+ */
+export const getGroupExpenses = query(
+  'GetGroupExpenses',
+  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+    async ({ groupId }: { groupId: string }, context) => {
+      const members = await groupMembers.membersOf(callerOf(context), groupId);
+      if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      return Result.ok(await expenses.expensesOf(groupId));
+    },
+);
+
+/**
+ * A member's statement in a group, for its members only (request 8, docs/adr/0008): every expense the member paid or is in the
+ * split of, the earliest date first and, on the same date, the earliest recorded first, each with the balance once it is counted.
+ * Its balance is the last entry's, or 0 with no entry: the balance the group's balances give the member (request 5). For anyone
+ * else the group does not exist, and a member who has never been one of the group does not exist either.
+ *
+ * The members are read before the statement, and membership only grows (docs/adr/0005): a member who is one of the group's members
+ * here has been one since before the statement's expenses were read.
+ */
+export const getMemberStatement = query(
+  'GetMemberStatement',
+  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+    async ({ groupId, memberId }: { groupId: string; memberId: string }, context) => {
+      const members = await groupMembers.membersOf(callerOf(context), groupId);
+      if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      if (!members.some(member => member.memberId === memberId)) {
+        return Result.fail(new NotFoundException('Ledger', 'There is no such member'));
+      }
+      const entries = await expenses.statementOf(groupId, memberId);
+      const statement: StatementView = { memberId, balance: entries.at(-1)?.balance ?? 0, entries };
+      return Result.ok(statement);
     },
 );

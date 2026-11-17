@@ -8,6 +8,8 @@ import {
   editExpense,
   getExpense,
   getGroupBalances,
+  getGroupExpenses,
+  getMemberStatement,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
@@ -127,6 +129,20 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.get<{ Params: { id: string } }>('/groups/:id/balances', { schema: { tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getGroupBalances), { groupId: req.params.id }),
+  );
+
+  fastify.get<{ Params: { id: string } }>('/groups/:id/expenses', { schema: { tags: ['expenses'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getGroupExpenses), { groupId: req.params.id }),
+  );
+
+  fastify.get<{ Params: { id: string; memberId: string } }>(
+    '/groups/:id/members/:memberId/statement',
+    { schema: { tags: ['expenses'] } },
+    (req, reply) =>
+      answerAtOnce(req, reply, module.useCase(getMemberStatement), {
+        groupId: req.params.id,
+        memberId: req.params.memberId,
+      }),
   );
 
   done();

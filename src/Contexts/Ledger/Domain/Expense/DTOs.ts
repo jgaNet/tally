@@ -44,3 +44,23 @@ export interface BalanceView {
   memberId: string;
   balance: number;
 }
+
+/**
+ * A line of a member's statement (request 8, docs/adr/0008): an expense the member paid or is in the split of, what they paid
+ * for it (0 unless they are its payer), their share of it (0 unless they are in its split), and their balance once it is counted.
+ */
+export interface StatementEntryView {
+  expenseId: string;
+  date: string;
+  description: string;
+  paid: number;
+  share: number;
+  balance: number;
+}
+
+/** A member's statement in a group: its entries in the order of a bank statement, and the balance the group's balances give. */
+export interface StatementView {
+  memberId: string;
+  balance: number;
+  entries: StatementEntryView[];
+}

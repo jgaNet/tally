@@ -8,6 +8,8 @@ import {
   editExpense,
   getExpense,
   getGroupBalances,
+  getGroupExpenses,
+  getMemberStatement,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
@@ -31,5 +33,7 @@ export const localLedgerModule = new LiteModule({
     getGroupBalances(expenseQueries, groupMembers),
     editExpense(expenses, groupMembers, systemClock),
     deleteExpense(expenses, groupMembers),
+    getGroupExpenses(expenseQueries, groupMembers),
+    getMemberStatement(expenseQueries, groupMembers),
   ],
 });
