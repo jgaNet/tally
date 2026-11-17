@@ -238,6 +238,31 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (group_id, account_id)
   );
   `,
+  `
+  -- Every status a settlement has had, in the order it had them: seq is that order. Each entry is written with
+  -- the moment Tally learned the status (the moment a webhook's decision came in, for a decision). A settlement
+  -- starts with one entry: 'paid' for a cash one, 'pending' for one through the provider.
+  CREATE TABLE settlement_history (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    settlement_id TEXT NOT NULL REFERENCES settlements (id),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+    at TEXT NOT NULL
+  );
+  CREATE INDEX settlement_history_settlement ON settlement_history (settlement_id, seq);
+
+  -- A decision keeps the moment Tally learned it, so the status it makes a settlement take is dated by it. Decisions
+  -- kept before this were learned before the file had their moment, so they are dated by the migration itself.
+  ALTER TABLE payment_decisions ADD COLUMN decided_at TEXT;
+  UPDATE payment_decisions SET decided_at = STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now');
+
+  -- The settlements already recorded: each has its starting status, dated by when it was recorded. One through the
+  -- provider that is no longer pending has the status it has now too, dated by the migration, as its moment is not kept.
+  INSERT INTO settlement_history (settlement_id, status, at)
+    SELECT id, CASE WHEN method = 'cash' THEN 'paid' ELSE 'pending' END, created_at FROM settlements ORDER BY rowid;
+  INSERT INTO settlement_history (settlement_id, status, at)
+    SELECT id, status, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now') FROM settlements
+    WHERE method = 'provider' AND status <> 'pending' ORDER BY rowid;
+  `,
 ];
 
 /**

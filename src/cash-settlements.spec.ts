@@ -261,6 +261,7 @@ describe('settling up in cash', () => {
         method: 'cash',
         status: 'paid',
         at: expect.stringMatching(AT_PATTERN),
+        history: [{ status: 'paid', at: expect.stringMatching(AT_PATTERN) }],
       });
     });
 

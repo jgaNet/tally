@@ -7,6 +7,7 @@ import { findGroupOf } from './groups';
 import { isMember } from './members';
 import { payoutAccountOf } from './payout-accounts';
 import { Refusal } from './refusal';
+import { addHistory, forgetHistory, historyOf, moveSettlement, type StatusEntry } from './settlement-history';
 import {
   assertProviderConfigured,
   createProviderPayment,
@@ -77,6 +78,8 @@ export interface Settlement {
   status: SettlementStatus;
   at: string;
   payUrl?: string;
+  /** Every status the settlement has had, the earliest first, each with the moment Tally learned it. */
+  history: StatusEntry[];
 }
 
 /** What the payee records: the payer's account id, and the amount in hundredths of the group's currency. */
@@ -150,10 +153,12 @@ export function recordCashSettlement(
       refuse(422, 'InvalidPayer', 'The payer must be another member of the group.');
     }
     checkLimits(db, groupId, input.from, payeeId, input.amount);
+    const at = new Date().toISOString();
     db.prepare(
       `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?)`,
-    ).run(id, groupId, input.from, payeeId, input.amount, new Date().toISOString());
+    ).run(id, groupId, input.from, payeeId, input.amount, at);
+    addHistory(db, id, 'paid', at);
   });
   return id;
 }
@@ -186,10 +191,12 @@ export function reserveProviderSettlement(
       refuse(409, 'PayoutAccountRequired', 'The payee has no payout account at the payment provider.');
     }
     checkLimits(db, groupId, payerId, input.to, input.amount);
+    const at = new Date().toISOString();
     db.prepare(
       `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?)`,
-    ).run(id, groupId, payerId, input.to, input.amount, new Date().toISOString());
+    ).run(id, groupId, payerId, input.to, input.amount, at);
+    addHistory(db, id, 'pending', at);
   });
   return { id, currency };
 }
@@ -211,9 +218,16 @@ export function attachPayment(db: DatabaseSync, settlementId: string, payment: {
 
 /** Drops a settlement that asked the provider for nothing: the provider did not answer, so nothing is kept. */
 export function releaseSettlement(db: DatabaseSync, settlementId: string): void {
-  db.prepare(
-    "DELETE FROM settlements WHERE id = ? AND method = 'provider' AND status = 'pending' AND provider_id IS NULL",
-  ).run(settlementId);
+  inTransaction(db, () => {
+    const releasable = db
+      .prepare(
+        "SELECT 1 FROM settlements WHERE id = ? AND method = 'provider' AND status = 'pending' AND provider_id IS NULL",
+      )
+      .get(settlementId);
+    if (releasable === undefined) return;
+    forgetHistory(db, settlementId);
+    db.prepare('DELETE FROM settlements WHERE id = ?').run(settlementId);
+  });
 }
 
 /** The decision a webhook's status makes on a payment, or `undefined` for a status that decides nothing. */
@@ -245,39 +259,47 @@ export function applyPaymentDecision(db: DatabaseSync, paymentId: string, status
   const decided = decisionOf(status);
   if (decided === undefined) return;
   inTransaction(db, () => {
+    // The moment Tally learns the decision: the status it makes a settlement take is dated by it.
+    const at = new Date().toISOString();
     const kept = keptDecision(db, paymentId);
     if (kept === undefined) {
-      db.prepare('INSERT INTO payment_decisions (payment_id, status) VALUES (?, ?)').run(paymentId, decided);
-    } else if (kept === 'paid' && decided === 'refunded') {
-      db.prepare("UPDATE payment_decisions SET status = 'refunded' WHERE payment_id = ?").run(paymentId);
+      db.prepare('INSERT INTO payment_decisions (payment_id, status, decided_at) VALUES (?, ?, ?)').run(
+        paymentId,
+        decided,
+        at,
+      );
+    } else if (kept.status === 'paid' && decided === 'refunded') {
+      db.prepare("UPDATE payment_decisions SET status = 'refunded', decided_at = ? WHERE payment_id = ?").run(
+        at,
+        paymentId,
+      );
     }
     applyKeptDecision(db, paymentId);
   });
 }
 
-/** The decision kept for the payment, if Tally has one. */
-function keptDecision(db: DatabaseSync, paymentId: string): PaymentDecision | undefined {
-  const kept = db.prepare('SELECT status FROM payment_decisions WHERE payment_id = ?').get(paymentId) as
-    { status: PaymentDecision } | undefined;
-  return kept?.status;
+/** The decision kept for the payment, and the moment Tally learned it, if Tally has one. */
+function keptDecision(db: DatabaseSync, paymentId: string): { status: PaymentDecision; decidedAt: string } | undefined {
+  const kept = db.prepare('SELECT status, decided_at FROM payment_decisions WHERE payment_id = ?').get(paymentId) as
+    { status: PaymentDecision; decided_at: string } | undefined;
+  return kept && { status: kept.status, decidedAt: kept.decided_at };
 }
 
 /**
  * Makes the settlement of the payment as its kept decision says: `paid` or `failed` while it is pending, and
- * `refunded` while it is pending, paid or being refunded.
+ * `refunded` while it is pending, paid or being refunded. Each settlement it moves gets the entry in its history
+ * dated by the moment the decision was learned; a settlement it does not move gets none.
  */
 function applyKeptDecision(db: DatabaseSync, paymentId: string): void {
   const kept = keptDecision(db, paymentId);
   if (kept === undefined) return;
-  if (kept === 'refunded') {
-    db.prepare(
-      "UPDATE settlements SET status = 'refunded' WHERE provider_id = ? AND method = 'provider' AND status IN ('pending', 'paid', 'refunding')",
-    ).run(paymentId);
-    return;
-  }
-  db.prepare(
-    "UPDATE settlements SET status = ? WHERE provider_id = ? AND method = 'provider' AND status = 'pending'",
-  ).run(kept, paymentId);
+  const from: SettlementStatus[] = kept.status === 'refunded' ? ['pending', 'paid', 'refunding'] : ['pending'];
+  const waiting = db
+    .prepare(
+      `SELECT id FROM settlements WHERE provider_id = ? AND method = 'provider' AND status IN (${from.map(() => '?').join(', ')})`,
+    )
+    .all(paymentId, ...from) as { id: string }[];
+  for (const settlement of waiting) moveSettlement(db, settlement.id, kept.status, kept.decidedAt);
 }
 
 /**
@@ -295,16 +317,11 @@ export function hasWaitingSettlement(db: DatabaseSync, groupId: string, accountI
   );
 }
 
-/** The settlement, when the account is a member of its group. For anyone else it does not exist. */
-export function findSettlementOf(db: DatabaseSync, accountId: string, settlementId: string): Settlement | undefined {
-  const row = db
-    .prepare(
-      `SELECT t.id, t.group_id, t.payer_id, t.payee_id, t.amount, t.method, t.status, t.pay_url, t.created_at
-       FROM settlements t JOIN group_members m ON m.group_id = t.group_id
-       WHERE t.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
-    )
-    .get(settlementId, accountId) as SettlementRow | undefined;
-  if (!row) return undefined;
+const settlementColumns =
+  't.id, t.group_id, t.payer_id, t.payee_id, t.amount, t.method, t.status, t.pay_url, t.created_at';
+
+/** The settlement as it is read, with its history. */
+function toSettlement(db: DatabaseSync, row: SettlementRow): Settlement {
   const settlement: Settlement = {
     id: row.id,
     groupId: row.group_id,
@@ -314,9 +331,35 @@ export function findSettlementOf(db: DatabaseSync, accountId: string, settlement
     method: row.method,
     status: row.status,
     at: row.created_at,
+    history: historyOf(db, row.id),
   };
   if (row.method === 'provider' && row.pay_url !== null) settlement.payUrl = row.pay_url;
   return settlement;
+}
+
+/** The settlement, when the account is a member of its group. For anyone else it does not exist. */
+export function findSettlementOf(db: DatabaseSync, accountId: string, settlementId: string): Settlement | undefined {
+  const row = db
+    .prepare(
+      `SELECT ${settlementColumns} FROM settlements t JOIN group_members m ON m.group_id = t.group_id
+       WHERE t.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
+    )
+    .get(settlementId, accountId) as SettlementRow | undefined;
+  return row && toSettlement(db, row);
+}
+
+/**
+ * The settlements of the group, the most recently recorded first, each as `findSettlementOf` reads it. They are
+ * listed for a member of the group, and they include those of a member who has left it, as they are the group's.
+ */
+export function listSettlementsOf(db: DatabaseSync, groupId: string): Settlement[] {
+  const rows = db
+    .prepare(
+      `SELECT ${settlementColumns} FROM settlements t
+       WHERE t.group_id = ? ORDER BY t.created_at DESC, t.rowid DESC`,
+    )
+    .all(groupId) as unknown as SettlementRow[];
+  return rows.map(row => toSettlement(db, row));
 }
 
 /**
@@ -357,7 +400,7 @@ export async function refundSettlement(
     if (row.provider_id === null) {
       refuse(409, 'NotRefundable', 'The provider does not know the payment of this settlement.');
     }
-    db.prepare("UPDATE settlements SET status = 'refunding' WHERE id = ? AND status = 'paid'").run(settlementId);
+    moveSettlement(db, settlementId, 'refunding', new Date().toISOString());
     return { paymentId: row.provider_id, provider };
   });
   try {
@@ -370,7 +413,11 @@ export async function refundSettlement(
 
 /** Puts back a settlement whose refund the provider did not take: `refunding` becomes `paid`, and nothing else moves. */
 function releaseRefund(db: DatabaseSync, settlementId: string): void {
-  db.prepare("UPDATE settlements SET status = 'paid' WHERE id = ? AND status = 'refunding'").run(settlementId);
+  inTransaction(db, () => {
+    const row = db.prepare('SELECT status FROM settlements WHERE id = ?').get(settlementId) as
+      { status: SettlementStatus } | undefined;
+    if (row?.status === 'refunding') moveSettlement(db, settlementId, 'paid', new Date().toISOString());
+  });
 }
 
 const transferSchema = {
@@ -387,7 +434,7 @@ const idSchema = {
 
 const settlementSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at'],
+  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -398,6 +445,18 @@ const settlementSchema = {
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },
+    history: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        required: ['status', 'at'],
+        properties: {
+          status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+          at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
+        },
+      },
+    },
   },
 };
 
@@ -480,6 +539,16 @@ export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync,
     await refundSettlement(db, provider, accountId, request.params.id);
     return reply.code(204).send();
   });
+
+  app.get<{ Params: { id: string } }>(
+    '/groups/:id/settlements',
+    { schema: { response: { 200: { type: 'array', items: settlementSchema } } } },
+    request => {
+      const accountId = requireCaller(db, request);
+      if (!findGroupOf(db, accountId, request.params.id)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+      return listSettlementsOf(db, request.params.id);
+    },
+  );
 
   app.get<{ Params: { id: string } }>(
     '/settlements/:id',

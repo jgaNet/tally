@@ -116,6 +116,8 @@ describe('the database', () => {
         INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
           VALUES ('n1', 'a', 'expense', 'g', 'e1', 5, '2026-11-02T00:00:00.000Z'),
                  ('n2', 'a', 'expense', 'g', 'e2', 6, '2026-11-02T00:00:00.000Z');
+        DROP TABLE settlement_history;
+        ALTER TABLE payment_decisions DROP COLUMN decided_at;
         PRAGMA user_version = 13;
       `);
     } finally {
@@ -124,7 +126,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
       expect(db.prepare('SELECT id FROM notices ORDER BY rowid').all()).toEqual([{ id: 'n1' }, { id: 'n2' }]);
       db.prepare(
         "INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('r', 'a', 'reminder', 'g', NULL, 2500, '2026-11-09T00:00:00.000Z')",
@@ -139,7 +141,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
     } finally {
       db.close();
     }
@@ -151,6 +153,8 @@ describe('the database', () => {
     try {
       before.exec('DROP TABLE debt_notes');
       before.exec('DROP TABLE notices');
+      before.exec('DROP TABLE settlement_history');
+      before.exec('ALTER TABLE payment_decisions DROP COLUMN decided_at');
       before.exec('PRAGMA user_version = 12');
     } finally {
       before.close();
@@ -158,7 +162,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
       expect(db.prepare('SELECT COUNT(*) AS count FROM notices').get()).toEqual({ count: 0 });
       expect(() =>
         db.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
@@ -197,6 +201,7 @@ describe('the database', () => {
       before.exec('ALTER TABLE group_members DROP COLUMN left_at');
       before.exec('DROP TABLE debt_notes');
       before.exec('DROP TABLE notices');
+      before.exec('DROP TABLE settlement_history');
       before.exec('PRAGMA user_version = 5');
     } finally {
       before.close();
@@ -233,6 +238,7 @@ describe('the database', () => {
       before.exec('ALTER TABLE group_members DROP COLUMN left_at');
       before.exec('DROP TABLE debt_notes');
       before.exec('DROP TABLE notices');
+      before.exec('DROP TABLE settlement_history');
       before.exec('PRAGMA user_version = 6');
     } finally {
       before.close();
@@ -272,6 +278,7 @@ describe('the database', () => {
       before.exec('DROP TABLE settlements');
       before.exec('DROP TABLE debt_notes');
       before.exec('DROP TABLE notices');
+      before.exec('DROP TABLE settlement_history');
       before.exec('PRAGMA user_version = 7');
     } finally {
       before.close();
@@ -317,6 +324,7 @@ describe('the database', () => {
           VALUES ('s', 'g', 'b', 'a', 300, 'cash', 'paid', '2026-11-02T00:00:00.000Z');
         DROP TABLE debt_notes;
         DROP TABLE notices;
+        DROP TABLE settlement_history;
         PRAGMA user_version = 8;
       `);
     } finally {
@@ -325,7 +333,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -375,6 +383,7 @@ describe('the database', () => {
         INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_9', 'paid');
         DROP TABLE debt_notes;
         DROP TABLE notices;
+        DROP TABLE settlement_history;
         PRAGMA user_version = 10;
       `);
     } finally {
@@ -383,7 +392,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
       expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
         { id: 's', status: 'paid', provider_id: 'pay_9' },
       ]);
@@ -417,6 +426,8 @@ describe('the database', () => {
         DROP TABLE payout_accounts;
         DROP TABLE debt_notes;
         DROP TABLE notices;
+        DROP TABLE settlement_history;
+        ALTER TABLE payment_decisions DROP COLUMN decided_at;
         PRAGMA user_version = 11;
       `);
     } finally {
@@ -425,7 +436,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 14 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
       expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
       db.exec(
         "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
@@ -444,6 +455,47 @@ describe('the database', () => {
           "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_b', '2026-11-01T00:00:00.000Z')",
         ),
       ).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('dates the settlements of a file at version 14 by when they were recorded, and their decisions by the migration', () => {
+    openDatabase(database.path).close();
+    const before = new DatabaseSync(database.path);
+    try {
+      before.exec(`
+        DROP TABLE settlement_history;
+        ALTER TABLE payment_decisions DROP COLUMN decided_at;
+        INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x'), ('b', 'b@example.com', 'B', 'x');
+        INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
+        INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at) VALUES
+          ('cash', 'g', 'b', 'a', 500, 'cash', 'paid', NULL, NULL, '2026-11-02T00:00:00.000Z'),
+          ('waiting', 'g', 'b', 'a', 300, 'provider', 'pending', NULL, NULL, '2026-11-03T00:00:00.000Z'),
+          ('settled', 'g', 'b', 'a', 200, 'provider', 'paid', 'pay_1', 'https://pay.example/pay_1', '2026-11-04T00:00:00.000Z');
+        INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_1', 'paid');
+        PRAGMA user_version = 14;
+      `);
+    } finally {
+      before.close();
+    }
+
+    const db = openDatabase(database.path);
+    try {
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
+      const history = (id: string) =>
+        db.prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq').all(id);
+      expect(history('cash')).toEqual([{ status: 'paid', at: '2026-11-02T00:00:00.000Z' }]);
+      expect(history('waiting')).toEqual([{ status: 'pending', at: '2026-11-03T00:00:00.000Z' }]);
+      const settled = history('settled') as { status: string; at: string }[];
+      expect(settled.map(entry => entry.status)).toEqual(['pending', 'paid']);
+      expect(settled[0].at).toBe('2026-11-04T00:00:00.000Z');
+      expect(settled[1].at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      expect(
+        db.prepare("SELECT decided_at IS NOT NULL AS dated FROM payment_decisions WHERE payment_id = 'pay_1'").get(),
+      ).toEqual({
+        dated: 1,
+      });
     } finally {
       db.close();
     }

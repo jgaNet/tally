@@ -127,6 +127,7 @@ describe('paying through the payment provider: asking for a payment', () => {
         status: 'pending',
         at: expect.stringMatching(AT_PATTERN),
         payUrl: 'https://pay.example/pay_1',
+        history: [{ status: 'pending', at: expect.stringMatching(AT_PATTERN) }],
       });
       // Not yet paid: the balances are as they were.
       expect(await balancesOf()).toEqual({ [adaId]: 2000, [graceId]: -1000, [linusId]: -1000 });
