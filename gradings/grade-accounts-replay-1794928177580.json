@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-3",
+  "ref": "8ab9dcec122dda1e09429d6f3b6fd73b818d8f75",
+  "commit": "8ab9dcec122dda1e09429d6f3b6fd73b818d8f75",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 7 passed, 8 total",
+        "failed": [
+          "accounts › refuses a body of the wrong shape at once with 400, and anything else it cannot do with a 4xx or an ERROR, never a 5xx"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● accounts › refuses a body of the wrong shape at once with 400, and anything else it cannot do with a 4xx or an ERROR, never a 5xx",
+          "    - Expected  - 1",
+          "    + Received  + 5",
+          "Tests:       1 failed, 7 passed, 8 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 225,
+  "workers": 1
+}
