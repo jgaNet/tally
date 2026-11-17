@@ -4,23 +4,27 @@ import { Logger, relayOutbox } from '@Architecture/Application';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
-import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
+import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
+import { Role } from '@SharedKernel/Domain';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { localGroupsModule } from '@Contexts/Groups/module.local';
+import { operationRoutes } from '@Bootstrap/Fastify/operations.routes';
+import { localGroupsModule, authenticatedAccountOf } from '@Contexts/Groups/module.local';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 
 /**
- * The composition root an application created Lite starts from (ADR 40): `clean-ddd create --profile
- * lite` gives it as `src/Bootstrap/Fastify/createApplication.ts`. It knows no context, not even the
- * Tracker: a Lite command is answered at once by its use case, so there is no operation to follow.
- * What it sets up is what every context will share — the transport, which gives each request its trace,
- * its caller and its unit of work, and the bus that carries what the contexts tell each other, relayed
- * from the outbox after each commit. Nobody signs in here: every caller is anonymous until a context
- * that owns accounts gives the transport its `authenticate`.
+ * The composition root of the application (docs/adr/0002). It sets up the transport, which gives each
+ * request its trace, its caller and its own unit of work over the application's SQLite file, and the
+ * bus that carries what the contexts tell each other, relayed from the outbox after each commit. It
+ * registers the contexts' modules and their routes under their prefixes, and the background job that
+ * relays the outbox every `JOBS_INTERVAL_SECONDS` (60 when unset).
  *
- * A context is added here: its `LiteModule` registered, its routes under its own prefix, the module in
- * the routes' options —
+ * Configuration is in the environment: `PORT`, `API_PREFIX` (`v1`), `DATABASE_PATH` (`tally.db`),
+ * `JOBS_INTERVAL_SECONDS` (60), `WEB_ORIGINS` (a comma-separated list).
+ *
+ * A context is added here: its `LiteModule` registered, its routes under its own prefix with `{ module }`:
  *
  *   .registerModule(localTasksModule)
  *   .registerRoutes('/tasks', taskRoutes, { module: localTasksModule });
@@ -33,14 +37,30 @@ export async function createApplication({
     .split(',')
     .filter(Boolean),
 }: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
-  const app = new FastifyApplication({ logger, apiPrefix, port, webOrigins })
+  const app = new FastifyApplication({
+    logger,
+    apiPrefix,
+    port,
+    webOrigins,
+    unitOfWork: () => new SqliteUnitOfWork(sharedDatabase),
+    // The token a request brings proves its account: the Groups context says which, and every other request is anonymous.
+    authenticate: async request => {
+      const subjectId = authenticatedAccountOf(request.headers.authorization);
+      if (subjectId) request.auth = { subjectId, role: Role.USER };
+    },
+  })
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(localGroupsModule)
-    .registerModule(localLedgerModule);
+    .registerModule(localLedgerModule)
+    .registerRoutes('/accounts', accountRoutes, { module: localGroupsModule })
+    .registerRoutes('/', operationRoutes, {});
 
   await app.startModules();
-  // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an
-  // in-memory outbox, and the line is where a store's outbox would be relayed.
-  await relayOutbox(InMemoryOutbox.shared, app.getEventBus(), app.executionContext('startup'));
+
+  // What a previous run made durable and did not publish goes out now (ADR 24), and then at every job's run.
+  const relay = () =>
+    relayOutbox(new SqliteUnitOfWork(sharedDatabase).outbox, app.getEventBus(), app.executionContext('relay'));
+  await relay();
+  app.every(Number(process.env.JOBS_INTERVAL_SECONDS || 60) * 1000, relay);
   return app;
 }

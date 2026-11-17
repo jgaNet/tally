@@ -11,7 +11,7 @@ import Fastify, {
 import fastifyCors from '@fastify/cors';
 
 import { Role } from '@SharedKernel/Domain';
-import { Application, ExecutionContext, Logger } from '@Architecture/Application';
+import { Application, ExecutionContext, Logger, UnitOfWork } from '@Architecture/Application';
 import { formatOf } from '@Architecture/Presentation/Format';
 import { InMemoryUnitOfWork } from '@Architecture/Infrastructure/UnitOfWork/InMemoryUnitOfWork';
 
@@ -30,6 +30,8 @@ export interface FastifyApplicationOptions {
    * Without one, every caller is anonymous.
    */
   authenticate?(request: FastifyRequest): Promise<void>;
+  /** The unit of work of each request, and of each job: a transaction of its own. In memory when none is given. */
+  unitOfWork?: () => UnitOfWork;
 }
 
 /**
@@ -44,12 +46,24 @@ export class FastifyApplication extends Application {
   readonly apiPrefix: string;
   readonly port: number;
 
-  constructor({ logger, apiPrefix, port = 0, webOrigins = [], authenticate }: FastifyApplicationOptions) {
+  readonly #unitOfWork: () => UnitOfWork;
+  readonly #jobs: NodeJS.Timeout[] = [];
+
+  constructor({
+    logger,
+    apiPrefix,
+    port = 0,
+    webOrigins = [],
+    authenticate,
+    unitOfWork = () => new InMemoryUnitOfWork(),
+  }: FastifyApplicationOptions) {
     super();
     this.logger = logger;
     this.apiPrefix = apiPrefix;
     this.port = port;
-    this.fastify = Fastify({ logger: false });
+    this.#unitOfWork = unitOfWork;
+    // A body's types are the client's to get right: a number sent for a string is a 400, not a coerced value.
+    this.fastify = Fastify({ logger: false, ajv: { customOptions: { coerceTypes: false } } });
 
     // Anonymous until the authentication says otherwise; without one, anonymous throughout.
     this.fastify.addHook('onRequest', async request => {
@@ -122,7 +136,19 @@ export class FastifyApplication extends Application {
     return this;
   }
 
-  /** Listens. Port 0 asks the OS for a free one (tests); `address` then says which. */
+  /**
+   * Runs `job` every `intervalMs` in this process, until the application stops (the background jobs of
+   * the composition root: the outbox's relay, and what changes with time, ADR 0002). A failed run is
+   * logged, and the next one runs as scheduled.
+   */
+  every(intervalMs: number, job: () => Promise<unknown>): this {
+    const timer = setInterval(() => {
+      job().catch(error => this.logger.error('A background job failed', error));
+    }, intervalMs);
+    timer.unref();
+    this.#jobs.push(timer);
+    return this;
+  }
 
   /**
    * A context of its own, as each request gets one: its trace, its caller, the bus, the logger,
@@ -137,10 +163,12 @@ export class FastifyApplication extends Application {
       traceId,
       auth,
       eventBus: this.getEventBus(),
-      unitOfWork: new InMemoryUnitOfWork(),
+      unitOfWork: this.#unitOfWork(),
       logger: this.logger,
     });
   }
+
+  /** Listens. Port 0 asks the OS for a free one (tests); `address` then says which. */
   async start(port: number = this.port): Promise<void> {
     await this.fastify.listen({ port, host: '127.0.0.1' });
     await this.fastify.ready();
@@ -148,6 +176,7 @@ export class FastifyApplication extends Application {
   }
 
   async stop(): Promise<void> {
+    this.#jobs.splice(0).forEach(timer => clearInterval(timer));
     await this.fastify.close();
   }
 

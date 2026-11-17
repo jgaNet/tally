@@ -5,7 +5,7 @@ feature: accounts
 intent: >-
   Anyone signs up with an email, a password and a name; a signed-in person reads their own account.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where do accounts live, when the brief's candidate model has no context for them?

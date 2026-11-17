@@ -44,3 +44,15 @@ export class ConcurrencyConflictException extends Exception {
     });
   }
 }
+
+/** A thing with this identity or this unique value already exists: the caller asked for one that is taken (`409`). */
+export class AlreadyExistsException extends Exception {
+  constructor(service: string, message: string, context?: unknown) {
+    super({
+      service: service || 'unknown',
+      type: 'AlreadyExists',
+      message,
+      context,
+    });
+  }
+}

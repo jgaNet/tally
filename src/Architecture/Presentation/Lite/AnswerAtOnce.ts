@@ -1,4 +1,5 @@
 import {
+  AlreadyExistsException,
   ConcurrencyConflictException,
   Exception,
   NotAllowedException,
@@ -28,8 +29,10 @@ import { AUTHENTICATION_REQUIRED, notAllowedStatus } from '@Architecture/Present
  * - a refusal answers at once, named by the rule's exception (`{ type, message }`): `403` to a signed-in
  *   caller the rule refuses (`NotAllowedException`), or `401` if nobody is signed in (a use case anyone
  *   may call that still refuses who is not), `404` for a thing that is not
- *   there (`NotFoundException` and its kind), `409` for one another writer changed since it was read
- *   (`ConcurrencyConflictException`, after the use case's retries), `400` for any other rule;
+ *   there (`NotFoundException` and its kind), `409` for a thing that already exists, or that another
+ *   writer changed since it was read (`AlreadyExistsException`, `ConcurrencyConflictException`, after the
+ *   use case's retries), `422` for any other rule: a value the domain does not allow (the product's API
+ *   names `400` for a body's shape only, docs/adr/0002);
  * - an unexpected failure (a throw the use case turned into a failed Result) answers `500` and says
  *   nothing of it.
  *
@@ -78,10 +81,10 @@ export interface AtOnceReply {
 export function refusalStatus(error: unknown, context: ExecutionContext): number {
   if (error instanceof NotAllowedException) return notAllowedStatus(context);
   if (error instanceof NotFoundException) return 404;
-  if (error instanceof ConcurrencyConflictException) return 409;
+  if (error instanceof AlreadyExistsException || error instanceof ConcurrencyConflictException) return 409;
   // A throw the use case turned into a failed Result is not a rule's refusal.
   if (error instanceof UnknownException || !Exception.isException(error)) return 500;
-  return 400;
+  return 422;
 }
 
 /** The body of a `500`: a programming error is logged by the use case, never told to the client. */
