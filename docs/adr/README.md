@@ -18,6 +18,7 @@ why, what it costs, and when to revisit it.
 | [11](0011-settlement-in-cash-and-the-settlement-book.md) | A cash settlement is decided in a SettlementBook, and Ledger counts it in every balance |
 | [12](0012-payments-through-the-provider.md) | A payment through the provider is pending in the SettlementBook, and counted once the provider says it succeeded |
 | [13](0013-a-refund-is-a-status-of-the-settlement-the-book-holds-its-live-payments.md) | A refund is a status of the settlement, and the SettlementBook holds the payments that are still live |
+| [14](0014-notices-from-an-integration-event-of-ledger.md) | Notices come from ExpenseRecorded, Tally's first integration event, through the outbox |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

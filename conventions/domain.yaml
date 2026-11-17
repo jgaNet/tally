@@ -140,11 +140,10 @@ relationships:
     downstream: Notifications
     patterns: [published-language, anti-corruption-layer]
     mechanism: integration-event
-    planned: true
     why: >-
       A member is told when an expense concerns them. Ledger says it in its public words (ExpenseRecorded, Tally's
-      first integration event), through the outbox; Notifications turns it into one notice per member and delivers
-      it, which keeps the telling out of the ledger's transactions (T9).
+      first integration event), through the outbox; Notifications turns it into one notice per member, which keeps the
+      telling out of the ledger's transactions (T9). Carried since feature 17 (ADR 14).
   - upstream: Settlements
     downstream: Notifications
     patterns: [customer-supplier, anti-corruption-layer]

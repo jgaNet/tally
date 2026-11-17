@@ -76,6 +76,7 @@ export class Expense extends AggregateRoot {
         paidBy: split.payer,
         amount: amount.value,
         splitKind: split.kind,
+        shares: split.shares,
       }),
     );
     return expense;

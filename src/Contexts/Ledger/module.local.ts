@@ -10,6 +10,8 @@ import {
   getMemberStatement,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
+import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/ExpenseEvents';
+import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { BalancesCountingSettlements } from '@Contexts/Ledger/Infrastructure/BalancesCountingSettlements';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { LedgerDatabase } from '@Contexts/Ledger/Infrastructure/LedgerDatabase';
@@ -43,6 +45,7 @@ export const ledgerBalancesReadModel = balancesCountingSettlements;
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
+  domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
   useCases: [
     recordExpense(expenses, groupMembers, systemClock),
     getExpense(expenses, groupMembers),

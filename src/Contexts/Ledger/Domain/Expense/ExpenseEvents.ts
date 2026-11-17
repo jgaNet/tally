@@ -1,10 +1,11 @@
 import { DomainEvent } from '@Architecture/Domain';
 
-import { SplitKind } from './Split';
+import { Share, SplitKind } from './Split';
 
 /**
- * An expense was recorded, by the member who paid it. Recorded by the expense's creation and published after its save;
- * nothing reacts to it yet (the balances, feature 5, will), so it is not an integration event.
+ * An expense was recorded, by the member who paid it. Recorded by the expense's creation and published after its save. Its
+ * shares are the split's as recorded, so that the policy that publishes `ExpenseRecorded` to the other contexts (ADR 14) needs
+ * to read nothing back. The fact the other contexts hear is the integration event, not this one.
  */
 export class ExpenseRecordedEvent extends DomainEvent<{
   expenseId: string;
@@ -12,6 +13,7 @@ export class ExpenseRecordedEvent extends DomainEvent<{
   paidBy: string;
   amount: number;
   splitKind: SplitKind;
+  shares: readonly Share[];
 }> {}
 
 /**
