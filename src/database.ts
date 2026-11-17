@@ -68,6 +68,16 @@ const SCHEMA = `
     amount     INTEGER NOT NULL,
     PRIMARY KEY (expense_id, position)
   );
+  CREATE TABLE IF NOT EXISTS settlements (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    payer_id   TEXT NOT NULL REFERENCES accounts (id),
+    payee_id   TEXT NOT NULL REFERENCES accounts (id),
+    amount     INTEGER NOT NULL CHECK (amount >= 1),
+    method     TEXT NOT NULL CHECK (method IN ('cash')),
+    status     TEXT NOT NULL CHECK (status IN ('paid')),
+    created_at TEXT NOT NULL
+  );
 `;
 
 /**

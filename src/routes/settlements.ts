@@ -1,7 +1,37 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { requireCaller } from '../http';
-import { suggestedSettlement } from '../settlements';
+import { Refusal } from '../refusal';
+import { findSettlementOfMember, recordCashSettlement, suggestedSettlement } from '../settlements';
+
+interface RecordCashSettlementBody {
+  from: string;
+  amount: number;
+}
+
+/** Only the shape is checked here (a missing or wrongly typed field is `400`); the values are checked by the rules. */
+const RECORD_CASH_SETTLEMENT_BODY = {
+  type: 'object',
+  required: ['from', 'amount'],
+  properties: { from: { type: 'string' }, amount: { type: 'number' } },
+};
+
+const ID = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } };
+
+const SETTLEMENT = {
+  type: 'object',
+  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at'],
+  properties: {
+    id: { type: 'string' },
+    groupId: { type: 'string' },
+    from: { type: 'string' },
+    to: { type: 'string' },
+    amount: { type: 'integer' },
+    method: { enum: ['cash'] },
+    status: { enum: ['paid'] },
+    at: { type: 'string' },
+  },
+};
 
 const TRANSFER = {
   type: 'object',
@@ -17,6 +47,34 @@ export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSy
     async request => {
       const caller = requireCaller(db, request);
       return suggestedSettlement(db, caller.id, request.params.id);
+    },
+  );
+
+  // The payee is the caller, who records the cash it was paid; a caller who is not a member sees no group.
+  server.post<{ Params: { id: string }; Body: RecordCashSettlementBody }>(
+    '/groups/:id/settlements/cash',
+    { schema: { body: RECORD_CASH_SETTLEMENT_BODY, response: { 201: ID } } },
+    async (request, reply) => {
+      const caller = requireCaller(db, request);
+      const id = recordCashSettlement(db, {
+        groupId: request.params.id,
+        payeeId: caller.id,
+        payerId: request.body.from,
+        amount: request.body.amount,
+      });
+      return reply.code(201).send({ id });
+    },
+  );
+
+  // Only a current member of the settlement's group reads it; to anyone else it does not exist.
+  server.get<{ Params: { id: string } }>(
+    '/settlements/:id',
+    { schema: { response: { 200: SETTLEMENT } } },
+    async request => {
+      const caller = requireCaller(db, request);
+      const settlement = findSettlementOfMember(db, caller.id, request.params.id);
+      if (!settlement) throw new Refusal(404, 'SettlementNotFound', 'No settlement has this id.');
+      return settlement;
     },
   );
 }
