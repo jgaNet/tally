@@ -43,6 +43,12 @@ export class MemberListedTwice extends ExpenseException {
   }
 }
 
+export class FormerMemberInExpense extends ExpenseException {
+  constructor() {
+    super('FormerMemberInExpense', 'An expense that concerns a member who left the group can no longer be changed');
+  }
+}
+
 export class NotAGroupMember extends ExpenseException {
   constructor() {
     super('NotAGroupMember', 'Only members of the group can be in the split of an expense of the group');

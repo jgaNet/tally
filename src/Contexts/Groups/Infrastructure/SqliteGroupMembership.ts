@@ -14,7 +14,7 @@ export class SqliteGroupMembership implements IGroupMembership {
 
   async listMemberIds(groupId: string): Promise<string[]> {
     const rows = this.database.connection
-      .prepare('SELECT account_id FROM group_members WHERE group_id = ? ORDER BY position')
+      .prepare('SELECT account_id FROM group_members WHERE group_id = ? AND left_at IS NULL ORDER BY position')
       .all(groupId) as { account_id: string }[];
     return rows.map(row => row.account_id);
   }
@@ -24,9 +24,16 @@ export class SqliteGroupMembership implements IGroupMembership {
       .prepare(
         `SELECT CASE WHEN m.account_id = g.owner_id THEN 'owner' ELSE 'member' END AS role
            FROM group_members m JOIN tally_groups g ON g.id = m.group_id
-          WHERE m.group_id = ? AND m.account_id = ?`,
+          WHERE m.group_id = ? AND m.account_id = ? AND m.left_at IS NULL`,
       )
       .get(groupId, accountId) as { role: 'owner' | 'member' } | undefined;
     return row?.role ?? null;
+  }
+
+  async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {
+    const row = this.database.connection
+      .prepare('SELECT 1 AS found FROM group_members WHERE group_id = ? AND account_id = ?')
+      .get(groupId, accountId);
+    return row !== undefined;
   }
 }

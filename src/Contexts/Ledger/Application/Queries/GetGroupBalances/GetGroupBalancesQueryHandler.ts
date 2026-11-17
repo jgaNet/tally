@@ -25,8 +25,9 @@ export class GetGroupBalancesQueryHandler extends QueryHandler<
     const caller = requireSignedIn(context, 'Ledger');
     if (caller.isFailure()) return caller;
 
-    // The balances are read before the members. Every member with an entry was a member when that expense was recorded,
-    // and no one leaves a group before request 20, so the members read after cover all of them: the list adds up to 0.
+    // The balances are read before the members. A member who left had a balance of 0 (a member leaves only with 0, and an
+    // expense that concerns a former member cannot change), so the members listed now cover every balance that is not 0,
+    // and the list adds up to 0.
     const sums = await this.queries.sumsByMember(id);
     const members = await this.groupMembers.currentMembers(new Id(id));
     if (!members.some(member => member.equals(caller.data))) {

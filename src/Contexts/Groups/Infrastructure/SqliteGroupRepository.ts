@@ -24,14 +24,18 @@ export class SqliteGroupRepository implements IGroupRepository {
     const row = connection.prepare('SELECT * FROM tally_groups WHERE id = ?').get(id.value) as GroupRow | undefined;
     if (!row) return null;
     const members = connection
-      .prepare('SELECT account_id, joined_at FROM group_members WHERE group_id = ? ORDER BY position')
-      .all(id.value) as { account_id: string; joined_at: string }[];
+      .prepare('SELECT account_id, joined_at, left_at FROM group_members WHERE group_id = ? ORDER BY position')
+      .all(id.value) as { account_id: string; joined_at: string; left_at: string | null }[];
     return Group.fromSnapshot({
       id: row.id,
       name: row.name,
       currency: row.currency,
       ownerId: row.owner_id,
-      members: members.map(member => ({ accountId: member.account_id, joinedAt: member.joined_at })),
+      members: members.map(member => ({
+        accountId: member.account_id,
+        joinedAt: member.joined_at,
+        leftAt: member.left_at,
+      })),
       createdAt: row.created_at,
       version: row.version,
     });
@@ -55,10 +59,12 @@ export class SqliteGroupRepository implements IGroupRepository {
       }
     }
     connection.prepare('DELETE FROM group_members WHERE group_id = ?').run(id);
-    members.forEach(({ accountId, joinedAt }, position) =>
+    members.forEach(({ accountId, joinedAt, leftAt }, position) =>
       connection
-        .prepare('INSERT INTO group_members (group_id, account_id, position, joined_at) VALUES (?, ?, ?, ?)')
-        .run(id, accountId, position, joinedAt),
+        .prepare(
+          'INSERT INTO group_members (group_id, account_id, position, joined_at, left_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(id, accountId, position, joinedAt, leftAt),
     );
     return Result.ok();
   }

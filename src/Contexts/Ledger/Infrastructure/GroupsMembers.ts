@@ -14,4 +14,8 @@ export class GroupsMembers implements IGroupMembers {
   async roleOf(groupId: Id, accountId: Id): Promise<MemberRole | null> {
     return this.groups.roleOf(groupId.value, accountId.value);
   }
+
+  async hasBeenMember(groupId: Id, accountId: Id): Promise<boolean> {
+    return this.groups.hasBeenMember(groupId.value, accountId.value);
+  }
 }

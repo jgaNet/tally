@@ -7,7 +7,8 @@ import { DeleteExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands
 
 /**
  * A member who paid an expense, or the owner of its group, removes it: it is gone from every read, and from every
- * balance, in the transaction that deletes it. For anyone not in the group the expense does not exist.
+ * balance, in the transaction that deletes it. An expense that concerns a member who has left cannot be removed. For
+ * anyone not in the group the expense does not exist.
  */
 export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCommandEvent> {
   constructor(
@@ -28,7 +29,12 @@ export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCom
     const role = await this.groupMembers.roleOf(expense.groupId, caller.data);
     if (role === null) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
 
-    const deleted = expense.delete({ by: caller.data, byOwner: role === 'owner', at: now });
+    const deleted = expense.delete({
+      by: caller.data,
+      byOwner: role === 'owner',
+      groupMembers: await this.groupMembers.currentMembers(expense.groupId),
+      at: now,
+    });
     if (deleted.isFailure()) return deleted;
 
     const saved = await this.expenses.save(deleted.data);

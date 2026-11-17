@@ -6,9 +6,10 @@ import { IStatementQueries } from '@Contexts/Ledger/Application/Ports/IStatement
 import { StatementReadModel } from '@Contexts/Ledger/Application/ReadModel/StatementReadModel';
 
 /**
- * A member of the group reads the statement of any member of the group, themselves included: the expenses the member paid
- * or is in the split of, the earliest first, each with the balance once it is counted, from 0. For anyone else the group
- * does not exist; a statement of an account that has never been a member of the group does not exist either.
+ * A member of the group reads the statement of any member of the group, a former one included, themselves included: the
+ * expenses the member paid or is in the split of, the earliest first, each with the balance once it is counted, from 0.
+ * For anyone else the group does not exist; a statement of an account that has never been a member of the group does
+ * not exist either.
  */
 export class GetMemberStatementQueryHandler extends QueryHandler<
   IStatementQueries,
@@ -35,7 +36,7 @@ export class GetMemberStatementQueryHandler extends QueryHandler<
     if (!members.some(member => member.equals(caller.data))) {
       return Result.fail(new NotFoundException('Ledger', 'Group not found'));
     }
-    if (!members.some(member => member.value === memberId)) {
+    if (!(await this.groupMembers.hasBeenMember(new Id(groupId), new Id(memberId)))) {
       return Result.fail(new NotFoundException('Ledger', 'Member not found'));
     }
 

@@ -95,8 +95,8 @@ describe('Group', () => {
     group.join(new Id('bob'), new Date('2026-02-03T04:05:06.000Z'));
     const snapshot = group.toSnapshot();
     expect(snapshot.members).toEqual([
-      { accountId: 'owner-1', joinedAt: at.toISOString() },
-      { accountId: 'bob', joinedAt: '2026-02-03T04:05:06.000Z' },
+      { accountId: 'owner-1', joinedAt: at.toISOString(), leftAt: null },
+      { accountId: 'bob', joinedAt: '2026-02-03T04:05:06.000Z', leftAt: null },
     ]);
     expect(Group.fromSnapshot({ ...snapshot, version: 1 }).toSnapshot()).toEqual({ ...snapshot, version: 1 });
   });

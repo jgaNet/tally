@@ -2,6 +2,8 @@ import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
+import { IMemberBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalanceSums';
+import { SqliteMemberBalanceSums } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalanceSums';
 import {
   DeleteExpenseCommandEvent,
   DeleteExpenseCommandHandler,
@@ -28,6 +30,12 @@ import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/SqliteSt
  * asked of Groups through the read model Groups' wiring exports, the one link ADR 3 declares.
  */
 const database = SqliteDatabase.shared();
+
+/**
+ * Ledger's balance of a member as Groups asks it when a member leaves (MemberBalances, ADR 4), exported for a command:
+ * it reads inside the asking command's transaction. The composition root hands it to Groups' module.
+ */
+export const memberBalanceSumsInCommand: IMemberBalanceSums = new SqliteMemberBalanceSums(database);
 
 export const localLedgerModule = new Module({
   name: 'Ledger',

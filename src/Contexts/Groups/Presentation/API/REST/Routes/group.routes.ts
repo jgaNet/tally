@@ -8,6 +8,7 @@ import {
   GetGroupMembersResSchema,
   GetGroupResSchema,
   GetMyGroupsResSchema,
+  LeaveGroupResSchema,
 } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes.schema';
 
 export const groupRoutes = function (
@@ -41,6 +42,11 @@ export const groupRoutes = function (
     '/groups/:id/members',
     { schema: { tags: ['groups'], response: GetGroupMembersResSchema } },
     controller.getMembers.bind(controller),
+  );
+  fastify.post(
+    '/groups/:id/leave',
+    { schema: { tags: ['groups'], response: LeaveGroupResSchema } },
+    controller.leaveGroup.bind(controller),
   );
 
   done();

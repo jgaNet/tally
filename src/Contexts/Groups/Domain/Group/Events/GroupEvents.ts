@@ -15,3 +15,10 @@ export class MemberJoinedEvent extends DomainEvent<{
   accountId: string;
   joinedAt: string;
 }> {}
+
+/** A member left a group, and when: it is no longer among the members, and what it did in the group stays as it was. */
+export class MemberLeftEvent extends DomainEvent<{
+  groupId: string;
+  accountId: string;
+  leftAt: string;
+}> {}

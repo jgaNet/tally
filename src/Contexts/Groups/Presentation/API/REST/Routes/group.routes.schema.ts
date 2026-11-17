@@ -62,3 +62,8 @@ export const GetGroupMembersResSchema = {
   401: RefusedSchema,
   404: RefusedSchema,
 } as const;
+
+export const LeaveGroupResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  401: RefusedSchema,
+} as const;

@@ -7,9 +7,11 @@ export type MemberRole = 'owner' | 'member';
  * The members of a group as Groups has them now, asked by Ledger in its own words (ADR 3): who may be in a split, who may
  * read an expense or the balances of the group, and who may change an expense. `currentMembers` lists them in the order
  * they joined, the earliest first; empty for a group nobody is a member of, or that does not exist. `roleOf` answers
- * one account's role in the group, or null when it is not a member of it.
+ * one account's role in the group, or null when it is not a member of it now. `hasBeenMember` answers whether an account
+ * has ever been a member, so that a former member's statement is still read by the members (ADR 4).
  */
 export interface IGroupMembers {
   currentMembers(groupId: Id): Promise<Id[]>;
   roleOf(groupId: Id, accountId: Id): Promise<MemberRole | null>;
+  hasBeenMember(groupId: Id, accountId: Id): Promise<boolean>;
 }

@@ -5,7 +5,7 @@ feature: leave-a-group
 intent: >-
   A member who is even leaves the group; the owner stays; what concerns a member who left is kept as it was and no longer changes.
 
-done: false
+done: true
 
 hotSpots:
   - question: How does Groups know the leaving member's balance?

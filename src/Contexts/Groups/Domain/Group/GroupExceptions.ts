@@ -24,3 +24,21 @@ export class AlreadyMember extends GroupException {
     super('AlreadyMember', 'This account is already a member of the group');
   }
 }
+
+export class NotAMember extends GroupException {
+  constructor() {
+    super('NotAMember', 'This account is not a member of the group');
+  }
+}
+
+export class OwnerCannotLeave extends GroupException {
+  constructor() {
+    super('OwnerCannotLeave', 'The owner cannot leave the group they created');
+  }
+}
+
+export class BalanceNotZero extends GroupException {
+  constructor() {
+    super('BalanceNotZero', 'A member leaves a group only once their balance in it is 0');
+  }
+}

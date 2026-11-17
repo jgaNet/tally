@@ -4,6 +4,7 @@ import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import {
   ExpenseChanged,
+  FormerMemberInExpense,
   NotAGroupMember,
   NotAllowedToChangeExpense,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
@@ -89,7 +90,8 @@ export class Expense extends AggregateRoot {
   /**
    * Gives the expense again, whole, from the version its author read. Only its payer or the group's owner may
    * (`by`, `byOwner`); the payer stays as it was, and the edit refuses a version other than the one this expense was
-   * read at (ExpenseChanged), and a split with a member who is not in the group now. Records ExpenseEdited.
+   * read at (ExpenseChanged), a split with a member who is not in the group now, and an expense that concerns a member
+   * who has left (FormerMemberInExpense), so that the balances of the group stay as they were. Records ExpenseEdited.
    */
   edit({
     by,
@@ -114,6 +116,7 @@ export class Expense extends AggregateRoot {
   }): IResult<Expense> {
     if (!this.mayBeChangedBy(by, byOwner)) return Result.fail(new NotAllowedToChangeExpense());
     if (fromVersion !== this.version) return Result.fail(new ExpenseChanged());
+    if (this.concernsFormerMember(groupMembers)) return Result.fail(new FormerMemberInExpense());
     const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
     if (outsider) return Result.fail(new NotAGroupMember());
 
@@ -131,9 +134,23 @@ export class Expense extends AggregateRoot {
     return Result.ok(edited);
   }
 
-  /** Removes the expense. Only its payer or the group's owner may (`by`, `byOwner`). Records ExpenseDeleted. */
-  delete({ by, byOwner, at }: { by: Id; byOwner: boolean; at: Date }): IResult<Expense> {
+  /**
+   * Removes the expense. Only its payer or the group's owner may (`by`, `byOwner`), and not an expense that concerns a
+   * member who has left (`groupMembers`, the members now). Records ExpenseDeleted.
+   */
+  delete({
+    by,
+    byOwner,
+    groupMembers,
+    at,
+  }: {
+    by: Id;
+    byOwner: boolean;
+    groupMembers: readonly Id[];
+    at: Date;
+  }): IResult<Expense> {
     if (!this.mayBeChangedBy(by, byOwner)) return Result.fail(new NotAllowedToChangeExpense());
+    if (this.concernsFormerMember(groupMembers)) return Result.fail(new FormerMemberInExpense());
 
     const deleted = new Expense(
       this._id,
@@ -154,6 +171,11 @@ export class Expense extends AggregateRoot {
       }),
     );
     return Result.ok(deleted);
+  }
+
+  /** Whether the payer or a member of the split is no longer a member of the group. */
+  private concernsFormerMember(groupMembers: readonly Id[]): boolean {
+    return this.split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
   }
 
   private mayBeChangedBy(by: Id, byOwner: boolean): boolean {

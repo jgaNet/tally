@@ -7,9 +7,10 @@ import { localTrackerModule, trackedEventBus } from '@Contexts/Tracker/module.lo
 import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { authenticate, localGroupsModule } from '@Contexts/Groups/module.local';
+import { authenticate, groupsModuleWith } from '@Contexts/Groups/module.local';
+import { LedgerMemberBalances } from '@Contexts/Groups/Infrastructure/LedgerMemberBalances';
 import { accountRoutes, groupRoutes, invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
-import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { localLedgerModule, memberBalanceSumsInCommand } from '@Contexts/Ledger/module.local';
 import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
@@ -29,6 +30,9 @@ export async function createApplication({
     .filter(Boolean),
 }: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
   const database = SqliteDatabase.shared();
+  // Groups asks Ledger a member's balance when one leaves (ADR 4): the two wirings do not import each other, so the
+  // composition root gives Groups the port over Ledger's read.
+  const localGroupsModule = groupsModuleWith(new LedgerMemberBalances(memberBalanceSumsInCommand));
   const app = new FastifyApplication({
     logger,
     apiPrefix,
