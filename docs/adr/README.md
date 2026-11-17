@@ -10,6 +10,7 @@ why, what it costs, and when to revisit it.
 | [3](0003-ledger-reads-who-may-be-in-a-split-from-groups.md) | Ledger reads who may be in a split from Groups, through a port it owns |
 | [4](0004-groups-and-ledger-ask-each-other-through-ports.md) | Groups and Ledger ask each other through ports, and a leaver is kept |
 | [5](0005-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
+| [6](0006-settlements-carries-its-two-ports-and-the-suggestion-is-computed.md) | Settlements carries its two ports, and the suggestion is computed at the read |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
