@@ -78,7 +78,15 @@ export class Expense extends AggregateRoot {
 
     const { description: text, amount: value, spentOn, splitKind, shares } = decided.data;
     const expense = new Expense(Id.generate(), groupId, text, value, spentOn, paidBy, splitKind, shares, 0);
-    expense.record(ExpenseRecordedEvent.set({ expenseId: expense._id.value, groupId: groupId.value, splitKind }));
+    expense.record(
+      ExpenseRecordedEvent.set({
+        expenseId: expense._id.value,
+        groupId: groupId.value,
+        splitKind,
+        paidBy: paidBy.value,
+        shares: shares.map(share => ({ memberId: share.memberId.value, amount: share.amount })),
+      }),
+    );
     return Result.ok(expense);
   }
 

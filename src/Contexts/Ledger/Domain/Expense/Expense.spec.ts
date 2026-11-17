@@ -252,7 +252,17 @@ describe('Expense', () => {
     expect(expense.isSuccess()).toBe(true);
     const recorded = (expense.data as Expense).pullDomainEvents();
     expect(recorded).toEqual([
-      ExpenseRecordedEvent.set({ expenseId: (expense.data as Expense)._id.value, groupId: 'flat', splitKind: 'equal' }),
+      ExpenseRecordedEvent.set({
+        expenseId: (expense.data as Expense)._id.value,
+        groupId: 'flat',
+        splitKind: 'equal',
+        paidBy: 'alice',
+        shares: [
+          { memberId: 'alice', amount: 334 },
+          { memberId: 'bob', amount: 333 },
+          { memberId: 'carl', amount: 333 },
+        ],
+      }),
     ]);
     expect((expense.data as Expense).toSnapshot()).toEqual({
       id: (expense.data as Expense)._id.value,
@@ -299,7 +309,16 @@ describe('Expense', () => {
       ['bob', 400],
     ]);
     expect(exact.pullDomainEvents()).toEqual([
-      ExpenseRecordedEvent.set({ expenseId: exact._id.value, groupId: 'flat', splitKind: 'exact' }),
+      ExpenseRecordedEvent.set({
+        expenseId: exact._id.value,
+        groupId: 'flat',
+        splitKind: 'exact',
+        paidBy: 'alice',
+        shares: [
+          { memberId: 'alice', amount: 600 },
+          { memberId: 'bob', amount: 400 },
+        ],
+      }),
     ]);
     expect(shares.splitKind).toBe('shares');
     expect(amountsOf(shares)).toEqual([

@@ -25,6 +25,8 @@ import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteE
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { SqliteMemberBalances } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalances';
 import { IMemberBalancesQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalancesQueries';
+import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecorded/ExpenseRecordedHandler';
 
 const database = sharedDatabase();
 const expenses = new SqliteExpenseRepository(database);
@@ -48,6 +50,7 @@ export const memberBalances: IMemberBalancesQueries = balances;
 /** The Ledger context: the expenses of each group, how each is split, and what each member owes or is owed. */
 export const localLedgerModule = new Module({
   name: 'Ledger',
+  domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
   commands: [
     {
       event: RecordExpenseCommandEvent,

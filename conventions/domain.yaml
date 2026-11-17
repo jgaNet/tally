@@ -156,7 +156,6 @@ relationships:
     downstream: Notifications
     patterns: [published-language, anti-corruption-layer]
     mechanism: integration-event
-    planned: true
     why: >-
       A member is told when an expense concerns them. Ledger says it in its public words (ExpenseRecorded, Tally's
       first integration event), through the outbox; Notifications turns it into one notice per member and delivers
