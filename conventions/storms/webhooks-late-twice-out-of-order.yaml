@@ -6,7 +6,7 @@ feature: webhooks-late-twice-out-of-order
 intent: >-
   A webhook said twice, late, out of order or at once to two servers changes a payment once; the payment only moves forward, and every webhook is acknowledged.
 
-done: false
+done: true
 
 hotSpots:
   - question: What makes a payment count once — the webhook's id, or the payment's status?
