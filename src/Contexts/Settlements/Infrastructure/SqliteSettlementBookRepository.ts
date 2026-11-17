@@ -40,6 +40,13 @@ export class SqliteSettlementBookRepository implements ISettlementBookRepository
     return row ? this.findByGroup(new Id(row.group_id)) : null;
   }
 
+  async findBySettlement(settlementId: Id): Promise<SettlementBook | null> {
+    const row = this.database.connection
+      .prepare('SELECT group_id FROM settlements WHERE id = ?')
+      .get(settlementId.value) as { group_id: string } | undefined;
+    return row ? this.findByGroup(new Id(row.group_id)) : null;
+  }
+
   async save(book: SettlementBook): Promise<IResult> {
     const { connection } = this.database;
     const groupId = book._id.value;

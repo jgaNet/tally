@@ -38,3 +38,22 @@ export class SettlementFailedEvent extends DomainEvent<{
   payee: string;
   amount: number;
 }> {}
+
+/** The payee asked the provider to refund a settlement paid through it: it is refunding, and the balances still count it (ADR 9). */
+export class RefundRequestedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+  requestedAt: string;
+}> {}
+
+/** The provider said the payment through a settlement is refunded: the settlement is refunded, and the balances no longer count it. */
+export class SettlementRefundedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}

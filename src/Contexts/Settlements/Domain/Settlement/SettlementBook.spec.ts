@@ -177,7 +177,7 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
     const { book } = kept(20);
     book.receivePayment({ paymentId: 'pay-20', status: 'pending' });
     book.receivePayment({ paymentId: 'unknown', status: 'succeeded' });
-    book.receivePayment({ paymentId: 'pay-20', status: 'refunded' });
+    book.receivePayment({ paymentId: 'pay-20', status: 'disputed' });
     expect(book.unsaved[0].status).toBe('pending');
 
     book.receivePayment({ paymentId: 'pay-20', status: 'succeeded' });

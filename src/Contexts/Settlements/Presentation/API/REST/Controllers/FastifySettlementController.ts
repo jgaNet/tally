@@ -5,6 +5,7 @@ import {
   PayThroughProviderCommandEvent,
   ReceivePaymentWebhookCommandEvent,
   RecordCashSettlementCommandEvent,
+  RefundSettlementCommandEvent,
 } from '@Contexts/Settlements/Application/Commands';
 import {
   GetSettlementQueryHandler,
@@ -54,6 +55,11 @@ export class FastifySettlementController {
       this.#module,
       PayThroughProviderCommandEvent.set({ groupId: req.params.id, to: req.body.to, amount: req.body.amount }),
     );
+  }
+
+  /** The payee asks the provider to refund a settlement paid through it: answered at once, its outcome read later (request 15). */
+  refundSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, RefundSettlementCommandEvent.set({ settlementId: req.params.id }));
   }
 
   /** The provider's webhook: refused with 401 and nothing changed unless it is signed; otherwise acknowledged at once. */

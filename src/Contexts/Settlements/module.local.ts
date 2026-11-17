@@ -15,6 +15,8 @@ import {
   ReceivePaymentWebhookCommandHandler,
   RecordCashSettlementCommandEvent,
   RecordCashSettlementCommandHandler,
+  RefundSettlementCommandEvent,
+  RefundSettlementCommandHandler,
 } from '@Contexts/Settlements/Application/Commands';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
 import { IWaitingEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingEffects';
@@ -36,11 +38,17 @@ const database = SqliteDatabase.shared();
  * What the settlements paid, as Ledger reads it (SettledAmounts, ADR 7), exported for a query (outside any transaction)
  * and for a command (inside the asking command's transaction).
  */
-export const settlementEffects: ISettlementEffects = new SqliteSettlementEffects(database, false, 'paid');
-export const settlementEffectsInCommand: ISettlementEffects = new SqliteSettlementEffects(database, true, 'paid');
+export const settlementEffects: ISettlementEffects = new SqliteSettlementEffects(database, false, [
+  'paid',
+  'refunding',
+]);
+export const settlementEffectsInCommand: ISettlementEffects = new SqliteSettlementEffects(database, true, [
+  'paid',
+  'refunding',
+]);
 
 /** What the payments waiting at the provider do to each balance, for the suggestions (ADR 8), outside any transaction. */
-const waitingEffects: IWaitingEffects = new SqliteSettlementEffects(database, false, 'pending');
+const waitingEffects: IWaitingEffects = new SqliteSettlementEffects(database, false, ['pending']);
 
 /**
  * The Settlements module, given the balances it decides on: `balances` for its queries (outside a transaction) and
@@ -74,6 +82,17 @@ export function settlementsModuleWith(
             balancesInCommand,
             new GroupsSettlementMembers(groupMembershipInCommand),
             new GroupsGroupCurrency(groupCurrencyInCommand),
+            provider,
+            systemClock,
+          ),
+        ],
+      },
+      {
+        event: RefundSettlementCommandEvent,
+        handlers: [
+          new RefundSettlementCommandHandler(
+            new SqliteSettlementBookRepository(database),
+            new GroupsSettlementMembers(groupMembershipInCommand),
             provider,
             systemClock,
           ),

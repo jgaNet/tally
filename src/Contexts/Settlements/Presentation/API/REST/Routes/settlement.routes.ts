@@ -12,6 +12,7 @@ import {
   ProviderWebhookResSchema,
   RecordCashSettlementBodySchema,
   RecordCashSettlementResSchema,
+  RefundSettlementResSchema,
 } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
 
 export const settlementRoutes = function (
@@ -64,6 +65,12 @@ export const settlementRoutes = function (
     '/settlements/:id',
     { schema: { tags: ['settlements'], response: GetSettlementResSchema } },
     controller.getSettlement.bind(controller),
+  );
+
+  fastify.post(
+    '/settlements/:id/refund',
+    { schema: { tags: ['settlements'], response: RefundSettlementResSchema } },
+    controller.refundSettlement.bind(controller),
   );
 
   fastify.post(

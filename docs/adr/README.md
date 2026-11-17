@@ -13,6 +13,7 @@ why, what it costs, and when to revisit it.
 | [6](0006-suggested-settlements-carries-the-two-planned-links.md) | Suggested settlements: Settlements carries the two links ADR 5 planned |
 | [7](0007-settle-in-cash-and-how-ledger-counts-settlements.md) | Settle in cash: Settlements decides in a book per group, and Ledger counts what was settled |
 | [8](0008-pay-through-the-provider-and-what-is-still-owed.md) | Pay through the payment provider: a payment waits, is still owed, and ends once |
+| [9](0009-refund-through-the-provider.md) | Refund through the payment provider: the payee asks, and the balances go back when the provider says so |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

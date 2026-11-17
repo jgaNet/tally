@@ -1,20 +1,26 @@
-import { AggregateRoot, Exception, Id, IResult, Result } from '@Architecture/Domain';
+import { AggregateRoot, Exception, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import {
   PaymentRequestedEvent,
+  RefundRequestedEvent,
   SettlementFailedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
+  SettlementRefundedEvent,
 } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
 import {
+  CashSettlementNotRefundable,
   InvalidSettlementAmount,
+  NotThePayee,
   PayeeNotAMember,
   PayerIsPayee,
   PayerNotAMember,
   SettlementExceedsDebt,
+  SettlementNotPaid,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 
 export type SettlementMethod = 'cash' | 'provider';
-export type SettlementStatus = 'pending' | 'paid' | 'failed';
+/** A settlement is pending until the provider says how its payment ended; a paid one may be refunded, and then refunding and refunded (ADR 9). */
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
 
 /** A settlement of the group: who paid whom, how much, how it is paid, its status, and when it was recorded. */
 export interface Settlement {
@@ -45,6 +51,12 @@ export interface SettlementDecision {
 export interface PaymentProposal extends SettlementDecision {
   /** The settlement's id, which is the reference the provider is asked with. */
   readonly id: Id;
+}
+
+/** A refund the book checked, to ask the provider for: the settlement it refunds, and the payment's id at the provider. */
+export interface RefundProposal {
+  readonly settlementId: Id;
+  readonly paymentId: string;
 }
 
 /**
@@ -146,14 +158,65 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /**
-   * The provider's word on a payment: a pending settlement with that payment becomes paid when it succeeded, failed when it
-   * failed, and changes for nothing else; a payment this book does not know, or one already ended, changes nothing.
+   * A payee asks to refund a settlement paid through the provider, whole (request 15, ADR 9). The caller must be a member of
+   * the group, or the settlement does not exist for them; the payee, and no one else; a settlement paid through the provider,
+   * and still `paid`; and its payer and payee must still be members, so the balances of the group still add up to 0. Nothing
+   * is changed: the provider is asked with the payment's id, and `keepRefund` keeps the settlement refunding once it said yes.
+   */
+  proposeRefund({
+    settlementId,
+    caller,
+    members,
+  }: {
+    settlementId: Id;
+    caller: Id;
+    members: readonly string[];
+  }): IResult<RefundProposal> {
+    const settlement = this.#settlements.find(candidate => candidate.id.equals(settlementId));
+    if (!settlement || !members.includes(caller.value)) {
+      return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));
+    }
+    if (!settlement.payee.equals(caller)) return Result.fail(new NotThePayee());
+    if (settlement.method !== 'provider') return Result.fail(new CashSettlementNotRefundable());
+    if (settlement.status !== 'paid') return Result.fail(new SettlementNotPaid());
+    if (!members.includes(settlement.payer.value)) return Result.fail(new PayerNotAMember());
+    if (!members.includes(settlement.payee.value)) return Result.fail(new PayeeNotAMember());
+    if (settlement.providerPaymentId === undefined) {
+      throw new Error('A settlement through the provider has no payment id at the provider: the book is corrupted');
+    }
+    return Result.ok({ settlementId, paymentId: settlement.providerPaymentId });
+  }
+
+  /** The provider accepted the refund: the settlement is refunding, still counted, and RefundRequested is recorded. */
+  keepRefund(proposal: RefundProposal, at: Date): IResult {
+    const settlement = this.#settlements.find(candidate => candidate.id.equals(proposal.settlementId));
+    if (!settlement || settlement.status !== 'paid') return Result.fail(new SettlementNotPaid());
+    settlement.status = 'refunding';
+    this.#unsaved.add(settlement);
+    this.record(
+      RefundRequestedEvent.set({
+        settlementId: settlement.id.value,
+        groupId: this._id.value,
+        payer: settlement.payer.value,
+        payee: settlement.payee.value,
+        amount: settlement.amount,
+        requestedAt: at.toISOString(),
+      }),
+    );
+    return Result.ok();
+  }
+
+  /**
+   * The provider's word on a payment. `succeeded` makes a pending settlement paid and `failed` makes it failed; `refunded`
+   * makes a settlement refunded from any state it can be in: pending (a refund that overtakes the success), paid, or
+   * refunding, and it is never counted again. Any other word, a payment this book does not know, and a word that the
+   * settlement has already passed (a repeated one, a late `pending`, a `succeeded` after a refund) changes nothing.
    */
   receivePayment({ paymentId, status }: { paymentId: string; status: string }): void {
     const settlement = this.#settlements.find(
       candidate => candidate.method === 'provider' && candidate.providerPaymentId === paymentId,
     );
-    if (!settlement || settlement.status !== 'pending') return;
+    if (!settlement) return;
 
     const ended = {
       settlementId: settlement.id.value,
@@ -162,7 +225,13 @@ export class SettlementBook extends AggregateRoot {
       payee: settlement.payee.value,
       amount: settlement.amount,
     };
-    if (status === 'succeeded') {
+    if (status === 'refunded') {
+      if (settlement.status !== 'pending' && settlement.status !== 'paid' && settlement.status !== 'refunding') return;
+      settlement.status = 'refunded';
+      this.record(SettlementRefundedEvent.set(ended));
+    } else if (settlement.status !== 'pending') {
+      return;
+    } else if (status === 'succeeded') {
       settlement.status = 'paid';
       this.record(SettlementPaidEvent.set(ended));
     } else if (status === 'failed') {

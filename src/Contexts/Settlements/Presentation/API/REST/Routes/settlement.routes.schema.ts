@@ -52,6 +52,12 @@ export const PayThroughProviderResSchema = {
   401: RefusedSchema,
 } as const;
 
+/** A refund is asked at once and answered later, as a command is; a refusal is the operation's error (request 15). */
+export const RefundSettlementResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  401: RefusedSchema,
+} as const;
+
 /** The provider's webhook is acknowledged once its signature is right, whatever it says (ADR 8). */
 export const ProviderWebhookResSchema = {
   202: { type: 'object', properties: { operationId: { type: 'string' } } },
@@ -68,7 +74,7 @@ const SettlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
     method: { enum: ['cash', 'provider'] },
-    status: { enum: ['pending', 'paid', 'failed'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     payUrl: { type: 'string', minLength: 1 },
   },
