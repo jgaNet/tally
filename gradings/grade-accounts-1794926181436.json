@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-3",
+  "ref": "ad5bdb11ae5c76a9f858c2238e2addb484988afa",
+  "commit": "ad5bdb11ae5c76a9f858c2238e2addb484988afa",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../ad5bdb11ae5c.storms/accounts.yaml is done, but Groups: typescript lacks the command expected by ../ad5bdb11ae5c.storms/accounts.yaml has: SignUp (anyone, POST /accounts, Account → AccountRegistered)",
+          "../ad5bdb11ae5c.storms/accounts.yaml is done, but Groups: typescript has a command expected by ../ad5bdb11ae5c.storms/accounts.yaml does not: SignUp (anyone, POST /accounts, Account → AccountRegistered; answered at once)"
+        ]
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 10913,
+  "workers": 2
+}
