@@ -1,0 +1,27 @@
+# The first fragment of this application's API (ADR 45 of the reference), written by `clean-ddd create`.
+# It answers every command at once (the Lite profile): a create `201 { id }` (`created`), any other `200` or `204`,
+# a refusal a `4xx` with the rule's exception; there is no operation to follow.
+# Each change adds its fragment after this one (`api/2-<name>.yaml`) before its code: api/README.md says how.
+resources:
+  refusal:
+    schema:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+        type:
+          type: string
+          description: The rule's exception, when a rule refused.
+  created:
+    schema:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+all_routes:
+  4xx: refusal
+routes: {}

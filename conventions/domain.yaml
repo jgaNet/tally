@@ -1,0 +1,16 @@
+# The domain, as data: the subdomains and their kind, each bounded context with its purpose and its
+# language, and the context map — every relationship between two contexts, the pattern it follows,
+# the mechanism that carries it and why. The conventions check holds it to the binding (a context
+# declared there is described here) and to the code (a link between two contexts that this map does
+# not declare is refused, and so is a relationship nothing carries: CTX-MAP-DECLARED). It starts
+# with the contexts this application was created with, described as the reference describes them;
+# each context of your own is described here when it is declared in the binding.
+# `clean-ddd rule CTX-MAP-DECLARED` explains the rule; `clean-ddd concept context-map` the idea.
+schemaVersion: 1
+name: tally
+purpose: >-
+  What tally is for, in the words of the people who use it. Rewrite this sentence before the first context of
+  your own.
+subdomains: []
+contexts: []
+relationships: []
