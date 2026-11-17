@@ -37,6 +37,23 @@ subdomains:
       it to its outcome is plumbing any asynchronous application needs, and has no domain of its own.
     contexts:
       - Tracker
+  - id: settling
+    name: Settling up
+    kind: core
+    why: >-
+      Bringing balances to zero without anyone paying more than is owed, in cash or through a provider whose
+      webhooks come late, twice or out of order: the money invariant Tally is for, held where two settlements can
+      be decided at once.
+    contexts:
+      - Settlements
+  - id: telling
+    name: Telling people
+    kind: generic
+    why: >-
+      Telling a member an expense concerns them, and reminding one who has owed for a week, is plumbing any
+      application needs.
+    contexts:
+      - Notifications
 contexts:
   - id: Groups
     purpose: >-
@@ -75,6 +92,28 @@ contexts:
         meaning: how an operation ended — SUCCESS with its result, or ERROR with the refusal.
       - term: Trace
         meaning: the id that ties an operation to the request that asked for it and to the operations it caused.
+  - id: Settlements
+    purpose: >-
+      Settling up between members: the settlements of each group decided in one book, in cash or through the payment
+      provider, their payments, refunds and statuses, and each person's payout account at the provider.
+    language:
+      - term: Settlement
+        meaning: one transfer from a payer to a payee of a group, decided against what is owed at that moment, never more.
+      - term: SettlementBook
+        meaning: the one place every settlement of a group is decided in, cash and provider alike, so that two at once cannot overpay.
+      - term: Payment
+        meaning: a settlement paid through the provider, pending until its webhook lands, counted once whatever the webhooks do.
+      - term: PayoutAccount
+        meaning: the account at the provider a person is paid on; required to be paid through the provider.
+  - id: Notifications
+    purpose: >-
+      Telling members what concerns them: one notice per member when an expense includes them, and a reminder, at the
+      next sweep, to a member who has owed more than a threshold for a week, once a week.
+    language:
+      - term: Notice
+        meaning: one message owed to one member about one fact, made once from the fact.
+      - term: Reminder
+        meaning: a notice the sweep makes for a lasting debt, at most once a week per member and group.
 relationships:
   - upstream: Groups
     downstream: Ledger
@@ -94,3 +133,44 @@ relationships:
       port it owns (MemberBalances) when it decides, answered over Ledger's balance read model that Ledger's wiring
       exports for a command, and the two wirings do not import each other: Bootstrap hands Groups the port. Two ports
       in opposite directions, each in the asking side's words, and no domain imports the other (T5, ADR 4).
+  - upstream: Ledger
+    downstream: Settlements
+    patterns: [customer-supplier, anti-corruption-layer]
+    mechanism: owned-port
+    planned: true
+    why: >-
+      A settlement is decided against what is owed now, and only Ledger knows the balances. Settlements asks through a
+      port it owns (GroupBalances) when its book decides, and for the suggestions (T7).
+  - upstream: Groups
+    downstream: Settlements
+    patterns: [customer-supplier, anti-corruption-layer]
+    mechanism: owned-port
+    planned: true
+    why: >-
+      Only members of the group settle with each other, and only Groups knows who is a member. Settlements asks
+      through a port it owns (SettlementMembers).
+  - upstream: Settlements
+    downstream: Ledger
+    patterns: [customer-supplier, anti-corruption-layer]
+    mechanism: owned-port
+    planned: true
+    why: >-
+      A balance never misses a settlement that is paid: Ledger reads what was settled through a port it owns
+      (SettledAmounts), answered over Settlements' read model, when it reads a balance (T8).
+  - upstream: Ledger
+    downstream: Notifications
+    patterns: [published-language, anti-corruption-layer]
+    mechanism: integration-event
+    planned: true
+    why: >-
+      A member is told when an expense concerns them. Ledger says it in its public words (ExpenseRecorded, Tally's
+      first integration event), through the outbox; Notifications turns it into one notice per member and delivers
+      it, which keeps the telling out of the ledger's transactions (T9).
+  - upstream: Settlements
+    downstream: Notifications
+    patterns: [customer-supplier, anti-corruption-layer]
+    mechanism: owned-port
+    planned: true
+    why: >-
+      A reminder is for a debt that lasts, and only Settlements knows what each member still owes once the paid
+      settlements count. Notifications' sweep asks through a port it owns (OutstandingDebts) (T9).

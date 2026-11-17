@@ -11,6 +11,8 @@ import { authenticate, groupsModuleWith } from '@Contexts/Groups/module.local';
 import { LedgerMemberBalances } from '@Contexts/Groups/Infrastructure/LedgerMemberBalances';
 import { accountRoutes, groupRoutes, invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
 import { localLedgerModule, memberBalanceSumsInCommand } from '@Contexts/Ledger/module.local';
+import { localSettlementsModule } from '@Contexts/Settlements/module.local';
+import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
@@ -45,6 +47,8 @@ export async function createApplication({
     .registerModule(localTrackerModule)
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
+    .registerModule(localSettlementsModule)
+    .registerModule(localNotificationsModule)
     .registerRoutes('/', accountRoutes, { accountsModule: localGroupsModule })
     .registerRoutes('/', groupRoutes, { groupsModule: localGroupsModule })
     .registerRoutes('/', invitationRoutes, { groupsModule: localGroupsModule })
