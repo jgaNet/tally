@@ -6,6 +6,14 @@ export interface GroupView {
   ownerId: string;
 }
 
+/** What a member reads of another member: the account, its name, its role, and when it joined. */
+export interface MemberView {
+  memberId: string;
+  name: string;
+  role: 'owner' | 'member';
+  joinedAt: string;
+}
+
 /**
  * The read side of groups: read models, never aggregates (QUERY-READ-MODELS). A group is answered to its members
  * only: the membership is part of each read, so a group that is not the caller's is not found at all.
@@ -15,4 +23,9 @@ export interface IGroupQueries {
   findGroupOf(memberId: string, groupId: string): Promise<GroupView | null>;
   /** The groups this account is a member of, the most recently created first. */
   listGroupsOf(memberId: string): Promise<GroupView[]>;
+  /**
+   * The members of a group, in the order they joined, the owner first, when this account is one of them; null
+   * otherwise (as if the group did not exist).
+   */
+  listMembersOf(memberId: string, groupId: string): Promise<MemberView[] | null>;
 }

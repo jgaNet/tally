@@ -2,3 +2,5 @@ export * from '@Contexts/Groups/Application/Queries/GetMyAccount/GetMyAccountQue
 export * from '@Contexts/Groups/Application/Queries/SignIn/SignInQueryHandler';
 export * from '@Contexts/Groups/Application/Queries/GetGroup/GetGroupQueryHandler';
 export * from '@Contexts/Groups/Application/Queries/GetMyGroups/GetMyGroupsQueryHandler';
+export * from '@Contexts/Groups/Application/Queries/GetGroupMembers/GetGroupMembersQueryHandler';
+export * from '@Contexts/Groups/Application/Queries/GetInvitation/GetInvitationQueryHandler';

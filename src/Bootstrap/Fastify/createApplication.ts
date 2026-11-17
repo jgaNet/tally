@@ -11,6 +11,7 @@ import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { authenticateAccount, localGroupsModule } from '@Contexts/Groups/module.local';
 import { accountRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/account.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes';
+import { invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/invitation.routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
@@ -53,7 +54,8 @@ export async function createApplication({
     .registerModule(localLedgerModule)
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule })
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
-    .registerRoutes('/', groupRoutes, { module: localGroupsModule });
+    .registerRoutes('/', groupRoutes, { module: localGroupsModule })
+    .registerRoutes('/', invitationRoutes, { module: localGroupsModule });
 
   await app.startModules();
 

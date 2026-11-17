@@ -2,10 +2,10 @@ import { ConcurrencyConflictException, IResult, Result } from '@Architecture/Dom
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
-import { IGroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
+import { IGroupMemberSnapshot, IGroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
 
-/** The tables of groups: one row per group, and one row per member of it, in the order they joined. */
+/** The tables of groups: one row per group, and one row per member of it, in the order they joined, with when. */
 export function createGroupsTables(database: SqliteDatabase): void {
   database.connection.exec(`
     CREATE TABLE IF NOT EXISTS groups (
@@ -20,6 +20,7 @@ export function createGroupsTables(database: SqliteDatabase): void {
       group_id TEXT NOT NULL,
       account_id TEXT NOT NULL,
       position INTEGER NOT NULL,
+      joined_at TEXT NOT NULL,
       PRIMARY KEY (group_id, account_id)
     );
   `);
@@ -48,12 +49,12 @@ export class SqliteGroupRepository implements IGroupRepository {
     if (!row) return null;
 
     const members = this.database.connection
-      .prepare('SELECT account_id FROM group_members WHERE group_id = ? ORDER BY position')
-      .all(id) as Array<{ account_id: string }>;
+      .prepare('SELECT account_id, joined_at FROM group_members WHERE group_id = ? ORDER BY position')
+      .all(id) as Array<{ account_id: string; joined_at: string }>;
     return Group.fromSnapshot(
       toSnapshot(
         row,
-        members.map(member => member.account_id),
+        members.map(member => ({ accountId: member.account_id, joinedAt: member.joined_at })),
       ),
     );
   }
@@ -62,7 +63,8 @@ export class SqliteGroupRepository implements IGroupRepository {
    * The optimistic check as SQL makes it atomic: the update applies only to the row still at the version the group
    * was read at; no row changed means another writer got there first (ADR 8). A new group is inserted at version 1.
    * Its name is the only column an update writes: the currency and the owner are fixed at the creation, and no
-   * behaviour changes them. Members are added in their order; a member already kept is left as it is.
+   * behaviour changes them. Members are kept in their order, each with when it joined; a member already kept is left
+   * as it is, so a join only adds its row.
    */
   async save(group: Group): Promise<IResult> {
     const snapshot = group.toSnapshot();
@@ -83,14 +85,16 @@ export class SqliteGroupRepository implements IGroupRepository {
     }
 
     const addMember = this.database.connection.prepare(
-      'INSERT OR IGNORE INTO group_members (group_id, account_id, position) VALUES (?, ?, ?)',
+      'INSERT OR IGNORE INTO group_members (group_id, account_id, position, joined_at) VALUES (?, ?, ?, ?)',
     );
-    snapshot.members.forEach((accountId, position) => addMember.run(id, accountId, position));
+    snapshot.members.forEach((member: IGroupMemberSnapshot, position) =>
+      addMember.run(id, member.accountId, position, member.joinedAt),
+    );
     return Result.ok();
   }
 }
 
-function toSnapshot(row: GroupRow, members: string[]): IGroupSnapshot {
+function toSnapshot(row: GroupRow, members: IGroupMemberSnapshot[]): IGroupSnapshot {
   return {
     _id: row.id,
     name: row.name,

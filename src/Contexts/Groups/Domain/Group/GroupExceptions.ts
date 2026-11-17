@@ -1,4 +1,4 @@
-import { Exception } from '@Architecture/Domain';
+import { ConflictException, Exception } from '@Architecture/Domain';
 
 /** The name is not 1 to 60 characters, or is only spaces. */
 export class InvalidGroupNameException extends Exception {
@@ -18,6 +18,17 @@ export class UnsupportedCurrencyException extends Exception {
       service: 'Groups',
       type: 'UnsupportedCurrency',
       message: 'The currency is one of EUR, USD, GBP, CHF, CAD or AUD',
+    });
+  }
+}
+
+/** The account is already a member of the group: it cannot join it again. */
+export class AlreadyMemberException extends ConflictException {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'AlreadyMember',
+      message: 'You are already a member of this group',
     });
   }
 }

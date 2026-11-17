@@ -52,3 +52,33 @@ export const GetMyGroupsResSchema = {
   200: { type: 'array', items: GroupSchema },
   401: RefusalSchema,
 } as const;
+
+/** A member of a group as the API answers it (request 3's `member` resource). */
+const MemberSchema = {
+  type: 'object',
+  required: ['memberId', 'name', 'role', 'joinedAt'],
+  properties: {
+    memberId: { type: 'string' },
+    name: { type: 'string' },
+    role: { enum: ['owner', 'member'] },
+    joinedAt: { type: 'string' },
+  },
+} as const;
+
+export const CreateInvitationResSchema = {
+  201: IdSchema,
+  202: {
+    type: 'object',
+    required: ['operationId'],
+    properties: { operationId: { type: 'string' } },
+  },
+  400: RefusalSchema,
+  401: RefusalSchema,
+  404: RefusalSchema,
+} as const;
+
+export const GetGroupMembersResSchema = {
+  200: { type: 'array', items: MemberSchema },
+  401: RefusalSchema,
+  404: RefusalSchema,
+} as const;

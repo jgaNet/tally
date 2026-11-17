@@ -1,12 +1,20 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { GroupView, IGroupQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
+import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
 import { createGroupsTables } from '@Contexts/Groups/Infrastructure/Repositories/SqliteGroupRepository';
+import { createAccountsTable } from '@Contexts/Groups/Infrastructure/Repositories/SqliteAccountRepository';
 
 interface GroupViewRow {
   id: string;
   name: string;
   currency: string;
+  owner_id: string;
+}
+
+interface MemberViewRow {
+  account_id: string;
+  name: string;
+  joined_at: string;
   owner_id: string;
 }
 
@@ -22,6 +30,7 @@ const SELECT_GROUPS = `
 export class SqliteGroupQueries implements IGroupQueries {
   constructor(private database: SqliteDatabase) {
     createGroupsTables(database);
+    createAccountsTable(database);
   }
 
   findGroupOf(memberId: string, groupId: string): Promise<GroupView | null> {
@@ -38,6 +47,30 @@ export class SqliteGroupQueries implements IGroupQueries {
         .prepare(`${SELECT_GROUPS} WHERE m.account_id = ? ORDER BY g.created_at DESC, g.rowid DESC`)
         .all(memberId) as unknown as GroupViewRow[];
       return rows.map(toView);
+    });
+  }
+
+  listMembersOf(memberId: string, groupId: string): Promise<MemberView[] | null> {
+    return this.database.exclusive(connection => {
+      const isMember = connection
+        .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ?')
+        .get(groupId, memberId);
+      if (!isMember) return null;
+
+      const rows = connection
+        .prepare(
+          `SELECT m.account_id, a.name, m.joined_at, g.owner_id FROM group_members m
+           JOIN groups g ON g.id = m.group_id
+           JOIN accounts a ON a.id = m.account_id
+           WHERE m.group_id = ? ORDER BY m.position`,
+        )
+        .all(groupId) as unknown as MemberViewRow[];
+      return rows.map(row => ({
+        memberId: row.account_id,
+        name: row.name,
+        role: row.account_id === row.owner_id ? 'owner' : 'member',
+        joinedAt: row.joined_at,
+      }));
     });
   }
 }

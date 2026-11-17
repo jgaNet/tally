@@ -4,10 +4,18 @@ import { Exception, NotAllowedException, NotFoundException } from '@Architecture
 import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommandAtOnce, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
-import { CreateGroupCommandEvent, CreateGroupPayload } from '@Contexts/Groups/Application/Commands';
-import { GetGroupQueryHandler, GetMyGroupsQueryHandler } from '@Contexts/Groups/Application/Queries';
+import {
+  CreateGroupCommandEvent,
+  CreateGroupPayload,
+  CreateInvitationCommandEvent,
+} from '@Contexts/Groups/Application/Commands';
+import {
+  GetGroupMembersQueryHandler,
+  GetGroupQueryHandler,
+  GetMyGroupsQueryHandler,
+} from '@Contexts/Groups/Application/Queries';
 
-/** The routes of groups: a creation answered at once, and two reads of the caller's own groups. */
+/** The routes of groups: a creation answered at once, the reads of the caller's own groups, and the members and invitations of one. */
 export class FastifyGroupController {
   #module: Module;
 
@@ -29,6 +37,18 @@ export class FastifyGroupController {
 
   async getMyGroups(req: FastifyRequest, reply: FastifyReply) {
     const result = await this.#module.getQuery(GetMyGroupsQueryHandler).handle(undefined, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  createInvitation(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommandAtOnce(req, reply, this.#module, CreateInvitationCommandEvent.set({ groupId: req.params.id }));
+  }
+
+  async getGroupMembers(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetGroupMembersQueryHandler)
+      .handle({ groupId: req.params.id }, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }

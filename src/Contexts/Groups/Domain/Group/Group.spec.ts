@@ -3,7 +3,7 @@ import { IResult } from '@Architecture/Domain';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
-import { GroupCreatedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import { GroupCreatedEvent, MemberJoinedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 
 const valueOf = <T>(result: IResult<T>): T => {
   if (result.isFailure()) throw result.error;
@@ -46,7 +46,8 @@ describe('Group', () => {
     const group = created();
 
     expect(group.ownerId).toBe('ana');
-    expect(group.members).toEqual(['ana']);
+    expect(group.members.map(member => member.accountId)).toEqual(['ana']);
+    expect(group.isMember('ana')).toBe(true);
     expect(group.currency.value).toBe('EUR');
 
     const events = group.pullDomainEvents();
@@ -69,5 +70,44 @@ describe('Group', () => {
 
     expect(() => Group.fromSnapshot({ ...snapshot, currency: 'JPY' })).toThrow();
     expect(() => Group.fromSnapshot({ ...snapshot, members: [] })).toThrow();
+  });
+
+  it('adds a member who joins at the time given, last, and records MemberJoined', () => {
+    const group = created();
+    group.pullDomainEvents();
+    const JOINED = new Date('2026-11-02T09:00:00.000Z');
+
+    expect(valueOf(group.join({ accountId: 'ben', joinedAt: JOINED }))).toBeUndefined();
+
+    expect(group.members.map(member => member.accountId)).toEqual(['ana', 'ben']);
+    expect(group.members[1].joinedAt).toEqual(JOINED);
+    expect(group.isMember('ben')).toBe(true);
+    const events = group.pullDomainEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toBeInstanceOf(MemberJoinedEvent);
+    expect(events[0].payload).toEqual({ groupId: group._id.value, accountId: 'ben' });
+  });
+
+  it('refuses a member who is already in the group, and keeps the group as it was', () => {
+    const group = created();
+    group.pullDomainEvents();
+
+    const again = group.join({ accountId: 'ana', joinedAt: AT });
+
+    expect(again.isFailure()).toBe(true);
+    expect(again.error).toMatchObject({ type: 'AlreadyMember' });
+    expect(group.members).toHaveLength(1);
+    expect(group.pullDomainEvents()).toEqual([]);
+  });
+
+  it('keeps the members with when each joined through a snapshot', () => {
+    const group = created();
+    valueOf(group.join({ accountId: 'ben', joinedAt: new Date('2026-11-02T09:00:00.000Z') }));
+    const rebuilt = Group.fromSnapshot(group.toSnapshot());
+
+    expect(rebuilt.toSnapshot().members).toEqual([
+      { accountId: 'ana', joinedAt: AT.toISOString() },
+      { accountId: 'ben', joinedAt: '2026-11-02T09:00:00.000Z' },
+    ]);
   });
 });
