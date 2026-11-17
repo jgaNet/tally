@@ -28,49 +28,43 @@ export interface Expense {
 
 /**
  * Divides `amount` equally between `splitBetween`, in that order. Each share is the amount divided
- * by the number of members, rounded down; the remainder goes whole to the payer's share, so the
- * shares add up to the amount exactly.
+ * by the number of members, rounded down; the remainder goes whole to the first member's share, so
+ * the shares add up to the amount exactly, whoever paid.
  */
-export function equalShares(amount: number, splitBetween: readonly string[], payerId: string): Share[] {
+export function equalShares(amount: number, splitBetween: readonly string[]): Share[] {
   const base = Math.floor(amount / splitBetween.length);
   const remainder = amount - base * splitBetween.length;
-  return splitBetween.map(memberId => ({
+  return splitBetween.map((memberId, position) => ({
     memberId,
-    amount: memberId === payerId ? base + remainder : base,
+    amount: position === 0 ? base + remainder : base,
   }));
 }
 
 /**
  * Each member's share of `amount` as their `splitByShares` say: the amount times their shares, divided
- * by the total of the shares, rounded down. The remainder goes whole to the payer's share, so the
- * shares add up to the amount exactly. Computed in integers of any size, so no product overflows.
+ * by the total of the shares, rounded down. The remainder goes whole to the first member's share, so
+ * the shares add up to the amount exactly, whoever paid. Computed in integers of any size, so no
+ * product overflows.
  */
-export function sharesByCount(
-  amount: number,
-  splitByShares: readonly { memberId: string; shares: number }[],
-  payerId: string,
-): Share[] {
+export function sharesByCount(amount: number, splitByShares: readonly { memberId: string; shares: number }[]): Share[] {
   const total = splitByShares.reduce((sum, split) => sum + BigInt(split.shares), 0n);
-  const parts = splitByShares.map(split => ({
+  const parts = splitByShares.map(split => (BigInt(amount) * BigInt(split.shares)) / total);
+  const remainder = BigInt(amount) - parts.reduce((sum, part) => sum + part, 0n);
+  return splitByShares.map((split, position) => ({
     memberId: split.memberId,
-    amount: (BigInt(amount) * BigInt(split.shares)) / total,
-  }));
-  const remainder = BigInt(amount) - parts.reduce((sum, part) => sum + part.amount, 0n);
-  return parts.map(part => ({
-    memberId: part.memberId,
-    amount: Number(part.memberId === payerId ? part.amount + remainder : part.amount),
+    amount: Number(position === 0 ? parts[position] + remainder : parts[position]),
   }));
 }
 
 /** The shares of an expense of `amount` split as `split` says, in the order of the split. */
-export function sharesOf(split: SplitInput, amount: number, payerId: string): Share[] {
+export function sharesOf(split: SplitInput, amount: number): Share[] {
   switch (split.kind) {
     case 'equal':
-      return equalShares(amount, split.splitBetween, payerId);
+      return equalShares(amount, split.splitBetween);
     case 'exact':
       return split.splitExactly.map(share => ({ memberId: share.memberId, amount: share.amount }));
     case 'shares':
-      return sharesByCount(amount, split.splitByShares, payerId);
+      return sharesByCount(amount, split.splitByShares);
   }
 }
 
@@ -97,7 +91,7 @@ export function createExpense(db: Database, groupId: string, payerId: string, in
       expense.split.kind,
       new Date().toISOString(),
     );
-    writeShares(db, id, sharesOf(expense.split, expense.amount, payerId));
+    writeShares(db, id, sharesOf(expense.split, expense.amount));
     return id;
   });
 }
@@ -270,7 +264,7 @@ export function updateExpense(
       throw staleVersion();
     }
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
-    writeShares(db, expenseId, sharesOf(expense.split, expense.amount, current.paidBy));
+    writeShares(db, expenseId, sharesOf(expense.split, expense.amount));
   });
 }
 

@@ -109,8 +109,8 @@ describe("a group's expenses", () => {
     const read = await send(app, 'GET', `/expenses/${id}`, { token: grace.token });
     expect(listedOne).toEqual(read.json());
     expect(listedOne.shares).toEqual([
-      { memberId: grace.id, amount: 500 },
-      { memberId: ada.id, amount: 501 },
+      { memberId: grace.id, amount: 501 },
+      { memberId: ada.id, amount: 500 },
     ]);
   });
 

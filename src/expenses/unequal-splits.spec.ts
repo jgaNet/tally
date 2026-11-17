@@ -262,7 +262,7 @@ describe('unequal splits', () => {
   });
 
   describe('by shares', () => {
-    it('gives 1000 by shares of 1, 1 and 1 the equal split: 334, 333, 333 with the remainder to the payer', async () => {
+    it('gives 1000 by shares of 1, 1 and 1 the equal split: 334, 333, 333 with the remainder to the first member', async () => {
       const { ada, grace, linus, groupId } = await threeMembers();
       const id = await recorded(
         ada.token,
@@ -284,7 +284,7 @@ describe('unequal splits', () => {
       ]);
     });
 
-    it('gives 1001 by shares of 2 and 1, the payer listed second, 667 and 334', async () => {
+    it('gives 1001 by shares of 2 and 1, the payer listed second: 667 and 333, the remainder of 1 to the first, Grace', async () => {
       const { ada, grace, groupId } = await threeMembers();
       const id = await recorded(
         ada.token,
@@ -299,14 +299,14 @@ describe('unequal splits', () => {
       );
       const expense = await readExpense(ada.token, id);
       expect(expense.shares).toEqual([
-        { memberId: grace.id, amount: 667 },
-        { memberId: ada.id, amount: 334 },
+        { memberId: grace.id, amount: 668 },
+        { memberId: ada.id, amount: 333 },
       ]);
     });
 
-    it('gives the remainder to the payer even when the payer is not the one with the most shares', async () => {
+    it('gives the remainder to the first member even when the payer is not the one with the most shares', async () => {
       const { ada, grace, linus, groupId } = await threeMembers();
-      // 100 by 1, 1 and 1: 33 each, the remainder of 1 to the payer, Grace.
+      // 100 by 1, 1 and 1: 33 each, the remainder of 1 to the first member, Ada, not the payer, Grace.
       const id = await recorded(
         grace.token,
         groupId,
@@ -320,8 +320,8 @@ describe('unequal splits', () => {
         }),
       );
       expect((await readExpense(ada.token, id)).shares).toEqual([
-        { memberId: ada.id, amount: 33 },
-        { memberId: grace.id, amount: 34 },
+        { memberId: ada.id, amount: 34 },
+        { memberId: grace.id, amount: 33 },
         { memberId: linus.id, amount: 33 },
       ]);
     });
@@ -350,8 +350,8 @@ describe('unequal splits', () => {
 
     it('gives each member the amount times their shares over the total, rounded down, without overflowing', async () => {
       const { ada, grace, groupId } = await threeMembers();
-      // 1000 by a huge number of shares to Ada and one to Grace: Grace's floor is 0, so the
-      // remainder of 1 goes to Grace as payer.
+      // 1000 by a huge number of shares to Ada and one to Grace: Grace's floor is 0, and Ada's is 999,
+      // so the remainder of 1 goes to Ada, the first member, though Grace paid.
       const id = await recorded(
         grace.token,
         groupId,
@@ -363,8 +363,8 @@ describe('unequal splits', () => {
         }),
       );
       expect((await readExpense(ada.token, id)).shares).toEqual([
-        { memberId: ada.id, amount: 999 },
-        { memberId: grace.id, amount: 1 },
+        { memberId: ada.id, amount: 1000 },
+        { memberId: grace.id, amount: 0 },
       ]);
     });
 
