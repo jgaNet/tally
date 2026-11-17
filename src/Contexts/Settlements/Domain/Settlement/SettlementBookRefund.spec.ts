@@ -18,6 +18,8 @@ const paidPayment = (status: 'paid' | 'refunding' = 'paid'): PaidSettlement => (
 const withPaid = (status?: 'paid' | 'refunding') =>
   SettlementBook.fromSnapshot({ groupId: 'group-1', version: 3, paid: [paidPayment(status)] });
 
+const at = new Date('2026-11-17T10:00:00.000Z');
+
 const refund = (overrides: Partial<RefundSettlementCommand> = {}): RefundSettlementCommand => ({
   by: 'ann',
   settlementId: 'settlement-1',
@@ -59,15 +61,15 @@ describe('refunding a settlement paid through the provider', () => {
 
   it('is refunding once the refund is recorded, asks the book for the event, and is still paid for the balances', () => {
     const book = withPaid();
-    expect(book.recordRefund(refund()).isSuccess()).toBe(true);
-    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'refunding' }]);
+    expect(book.recordRefund({ ...refund(), at }).isSuccess()).toBe(true);
+    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'refunding', at: at.toISOString() }]);
     expect(book.paid).toEqual([paidPayment('refunding')]);
     expect(book.pullDomainEvents()).toHaveLength(1);
   });
 
   it('refuses a second refund of the same settlement once it is refunding', () => {
     const book = withPaid();
-    book.recordRefund(refund());
+    book.recordRefund({ ...refund(), at });
     expect(book.reserveRefund(refund()).isFailure()).toBe(true);
   });
 });
@@ -75,19 +77,19 @@ describe('refunding a settlement paid through the provider', () => {
 describe('the provider says a settlement was refunded', () => {
   it('moves a paid settlement to refunded, once, and says so', () => {
     const book = withPaid();
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'refunded' });
-    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'refunded' }]);
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'refunded', at });
+    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'refunded', at: at.toISOString() }]);
     expect(book.paid).toEqual([]);
     expect(book.pullDomainEvents()).toHaveLength(1);
 
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'refunded' });
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'refunded', at });
     expect(book.moved).toHaveLength(1);
   });
 
   it('moves a refunding settlement to refunded when the refund is said to be done', () => {
     const book = withPaid('refunding');
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'refunded' });
-    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'refunded' }]);
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'refunded', at });
+    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'refunded', at: at.toISOString() }]);
   });
 
   it('lets a refunded that overtakes the success leave the settlement refunded: a success after it changes nothing', () => {
@@ -99,16 +101,16 @@ describe('the provider says a settlement was refunded', () => {
       providerPaymentId: 'pay-1',
     };
     const book = SettlementBook.fromSnapshot({ groupId: 'group-1', version: 2, pending: [pending] });
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'refunded' });
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'succeeded' });
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'pending' });
-    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'refunded' }]);
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'refunded', at });
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'succeeded', at });
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'pending', at });
+    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'refunded', at: at.toISOString() }]);
     expect(book.pending).toEqual([]);
   });
 
   it('changes nothing for a payment it does not hold, or one already failed', () => {
     const book = withPaid();
-    book.settleProviderPayment({ providerPaymentId: 'pay-9', status: 'refunded' });
+    book.settleProviderPayment({ providerPaymentId: 'pay-9', status: 'refunded', at });
     expect(book.moved).toEqual([]);
     expect(book.pullDomainEvents()).toEqual([]);
   });

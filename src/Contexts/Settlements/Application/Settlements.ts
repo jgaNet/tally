@@ -2,7 +2,7 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { NotFoundException, Result } from '@Architecture/Domain';
 
-import { SettlementView } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import { SettlementWithHistory } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import { ISettlementBooks } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBooks';
 import { ISettlementQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementQueries';
 import { IGroupBalances } from '@Contexts/Settlements/Domain/Suggestion/Ports/IGroupBalances';
@@ -50,15 +50,30 @@ export const recordCashSettlement = command(
     },
 );
 
-/** Reads a settlement, for the members of its group only: for anyone else it does not exist (requests 12, 13). */
+/** Reads a settlement, with every status it has had, for the members of its group only: for anyone else it does not exist (requests 12, 13, 19). */
 export const getSettlement = query(
   'GetSettlement',
   (settlements: ISettlementQueries, members: ISettlementMembers) =>
     async ({ id }: { id: string }, context) => {
-      const settlement: SettlementView | undefined = await settlements.findSettlement(id);
+      const settlement: SettlementWithHistory | undefined = await settlements.findSettlement(id);
       if (!settlement) return Result.fail(new NotFoundException('Settlements', 'There is no such settlement'));
       const group = await members.groupOf(callerOf(context), settlement.groupId);
       if (!group) return Result.fail(new NotFoundException('Settlements', 'There is no such settlement'));
       return Result.ok(settlement);
+    },
+);
+
+/**
+ * Lists the settlements of a group, the most recently recorded first, each as `GetSettlement` reads it (request 19). Only the group's
+ * current members see them; for anyone else, a member who has left included, the group does not exist. The settlements of a member who
+ * has left stay the group's, and stay listed for the members who remain.
+ */
+export const getGroupSettlements = query(
+  'GetGroupSettlements',
+  (settlements: ISettlementQueries, members: ISettlementMembers) =>
+    async ({ groupId }: { groupId: string }, context) => {
+      const group = await members.groupOf(callerOf(context), groupId);
+      if (!group) return Result.fail(new NotFoundException('Settlements', 'There is no such group'));
+      return Result.ok(await settlements.listSettlementsOf(groupId));
     },
 );

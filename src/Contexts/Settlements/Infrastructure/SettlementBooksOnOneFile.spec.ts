@@ -83,7 +83,7 @@ async function receive(database: SqliteDatabase, { status }: { status: string })
     unitOfWork: new SqliteUnitOfWork(database),
     auth: {},
   });
-  return receivePaymentWebhook(new SqliteSettlementBooks(database), { isSignedBy: () => true }).run(
+  return receivePaymentWebhook(new SqliteSettlementBooks(database), { isSignedBy: () => true }, systemClock).run(
     { body: randomUUID(), signature: 'signed', paymentId: PAYMENT, status },
     context,
   );
@@ -142,10 +142,18 @@ describe('webhooks on one database, late and at the same moment (request 14)', (
     await unitOfWork.beginTransaction();
     const first = await books.get(GROUP);
     const stale = await books.get(GROUP);
-    first.settleProviderPayment({ providerPaymentId: PAYMENT, status: 'succeeded' });
+    first.settleProviderPayment({
+      providerPaymentId: PAYMENT,
+      status: 'succeeded',
+      at: new Date('2026-11-17T10:00:00Z'),
+    });
     expect((await books.save(first)).isSuccess()).toBe(true);
 
-    stale.settleProviderPayment({ providerPaymentId: PAYMENT, status: 'succeeded' });
+    stale.settleProviderPayment({
+      providerPaymentId: PAYMENT,
+      status: 'succeeded',
+      at: new Date('2026-11-17T10:00:00Z'),
+    });
     const refused = await books.save(stale);
     await unitOfWork.commitTransaction();
 

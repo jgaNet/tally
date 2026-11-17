@@ -1,12 +1,31 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { SettledMember, SettlementView, WaitingMember } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import {
+  SettledMember,
+  SettlementStatus,
+  SettlementStatusLine,
+  SettlementWithHistory,
+  WaitingMember,
+} from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import { ISettlementQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementQueries';
 import {
   prepareSettlementSchema,
   SettlementRow,
   settlementView,
 } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBooks';
+
+type HistoryRow = { settlement_id: string; status: string; learned_at: string };
+
+const lineOf = (row: HistoryRow): SettlementStatusLine => ({
+  status: String(row.status) as SettlementStatus,
+  at: String(row.learned_at),
+});
+
+/** The settlement with the statuses it has had, the earliest first (request 19). */
+const withHistory = (row: SettlementRow, lines: SettlementStatusLine[]): SettlementWithHistory => ({
+  ...settlementView(row),
+  history: lines,
+});
 
 /**
  * What each member paid and received over the settlements of a group that have one of the given statuses, in one statement
@@ -37,14 +56,47 @@ export class SqliteSettlementQueries implements ISettlementQueries {
     database.prepare(prepareSettlementSchema);
   }
 
-  async findSettlement(settlementId: string): Promise<SettlementView | undefined> {
+  async findSettlement(settlementId: string): Promise<SettlementWithHistory | undefined> {
     return this.database.exclusive(() => {
-      const row = this.database.connection
+      const connection = this.database.connection;
+      const row = connection
         .prepare(
           'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url FROM settlements WHERE id = ?',
         )
         .get(settlementId) as SettlementRow | undefined;
-      return row ? settlementView(row) : undefined;
+      if (!row) return undefined;
+      const lines = connection
+        .prepare(
+          'SELECT settlement_id, status, learned_at FROM settlement_statuses WHERE settlement_id = ? ORDER BY rowid',
+        )
+        .all(settlementId) as HistoryRow[];
+      return withHistory(row, lines.map(lineOf));
+    });
+  }
+
+  /**
+   * Every settlement of the group, the most recently recorded first, each with its statuses in one statement for the group (request 19).
+   * Two recorded at the same moment are told apart by the order they were stored in: the one stored later comes first.
+   */
+  async listSettlementsOf(groupId: string): Promise<SettlementWithHistory[]> {
+    return this.database.exclusive(() => {
+      const connection = this.database.connection;
+      const rows = connection
+        .prepare(
+          'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url FROM settlements WHERE group_id = ? ORDER BY recorded_at DESC, rowid DESC',
+        )
+        .all(groupId) as SettlementRow[];
+      const lines = connection
+        .prepare(
+          'SELECT l.settlement_id, l.status, l.learned_at FROM settlement_statuses l JOIN settlements s ON s.id = l.settlement_id WHERE s.group_id = ? ORDER BY l.rowid',
+        )
+        .all(groupId) as HistoryRow[];
+      const byId = new Map<string, SettlementStatusLine[]>();
+      for (const line of lines) {
+        const id = String(line.settlement_id);
+        byId.set(id, [...(byId.get(id) ?? []), lineOf(line)]);
+      }
+      return rows.map(row => withHistory(row, byId.get(String(row.id)) ?? []));
     });
   }
 

@@ -3,7 +3,11 @@ import { FastifyPluginCallback } from 'fastify';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
-import { getSettlement, recordCashSettlement } from '@Contexts/Settlements/Application/Settlements';
+import {
+  getGroupSettlements,
+  getSettlement,
+  recordCashSettlement,
+} from '@Contexts/Settlements/Application/Settlements';
 import { payThroughProvider, refundSettlement } from '@Contexts/Settlements/Application/Payments';
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
@@ -61,6 +65,12 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
         { groupId: req.params.id, to: req.body.to, amount: req.body.amount },
         { created: true },
       ),
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    '/groups/:id/settlements',
+    { schema: { tags: ['settlements'] } },
+    (req, reply) => answerAtOnce(req, reply, module.useCase(getGroupSettlements), { groupId: req.params.id }),
   );
 
   fastify.get<{ Params: { id: string } }>('/settlements/:id', { schema: { tags: ['settlements'] } }, (req, reply) =>

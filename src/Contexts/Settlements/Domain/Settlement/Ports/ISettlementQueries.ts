@@ -1,9 +1,14 @@
-import { SettledMember, SettlementView, WaitingMember } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import { SettledMember, SettlementWithHistory, WaitingMember } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 
 /** The read side of the settlements: what the queries answer, and what Ledger reads of what was settled (docs/adr/0013, docs/adr/0014). */
 export interface ISettlementQueries {
-  /** The settlement, or undefined when there is no such settlement. */
-  findSettlement(settlementId: string): Promise<SettlementView | undefined>;
+  /** The settlement with its history, or undefined when there is no such settlement. */
+  findSettlement(settlementId: string): Promise<SettlementWithHistory | undefined>;
+  /**
+   * Every settlement of the group with its history, the most recently recorded first (request 19). A group with no settlement answers an
+   * empty list.
+   */
+  listSettlementsOf(groupId: string): Promise<SettlementWithHistory[]>;
   /**
    * What each member of the group paid and received in its settlements that count: the paid ones, and those refunding, one read; a member
    * who settled nothing is not listed. A pending, failed or refunded settlement is not here: the balances count a payment once it is paid,

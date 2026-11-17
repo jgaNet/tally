@@ -35,6 +35,26 @@ export function prepareSettlementSchema(connection: DatabaseSync): void {
   connection.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id)',
   );
+  // Each status a settlement has had, in the order the book recorded it, and when Tally learned it (request 19). Written by the book's
+  // save, in its transaction. A file made before request 19 has the settlements without their lines: each gets the one its method
+  // recorded it with, at the time it was recorded, which is all that file knows of it.
+  connection.exec(
+    [
+      'CREATE TABLE IF NOT EXISTS settlement_statuses (settlement_id TEXT NOT NULL, status TEXT NOT NULL, learned_at TEXT NOT NULL)',
+      'CREATE INDEX IF NOT EXISTS settlement_statuses_by_settlement ON settlement_statuses (settlement_id)',
+    ].join(';\n'),
+  );
+  // Read first: a file with every settlement's line is only read, never written (a write here would lock the file for the others).
+  const unlined = connection
+    .prepare(
+      'SELECT 1 FROM settlements s WHERE NOT EXISTS (SELECT 1 FROM settlement_statuses l WHERE l.settlement_id = s.id) LIMIT 1',
+    )
+    .get();
+  if (unlined) {
+    connection.exec(
+      "INSERT INTO settlement_statuses (settlement_id, status, learned_at) SELECT id, CASE method WHEN 'cash' THEN 'paid' ELSE 'pending' END, recorded_at FROM settlements s WHERE NOT EXISTS (SELECT 1 FROM settlement_statuses l WHERE l.settlement_id = s.id)",
+    );
+  }
 }
 
 /**
@@ -101,8 +121,12 @@ export class SqliteSettlementBooks implements ISettlementBooks {
       if (changes === 0) return Result.fail(changedSinceRead());
     }
 
+    // Each status the book records is a line of the history, written with the fact, in this transaction (request 19).
     const insert = connection.prepare(
       'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, provider_payment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    const learn = connection.prepare(
+      'INSERT INTO settlement_statuses (settlement_id, status, learned_at) VALUES (?, ?, ?)',
     );
     for (const settlement of book.recorded) {
       insert.run(
@@ -117,10 +141,14 @@ export class SqliteSettlementBooks implements ISettlementBooks {
         settlement.payUrl ?? null,
         settlement.providerPaymentId ?? null,
       );
+      learn.run(settlement.id, settlement.status, settlement.at);
     }
 
     const move = connection.prepare('UPDATE settlements SET status = ? WHERE id = ?');
-    for (const each of book.moved) move.run(each.status, each.id);
+    for (const each of book.moved) {
+      move.run(each.status, each.id);
+      learn.run(each.id, each.status, each.at);
+    }
     return Result.ok(undefined);
   }
 }

@@ -3,7 +3,11 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { groupsReadModel, ledgerReadModel } from '@Bootstrap/Fastify/readModels';
-import { getSettlement, recordCashSettlement } from '@Contexts/Settlements/Application/Settlements';
+import {
+  getGroupSettlements,
+  getSettlement,
+  recordCashSettlement,
+} from '@Contexts/Settlements/Application/Settlements';
 import {
   payThroughProvider,
   receivePaymentWebhook,
@@ -42,9 +46,10 @@ export const localSettlementsModule = new LiteModule({
   useCases: [
     recordCashSettlement(books, balances, members, systemClock),
     payThroughProvider(books, balances, members, payouts, provider, systemClock),
-    receivePaymentWebhook(books, signatures),
-    refundSettlement(books, members, provider),
+    receivePaymentWebhook(books, signatures, systemClock),
+    refundSettlement(books, members, provider, systemClock),
     getSettlement(settlements, members),
+    getGroupSettlements(settlements, members),
     getSuggestedSettlements(balances, members, settlements),
     setPayoutAccount(payouts, provider),
     getPayoutAccount(payoutQueries),

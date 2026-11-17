@@ -94,7 +94,7 @@ export interface RefundSettlementInput {
  */
 export const refundSettlement = command(
   'RefundSettlement',
-  (books: ISettlementBooks, members: ISettlementMembers, provider: IPaymentProvider) =>
+  (books: ISettlementBooks, members: ISettlementMembers, provider: IPaymentProvider, clock: Clock) =>
     async ({ id }: RefundSettlementInput, context) => {
       const by = callerOf(context);
       const book = await books.ofSettlement(id);
@@ -109,7 +109,8 @@ export const refundSettlement = command(
       const asked = await provider.refundPayment({ paymentId: reserved.data.providerPaymentId, reference: id });
       if (asked.isFailure()) return asked;
 
-      const recorded = book.recordRefund(request);
+      // The refunding status is learned when it is recorded: its history line is dated then (request 19).
+      const recorded = book.recordRefund({ ...request, at: clock() });
       if (recorded.isFailure()) return recorded;
       const saved = await books.save(book);
       if (saved.isFailure()) return saved;
@@ -135,7 +136,7 @@ export interface ReceivePaymentWebhookInput {
  */
 export const receivePaymentWebhook = command(
   'ReceivePaymentWebhook',
-  (books: ISettlementBooks, signatures: IWebhookSignature) =>
+  (books: ISettlementBooks, signatures: IWebhookSignature, clock: Clock) =>
     async ({ body, signature, paymentId, status }: ReceivePaymentWebhookInput, context) => {
       if (!signatures.isSignedBy(body, signature)) {
         return Result.fail(new NotAllowedException('Settlements', 'The webhook is not signed by the payment provider'));
@@ -143,7 +144,8 @@ export const receivePaymentWebhook = command(
 
       const book = await books.ofPayment(paymentId);
       if (!book) return Result.ok(undefined);
-      book.settleProviderPayment({ providerPaymentId: paymentId, status });
+      // The status is learned now: a status it moves to is dated by the moment the webhook was received (request 19).
+      book.settleProviderPayment({ providerPaymentId: paymentId, status, at: clock() });
       if (book.moved.length === 0) return Result.ok(undefined);
 
       const saved = await books.save(book);

@@ -106,31 +106,31 @@ describe('a settlement through the payment provider', () => {
 
   it('moves a pending settlement to paid when its payment succeeded, once, and says so', () => {
     const book = withPending();
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'succeeded' });
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'succeeded', at });
 
-    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'paid' }]);
+    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'paid', at: at.toISOString() }]);
     expect(book.pending).toEqual([]);
     expect(book.pullDomainEvents()).toHaveLength(1);
 
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'failed' });
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'failed', at });
     expect(book.moved).toHaveLength(1);
     expect(book.pullDomainEvents()).toHaveLength(0);
   });
 
   it('moves a pending settlement to failed when its payment failed, and frees what it held', () => {
     const book = withPending();
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'failed' });
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'failed', at });
 
-    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'failed' }]);
+    expect(book.moved).toEqual([{ id: 'settlement-1', status: 'failed', at: at.toISOString() }]);
     expect(book.pending).toEqual([]);
     expect(book.reserveProviderPayment(request()).isSuccess()).toBe(true);
   });
 
   it('changes nothing for a pending status, an unknown status, or a payment it does not hold', () => {
     const book = withPending();
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'pending' });
-    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'chargeback' });
-    book.settleProviderPayment({ providerPaymentId: 'pay-unknown', status: 'succeeded' });
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'pending', at });
+    book.settleProviderPayment({ providerPaymentId: 'pay-1', status: 'chargeback', at });
+    book.settleProviderPayment({ providerPaymentId: 'pay-unknown', status: 'succeeded', at });
 
     expect(book.moved).toEqual([]);
     expect(book.pending).toHaveLength(1);

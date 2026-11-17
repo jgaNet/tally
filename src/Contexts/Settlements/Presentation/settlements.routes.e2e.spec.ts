@@ -243,6 +243,8 @@ describe('a settlement in cash', () => {
       method: 'cash',
       status: 'paid',
       at: expect.any(String),
+      // A cash settlement is paid the moment it is recorded: its one status is its history (request 19).
+      history: [{ status: 'paid', at: expect.any(String) }],
     });
   });
 

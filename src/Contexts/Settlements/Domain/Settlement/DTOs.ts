@@ -24,6 +24,20 @@ export interface SettlementView {
   payUrl?: string;
 }
 
+/** One status a settlement has had, and when Tally learned it (request 19). */
+export interface SettlementStatusLine {
+  status: SettlementStatus;
+  at: string;
+}
+
+/**
+ * A settlement as the queries answer it (request 19): its view, and every status it has had, the earliest first. A status is a line
+ * only when the book recorded it: a webhook that changes nothing adds none.
+ */
+export interface SettlementWithHistory extends SettlementView {
+  history: SettlementStatusLine[];
+}
+
 /** What one member paid and received in the settlements of a group: their balance moves by `paid` less `received`. */
 export interface SettledMember {
   memberId: string;

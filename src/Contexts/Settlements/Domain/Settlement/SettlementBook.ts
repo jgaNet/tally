@@ -92,7 +92,12 @@ export type NewSettlement = SettlementView & { providerPaymentId?: string };
 export interface MovedSettlement {
   id: string;
   status: 'paid' | 'failed' | 'refunding' | 'refunded';
+  /** When Tally learned the new status, as an ISO string: the time its history line carries (request 19). */
+  at: string;
 }
+
+/** A refund asked now: the settlement's refund command, and the time Tally asked for it (request 19: the status it moves to is dated). */
+export type RecordRefundCommand = RefundSettlementCommand & { at: Date };
 
 /**
  * The settlements of one group, decided in one place (conventions/domain.yaml, the Settlements context; docs/adr/0013, docs/adr/0014,
@@ -259,13 +264,13 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /** Decides the refund again, and moves the settlement to `refunding`, as `RefundRequested`: the money has not gone back yet. */
-  recordRefund(command: RefundSettlementCommand): IResult<undefined> {
+  recordRefund(command: RecordRefundCommand): IResult<undefined> {
     const decided = this.#decideRefund(command);
     if (decided.isFailure()) return decided;
 
     const payment = decided.data;
     this.#paid = this.#paid.map(each => (each === payment ? { ...each, status: 'refunding' } : each));
-    this.#moved.push({ id: payment.id, status: 'refunding' });
+    this.#moved.push({ id: payment.id, status: 'refunding', at: command.at.toISOString() });
     this.record(
       RefundRequestedEvent.set({
         settlementId: payment.id,
@@ -283,8 +288,16 @@ export class SettlementBook extends AggregateRoot {
    * one, `refunded` for a pending, paid or refunding one. Any other status (`pending`, an unknown one), and a payment that has no more
    * to say, changes nothing, so a late or repeated webhook is harmless.
    */
-  settleProviderPayment({ providerPaymentId, status }: { providerPaymentId: string; status: string }): void {
-    if (status === 'refunded') return this.#refundedByProvider(providerPaymentId);
+  settleProviderPayment({
+    providerPaymentId,
+    status,
+    at,
+  }: {
+    providerPaymentId: string;
+    status: string;
+    at: Date;
+  }): void {
+    if (status === 'refunded') return this.#refundedByProvider(providerPaymentId, at);
 
     const payment = this.#pending.find(each => each.providerPaymentId === providerPaymentId);
     if (!payment) return;
@@ -293,16 +306,16 @@ export class SettlementBook extends AggregateRoot {
     this.#pending = this.#pending.filter(each => each !== payment);
     const { id, from, to, amount } = payment;
     if (status === 'succeeded') {
-      this.#moved.push({ id, status: 'paid' });
+      this.#moved.push({ id, status: 'paid', at: at.toISOString() });
       this.record(SettlementPaidEvent.set({ settlementId: id, groupId: this.groupId, from, to, amount }));
     } else {
-      this.#moved.push({ id, status: 'failed' });
+      this.#moved.push({ id, status: 'failed', at: at.toISOString() });
       this.record(SettlementFailedEvent.set({ settlementId: id, groupId: this.groupId, from, to, amount }));
     }
   }
 
   /** The provider says the payment was refunded: a pending, paid or refunding settlement is refunded, and never counted again. */
-  #refundedByProvider(providerPaymentId: string): void {
+  #refundedByProvider(providerPaymentId: string, at: Date): void {
     const payment: PendingSettlement | undefined =
       this.#pending.find(each => each.providerPaymentId === providerPaymentId) ??
       this.#paid.find(each => each.providerPaymentId === providerPaymentId);
@@ -311,7 +324,7 @@ export class SettlementBook extends AggregateRoot {
     this.#pending = this.#pending.filter(each => each !== payment);
     this.#paid = this.#paid.filter(each => each.providerPaymentId !== providerPaymentId);
     const { id, from, to, amount } = payment;
-    this.#moved.push({ id, status: 'refunded' });
+    this.#moved.push({ id, status: 'refunded', at: at.toISOString() });
     this.record(SettlementRefundedEvent.set({ settlementId: id, groupId: this.groupId, from, to, amount }));
   }
 
