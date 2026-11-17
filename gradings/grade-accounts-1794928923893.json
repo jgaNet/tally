@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-3",
+  "ref": "1de631c46b5708d541a62e9cc155c2cb5c12b119",
+  "commit": "1de631c46b5708d541a62e9cc155c2cb5c12b119",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 12240,
+  "workers": 2
+}
