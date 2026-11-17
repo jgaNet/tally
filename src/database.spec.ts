@@ -97,7 +97,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 7 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 8 });
     } finally {
       db.close();
     }
@@ -121,6 +121,7 @@ describe('the database', () => {
     // The file as the schema was before splits could be unequal: no column for the kind of split, version 5.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('DROP TABLE settlements');
       before.exec('ALTER TABLE expenses DROP COLUMN split_kind');
       before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
       before.exec('ALTER TABLE group_members DROP COLUMN left_at');
@@ -153,6 +154,7 @@ describe('the database', () => {
     // The file as the schema was before a membership could end: no column for it, version 6.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('DROP TABLE settlements');
       before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
       before.exec('ALTER TABLE group_members DROP COLUMN left_at');
       before.exec('PRAGMA user_version = 6');
@@ -164,6 +166,49 @@ describe('the database', () => {
     const members = (await call(second, 'GET', `/groups/${groupId}/members`, { token })).body;
     expect(members.map((member: { memberId: string }) => member.memberId)).toEqual([adaId, graceId]);
     expect(members[1].role).toBe('member');
+  });
+
+  it('keeps the expenses of a file recorded before settlements existed, and counts no settlement in them', async () => {
+    const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
+    const first = await start();
+    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
+    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
+    const graceId = (await call(first, 'POST', '/accounts', { body: grace })).body.id;
+    const graceToken = (await call(first, 'POST', '/accounts/login', { body: grace })).body.token;
+    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
+      .id;
+    const invitation = (await call(first, 'POST', `/groups/${groupId}/invitations`, { token })).body.id;
+    await call(first, 'POST', `/invitations/${invitation}/accept`, { token: graceToken });
+    const expenseId = (
+      await call(first, 'POST', `/groups/${groupId}/expenses`, {
+        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId, graceId] },
+        token,
+      })
+    ).body.id;
+    await first.stop();
+    apps.pop();
+
+    // The file as the schema was before settlements: no table for them, version 7.
+    const before = new DatabaseSync(database.path);
+    try {
+      before.exec('DROP TABLE settlements');
+      before.exec('PRAGMA user_version = 7');
+    } finally {
+      before.close();
+    }
+
+    const second = await start();
+    expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({
+      amount: 1000,
+      shares: [
+        { memberId: adaId, amount: 500 },
+        { memberId: graceId, amount: 500 },
+      ],
+    });
+    expect((await call(second, 'GET', `/groups/${groupId}/balances`, { token })).body).toEqual([
+      { memberId: adaId, balance: 500 },
+      { memberId: graceId, balance: -500 },
+    ]);
   });
 
   it('keeps all of a transaction that completes, and none of one that throws', () => {

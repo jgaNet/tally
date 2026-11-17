@@ -20,8 +20,11 @@ interface BalanceRow {
  * group owes them, negative when they owe the group, 0 when they are even. Every expense's shares add up
  * to its amount, so the balances of a group always add up to 0.
  *
- * It is one statement, so every balance is of the same snapshot of the database: an expense recorded
- * meanwhile is counted in all of them or in none. A read changes nothing.
+ * A settlement counts from the moment it is recorded: the payer's balance goes up by its amount, the
+ * payee's goes down by it. So the balances still add up to 0.
+ *
+ * It is one statement, so every balance is of the same snapshot of the database: an expense or a
+ * settlement recorded meanwhile is counted in all of them or in none. A read changes nothing.
  */
 export function listBalances(db: DatabaseSync, groupId: string): Balance[] {
   const rows = db
@@ -30,7 +33,11 @@ export function listBalances(db: DatabaseSync, groupId: string): Balance[] {
          COALESCE((SELECT SUM(e.amount) FROM expenses e
                    WHERE e.group_id = m.group_id AND e.paid_by = m.account_id), 0)
          - COALESCE((SELECT SUM(s.amount) FROM expense_shares s JOIN expenses e ON e.id = s.expense_id
-                     WHERE e.group_id = m.group_id AND s.account_id = m.account_id), 0) AS balance
+                     WHERE e.group_id = m.group_id AND s.account_id = m.account_id), 0)
+         + COALESCE((SELECT SUM(t.amount) FROM settlements t
+                     WHERE t.group_id = m.group_id AND t.payer_id = m.account_id), 0)
+         - COALESCE((SELECT SUM(t.amount) FROM settlements t
+                     WHERE t.group_id = m.group_id AND t.payee_id = m.account_id), 0) AS balance
        FROM group_members m
        WHERE m.group_id = ? AND m.left_at IS NULL
        ORDER BY m.joined_order`,

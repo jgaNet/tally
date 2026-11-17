@@ -103,6 +103,21 @@ const MIGRATIONS: readonly string[] = [
       AND (o.joined_at < group_members.joined_at
            OR (o.joined_at = group_members.joined_at AND o.rowid <= group_members.rowid)));
   `,
+  `
+  -- A settlement: the payee, who records it, was paid the amount in cash by the payer, in hundredths of the
+  -- group's currency. It is never recorded as anything but cash, and it is paid from the moment it is recorded.
+  CREATE TABLE settlements (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    payer_id TEXT NOT NULL REFERENCES accounts (id),
+    payee_id TEXT NOT NULL REFERENCES accounts (id),
+    amount INTEGER NOT NULL CHECK (amount >= 1),
+    method TEXT NOT NULL CHECK (method IN ('cash')),
+    status TEXT NOT NULL CHECK (status IN ('paid')),
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX settlements_group ON settlements (group_id);
+  `,
 ];
 
 /**
