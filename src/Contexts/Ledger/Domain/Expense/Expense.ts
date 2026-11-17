@@ -1,11 +1,17 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
 
-import { ExpenseSnapshot, ShareSnapshot, SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import {
+  ExpenseSnapshot,
+  OriginalAmountSnapshot,
+  ShareSnapshot,
+  SplitKind,
+} from '@Contexts/Ledger/Domain/Expense/DTOs';
 import {
   ExpenseDeletedEvent,
   ExpenseEditedEvent,
   ExpenseRecordedEvent,
 } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { AmountInput, MAX_EXPENSE_AMOUNT, OriginalAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
 import {
   ExpenseChangedException,
@@ -16,18 +22,20 @@ import {
 import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { SPLIT_KINDS, Split, SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 
-/** The largest amount of an expense, in whole units of the group's currency. */
-export const MAX_EXPENSE_AMOUNT = 100_000_000;
+export { MAX_EXPENSE_AMOUNT };
 
 /**
  * An amount a member of a group paid for some of its members, split equally, by exact amounts or by shares between them
  * (conventions/domain.yaml, the Ledger context; docs/adr/0004, docs/adr/0007). One aggregate per expense: it keeps that its shares add up to its amount, and nothing
  * else of the group is in it. The balances are not here (request 5).
  *
+ * The amount is the group's, and it is given either as it (`amount`) or as what was paid in another currency (`original`, request
+ * 21, docs/adr/0020): then the amount is the original times its rate, and the expense keeps both, with the rate as the payer gave it.
+ *
  * `register()` is the creation, named as Group's is: it validates the description, the amount, the date and the split,
- * generates the id, and records ExpenseRecorded for the store to make durable with it. The date is a real day of the
- * calendar, not after today in UTC, today being the one clock's now. `members` are the group's current members, which the
- * use case asked Groups for. `fromSnapshot()` reads what the store kept, records nothing, and throws on corrupted data.
+ * generates the id, and records ExpenseRecorded for the store to make durable with it. The date is a real day of the calendar,
+ * not after today in UTC, today being the one clock's now. `members` are the group's current members, which the use case asked
+ * Groups for. `fromSnapshot()` reads what the store kept, records nothing, and throws on corrupted data.
  *
  * `edit()` and `remove()` are the two changes after the creation (request 6, docs/adr/0006). Both are refused to anyone
  * but the payer and the group's owner; `edit()` is refused when the version it was made from is not the one the expense
@@ -41,6 +49,7 @@ export class Expense extends AggregateRoot {
   readonly #date: string;
   readonly #paidBy: string;
   readonly #split: Split;
+  readonly #original: OriginalAmount | undefined;
 
   private constructor(
     id: Id,
@@ -50,6 +59,7 @@ export class Expense extends AggregateRoot {
     date: string,
     paidBy: string,
     split: Split,
+    original: OriginalAmount | undefined,
     version: number,
   ) {
     super(id, version);
@@ -59,37 +69,47 @@ export class Expense extends AggregateRoot {
     this.#date = date;
     this.#paidBy = paidBy;
     this.#split = split;
+    this.#original = original;
   }
 
   static register({
     groupId,
     description,
-    amount,
     date,
     paidBy,
     split,
     members,
     at,
+    ...money
   }: {
     groupId: string;
     description: string;
-    amount: number;
     date: string;
     paidBy: string;
     split: SplitInput;
     members: string[];
     at: Date;
-  }): IResult<Expense> {
-    const checked = checkExpense({ description, amount, date, paidBy, split, members, at });
+  } & AmountInput): IResult<Expense> {
+    const checked = checkExpense({ description, date, paidBy, split, members, at, ...money });
     if (checked.isFailure()) return checked;
 
     const id = Id.generate();
-    const expense = new Expense(id, groupId, checked.data.description, amount, date, paidBy, checked.data.split, 0);
+    const expense = new Expense(
+      id,
+      groupId,
+      checked.data.description,
+      checked.data.amount,
+      date,
+      paidBy,
+      checked.data.split,
+      checked.data.original,
+      0,
+    );
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: id.value,
         groupId,
-        amount,
+        amount: checked.data.amount,
         paidBy,
         splitKind: checked.data.split.kind,
         shares: checked.data.split.shares,
@@ -108,32 +128,31 @@ export class Expense extends AggregateRoot {
     members,
     version,
     description,
-    amount,
     date,
     split,
     at,
+    ...money
   }: {
     by: string;
     members: GroupMember[];
     version: number;
     description: string;
-    amount: number;
     date: string;
     split: SplitInput;
     at: Date;
-  }): IResult<Expense> {
+  } & AmountInput): IResult<Expense> {
     if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
     if (!this.concernsOnlyCurrentMembers(members)) return Result.fail(new ExpenseOfFormerMemberException());
     if (version !== this.version) return Result.fail(new ExpenseChangedException());
 
     const checked = checkExpense({
       description,
-      amount,
       date,
       paidBy: this.#paidBy,
       split,
       members: members.map(member => member.memberId),
       at,
+      ...money,
     });
     if (checked.isFailure()) return checked;
 
@@ -141,17 +160,18 @@ export class Expense extends AggregateRoot {
       this._id,
       this.#groupId,
       checked.data.description,
-      amount,
+      checked.data.amount,
       date,
       this.#paidBy,
       checked.data.split,
+      checked.data.original,
       this.version,
     );
     edited.record(
       ExpenseEditedEvent.set({
         expenseId: this._id.value,
         groupId: this.#groupId,
-        amount,
+        amount: checked.data.amount,
         paidBy: this.#paidBy,
         splitKind: checked.data.split.kind,
       }),
@@ -173,12 +193,15 @@ export class Expense extends AggregateRoot {
   static fromSnapshot(snapshot: ExpenseSnapshot): Expense {
     const description = ExpenseDescription.create(snapshot.description);
     const split = Split.fromSnapshot({ kind: snapshot.splitKind, shares: snapshot.shares });
+    const original = snapshot.original === undefined ? undefined : OriginalAmount.create(snapshot.original);
     if (
       description.isFailure() ||
       !isRealDay(snapshot.date) ||
       !SPLIT_KINDS.includes(snapshot.splitKind) ||
       split.total !== snapshot.amount ||
-      snapshot.shares.length === 0
+      snapshot.shares.length === 0 ||
+      original?.isFailure() ||
+      (original !== undefined && original.data?.toGroupAmount() !== snapshot.amount)
     ) {
       throw new Error(`The expense ${snapshot.id} is corrupted in the store`);
     }
@@ -190,6 +213,7 @@ export class Expense extends AggregateRoot {
       snapshot.date,
       snapshot.paidBy,
       split,
+      original?.data,
       snapshot.version,
     );
   }
@@ -204,6 +228,7 @@ export class Expense extends AggregateRoot {
       paidBy: this.#paidBy,
       splitKind: this.#split.kind,
       shares: this.#split.shares,
+      original: this.#original?.toSnapshot(),
       version: this.version,
     };
   }
@@ -228,6 +253,10 @@ export class Expense extends AggregateRoot {
     return this.#split.kind;
   }
 
+  get original(): OriginalAmountSnapshot | undefined {
+    return this.#original?.toSnapshot();
+  }
+
   /** The payer, or the group's owner, may change the expense; any other member may not. */
   private mayChange(by: string, members: GroupMember[]): boolean {
     if (by === this.#paidBy) return true;
@@ -247,32 +276,63 @@ export class Expense extends AggregateRoot {
 /** The rules of an expense as it is given, shared by its creation and its edit: the description, the amount, the date and the split. */
 function checkExpense({
   description,
-  amount,
   date,
   paidBy,
   split,
   members,
   at,
+  ...money
 }: {
   description: string;
-  amount: number;
   date: string;
   paidBy: string;
   split: SplitInput;
   members: string[];
   at: Date;
-}): IResult<{ description: ExpenseDescription; split: Split }> {
+} & AmountInput): IResult<{
+  description: ExpenseDescription;
+  split: Split;
+  amount: number;
+  original: OriginalAmount | undefined;
+}> {
   const text = ExpenseDescription.create(description);
   if (text.isFailure()) return text;
-  if (!Number.isInteger(amount) || amount < 1 || amount > MAX_EXPENSE_AMOUNT) {
-    return Result.fail(new InvalidAmountException());
-  }
+  const money_ = amountOf(money);
+  if (money_.isFailure()) return money_;
   if (!isRealDay(date) || date > dayOf(at)) {
     return Result.fail(new InvalidDateException());
   }
-  const checkedSplit = Split.of({ input: split, amount, payerId: paidBy, members });
+  const checkedSplit = Split.of({ input: split, amount: money_.data.amount, payerId: paidBy, members });
   if (checkedSplit.isFailure()) return checkedSplit;
-  return Result.ok({ description: text.data, split: checkedSplit.data });
+  return Result.ok({
+    description: text.data,
+    split: checkedSplit.data,
+    amount: money_.data.amount,
+    original: money_.data.original,
+  });
+}
+
+/**
+ * The amount of an expense in the group's currency, and what it was paid in when that was another currency (request 21). Given
+ * either as the group's amount or as an original, never both: the amount is refused by name when it is neither whole nor in range.
+ */
+function amountOf({
+  amount,
+  original,
+  groupCurrency,
+}: AmountInput): IResult<{ amount: number; original: OriginalAmount | undefined }> {
+  if (original === undefined) {
+    if (amount === undefined || !Number.isInteger(amount) || amount < 1 || amount > MAX_EXPENSE_AMOUNT) {
+      return Result.fail(new InvalidAmountException());
+    }
+    return Result.ok({ amount, original: undefined });
+  }
+  if (amount !== undefined || groupCurrency === undefined) return Result.fail(new InvalidAmountException());
+  const paid = OriginalAmount.create(original, groupCurrency);
+  if (paid.isFailure()) return paid;
+  const inGroupCurrency = paid.data.toGroupAmount();
+  if (inGroupCurrency < 1 || inGroupCurrency > MAX_EXPENSE_AMOUNT) return Result.fail(new InvalidAmountException());
+  return Result.ok({ amount: inGroupCurrency, original: paid.data });
 }
 
 const notAllowedToChange = () =>

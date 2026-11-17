@@ -7,6 +7,16 @@ export interface ShareSnapshot {
 /** How an expense is split (request 7): equally, by exact amounts, or by whole shares. */
 export type SplitKind = 'equal' | 'exact' | 'shares';
 
+/**
+ * What an expense was paid in, when that was not the group's currency (request 21): the currency, the amount in its hundredths and the
+ * rate as the payer gave it, the string. The expense's `amount` is the group's, computed from these (docs/adr/0020).
+ */
+export interface OriginalAmountSnapshot {
+  currency: string;
+  amount: number;
+  rate: string;
+}
+
 /** The state of an expense as the store keeps it: what `Expense.fromSnapshot()` reads and `toSnapshot()` writes. */
 export interface ExpenseSnapshot {
   id: string;
@@ -20,6 +30,8 @@ export interface ExpenseSnapshot {
   splitKind: SplitKind;
   /** The shares, in the order the split was given. */
   shares: ShareSnapshot[];
+  /** What it was paid in, when not in the group's currency; absent for an expense in the group's currency. */
+  original?: OriginalAmountSnapshot;
   /** The version the expense was read at: the store stores version + 1 on every save. */
   version: number;
 }
@@ -35,6 +47,8 @@ export interface ExpenseView {
   /** How the expense is split: `equal`, `exact` or `shares` (request 7). The expenses recorded before it are `equal`. */
   splitKind: SplitKind;
   shares: ShareSnapshot[];
+  /** What it was paid in, when not in the group's currency (request 21): absent for an expense in the group's currency. */
+  original?: OriginalAmountSnapshot;
   /** The version the expense is at: 1 when it is recorded, one more at each edit (request 6). */
   version: number;
 }

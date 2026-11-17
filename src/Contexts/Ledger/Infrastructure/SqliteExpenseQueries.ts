@@ -10,18 +10,13 @@ import {
 import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
 import { IGroupMembers, PassedBalances } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { ISettledAmounts } from '@Contexts/Ledger/Domain/Expense/Ports/ISettledAmounts';
-import { prepareLedgerSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
+import {
+  EXPENSE_COLUMNS,
+  ExpenseRow,
+  originalOfRow,
+  prepareLedgerSchema,
+} from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 
-type ExpenseRow = {
-  id: string;
-  group_id: string;
-  description: string;
-  amount: number;
-  date: string;
-  paid_by: string;
-  split_kind: string;
-  version: number;
-};
 type ShareRow = { member_id: string; amount: number };
 type GroupShareRow = ShareRow & { expense_id: string };
 type BalanceRow = { member_id: string; balance: number };
@@ -47,11 +42,8 @@ export class SqliteExpenseQueries implements IExpenseQueries {
   async findExpense(expenseId: string): Promise<ExpenseView | undefined> {
     return this.database.exclusive(() => {
       const connection = this.database.connection;
-      const row = connection
-        .prepare(
-          'SELECT id, group_id, description, amount, date, paid_by, split_kind, version FROM expenses WHERE id = ?',
-        )
-        .get(expenseId) as ExpenseRow | undefined;
+      const row = connection.prepare(`SELECT ${EXPENSE_COLUMNS} FROM expenses WHERE id = ?`).get(expenseId) as
+        ExpenseRow | undefined;
       if (!row) return undefined;
       const shares = connection
         .prepare('SELECT member_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position')
@@ -100,9 +92,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
     return this.database.exclusive(() => {
       const connection = this.database.connection;
       const rows = connection
-        .prepare(
-          'SELECT id, group_id, description, amount, date, paid_by, split_kind, version FROM expenses WHERE group_id = ? ORDER BY date DESC, rowid DESC',
-        )
+        .prepare(`SELECT ${EXPENSE_COLUMNS} FROM expenses WHERE group_id = ? ORDER BY date DESC, rowid DESC`)
         .all(groupId) as ExpenseRow[];
       const shares = connection
         .prepare(
@@ -173,7 +163,9 @@ function carryPassed(balances: Map<string, number>, passed: PassedBalances): voi
 
 /** An expense's read model from its row and its shares, in the order of the split. */
 function expenseView(row: ExpenseRow, shares: ShareRow[]): ExpenseView {
+  const original = originalOfRow(row);
   return {
+    ...(original ? { original } : {}),
     id: String(row.id),
     groupId: String(row.group_id),
     description: String(row.description),

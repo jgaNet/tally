@@ -5,6 +5,8 @@ import { NotFoundException, Result } from '@Architecture/Domain';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
+import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
+import { AmountInput, OriginalAmountInput } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 import { StatementView } from '@Contexts/Ledger/Domain/Expense/DTOs';
@@ -13,9 +15,26 @@ import { StatementView } from '@Contexts/Ledger/Domain/Expense/DTOs';
 export interface RecordExpenseInput {
   groupId: string;
   description: string;
-  amount: number;
+  /** The amount in the group's currency, or what was paid in another currency (request 21): exactly one of the two. */
+  amount?: number;
+  original?: OriginalAmountInput;
   date: string;
   split: SplitInput;
+}
+
+/**
+ * What the caller gives as the amount: its amount in the group's currency, or what it paid in another currency, which is kept with
+ * the group's currency the expense converts to (request 21, docs/adr/0020). The group's currency is asked only for the second.
+ */
+async function amountGiven(
+  groupCurrency: IGroupCurrency,
+  callerId: string,
+  groupId: string,
+  given: { amount?: number; original?: OriginalAmountInput },
+): Promise<AmountInput | undefined> {
+  if (given.original === undefined) return { amount: given.amount };
+  const currency = await groupCurrency.currencyOf(callerId, groupId);
+  return currency === undefined ? undefined : { original: given.original, groupCurrency: currency };
 }
 
 /**
@@ -25,16 +44,18 @@ export interface RecordExpenseInput {
  */
 export const recordExpense = command(
   'RecordExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ groupId, description, amount, date, split }: RecordExpenseInput, context) => {
+  (expenses: IExpenseRepository, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+    async ({ groupId, description, amount, original, date, split }: RecordExpenseInput, context) => {
       const paidBy = callerOf(context);
       const members = await groupMembers.membersOf(paidBy, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      const money = await amountGiven(groupCurrency, paidBy, groupId, { amount, original });
+      if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
 
       const expense = Expense.register({
         groupId,
         description,
-        amount,
+        ...money,
         date,
         paidBy,
         split,
@@ -67,7 +88,9 @@ export const getExpense = query(
 export interface EditExpenseInput {
   id: string;
   description: string;
-  amount: number;
+  /** The amount in the group's currency, or what was paid in another currency (request 21): exactly one of the two. */
+  amount?: number;
+  original?: OriginalAmountInput;
   date: string;
   split: SplitInput;
   version: number;
@@ -80,15 +103,17 @@ export interface EditExpenseInput {
  */
 export const editExpense = command(
   'EditExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ id, description, amount, date, split, version }: EditExpenseInput, context) => {
+  (expenses: IExpenseRepository, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+    async ({ id, description, amount, original, date, split, version }: EditExpenseInput, context) => {
       const by = callerOf(context);
       const stored = await expenses.get(id);
       if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
       const members = await groupMembers.membersOf(by, stored.groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
 
-      const edited = stored.edit({ by, members, version, description, amount, date, split, at: clock() });
+      const money = await amountGiven(groupCurrency, by, stored.groupId, { amount, original });
+      if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
+      const edited = stored.edit({ by, members, version, description, date, split, at: clock(), ...money });
       if (edited.isFailure()) return edited;
       const saved = await expenses.save(edited.data);
       if (saved.isFailure()) return saved;

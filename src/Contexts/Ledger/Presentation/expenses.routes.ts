@@ -41,32 +41,57 @@ const splitBody = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 };
 
+/**
+ * What was paid in another currency, as a body gives it (request 21): its currency, its amount in hundredths and its rate as a
+ * string. The shape only: whether the currency is one of Tally's, the amount in range and the rate a decimal are the domain's.
+ */
+const originalBody = {
+  type: 'object',
+  required: ['currency', 'amount', 'rate'],
+  properties: { currency: { type: 'string' }, amount: { type: 'integer' }, rate: { type: 'string' } },
+};
+
+/**
+ * The amount a body gives, one of two (request 21): its `amount` in the group's currency, or its `original` in another one. The body
+ * says exactly one of them (`oneOf`: neither or both is the wrong shape, `400`).
+ */
+const amountBody = {
+  properties: { amount: { type: 'integer' }, original: originalBody },
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
+};
+
 /** The bodies say their shape only (API-BODY-SHAPE): whether an amount, a date or a split is allowed is the domain's to refuse. */
 const recordExpenseBody = {
   type: 'object',
-  required: ['description', 'amount', 'date'],
+  required: ['description', 'date'],
   properties: {
     description: { type: 'string' },
-    amount: { type: 'integer' },
     date: { type: 'string' },
+    ...amountBody.properties,
     ...splitBody.properties,
   },
-  oneOf: splitBody.oneOf,
+  allOf: [{ oneOf: amountBody.oneOf }, { oneOf: splitBody.oneOf }],
 };
 
 /** An edit says the whole expense and the version it was read at (request 6): the shape only, as the record's body. */
 const editExpenseBody = {
   type: 'object',
-  required: ['description', 'amount', 'date', 'version'],
+  required: ['description', 'date', 'version'],
   properties: {
     description: { type: 'string' },
-    amount: { type: 'integer' },
     date: { type: 'string' },
     version: { type: 'integer' },
+    ...amountBody.properties,
     ...splitBody.properties,
   },
-  oneOf: splitBody.oneOf,
+  allOf: [{ oneOf: amountBody.oneOf }, { oneOf: splitBody.oneOf }],
 };
+
+/** The amount a body gives, as the transport has checked it: `amount`, or `original`, exactly one (request 21). */
+interface AmountBody {
+  amount?: number;
+  original?: { currency: string; amount: number; rate: string };
+}
 
 /** The body's split, as the use cases take it: the transport has checked that exactly one of the three is given. */
 function splitOf(body: SplitBody): SplitInput {
@@ -88,7 +113,7 @@ interface SplitBody {
 export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fastify, { module }, done) => {
   fastify.post<{
     Params: { id: string };
-    Body: SplitBody & { description: string; amount: number; date: string };
+    Body: SplitBody & AmountBody & { description: string; date: string };
   }>('/groups/:id/expenses', { schema: { body: recordExpenseBody, tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(
       req,
@@ -98,6 +123,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         groupId: req.params.id,
         description: req.body.description,
         amount: req.body.amount,
+        original: req.body.original,
         date: req.body.date,
         split: splitOf(req.body),
       },
@@ -111,12 +137,13 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.put<{
     Params: { id: string };
-    Body: SplitBody & { description: string; amount: number; date: string; version: number };
+    Body: SplitBody & AmountBody & { description: string; date: string; version: number };
   }>('/expenses/:id', { schema: { body: editExpenseBody, tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(editExpense), {
       id: req.params.id,
       description: req.body.description,
       amount: req.body.amount,
+      original: req.body.original,
       date: req.body.date,
       version: req.body.version,
       split: splitOf(req.body),

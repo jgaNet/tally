@@ -108,7 +108,8 @@ relationships:
       Only a member of the group may be in a split, and only Groups knows who is a member now, in which order, with
       which role, and who has ever been one, and what each member's leave passed to the owner. Ledger asks in its own
       words, through a port it owns (GroupMembers), when it decides or reads the balances, so that a member who has just
-      joined can be in a split at once (T3), and the balances count what passed (docs/adr/0019).
+      joined can be in a split at once (T3), and the balances count what passed (docs/adr/0019). The group's currency is asked
+      through the same kind of port (GroupCurrency), only for an expense paid in another currency, which converts to it (docs/adr/0020).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]

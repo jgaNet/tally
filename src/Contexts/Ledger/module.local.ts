@@ -14,6 +14,7 @@ import {
 } from '@Contexts/Ledger/Application/Expenses';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { GroupCurrencyOfGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyOfGroups';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
@@ -25,15 +26,17 @@ import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteE
  */
 const expenses = new SqliteExpenseRepository(sharedDatabase);
 const groupMembers = new GroupMembersOfGroups(groupsReadModel);
+// The group's currency, for an expense paid in another one (request 21, docs/adr/0020): read over the same Groups read model.
+const groupCurrency = new GroupCurrencyOfGroups(groupsReadModel);
 const expenseQueries = new SqliteExpenseQueries(sharedDatabase, settledAmountsOfSettlements, groupMembers);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
   useCases: [
-    recordExpense(expenses, groupMembers, systemClock),
+    recordExpense(expenses, groupMembers, groupCurrency, systemClock),
     getExpense(expenseQueries, groupMembers),
     getGroupBalances(expenseQueries, groupMembers),
-    editExpense(expenses, groupMembers, systemClock),
+    editExpense(expenses, groupMembers, groupCurrency, systemClock),
     deleteExpense(expenses, groupMembers),
     getGroupExpenses(expenseQueries, groupMembers),
     getMemberStatement(expenseQueries, groupMembers),

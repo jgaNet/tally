@@ -606,3 +606,140 @@ describe('splitting an expense unequally (request 7)', () => {
     ]);
   });
 });
+
+const editWhole = (id: string, token: string, body: unknown) =>
+  http.request('PUT', `${api}/expenses/${id}`, { body, token });
+
+describe('an expense in another currency (request 21)', () => {
+  it('records an expense paid in another currency at its rate: the amount is the group currency, the original is kept', async () => {
+    const ada = await signedIn('fx-ada@example.com', 'Ada');
+    const bob = await signedIn('fx-bob@example.com', 'Bob');
+    const cy = await signedIn('fx-cy@example.com', 'Cy');
+    const groupId = await groupWith(ada, [bob, cy]);
+
+    const created = await record(ada.token, groupId, {
+      description: 'Zurich week',
+      original: { currency: 'CHF', amount: 1234, rate: '1.0625' },
+      date: PAST,
+      splitBetween: [ada.id, bob.id, cy.id],
+    });
+    expect(created.status).toBe(201);
+    const id = (created.body as { id: string }).id;
+
+    const read = await readExpense(id, ada.token);
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject({
+      id,
+      amount: 1311,
+      original: { currency: 'CHF', amount: 1234, rate: '1.0625' },
+      version: 1,
+      splitKind: 'equal',
+    });
+    const shares = (read.body as { shares: Array<{ amount: number }> }).shares;
+    expect(shares.reduce((sum, share) => sum + share.amount, 0)).toBe(1311);
+  });
+
+  it('rounds a half up and keeps a rate as the string given, whatever its digits', async () => {
+    const ada = await signedIn('half-ada@example.com', 'Ada');
+    const groupId = await groupWith(ada, []);
+
+    const half = await record(ada.token, groupId, {
+      description: 'Dinner',
+      original: { currency: 'USD', amount: 1000, rate: '0.9545' },
+      date: PAST,
+      splitBetween: [ada.id],
+    });
+    const plain = await record(ada.token, groupId, {
+      description: 'Tram',
+      original: { currency: 'GBP', amount: 5, rate: '1' },
+      date: PAST,
+      splitBetween: [ada.id],
+    });
+
+    expect((await readExpense((half.body as { id: string }).id, ada.token)).body).toMatchObject({
+      amount: 955,
+      original: { currency: 'USD', amount: 1000, rate: '0.9545' },
+    });
+    expect((await readExpense((plain.body as { id: string }).id, ada.token)).body).toMatchObject({
+      amount: 5,
+      original: { currency: 'GBP', amount: 5, rate: '1' },
+    });
+  });
+
+  it('refuses what the domain refuses with 422, named by the rule', async () => {
+    const ada = await signedIn('fx-rules-ada@example.com', 'Ada');
+    const groupId = await groupWith(ada, []);
+    const valid = { description: 'Rent', date: PAST, splitBetween: [ada.id] };
+    const chf = (original: object) => ({
+      ...valid,
+      original: { currency: 'CHF', amount: 1000, rate: '1', ...original },
+    });
+
+    const refusals: Array<[unknown, string]> = [
+      [chf({ currency: 'XYZ' }), 'UnknownCurrency'],
+      [chf({ currency: 'EUR' }), 'OriginalCurrencyIsGroupCurrency'],
+      [chf({ amount: 0 }), 'InvalidOriginalAmount'],
+      [chf({ amount: 100_000_001 }), 'InvalidOriginalAmount'],
+      [chf({ rate: '1.0000001' }), 'InvalidRate'],
+      [chf({ rate: '1.' }), 'InvalidRate'],
+      [chf({ rate: '0' }), 'NonPositiveRate'],
+      [chf({ amount: 100_000_000, rate: '2' }), 'InvalidAmount'],
+    ];
+    for (const [body, type] of refusals) {
+      expect(await record(ada.token, groupId, body)).toMatchObject({ status: 422, body: { type } });
+    }
+  });
+
+  it('refuses a body with both amounts, with neither, or a rate that is not a string, as the wrong shape (400)', async () => {
+    const ada = await signedIn('fx-shape-ada@example.com', 'Ada');
+    const groupId = await groupWith(ada, []);
+    const original = { currency: 'CHF', amount: 1000, rate: '1' };
+    const base = { description: 'Rent', date: PAST, splitBetween: [ada.id] };
+
+    expect((await record(ada.token, groupId, { ...base, amount: 1000, original })).status).toBe(400);
+    expect((await record(ada.token, groupId, { ...base })).status).toBe(400);
+    expect((await record(ada.token, groupId, { ...base, original: { ...original, rate: 1.5 } })).status).toBe(400);
+    expect((await record(ada.token, groupId, { ...base, original: { currency: 'CHF', amount: 1000 } })).status).toBe(
+      400,
+    );
+  });
+
+  it('edits an expense whole: in another currency at its rate, or back in the group currency', async () => {
+    const ada = await signedIn('fx-edit-ada@example.com', 'Ada');
+    const bob = await signedIn('fx-edit-bob@example.com', 'Bob');
+    const groupId = await groupWith(ada, [bob]);
+    const created = await record(ada.token, groupId, {
+      description: 'Hotel',
+      amount: 400,
+      date: PAST,
+      splitBetween: [ada.id, bob.id],
+    });
+    const id = (created.body as { id: string }).id;
+
+    const inOther = await editWhole(id, ada.token, {
+      description: 'Hotel',
+      original: { currency: 'USD', amount: 500, rate: '0.8' },
+      date: PAST,
+      splitBetween: [ada.id, bob.id],
+      version: 1,
+    });
+    expect(inOther.status).toBe(204);
+    expect((await readExpense(id, ada.token)).body).toMatchObject({
+      amount: 400,
+      version: 2,
+      original: { currency: 'USD', amount: 500, rate: '0.8' },
+    });
+
+    const back = await editWhole(id, ada.token, {
+      description: 'Hotel',
+      amount: 420,
+      date: PAST,
+      splitBetween: [ada.id, bob.id],
+      version: 2,
+    });
+    expect(back.status).toBe(204);
+    const read = (await readExpense(id, ada.token)).body as Record<string, unknown>;
+    expect(read).toMatchObject({ amount: 420, version: 3 });
+    expect(read).not.toHaveProperty('original');
+  });
+});

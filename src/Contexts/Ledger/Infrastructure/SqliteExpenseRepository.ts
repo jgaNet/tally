@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { ConcurrencyConflictException, IResult, Result } from '@Architecture/Domain';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { ShareSnapshot, SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { OriginalAmountSnapshot, ShareSnapshot, SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 
@@ -17,17 +17,39 @@ export const LEDGER_SCHEMA = [
 ].join(';\n');
 
 /**
+ * What an expense was paid in, when not in the group's currency (request 21): three nullable columns, null for an expense in the
+ * group's currency and for the expenses recorded before the request.
+ */
+const ORIGINAL_COLUMNS = [
+  ['original_currency', 'TEXT'],
+  ['original_amount', 'INTEGER'],
+  ['original_rate', 'TEXT'],
+] as const;
+
+/**
  * Makes the ledger's tables what the stores read, on a file that may have been made before the split kinds (request 7): there,
- * every expense was split equally, which is the default the column takes.
+ * every expense was split equally, which is the default the column takes. It adds the columns of an expense paid in another
+ * currency, which a file made before request 21 does not have (docs/adr/0020).
  */
 export function prepareLedgerSchema(connection: DatabaseSync): void {
   connection.exec(LEDGER_SCHEMA);
-  const columns = connection.prepare('PRAGMA table_info(expenses)').all() as Array<{ name: string }>;
-  if (columns.some(column => column.name === 'split_kind')) return;
-  connection.exec("ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
+  const columns = (connection.prepare('PRAGMA table_info(expenses)').all() as Array<{ name: string }>).map(
+    column => column.name,
+  );
+  if (!columns.includes('split_kind')) {
+    connection.exec("ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
+  }
+  for (const [name, type] of ORIGINAL_COLUMNS) {
+    if (!columns.includes(name)) connection.exec(`ALTER TABLE expenses ADD COLUMN ${name} ${type}`);
+  }
 }
 
-type ExpenseRow = {
+/** The columns an expense row is read by, in the order `ExpenseRow` lists them. */
+export const EXPENSE_COLUMNS =
+  'id, group_id, description, amount, date, paid_by, split_kind, version, original_currency, original_amount, original_rate';
+
+/** An expense's row, as the store reads it (`EXPENSE_COLUMNS`). */
+export type ExpenseRow = {
   id: string;
   group_id: string;
   description: string;
@@ -36,7 +58,21 @@ type ExpenseRow = {
   paid_by: string;
   split_kind: string;
   version: number;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 };
+
+/** What an expense was paid in, as its row keeps it; undefined for an expense in the group's currency (request 21). */
+export function originalOfRow(row: ExpenseRow): OriginalAmountSnapshot | undefined {
+  if (row.original_currency === null) return undefined;
+  return {
+    currency: String(row.original_currency),
+    amount: Number(row.original_amount),
+    rate: String(row.original_rate),
+  };
+}
+
 type ShareRow = { member_id: string; amount: number };
 
 /**
@@ -52,11 +88,8 @@ export class SqliteExpenseRepository implements IExpenseRepository {
   async get(expenseId: string): Promise<Expense | undefined> {
     this.database.assertInTransaction();
     const connection = this.database.connection;
-    const row = connection
-      .prepare(
-        'SELECT id, group_id, description, amount, date, paid_by, split_kind, version FROM expenses WHERE id = ?',
-      )
-      .get(expenseId) as ExpenseRow | undefined;
+    const row = connection.prepare(`SELECT ${EXPENSE_COLUMNS} FROM expenses WHERE id = ?`).get(expenseId) as
+      ExpenseRow | undefined;
     if (!row) return undefined;
     const shares = connection
       .prepare('SELECT member_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position')
@@ -73,6 +106,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         memberId: String(share.member_id),
         amount: Number(share.amount),
       })),
+      original: originalOfRow(row),
       version: Number(row.version),
     });
   }
@@ -81,10 +115,11 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     this.database.assertInTransaction();
     const snapshot = expense.toSnapshot();
     const connection = this.database.connection;
+    const original = snapshot.original;
     if (snapshot.version === 0) {
       connection
         .prepare(
-          'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, original_currency, original_amount, original_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         )
         .run(
           snapshot.id,
@@ -95,17 +130,23 @@ export class SqliteExpenseRepository implements IExpenseRepository {
           snapshot.paidBy,
           snapshot.splitKind,
           snapshot.version + 1,
+          original?.currency ?? null,
+          original?.amount ?? null,
+          original?.rate ?? null,
         );
     } else {
       const { changes } = connection
         .prepare(
-          'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, version = ? WHERE id = ? AND version = ?',
+          'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, original_currency = ?, original_amount = ?, original_rate = ?, version = ? WHERE id = ? AND version = ?',
         )
         .run(
           snapshot.description,
           snapshot.amount,
           snapshot.date,
           snapshot.splitKind,
+          original?.currency ?? null,
+          original?.amount ?? null,
+          original?.rate ?? null,
           snapshot.version + 1,
           snapshot.id,
           snapshot.version,

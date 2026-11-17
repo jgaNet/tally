@@ -22,6 +22,57 @@ export class InvalidAmountException extends Exception {
   }
 }
 
+/** What was paid in another currency is not an amount of 1 to 100 000 000 in that currency's hundredths (request 21). */
+export class InvalidOriginalAmountException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidOriginalAmount',
+      message: 'What was paid in another currency is an amount of 1 to 100000000, in hundredths of that currency',
+    });
+  }
+}
+
+/** What was paid in another currency is not one of Tally's currencies (request 2, request 21). */
+export class UnknownCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'UnknownCurrency',
+      message: "What was paid in another currency is in one of Tally's currencies",
+    });
+  }
+}
+
+/** What was paid in another currency is in the group's own currency: then it is simply the amount (request 21). */
+export class OriginalCurrencyIsGroupCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'OriginalCurrencyIsGroupCurrency',
+      message: "What was paid in another currency is in a currency other than the group's",
+    });
+  }
+}
+
+/** A rate is not a decimal number written as a string, with at most 6 digits after the point (request 21). */
+export class InvalidRateException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidRate',
+      message: 'A rate is a decimal number of at most 6 digits after the point, written as a string',
+    });
+  }
+}
+
+/** A rate is 0: what one unit of another currency is worth must be greater than 0 (request 21). */
+export class NonPositiveRateException extends Exception {
+  constructor() {
+    super({ service: 'Ledger', type: 'NonPositiveRate', message: 'A rate is greater than 0' });
+  }
+}
+
 /** The date is not a real day of the calendar, or is after today (UTC). */
 export class InvalidDateException extends Exception {
   constructor() {

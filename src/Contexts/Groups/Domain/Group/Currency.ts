@@ -1,11 +1,11 @@
 import { IResult, Result, ValueObject } from '@Architecture/Domain';
 
 import { InvalidCurrencyException } from '@Contexts/Groups/Domain/Group/GroupExceptions';
+import { CURRENCIES, CurrencyCode } from '@SharedKernel/Domain/Currency';
 
-/** The currencies a group may be in. Each counts in hundredths (cents, pence): every amount of a group is an integer of them. */
-export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
-
-export type CurrencyCode = (typeof CURRENCIES)[number];
+/** The currencies a group may be in: Tally's, kept in the shared kernel (request 21 reads the same list). */
+export { CURRENCIES };
+export type { CurrencyCode };
 
 /**
  * The currency of a group, chosen when the group is created and never changed: every amount of the group is in it.
