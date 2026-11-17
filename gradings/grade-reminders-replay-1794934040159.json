@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "control": "plain",
+  "project": "/var/tmp/j6/trees/plain-1",
+  "ref": "e43e378c363ad44cb3ca1b7f5e0a4bdc97baa49f",
+  "commit": "e43e378c363ad44cb3ca1b7f5e0a4bdc97baa49f",
+  "base": "83a0dec4ce7d7990b771b5617709b59050030a5b",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "reminders",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 3 passed, 4 total",
+        "failed": [
+          "reminders › never reminds because someone read, only at a run of the background job"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● reminders › never reminds because someone read, only at a run of the background job",
+          "    - Expected  -  1",
+          "    + Received  + 75",
+          "Tests:       1 failed, 3 passed, 4 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 42983,
+  "workers": 1
+}
