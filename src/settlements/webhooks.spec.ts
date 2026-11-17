@@ -202,4 +202,82 @@ describe('the provider’s webhooks', () => {
       expect(await balanceOfAda(ada.token, groupId, ada.id)).toBe(-200);
     });
   });
+
+  describe('a webhook that comes twice, out of order, late, or at the same moment', () => {
+    /** The webhook's body, as the provider sends it: the same bytes every time it is sent. */
+    const bodyFor = (paymentId: string, status: string, webhookId: string) =>
+      `{ "id": "${webhookId}", "paymentId": "${paymentId}", "status": "${status}", "at": "2026-11-17T10:00:00Z" }`;
+
+    /** Sends `body` to `server` as the provider does: signed, with the bytes exactly as given. */
+    const postTo = (server: Application['server'], body: string) =>
+      server.inject({
+        method: 'POST',
+        url: '/v1/provider/webhooks',
+        headers: { 'content-type': 'application/json', 'provider-signature': sign(body) },
+        payload: body,
+      });
+
+    it('counts a payment once when the very same webhook is delivered twice', async () => {
+      const { ada, groupId, paymentId } = await adaPaysThroughProvider();
+      const body = bodyFor(paymentId, 'succeeded', 'wh-twice');
+      expect((await deliver(body, sign(body))).statusCode).toBe(204);
+      expect((await deliver(body, sign(body))).statusCode).toBe(204);
+      expect(await balanceOfAda(ada.token, groupId, ada.id)).toBe(-200);
+    });
+
+    it('keeps a succeeded payment paid when a pending webhook arrives after it', async () => {
+      const { ada, grace, groupId, id, paymentId } = await adaPaysThroughProvider();
+      expect((await webhookFor(paymentId, 'succeeded')).statusCode).toBe(204);
+      expect((await webhookFor(paymentId, 'pending')).statusCode).toBe(204);
+      expect((await read(grace.token, id)).json().status).toBe('paid');
+      expect(await balanceOfAda(ada.token, groupId, ada.id)).toBe(-200);
+    });
+
+    it('applies a webhook that arrives after the application stopped and started again', async () => {
+      const { ada, grace, groupId, id, paymentId } = await adaPaysThroughProvider();
+      await app.stop();
+      app = await createApplication({ databasePath, providerUrl: provider.url, providerWebhookSecret: SECRET });
+      expect((await webhookFor(paymentId, 'succeeded')).statusCode).toBe(204);
+      expect((await read(grace.token, id)).json().status).toBe('paid');
+      expect(await balanceOfAda(ada.token, groupId, ada.id)).toBe(-200);
+    });
+
+    it('counts a payment once when the same webhook reaches two applications on the same file at once', async () => {
+      const { ada, groupId, paymentId } = await adaPaysThroughProvider();
+      const other = await createApplication({
+        databasePath,
+        providerUrl: provider.url,
+        providerWebhookSecret: SECRET,
+      });
+      try {
+        const body = bodyFor(paymentId, 'succeeded', 'wh-both');
+        const [first, second] = await Promise.all([postTo(app.server, body), postTo(other.server, body)]);
+        expect([first.statusCode, second.statusCode]).toEqual([204, 204]);
+        expect(await balanceOfAda(ada.token, groupId, ada.id)).toBe(-200);
+      } finally {
+        await other.stop();
+      }
+    });
+
+    it('decides a succeeded and a failed webhook that arrive at once on two applications: the first decided stands', async () => {
+      const { ada, grace, groupId, id, paymentId } = await adaPaysThroughProvider();
+      const other = await createApplication({
+        databasePath,
+        providerUrl: provider.url,
+        providerWebhookSecret: SECRET,
+      });
+      try {
+        const [first, second] = await Promise.all([
+          postTo(app.server, bodyFor(paymentId, 'succeeded', 'wh-ok')),
+          postTo(other.server, bodyFor(paymentId, 'failed', 'wh-ko')),
+        ]);
+        expect([first.statusCode, second.statusCode]).toEqual([204, 204]);
+        const settled = (await read(grace.token, id)).json().status;
+        expect(['paid', 'failed']).toContain(settled);
+        expect(await balanceOfAda(ada.token, groupId, ada.id)).toBe(settled === 'paid' ? -200 : -500);
+      } finally {
+        await other.stop();
+      }
+    });
+  });
 });
