@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-2",
+  "ref": "8bda2e7875e2b2b3dd9d67121841f6fd6b076d8f",
+  "commit": "8bda2e7875e2b2b3dd9d67121841f6fd6b076d8f",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../8bda2e7875e2.storms/accounts.yaml is done, but Groups: typescript lacks the command expected by ../8bda2e7875e2.storms/accounts.yaml has: SignUp (anyone, POST /accounts, Account → AccountRegistered)",
+          "../8bda2e7875e2.storms/accounts.yaml is done, but Groups: typescript has a command expected by ../8bda2e7875e2.storms/accounts.yaml does not: SignUp (anyone, POST /accounts, Account → AccountRegistered; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "create-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../8bda2e7875e2.storms/create-a-group.yaml is done, but Groups: typescript lacks the command expected by ../8bda2e7875e2.storms/create-a-group.yaml has: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated)",
+          "../8bda2e7875e2.storms/create-a-group.yaml is done, but Groups: typescript has a command expected by ../8bda2e7875e2.storms/create-a-group.yaml does not: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "invite-and-join",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../8bda2e7875e2.storms/invite-and-join.yaml is done, but Groups: typescript lacks the command expected by ../8bda2e7875e2.storms/invite-and-join.yaml has: AcceptInvitation (a signed-in account, POST /invitations/{param}/accept, Group → MemberJoined)",
+          "../8bda2e7875e2.storms/invite-and-join.yaml is done, but Groups: typescript lacks the command expected by ../8bda2e7875e2.storms/invite-and-join.yaml has: CreateInvitation (a signed-in account, POST /groups/{param}/invitations, Invitation → InvitationCreated)",
+          "../8bda2e7875e2.storms/invite-and-join.yaml is done, but Groups: typescript has a command expected by ../8bda2e7875e2.storms/invite-and-join.yaml does not: AcceptInvitation (a signed-in account, POST /invitations/{param}/accept, Group → MemberJoined; answered at once)",
+          "../8bda2e7875e2.storms/invite-and-join.yaml is done, but Groups: typescript has a command expected by ../8bda2e7875e2.storms/invite-and-join.yaml does not: CreateInvitation (a signed-in account, POST /groups/{param}/invitations, Invitation → InvitationCreated; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "record-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../8bda2e7875e2.storms/record-an-expense.yaml is done, but Ledger: typescript lacks the command expected by ../8bda2e7875e2.storms/record-an-expense.yaml has: RecordExpense (a signed-in account, POST /groups/{param}/expenses, Expense → ExpenseRecorded)",
+          "../8bda2e7875e2.storms/record-an-expense.yaml is done, but Ledger: typescript has a command expected by ../8bda2e7875e2.storms/record-an-expense.yaml does not: RecordExpense (a signed-in account, POST /groups/{param}/expenses, Expense → ExpenseRecorded; answered at once)"
+        ]
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 18507,
+  "workers": 2
+}
