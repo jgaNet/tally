@@ -3,6 +3,7 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { groupMembers } from '@Contexts/Groups/module.local';
+import { settledAmounts as settlementsSettledAmounts } from '@Contexts/Settlements/module.local';
 import {
   RecordExpenseCommandEvent,
   RecordExpenseCommandHandler,
@@ -21,6 +22,7 @@ import {
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { SqliteExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteExpenseReadModels';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
+import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { SqliteMemberBalances } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalances';
 import { IMemberBalancesQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalancesQueries';
 
@@ -32,8 +34,13 @@ const expenseReadModels = new SqliteExpenseReadModels(database);
  * from this file too (ADR 4), so the port reads Groups' export when it is asked, not while this file is evaluated.
  */
 const members = new GroupMembersFromGroups(() => groupMembers);
-/** The balances: counted into in the transaction of each expense, and read by a member of the group (T4). */
-const balances = new SqliteMemberBalances(database);
+/**
+ * What has been settled in the group, read through the port Ledger owns (ADR 7): Settlements' read model, read when it is asked
+(ADR 4), so that a balance counts a settlement as soon as it is recorded.
+ */
+const settled = new SettledAmountsFromSettlements(() => settlementsSettledAmounts);
+/** The balances: counted into in the transaction of each expense, and read by a member of the group (T4), with what is settled. */
+const balances = new SqliteMemberBalances(database, settled);
 
 /** A member's balance in a group, read by Groups before the member leaves it (ADR 4): Ledger's read model, exported. */
 export const memberBalances: IMemberBalancesQueries = balances;

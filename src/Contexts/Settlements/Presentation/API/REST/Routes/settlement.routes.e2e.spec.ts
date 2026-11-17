@@ -235,3 +235,243 @@ describe('Ledger → Settlements', () => {
     });
   });
 });
+
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/** Records a payment in cash the token's member received from `from`, and follows its operation. */
+async function settle(token: string, groupId: string, body: { from: string; amount: number }): Promise<Operation> {
+  const answer = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, { token, body });
+  if (answer.status !== 202) return { status: `HTTP ${answer.status}` } as Operation;
+  return outcome((answer.body as { operationId: string }).operationId, token);
+}
+
+describe('settle in cash (request 12)', () => {
+  it('records a payment the payee received, counts it in the balances at once, and reads it back to a member only', async () => {
+    const ann = await signedIn('sc-ann@example.com', 'Ann');
+    const bob = await signedIn('sc-bob@example.com', 'Bob');
+    const stranger = await signedIn('sc-stranger@example.com', 'Stranger');
+    const groupId = await createGroup(ann.token, 'Cash');
+    await join(ann.token, groupId, bob.token);
+    expect(
+      await record(ann.token, groupId, {
+        description: 'Dinner',
+        amount: 60,
+        date: PAST_DAY,
+        splitBetween: [ann.id, bob.id],
+      }),
+    ).toMatchObject({ status: 'SUCCESS' });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 30 },
+        { memberId: bob.id, balance: -30 },
+      ],
+    });
+
+    const recorded = await settle(ann.token, groupId, { from: bob.id, amount: 30 });
+    expect(recorded).toMatchObject({ status: 'SUCCESS' });
+    const settlementId = recorded.result as string;
+
+    expect(await balances(bob.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 0 },
+        { memberId: bob.id, balance: 0 },
+      ],
+    });
+    expect(await http.get(`${api}/settlements/${settlementId}`, { token: bob.token })).toMatchObject({
+      status: 200,
+      body: {
+        id: settlementId,
+        groupId,
+        from: bob.id,
+        to: ann.id,
+        amount: 30,
+        method: 'cash',
+        status: 'paid',
+        at: expect.stringMatching(ISO_TIME),
+      },
+    });
+    expect(await suggested(bob.token, groupId)).toMatchObject({ status: 200, body: [] });
+    expect(await http.get(`${api}/settlements/${settlementId}`, { token: stranger.token })).toMatchObject({
+      status: 404,
+    });
+    expect(await http.get(`${api}/settlements/${settlementId}`)).toMatchObject({ status: 401 });
+  });
+
+  it('counts a settlement in leaving, and not in a statement, which is the expenses alone', async () => {
+    const ann = await signedIn('sc-leave-ann@example.com', 'Ann');
+    const bob = await signedIn('sc-leave-bob@example.com', 'Bob');
+    const groupId = await createGroup(ann.token, 'Leaving');
+    await join(ann.token, groupId, bob.token);
+    await record(ann.token, groupId, {
+      description: 'Taxi',
+      amount: 40,
+      date: PAST_DAY,
+      splitBetween: [ann.id, bob.id],
+    });
+
+    const leaveAnswer = async () => {
+      const answer = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
+      return answer.status === 202
+        ? outcome((answer.body as { operationId: string }).operationId, bob.token)
+        : ({ status: `HTTP ${answer.status}` } as Operation);
+    };
+    expect(await leaveAnswer()).toMatchObject({ status: 'ERROR' });
+
+    expect(await settle(ann.token, groupId, { from: bob.id, amount: 20 })).toMatchObject({ status: 'SUCCESS' });
+    expect(await http.get(`${api}/groups/${groupId}/members/${bob.id}/statement`, { token: bob.token })).toMatchObject({
+      status: 200,
+      body: { memberId: bob.id, balance: -20 },
+    });
+    expect(await leaveAnswer()).toMatchObject({ status: 'SUCCESS' });
+  });
+
+  it('refuses a settlement that is not owed, or not for a member, and changes nothing', async () => {
+    const ann = await signedIn('sc-refuse-ann@example.com', 'Ann');
+    const bob = await signedIn('sc-refuse-bob@example.com', 'Bob');
+    const stranger = await signedIn('sc-refuse-stranger@example.com', 'Stranger');
+    const groupId = await createGroup(ann.token, 'Refusals');
+    await join(ann.token, groupId, bob.token);
+    await record(ann.token, groupId, {
+      description: 'Dinner',
+      amount: 60,
+      date: PAST_DAY,
+      splitBetween: [ann.id, bob.id],
+    });
+
+    expect(await settle(ann.token, groupId, { from: bob.id, amount: 31 })).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'ExceedsWhatIsOwed' },
+    });
+    expect(await settle(ann.token, groupId, { from: bob.id, amount: 0 })).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'InvalidSettlementAmount' },
+    });
+    expect(await settle(ann.token, groupId, { from: stranger.id, amount: 5 })).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'PayerNotAMember' },
+    });
+    expect(await settle(ann.token, groupId, { from: ann.id, amount: 5 })).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'PaidToSelf' },
+    });
+    expect(await settle(stranger.token, groupId, { from: bob.id, amount: 5 })).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'NotFound' },
+    });
+    expect(
+      await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, { body: { from: bob.id, amount: 5 } }),
+    ).toMatchObject({ status: 401 });
+
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 30 },
+        { memberId: bob.id, balance: -30 },
+      ],
+    });
+  });
+
+  it('refuses more than the payee is owed, though the payer owes that much', async () => {
+    const ann = await signedIn('sc-payee-ann@example.com', 'Ann');
+    const bob = await signedIn('sc-payee-bob@example.com', 'Bob');
+    const cy = await signedIn('sc-payee-cy@example.com', 'Cy');
+    const dan = await signedIn('sc-payee-dan@example.com', 'Dan');
+    const groupId = await createGroup(ann.token, 'Payee');
+    await join(ann.token, groupId, bob.token);
+    await join(ann.token, groupId, cy.token);
+    await join(ann.token, groupId, dan.token);
+    // Cy paid 90 for Cy, Ann and Bob: Cy is owed 60. Dan paid 200 for Dan and Ann: Ann owes 130 in all.
+    await record(cy.token, groupId, {
+      description: 'Hotel',
+      amount: 90,
+      date: PAST_DAY,
+      splitBetween: [cy.id, ann.id, bob.id],
+    });
+    await record(dan.token, groupId, {
+      description: 'Car',
+      amount: 200,
+      date: PAST_DAY,
+      splitBetween: [dan.id, ann.id],
+    });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: -130 },
+        { memberId: bob.id, balance: -30 },
+        { memberId: cy.id, balance: 60 },
+        { memberId: dan.id, balance: 100 },
+      ],
+    });
+
+    expect(await settle(cy.token, groupId, { from: ann.id, amount: 70 })).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'ExceedsWhatIsOwedToPayee' },
+    });
+    expect(await settle(cy.token, groupId, { from: ann.id, amount: 60 })).toMatchObject({ status: 'SUCCESS' });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: -70 },
+        { memberId: bob.id, balance: -30 },
+        { memberId: cy.id, balance: 0 },
+        { memberId: dan.id, balance: 100 },
+      ],
+    });
+  });
+
+  it('decides two settlements at the same moment one after the other: the second meets the rule', async () => {
+    const ann = await signedIn('sc-race-ann@example.com', 'Ann');
+    const bob = await signedIn('sc-race-bob@example.com', 'Bob');
+    const groupId = await createGroup(ann.token, 'Race');
+    await join(ann.token, groupId, bob.token);
+    await record(ann.token, groupId, {
+      description: 'Dinner',
+      amount: 60,
+      date: PAST_DAY,
+      splitBetween: [ann.id, bob.id],
+    });
+
+    const [first, second] = await Promise.all([
+      settle(ann.token, groupId, { from: bob.id, amount: 30 }),
+      settle(ann.token, groupId, { from: bob.id, amount: 30 }),
+    ]);
+    expect([first.status, second.status].sort()).toEqual(['ERROR', 'SUCCESS']);
+    expect([first, second].find(operation => operation.status === 'ERROR')).toMatchObject({
+      error: { type: 'ExceedsWhatIsOwed' },
+    });
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 0 },
+        { memberId: bob.id, balance: 0 },
+      ],
+    });
+  });
+});
+
+describe('Settlements → Ledger (SettledAmounts)', () => {
+  it('makes a settlement through the API, keeps the id its operation answered, and finds it there after Ledger reads it', async () => {
+    const ann = await signedIn('sl-ann@example.com', 'Ann');
+    const bob = await signedIn('sl-bob@example.com', 'Bob');
+    const groupId = await createGroup(ann.token, 'Ledger reads');
+    await join(ann.token, groupId, bob.token);
+    await record(ann.token, groupId, {
+      description: 'Bread',
+      amount: 50,
+      date: PAST_DAY,
+      splitBetween: [ann.id, bob.id],
+    });
+
+    const recorded = await settle(ann.token, groupId, { from: bob.id, amount: 25 });
+    expect(recorded).toMatchObject({ status: 'SUCCESS' });
+    const settlementId = recorded.result as string;
+
+    // Ledger reads the balances, which count the settlement by the id it was recorded under.
+    expect(await balances(bob.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 0 },
+        { memberId: bob.id, balance: 0 },
+      ],
+    });
+    expect(await http.get(`${api}/settlements/${settlementId}`, { token: ann.token })).toMatchObject({
+      status: 200,
+      body: { id: settlementId, from: bob.id, to: ann.id, amount: 25 },
+    });
+  });
+});

@@ -149,7 +149,6 @@ relationships:
     downstream: Ledger
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       A balance never misses a settlement that is paid: Ledger reads what was settled through a port it owns
       (SettledAmounts), answered over Settlements' read model, when it reads a balance (T8).
