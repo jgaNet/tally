@@ -18,7 +18,8 @@ import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
-import { localSettlementsModule } from '@Contexts/Settlements/module.local';
+import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
+import { settlementsWiring } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 
 /**
@@ -59,6 +60,8 @@ export async function createApplication({
   // the database alone, so neither wiring needs the other's module to exist (ADR 1 T3, T5).
   const groups = await groupsWiring(database, new MemberBalancesFromLedger(ledgerBalanceRoster(database)));
   const ledger = ledgerWiring(database, groups.roster);
+  // The suggested settlements read the members of a group from Groups' roster and its balances from Ledger's read model (ADR 9).
+  const settlements = settlementsWiring(groups.roster, ledgerBalanceRoster(database));
 
   const app = new FastifyApplication({
     logger,
@@ -71,7 +74,7 @@ export async function createApplication({
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(groups.module)
     .registerModule(ledger)
-    .registerModule(localSettlementsModule)
+    .registerModule(settlements)
     .registerModule(localNotificationsModule)
     .registerRoutes('/', accountRoutes, { module: groups.module })
     .registerRoutes('/', groupRoutes, { module: groups.module })
@@ -79,6 +82,7 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { module: ledger })
     .registerRoutes('/', balanceRoutes, { module: ledger })
     .registerRoutes('/', historyRoutes, { module: ledger })
+    .registerRoutes('/', settlementRoutes, { module: settlements })
     .onStop(() => database.close());
 
   await app.startModules();

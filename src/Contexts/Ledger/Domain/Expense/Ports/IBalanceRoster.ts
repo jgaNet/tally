@@ -6,4 +6,16 @@
  */
 export interface IBalanceRoster {
   balanceOf(groupId: string, memberId: string): Promise<number>;
+  /**
+   * Every member the group's expenses have counted, with their balance, in no particular order: a member nothing has counted is
+   * absent (the reader gives it 0), and the order of the members is the reader's to give. Read in one snapshot, so the balances
+   * of one answer add up to 0 even while expenses are being recorded (feature 11: the suggested settlements read them together).
+   */
+  balancesOf(groupId: string): Promise<RosterBalance[]>;
+}
+
+/** A member's balance as the read model answers it: what the member owes (negative) or is owed (positive), in hundredths. */
+export interface RosterBalance {
+  readonly memberId: string;
+  readonly balance: number;
 }

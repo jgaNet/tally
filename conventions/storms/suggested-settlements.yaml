@@ -6,7 +6,7 @@ feature: suggested-settlements
 intent: >-
   A member reads the transfers that would bring every balance of the group to zero, made by a stated algorithm: the most owing pays the most owed, ties to whoever joined first.
 
-done: false
+done: true
 
 hotSpots:
   - question: Which context answers the suggestion — Ledger, which keeps the balances, or Settlements?
