@@ -17,6 +17,8 @@ import {
   GetGroupExpensesQueryHandler,
   GetMemberStatementQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
+import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
+import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteExpenseRepository';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteExpenseQueries';
 import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteBalanceQueries';
@@ -29,7 +31,8 @@ import { settlementQueries } from '@Contexts/Settlements/module.local';
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3): the expenses of each group, kept in the application's
  * SQLite file, with the balances read model written by each expense (ADR 1). It asks Groups who may be in a split, and
  * who the members of a group are, through its own port, answered over Groups' read model; the clock is the application's,
- * passed to what decides a time: an expense's day.
+ * passed to what decides a time: an expense's day. An expense's recording is published to the other contexts as
+ * ExpenseRecorded (request 17, ADR 6), through the outbox.
  */
 const database = applicationDatabase();
 const expenses = new SqliteExpenseRepository(database);
@@ -61,4 +64,5 @@ export const localLedgerModule = new Module({
     new GetGroupExpensesQueryHandler(expenseQueries, groupMembers),
     new GetMemberStatementQueryHandler(statementQueries, groupMembers),
   ],
+  domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
 });

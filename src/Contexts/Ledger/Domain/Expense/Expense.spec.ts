@@ -39,7 +39,18 @@ describe('Expense.create', () => {
         { memberId: 'ana', amount: 500 },
       ],
     });
-    expect(created.data.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseRecordedEvent']);
+    const events = created.data.pullDomainEvents();
+    expect(events.map(event => event.constructor.name)).toEqual(['ExpenseRecordedEvent']);
+    // What Notifications needs to tell each member of the split their share (request 17) travels with the fact.
+    expect(events[0].payload).toMatchObject({
+      groupId: 'group',
+      paidBy: 'ana',
+      amount: 1000,
+      shares: [
+        { memberId: 'ben', amount: 500 },
+        { memberId: 'ana', amount: 500 },
+      ],
+    });
   });
 
   it('refuses a split with a stranger, a member listed twice, or no payer, as a failed Result', () => {

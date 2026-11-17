@@ -97,7 +97,14 @@ export class Expense extends AggregateRoot {
       0,
     );
     expense.record(
-      ExpenseRecordedEvent.set({ expenseId: expense._id.value, groupId, paidBy, splitKind: expense.#splitKind }),
+      ExpenseRecordedEvent.set({
+        expenseId: expense._id.value,
+        groupId,
+        paidBy,
+        amount: expense.#amount.value,
+        splitKind: expense.#splitKind,
+        shares: expense.#shares.map(share => ({ ...share })),
+      }),
     );
     return Result.ok(expense);
   }

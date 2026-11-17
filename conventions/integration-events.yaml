@@ -23,3 +23,14 @@ events:
           type: string
           result: any?
           error: string?
+  ExpenseRecorded:
+    publisher: Ledger
+    announces: { thing: Expense, id: expenseId }
+    versions:
+      - version: 1
+        payload:
+          expenseId: string
+          groupId: string
+          paidBy: string
+          amount: number
+          shares: array

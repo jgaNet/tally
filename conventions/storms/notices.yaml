@@ -6,7 +6,7 @@ feature: notices
 intent: >-
   Each member of an expense's split but its payer receives one notice with their share, soon after it is recorded; a person lists their notices, the most recent first.
 
-done: false
+done: true
 
 hotSpots:
   - question: How does Notifications learn of an expense?

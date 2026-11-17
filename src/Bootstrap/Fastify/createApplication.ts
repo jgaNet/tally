@@ -19,6 +19,7 @@ import { localLedgerModule } from '@Contexts/Ledger/module.local';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
+import { noticeRoutes } from '@Contexts/Notifications/Presentation/API/REST/Routes/notice.routes';
 
 /**
  * The composition root (ADR 27): the application's state is in one SQLite file (DATABASE_PATH), and every request
@@ -70,7 +71,8 @@ export async function createApplication({
     .registerRoutes('/', settlementRoutes, {
       module: localSettlementsModule,
       providerWebhookSecret: process.env.PROVIDER_WEBHOOK_SECRET ?? '',
-    });
+    })
+    .registerRoutes('/', noticeRoutes, { module: localNotificationsModule });
 
   await app.startModules();
 

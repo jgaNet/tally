@@ -13,6 +13,7 @@ why, what it costs, and when to revisit it.
 | [6](0006-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
 | [7](0007-settlements-reads-balances-and-members-for-the-suggestion.md) | Settlements asks Ledger the balances and Groups the members (the Ledger → Settlements and Groups → Settlements links, carried) |
 | [8](0008-settlement-book-and-ledger-counts-settlements.md) | A settlement is decided in its group’s book, and Ledger counts the settlements paid (the Settlements → Ledger link, carried) |
+| [9](0009-notifications-tells-each-member-of-an-expense.md) | Notifications tells each member of an expense from Ledger’s ExpenseRecorded (the Ledger → Notifications link, carried); a notice made once from the fact |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
