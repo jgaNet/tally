@@ -14,6 +14,7 @@ why, what it costs, and when to revisit it.
 | [7](0007-leaving-a-group-and-the-wirings-that-answer-each-other.md) | Leaving a group, and the two wirings that answer each other |
 | [8](0008-the-remainder-goes-to-the-first-member-listed.md) | The remainder of a split goes to the first member listed, not to the payer |
 | [9](0009-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
+| [10](0010-suggested-settlements-read-the-balances-through-two-owned-ports.md) | Suggested settlements read the balances through two ports Settlements owns |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

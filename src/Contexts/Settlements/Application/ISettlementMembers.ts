@@ -1,0 +1,12 @@
+/**
+ * The members of a group, as Settlements needs them to settle between them (request 11): a port Settlements owns, in its own
+ * words, answered by an adapter over Groups' read model (`SettlementMembersOfGroups`, in this context's Infrastructure).
+ * Groups' Domain is never imported by the Application.
+ */
+export interface ISettlementMembers {
+  /**
+   * The account ids of the members of the group, in the order they joined, the first to have joined first, if `askedBy` is
+   * one of them; `undefined` when it is not, or the group is not there: to anyone else a group does not exist.
+   */
+  membersOf(groupId: string, askedBy: string): Promise<string[] | undefined>;
+}

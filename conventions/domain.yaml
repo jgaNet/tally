@@ -117,18 +117,17 @@ relationships:
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       A settlement is decided against what is owed now, and only Ledger knows the balances. Settlements asks through a
-      port it owns (GroupBalances) when its book decides, and for the suggestions (T7).
+      port it owns (GroupBalances) when its book decides, and for the suggestions (T7). Carried since feature 11 (ADR 10),
+      which reads the suggestions through it.
   - upstream: Groups
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       Only members of the group settle with each other, and only Groups knows who is a member. Settlements asks
-      through a port it owns (SettlementMembers).
+      through a port it owns (SettlementMembers). Carried since feature 11 (ADR 10), for the suggested settlements.
   - upstream: Settlements
     downstream: Ledger
     patterns: [customer-supplier, anti-corruption-layer]
