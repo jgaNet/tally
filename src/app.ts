@@ -8,6 +8,7 @@ import { registerExpenseRoutes } from './routes/expenses';
 import { registerGroupRoutes } from './routes/groups';
 import { registerInvitationRoutes } from './routes/invitations';
 import { registerOperationRoutes } from './routes/operations';
+import { registerSettlementRoutes } from './routes/settlements';
 import { registerStatementRoutes } from './routes/statements';
 
 /** The running application: what the server entry point and the tests start and stop. */
@@ -45,6 +46,7 @@ export async function createApplication({
       registerExpenseRoutes(api, db);
       registerBalanceRoutes(api, db);
       registerStatementRoutes(api, db);
+      registerSettlementRoutes(api, db);
       registerOperationRoutes(api, db);
     },
     { prefix: `/${apiPrefix}` },
