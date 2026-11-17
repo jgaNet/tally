@@ -142,6 +142,49 @@ describe('balances', () => {
     ]);
   });
 
+  it('counts each member’s share however the expense was split: by shares and by exact amounts as well as equally', async () => {
+    const ana = await signedUpAccount(app, { email: 'ana@example.org' });
+    const ben = await signedUpAccount(app, { email: 'ben@example.org' });
+    const cleo = await signedUpAccount(app, { email: 'cleo@example.org' });
+    const groupId = await createGroup(ana.token);
+    await join(ana.token, groupId, ben.token);
+    await join(ana.token, groupId, cleo.token);
+    // Ben pays 1001 by shares of 2 (Ana) and 1 (Ben): Ana owes 667, Ben 334.
+    const byShares = await send(app, 'POST', `/groups/${groupId}/expenses`, {
+      token: ben.token,
+      body: {
+        description: 'Cottage',
+        amount: 1001,
+        date: utcDay(0),
+        splitByShares: [
+          { memberId: ana.id, shares: 2 },
+          { memberId: ben.id, shares: 1 },
+        ],
+      },
+    });
+    expect(byShares.status).toBe(201);
+    // Ana pays 900 by exact amounts: Ben owes 500, Cleo 400, and Ana, the payer, nothing.
+    const exact = await send(app, 'POST', `/groups/${groupId}/expenses`, {
+      token: ana.token,
+      body: {
+        description: 'Lobster',
+        amount: 900,
+        date: utcDay(0),
+        splitExactly: [
+          { memberId: ana.id, amount: 0 },
+          { memberId: ben.id, amount: 500 },
+          { memberId: cleo.id, amount: 400 },
+        ],
+      },
+    });
+    expect(exact.status).toBe(201);
+    expect((await balancesAs(cleo.token, groupId)).body).toEqual([
+      { memberId: ana.id, balance: 233 },
+      { memberId: ben.id, balance: 167 },
+      { memberId: cleo.id, balance: -400 },
+    ]);
+  });
+
   it('answers the same balances to every member of the group', async () => {
     const ana = await signedUpAccount(app, { email: 'ana@example.org' });
     const ben = await signedUpAccount(app, { email: 'ben@example.org' });

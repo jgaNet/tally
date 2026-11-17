@@ -13,6 +13,9 @@ export const MAX_AMOUNT = 100_000_000;
 
 const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** How an expense was split: equally between its members, by exact amounts, or by shares. */
+export type SplitKind = 'equal' | 'exact' | 'shares';
+
 /** One member's part of an expense. */
 export interface Share {
   readonly memberId: string;
@@ -29,6 +32,8 @@ export interface Expense {
   readonly paidBy: string;
   /** 1 when the expense is recorded, one more at each edit. */
   readonly version: number;
+  /** How the expense was split: `equal` (an expense recorded before splits by shares or exact amounts too). */
+  readonly splitKind: SplitKind;
   /** The shares, in the order the split was given. */
   readonly shares: readonly Share[];
 }
@@ -41,12 +46,22 @@ interface ExpenseRow {
   spent_on: string;
   paid_by: string;
   version: number;
+  split_kind: SplitKind;
 }
 
 interface ShareRow {
   member_id: string;
   amount: number;
 }
+
+/**
+ * How an expense is split, as its request names it: exactly one of the three. The members of each part
+ * are in the order of the split.
+ */
+export type SplitInput =
+  | { readonly kind: 'equal'; readonly memberIds: readonly string[] }
+  | { readonly kind: 'exact'; readonly parts: readonly { readonly memberId: string; readonly amount: number }[] }
+  | { readonly kind: 'shares'; readonly parts: readonly { readonly memberId: string; readonly shares: number }[] };
 
 /**
  * Divides `amount` equally between `memberIds`, in their order: each share is the amount divided by
@@ -61,6 +76,28 @@ export function equalShares(amount: number, memberIds: readonly string[], payerI
     memberId,
     amount: memberId === payerId ? each + remainder : each,
   }));
+}
+
+/**
+ * Divides `amount` by shares, in the order given: each member's share is the amount times their shares,
+ * divided by the total of the shares, rounded down. It is computed in whole numbers, so it is exact
+ * however large the shares. What is left over, less than the number of members, goes whole to the
+ * payer's share. The shares add up to `amount` exactly. Each member has at least 1 share.
+ */
+export function sharesByCount(
+  amount: number,
+  parts: readonly { readonly memberId: string; readonly shares: number }[],
+  payerId: string,
+): Share[] {
+  const total = parts.reduce((sum, part) => sum + BigInt(part.shares), 0n);
+  const floors = parts.map(part => ({
+    memberId: part.memberId,
+    amount: Number((BigInt(amount) * BigInt(part.shares)) / total),
+  }));
+  const remainder = amount - floors.reduce((sum, share) => sum + share.amount, 0);
+  return floors.map(share =>
+    share.memberId === payerId ? { memberId: share.memberId, amount: share.amount + remainder } : share,
+  );
 }
 
 /** True when `text` is a real day of the calendar, written `YYYY-MM-DD`. */
@@ -80,17 +117,63 @@ export interface ExpenseFields {
   readonly description: string;
   readonly amount: number;
   readonly date: string;
-  /** The members the expense is split between, in the order of the split. */
-  readonly splitBetween: readonly string[];
+  readonly split: SplitInput;
+}
+
+/** The members a split names, in the order it names them. */
+function membersOfSplit(split: SplitInput): string[] {
+  return split.kind === 'equal' ? [...split.memberIds] : split.parts.map(part => part.memberId);
+}
+
+/**
+ * The rules of an exact split and of a split by shares that concern their values (the members have
+ * been checked already): each exact amount is a whole number from 0, and they add up to `amount`; each
+ * count of shares is a whole number from 1.
+ */
+function checkSplitValues(amount: number, split: SplitInput): void {
+  if (split.kind === 'exact') {
+    if (!split.parts.every(part => Number.isInteger(part.amount) && part.amount >= 0 && part.amount <= MAX_AMOUNT)) {
+      throw new Refusal(
+        422,
+        'ShareAmountIsInvalid',
+        `Each exact amount must be a whole number from 0 to ${MAX_AMOUNT}.`,
+      );
+    }
+    const total = split.parts.reduce((sum, part) => sum + part.amount, 0);
+    if (total !== amount) {
+      throw new Refusal(422, 'AmountsDoNotAddUp', 'The exact amounts must add up to the amount of the expense.');
+    }
+  }
+  if (split.kind === 'shares' && !split.parts.every(part => Number.isSafeInteger(part.shares) && part.shares >= 1)) {
+    throw new Refusal(422, 'SharesAreInvalid', 'Each member must have a whole number of shares, at least 1.');
+  }
+}
+
+/** The shares of an expense of `amount` paid by `payerId`, split as given. The split is checked first. */
+function sharesOfSplit(amount: number, split: SplitInput, payerId: string): Share[] {
+  switch (split.kind) {
+    case 'equal':
+      return equalShares(amount, split.memberIds, payerId);
+    case 'exact':
+      return split.parts.map(part => ({ memberId: part.memberId, amount: part.amount }));
+    case 'shares':
+      return sharesByCount(amount, split.parts, payerId);
+  }
 }
 
 /**
  * Checks the fields of an expense of `groupId` paid by `payerId`, under the rules of recording one,
- * and answers the description trimmed of surrounding spaces. Refused with `422` (the error names the
- * rule) when a rule is broken. Writes nothing; the caller runs it in its transaction.
+ * and answers the description trimmed of surrounding spaces with the shares it gives. Refused with
+ * `422` (the error names the rule) when a rule is broken. Writes nothing; the caller runs it in its
+ * transaction.
  */
-function checkExpenseFields(db: DatabaseSync, groupId: string, payerId: string, fields: ExpenseFields): string {
-  const { description, amount, date, splitBetween } = fields;
+function checkExpenseFields(
+  db: DatabaseSync,
+  groupId: string,
+  payerId: string,
+  fields: ExpenseFields,
+): { description: string; shares: Share[] } {
+  const { description, amount, date, split } = fields;
   const trimmedDescription = description.trim();
   if (characters(description) > MAX_DESCRIPTION_LENGTH || trimmedDescription.length === 0) {
     throw new Refusal(
@@ -108,34 +191,30 @@ function checkExpenseFields(db: DatabaseSync, groupId: string, payerId: string, 
   if (date > todayInUtc()) {
     throw new Refusal(422, 'DateIsInTheFuture', 'The date must not be after today (UTC).');
   }
-  if (splitBetween.length === 0) {
+  const members = membersOfSplit(split);
+  if (members.length === 0) {
     throw new Refusal(422, 'SplitIsEmpty', 'The expense must be split between at least one member.');
   }
-  if (new Set(splitBetween).size !== splitBetween.length) {
+  if (new Set(members).size !== members.length) {
     throw new Refusal(422, 'SplitRepeatsAMember', 'Each member may be listed once in the split.');
   }
-  const members = new Set(membersOfGroup(db, groupId).map(member => member.memberId));
-  if (splitBetween.some(memberId => !members.has(memberId))) {
+  const groupMembers = new Set(membersOfGroup(db, groupId).map(member => member.memberId));
+  if (members.some(memberId => !groupMembers.has(memberId))) {
     throw new Refusal(422, 'MemberNotInGroup', 'Every member of the split must be a member of the group.');
   }
-  if (!splitBetween.includes(payerId)) {
+  if (!members.includes(payerId)) {
     throw new Refusal(422, 'PayerNotInSplit', 'The payer must be one of the members the expense is split between.');
   }
-  return trimmedDescription;
+  checkSplitValues(amount, split);
+  return { description: trimmedDescription, shares: sharesOfSplit(amount, split, payerId) };
 }
 
-/** Writes the expense's shares: the equal split of its amount, in the order of the split. */
-function writeShares(
-  db: DatabaseSync,
-  expenseId: string,
-  amount: number,
-  splitBetween: readonly string[],
-  payerId: string,
-) {
+/** Writes the expense's shares, in the order of the split. */
+function writeShares(db: DatabaseSync, expenseId: string, shares: readonly Share[]) {
   const insertShare = db.prepare(
     'INSERT INTO expense_shares (expense_id, position, member_id, amount) VALUES (?, ?, ?, ?)',
   );
-  equalShares(amount, splitBetween, payerId).forEach((share, position) => {
+  shares.forEach((share, position) => {
     insertShare.run(expenseId, position, share.memberId, share.amount);
   });
 }
@@ -147,23 +226,23 @@ export interface RecordExpenseInput extends ExpenseFields {
 }
 
 /**
- * Records an expense the payer paid in the group, split equally between the members named in
- * `splitBetween`, and returns its id. Refused with `404` when the payer is not a member of the group;
- * otherwise with `422` when the description, amount, date or split breaks a rule (the error names it).
- * The description is stored trimmed of surrounding spaces. It is recorded at version 1.
+ * Records an expense the payer paid in the group, split as `split` gives, and returns its id. Refused
+ * with `404` when the payer is not a member of the group; otherwise with `422` when the description,
+ * amount, date or split breaks a rule (the error names it). The description is stored trimmed of
+ * surrounding spaces. It is recorded at version 1.
  */
 export function recordExpense(db: DatabaseSync, input: RecordExpenseInput): string {
-  const { groupId, payerId, amount, date, splitBetween } = input;
+  const { groupId, payerId, amount, date } = input;
   const id = randomUUID();
   inTransaction(db, () => {
     if (!findGroupOfMember(db, payerId, groupId)) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
-    const description = checkExpenseFields(db, groupId, payerId, input);
+    const checked = checkExpenseFields(db, groupId, payerId, input);
     db.prepare(
-      'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)',
-    ).run(id, groupId, description, amount, date, payerId, new Date().toISOString());
-    writeShares(db, id, amount, splitBetween, payerId);
+      'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)',
+    ).run(id, groupId, checked.description, amount, date, payerId, input.split.kind, new Date().toISOString());
+    writeShares(db, id, checked.shares);
   });
   return id;
 }
@@ -175,7 +254,7 @@ export function recordExpense(db: DatabaseSync, input: RecordExpenseInput): stri
 export function findExpenseOfMember(db: DatabaseSync, accountId: string, expenseId: string): Expense | undefined {
   const row = db
     .prepare(
-      `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, e.version FROM expenses e
+      `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, e.version, e.split_kind FROM expenses e
        JOIN group_members m ON m.group_id = e.group_id
        WHERE e.id = ? AND m.account_id = ?`,
     )
@@ -192,6 +271,7 @@ export function findExpenseOfMember(db: DatabaseSync, accountId: string, expense
     date: row.spent_on,
     paidBy: row.paid_by,
     version: row.version,
+    splitKind: row.split_kind,
     shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
   };
 }
@@ -221,13 +301,13 @@ export interface EditExpenseInput extends ExpenseFields {
 /**
  * Replaces the expense, whole, from the version the edit was made from, and answers it as it now
  * stands (at the next version). The fields are checked under the rules of recording an expense; the
- * payer stays the one who paid, and the shares are computed again. Refused with `404` when the editor
- * is not a member of the expense's group, with `403` when the editor is neither its payer nor the
- * group's owner, with `409` when the expense has changed since the version given. A refused edit keeps
- * nothing: the edit is one transaction, so two edits of one version cannot both be kept.
+ * payer stays the one who paid, and the shares and how they were split are replaced. Refused with `404`
+ * when the editor is not a member of the expense's group, with `403` when the editor is neither its
+ * payer nor the group's owner, with `409` when the expense has changed since the version given. A
+ * refused edit keeps nothing: the edit is one transaction, so two edits of one version cannot both be kept.
  */
 export function editExpense(db: DatabaseSync, input: EditExpenseInput): Expense {
-  const { expenseId, editorId, version, amount, date, splitBetween } = input;
+  const { expenseId, editorId, version, amount, date } = input;
   return inTransaction(db, () => {
     const expense = expenseChangeableBy(db, editorId, expenseId);
     if (expense.version !== version) {
@@ -237,17 +317,17 @@ export function editExpense(db: DatabaseSync, input: EditExpenseInput): Expense 
         `The expense has changed since version ${version}: it is at version ${expense.version}. Read it again.`,
       );
     }
-    const description = checkExpenseFields(db, expense.groupId, expense.paidBy, input);
+    const checked = checkExpenseFields(db, expense.groupId, expense.paidBy, input);
     const updated = db
       .prepare(
-        'UPDATE expenses SET description = ?, amount = ?, spent_on = ?, version = version + 1 WHERE id = ? AND version = ?',
+        'UPDATE expenses SET description = ?, amount = ?, spent_on = ?, split_kind = ?, version = version + 1 WHERE id = ? AND version = ?',
       )
-      .run(description, amount, date, expenseId, version);
+      .run(checked.description, amount, date, input.split.kind, expenseId, version);
     if (updated.changes !== 1) {
       throw new Refusal(409, 'ExpenseChanged', 'The expense has changed since it was read. Read it again.');
     }
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
-    writeShares(db, expenseId, amount, splitBetween, expense.paidBy);
+    writeShares(db, expenseId, checked.shares);
     return findExpenseOfMember(db, editorId, expenseId) as Expense;
   });
 }

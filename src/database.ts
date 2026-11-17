@@ -57,6 +57,7 @@ const SCHEMA = `
     spent_on    TEXT NOT NULL,
     paid_by     TEXT NOT NULL REFERENCES accounts (id),
     version     INTEGER NOT NULL DEFAULT 1,
+    split_kind  TEXT NOT NULL DEFAULT 'equal' CHECK (split_kind IN ('equal', 'exact', 'shares')),
     created_at  TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS expense_shares (
@@ -76,6 +77,12 @@ function addMissingColumns(db: DatabaseSync): void {
   const expenseColumns = db.prepare('PRAGMA table_info(expenses)').all() as unknown as { name: string }[];
   if (!expenseColumns.some(column => column.name === 'version')) {
     db.exec('ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+  }
+  // An expense written before splits by shares or exact amounts was split equally.
+  if (!expenseColumns.some(column => column.name === 'split_kind')) {
+    db.exec(
+      "ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal' CHECK (split_kind IN ('equal', 'exact', 'shares'))",
+    );
   }
 }
 

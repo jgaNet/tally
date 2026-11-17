@@ -2,35 +2,65 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
-import { deleteExpense, editExpense, findExpenseOfMember, recordExpense } from '../expenses';
+import { deleteExpense, editExpense, findExpenseOfMember, recordExpense, type SplitInput } from '../expenses';
 
-interface RecordExpenseBody {
+/** The split a body names: exactly one of its three fields (the shape is checked by the schema). */
+interface SplitBody {
+  splitBetween?: string[];
+  splitExactly?: { memberId: string; amount: number }[];
+  splitByShares?: { memberId: string; shares: number }[];
+}
+
+interface RecordExpenseBody extends SplitBody {
   description: string;
   amount: number;
   date: string;
-  splitBetween: string[];
 }
 
 interface EditExpenseBody extends RecordExpenseBody {
   version: number;
 }
 
-/** Only the shape is checked here (a missing or wrongly typed field is `400`); values are checked by the rules. */
+const SPLIT_BETWEEN = { type: 'array', items: { type: 'string' } };
+const SPLIT_EXACTLY = {
+  type: 'array',
+  items: {
+    type: 'object',
+    required: ['memberId', 'amount'],
+    properties: { memberId: { type: 'string' }, amount: { type: 'number' } },
+  },
+};
+const SPLIT_BY_SHARES = {
+  type: 'array',
+  items: {
+    type: 'object',
+    required: ['memberId', 'shares'],
+    properties: { memberId: { type: 'string' }, shares: { type: 'number' } },
+  },
+};
+
+/**
+ * Only the shape is checked here (a missing or wrongly typed field is `400`, and so is a body that names
+ * none of the three splits or more than one); values are checked by the rules.
+ */
 const RECORD_EXPENSE_BODY = {
   type: 'object',
-  required: ['description', 'amount', 'date', 'splitBetween'],
+  required: ['description', 'amount', 'date'],
   properties: {
     description: { type: 'string' },
     amount: { type: 'number' },
     date: { type: 'string' },
-    splitBetween: { type: 'array', items: { type: 'string' } },
+    splitBetween: SPLIT_BETWEEN,
+    splitExactly: SPLIT_EXACTLY,
+    splitByShares: SPLIT_BY_SHARES,
   },
+  oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 };
 
 /** An edit names the version it was made from: a whole number from 1. */
 const EDIT_EXPENSE_BODY = {
-  type: 'object',
-  required: ['description', 'amount', 'date', 'splitBetween', 'version'],
+  ...RECORD_EXPENSE_BODY,
+  required: [...RECORD_EXPENSE_BODY.required, 'version'],
   properties: {
     ...RECORD_EXPENSE_BODY.properties,
     version: { type: 'integer', minimum: 1 },
@@ -41,7 +71,7 @@ const ID = { type: 'object', required: ['id'], properties: { id: { type: 'string
 
 const EXPENSE = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'version', 'shares'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'version', 'splitKind', 'shares'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -50,6 +80,7 @@ const EXPENSE = {
     date: { type: 'string' },
     paidBy: { type: 'string' },
     version: { type: 'integer', minimum: 1 },
+    splitKind: { enum: ['equal', 'exact', 'shares'] },
     shares: {
       type: 'array',
       items: {
@@ -61,6 +92,21 @@ const EXPENSE = {
   },
 };
 
+/** The split the body names; the schema has checked that it names exactly one. */
+function splitOf(body: SplitBody): SplitInput {
+  if (body.splitBetween) return { kind: 'equal', memberIds: body.splitBetween };
+  if (body.splitExactly) {
+    return {
+      kind: 'exact',
+      parts: body.splitExactly.map(part => ({ memberId: part.memberId, amount: part.amount })),
+    };
+  }
+  return {
+    kind: 'shares',
+    parts: (body.splitByShares ?? []).map(part => ({ memberId: part.memberId, shares: part.shares })),
+  };
+}
+
 export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync): void {
   // The payer is the caller; a caller who is not a member of the group sees no group to record in.
   server.post<{ Params: { id: string }; Body: RecordExpenseBody }>(
@@ -68,14 +114,14 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync)
     { schema: { body: RECORD_EXPENSE_BODY, response: { 201: ID } } },
     async (request, reply) => {
       const caller = requireCaller(db, request);
-      const { description, amount, date, splitBetween } = request.body;
+      const { description, amount, date } = request.body;
       const id = recordExpense(db, {
         groupId: request.params.id,
         payerId: caller.id,
         description,
         amount,
         date,
-        splitBetween,
+        split: splitOf(request.body),
       });
       return reply.code(201).send({ id });
     },
@@ -96,14 +142,14 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync)
     { schema: { body: EDIT_EXPENSE_BODY, response: { 200: EXPENSE } } },
     async request => {
       const caller = requireCaller(db, request);
-      const { description, amount, date, splitBetween, version } = request.body;
+      const { description, amount, date, version } = request.body;
       return editExpense(db, {
         expenseId: request.params.id,
         editorId: caller.id,
         description,
         amount,
         date,
-        splitBetween,
+        split: splitOf(request.body),
         version,
       });
     },
