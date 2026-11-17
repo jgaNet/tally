@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { requireCaller } from '../http';
 import { CURRENCIES } from '../groups';
+import type { RatesConfig } from '../rates';
 import { Refusal } from '../refusal';
 import {
   deleteExpense,
@@ -20,11 +21,14 @@ interface SplitBody {
   splitByShares?: { memberId: string; shares: number }[];
 }
 
-/** An expense paid in another currency: its currency, the amount in it, and the rate it is worth in the group's. */
+/**
+ * An expense paid in another currency: its currency, the amount in it, and the rate it is worth in the group's; a rate
+ * left out is the rate the rates service offers on the expense's date.
+ */
 interface OriginalBody {
   currency: string;
   amount: number;
-  rate: string;
+  rate?: string;
 }
 
 interface RecordExpenseBody extends SplitBody {
@@ -58,7 +62,7 @@ const SPLIT_BY_SHARES = {
 };
 const ORIGINAL = {
   type: 'object',
-  required: ['currency', 'amount', 'rate'],
+  required: ['currency', 'amount'],
   properties: { currency: { type: 'string' }, amount: { type: 'number' }, rate: { type: 'string' } },
 };
 
@@ -154,7 +158,7 @@ function amountOf(body: RecordExpenseBody): ExpenseAmount {
   return { kind: 'group', amount: body.amount as number };
 }
 
-export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync, rates: RatesConfig): void {
   // The payer is the caller; a caller who is not a member of the group sees no group to record in.
   server.post<{ Params: { id: string }; Body: RecordExpenseBody }>(
     '/groups/:id/expenses',
@@ -162,7 +166,7 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync)
     async (request, reply) => {
       const caller = requireCaller(db, request);
       const { description, date } = request.body;
-      const id = recordExpense(db, {
+      const id = await recordExpense(db, rates, {
         groupId: request.params.id,
         payerId: caller.id,
         description,
@@ -200,7 +204,7 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync)
     async request => {
       const caller = requireCaller(db, request);
       const { description, date, version } = request.body;
-      return editExpense(db, {
+      return editExpense(db, rates, {
         expenseId: request.params.id,
         editorId: caller.id,
         description,

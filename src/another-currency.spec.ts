@@ -278,11 +278,10 @@ describe('an expense in another currency', () => {
         expect(storedExpenses()).toBe(0);
       });
 
-      it('refuses an original with a missing field or a field of the wrong type, with 400', async () => {
+      it('refuses an original with a missing field or a field of the wrong type, with 400, the rate aside (it may be left out)', async () => {
         const ana = await signedUpAccount(app, { email: 'ana@example.org' });
         const groupId = await createGroup(ana.token);
         const originals: unknown[] = [
-          { currency: 'CHF', amount: 1234 },
           { currency: 'CHF', rate: '1.0625' },
           { amount: 1234, rate: '1.0625' },
           { currency: 'CHF', amount: '1234', rate: '1.0625' },

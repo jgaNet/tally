@@ -13,8 +13,10 @@ import { registerNoticeRoutes } from './routes/notices';
 import { registerOperationRoutes } from './routes/operations';
 import { registerPayoutAccountRoutes } from './routes/payout-accounts';
 import { registerProviderRoutes } from './routes/provider';
+import { registerRateRoutes } from './routes/rates';
 import { registerSettlementRoutes } from './routes/settlements';
 import { registerStatementRoutes } from './routes/statements';
+import type { RatesConfig } from './rates';
 
 /** The running application: what the server entry point and the tests start and stop. */
 export interface Application {
@@ -44,6 +46,10 @@ function secondsFrom(value: string | undefined, fallback: number): number {
  * Once started, the background job runs every `jobsIntervalSeconds` (`JOBS_INTERVAL_SECONDS`, 60 by default): it
  * reminds whoever has owed too much in a group for `reminderPeriodSeconds` (`REMINDER_PERIOD_SECONDS`, a week by
  * default), at the time `clock` tells.
+ *
+ * The rates an expense in another currency is recorded at are asked of the rates service at `ratesUrl` (`RATES_URL`), the
+ * base of its API; without it no rate is offered, and a rate given is taken as it is. The service has `ratesTimeoutMs`
+ * (5000 by default) to answer.
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
@@ -52,6 +58,8 @@ export async function createApplication({
   providerUrl = process.env.PROVIDER_URL,
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET,
   providerTimeoutMs = 5000,
+  ratesUrl = process.env.RATES_URL,
+  ratesTimeoutMs = 5000,
   jobsIntervalSeconds = secondsFrom(process.env.JOBS_INTERVAL_SECONDS, 60),
   reminderPeriodSeconds = secondsFrom(process.env.REMINDER_PERIOD_SECONDS, DEFAULT_REMINDER_PERIOD_SECONDS),
   clock = () => new Date(),
@@ -62,6 +70,8 @@ export async function createApplication({
   providerUrl?: string;
   providerWebhookSecret?: string;
   providerTimeoutMs?: number;
+  ratesUrl?: string;
+  ratesTimeoutMs?: number;
   jobsIntervalSeconds?: number;
   reminderPeriodSeconds?: number;
   clock?: () => Date;
@@ -73,6 +83,8 @@ export async function createApplication({
     webhookSecret: providerWebhookSecret || undefined,
     timeoutMs: providerTimeoutMs,
   };
+  // An empty value is no value: no rates service is configured.
+  const rates: RatesConfig = { url: ratesUrl || undefined, timeoutMs: ratesTimeoutMs };
   // A body's values are checked by the rules, not coerced: a number where a string is due is a `400`.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
   let jobsTimer: NodeJS.Timeout | undefined;
@@ -91,7 +103,8 @@ export async function createApplication({
       registerAccountRoutes(api, db);
       registerGroupRoutes(api, db);
       registerInvitationRoutes(api, db);
-      registerExpenseRoutes(api, db);
+      registerExpenseRoutes(api, db, rates);
+      registerRateRoutes(api, db, rates);
       registerBalanceRoutes(api, db);
       registerStatementRoutes(api, db);
       registerSettlementRoutes(api, db, provider);

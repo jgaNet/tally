@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { isCalendarDay, todayInUtc } from './days';
 import { CURRENCIES, findGroupOfMember, membersOfGroup, type Currency, type Group } from './groups';
 import { noticeExpense } from './notices';
+import { millionthsOf, offeredRate, RATE_SHAPE, type RatesConfig } from './rates';
 import { Refusal } from './refusal';
 import { characters } from './text';
 import { inReadSnapshot, inTransaction } from './transactions';
@@ -12,9 +14,8 @@ const MAX_DESCRIPTION_LENGTH = 100;
 export const MIN_AMOUNT = 1;
 export const MAX_AMOUNT = 100_000_000;
 
-const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
-/** A rate: a decimal number written with at most 6 digits after the point, such as `0.9542`, `1` or `12.5`. */
-const RATE_SHAPE = /^\d+(\.\d{1,6})?$/;
+/** How far a rate given may differ from the rate offered, in percent of the offered rate: 2. A rate that differs by more is refused. */
+const RATE_TOLERANCE_PERCENT = 2n;
 
 /** How an expense was split: equally between its members, by exact amounts, or by shares. */
 export type SplitKind = 'equal' | 'exact' | 'shares';
@@ -123,12 +124,6 @@ export function sharesByCount(
   );
 }
 
-/** A rate's digits as a whole number of millionths: `"0.9542"` is 954200, `"12.5"` is 12500000. The rate has the shape already. */
-function millionthsOf(rate: string): bigint {
-  const [whole, fraction = ''] = rate.split('.');
-  return BigInt(`${whole}${fraction.padEnd(6, '0')}`);
-}
-
 /**
  * The original amount times its rate, rounded to the nearest whole number, a half rounded up: 1234 at `"1.0625"`
  * is 1311.125, so 1311; 1000 at `"0.9545"` is 954.5, so 955. It is computed in whole numbers (the rate in
@@ -138,25 +133,26 @@ export function convertedAmount(originalAmount: number, rate: string): number {
   return Number((BigInt(originalAmount) * millionthsOf(rate) + 500_000n) / 1_000_000n);
 }
 
-/** True when `text` is a real day of the calendar, written `YYYY-MM-DD`. */
-function isCalendarDay(text: string): boolean {
-  if (!DATE_SHAPE.test(text)) return false;
-  const instant = new Date(`${text}T00:00:00.000Z`);
-  return !Number.isNaN(instant.getTime()) && instant.toISOString().slice(0, 10) === text;
-}
-
-/** Today's day in UTC, `YYYY-MM-DD`. */
-function todayInUtc(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 /**
  * An expense's amount as it is given: in the group's currency, or in another currency at a rate, which is then
- * converted (see {@link amountInGroupCurrency}). The currency is not yet checked.
+ * converted (see {@link amountInGroupCurrency}). The currency is not yet checked. A `rate` left out (`undefined`) is
+ * the rate offered for the currency on the expense's date.
  */
 export type ExpenseAmount =
   | { readonly kind: 'group'; readonly amount: number }
-  | { readonly kind: 'original'; readonly currency: string; readonly amount: number; readonly rate: string };
+  | {
+      readonly kind: 'original';
+      readonly currency: string;
+      readonly amount: number;
+      readonly rate: string | undefined;
+    };
+
+/**
+ * The rate the rates service offers for an expense's original currency on its date, as the check of the rate sees it.
+ * `undefined` when the server has no rates service: the rate given is taken whatever it is, and a rate left out is
+ * refused. Otherwise `offered` is the rate offered, `undefined` when none is.
+ */
+export type RateOffer = { readonly offered: string | undefined } | undefined;
 
 /** The fields an expense is given with, when it is recorded or edited. */
 export interface ExpenseFields {
@@ -167,18 +163,65 @@ export interface ExpenseFields {
 }
 
 /**
+ * The rate an expense in another currency is recorded at: the rate given, when there is one, checked against the rate
+ * offered (when the server has a rates service) to differ by no more than {@link RATE_TOLERANCE_PERCENT} of it; or the
+ * rate offered, when the rate is left out. Refused with `422` when the rate given is not a rate, when no rate is
+ * offered to check it against or to take in its place, or when it differs from the rate offered by more.
+ */
+function rateOf(currency: string, groupCurrency: Currency, rate: string | undefined, offer: RateOffer): string {
+  if (rate === undefined) {
+    if (offer?.offered === undefined) {
+      throw new Refusal(
+        422,
+        'RateIsNotOffered',
+        `No rate is offered from ${currency} to ${groupCurrency} on this day, so the expense cannot be recorded at one: give its rate.`,
+      );
+    }
+    return offer.offered;
+  }
+  if (!RATE_SHAPE.test(rate) || millionthsOf(rate) === 0n) {
+    throw new Refusal(
+      422,
+      'RateIsInvalid',
+      'The rate must be a decimal number greater than 0, with at most 6 digits after the point.',
+    );
+  }
+  if (offer === undefined) return rate;
+  if (offer.offered === undefined) {
+    throw new Refusal(
+      422,
+      'RateIsNotOffered',
+      `No rate is offered from ${currency} to ${groupCurrency} on this day, so the rate given cannot be checked.`,
+    );
+  }
+  // |rate - offered| > 2 % of offered, in millionths: |rate - offered| * 100 > 2 * offered.
+  const given = millionthsOf(rate);
+  const offered = millionthsOf(offer.offered);
+  const difference = given > offered ? given - offered : offered - given;
+  if (difference * 100n > RATE_TOLERANCE_PERCENT * offered) {
+    throw new Refusal(
+      422,
+      'RateDiffersFromOffered',
+      `The rate differs from the rate offered from ${currency} to ${groupCurrency} on this day, ${offer.offered}, by more than 2 %.`,
+    );
+  }
+  return rate;
+}
+
+/**
  * The amount in the group's currency of an expense given as `input`, with what it was paid in when that is another
- * currency. Refused with `422` (the error names the rule) when the other currency is not one of Tally's or is the
- * group's own, when its amount is not a whole number from {@link MIN_AMOUNT} to {@link MAX_AMOUNT}, when the rate is
- * not a decimal number greater than 0 with at most 6 digits after the point, or when the amount converted is not from
+ * currency, at the rate {@link rateOf} settles. Refused with `422` (the error names the rule) when the other currency is
+ * not one of Tally's or is the group's own, when its amount is not a whole number from {@link MIN_AMOUNT} to
+ * {@link MAX_AMOUNT}, when the rate is refused (see {@link rateOf}), or when the amount converted is not from
  * {@link MIN_AMOUNT} to {@link MAX_AMOUNT}.
  */
 function amountInGroupCurrency(
   groupCurrency: Currency,
   input: ExpenseAmount,
+  offer: RateOffer,
 ): { amount: number; original: OriginalAmount | undefined } {
   if (input.kind === 'group') return { amount: input.amount, original: undefined };
-  const { currency, amount, rate } = input;
+  const { currency, amount } = input;
   if (!(CURRENCIES as readonly string[]).includes(currency)) {
     throw new Refusal(422, 'CurrencyIsUnsupported', `The currency must be one of ${CURRENCIES.join(', ')}.`);
   }
@@ -196,13 +239,7 @@ function amountInGroupCurrency(
       `The original amount must be a whole number from ${MIN_AMOUNT} to ${MAX_AMOUNT}.`,
     );
   }
-  if (!RATE_SHAPE.test(rate) || millionthsOf(rate) === 0n) {
-    throw new Refusal(
-      422,
-      'RateIsInvalid',
-      'The rate must be a decimal number greater than 0, with at most 6 digits after the point.',
-    );
-  }
+  const rate = rateOf(currency, groupCurrency, input.rate, offer);
   const converted = convertedAmount(amount, rate);
   if (converted < MIN_AMOUNT || converted > MAX_AMOUNT) {
     throw new Refusal(
@@ -267,6 +304,7 @@ function checkExpenseFields(
   groupCurrency: Currency,
   payerId: string,
   fields: ExpenseFields,
+  offer: RateOffer,
 ): { description: string; amount: number; original: OriginalAmount | undefined; shares: Share[] } {
   const { description, date, split } = fields;
   const trimmedDescription = description.trim();
@@ -277,7 +315,7 @@ function checkExpenseFields(
       `The description must have 1 to ${MAX_DESCRIPTION_LENGTH} characters and not be only spaces.`,
     );
   }
-  const { amount, original } = amountInGroupCurrency(groupCurrency, fields.amount);
+  const { amount, original } = amountInGroupCurrency(groupCurrency, fields.amount, offer);
   if (!Number.isInteger(amount) || amount < MIN_AMOUNT || amount > MAX_AMOUNT) {
     throw new Refusal(422, 'AmountIsInvalid', `The amount must be a whole number from ${MIN_AMOUNT} to ${MAX_AMOUNT}.`);
   }
@@ -330,21 +368,48 @@ export interface RecordExpenseInput extends ExpenseFields {
 }
 
 /**
+ * The rate offer for an expense of `amount` on `date` in a group of `groupCurrency` (see {@link RateOffer}). The rates
+ * service is asked only for an amount in another currency, on a real day, and only when the server has one; it is asked
+ * outside any transaction, so that no write is held while it answers.
+ */
+async function rateOfferFor(
+  rates: RatesConfig,
+  groupCurrency: Currency,
+  amount: ExpenseAmount,
+  date: string,
+): Promise<RateOffer> {
+  if (rates.url === undefined || amount.kind !== 'original') return undefined;
+  const { currency } = amount;
+  const isOtherCurrency = (CURRENCIES as readonly string[]).includes(currency) && currency !== groupCurrency;
+  if (!isOtherCurrency || !isCalendarDay(date)) return { offered: undefined };
+  return { offered: await offeredRate(rates, { from: currency, to: groupCurrency, date }) };
+}
+
+/**
  * Records an expense the payer paid in the group, split as `split` gives, and returns its id. Refused
  * with `404` when the payer is not a member of the group; otherwise with `422` when the description,
  * amount, its original currency or rate, date or split breaks a rule (the error names it). The description is
  * stored trimmed of surrounding spaces; an amount in another currency is stored with its rate, converted to the
- * group's currency. It is recorded at version 1.
+ * group's currency. A rate left out is the rate the rates service offers for its currency on the date (see
+ * {@link rateOfferFor}); a rate given is checked against it. It is recorded at version 1.
+ *
+ * The rate is asked outside any transaction, so that no write is held while it answers; the rules are checked again
+ * in the transaction that keeps the expense, so a member who left in between is refused as before.
  */
-export function recordExpense(db: DatabaseSync, input: RecordExpenseInput): string {
+export async function recordExpense(db: DatabaseSync, rates: RatesConfig, input: RecordExpenseInput): Promise<string> {
   const { groupId, payerId, date } = input;
   const id = randomUUID();
+  const asked = findGroupOfMember(db, payerId, groupId);
+  if (!asked) {
+    throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+  }
+  const offer = await rateOfferFor(rates, asked.currency, input.amount, date);
   inTransaction(db, () => {
     const group = findGroupOfMember(db, payerId, groupId);
     if (!group) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
-    const checked = checkExpenseFields(db, groupId, group.currency, payerId, input);
+    const checked = checkExpenseFields(db, groupId, group.currency, payerId, input, offer);
     const at = new Date().toISOString();
     const [originalCurrency, originalAmount, rate] = originalColumns(checked.original);
     db.prepare(
@@ -491,14 +556,19 @@ export interface EditExpenseInput extends ExpenseFields {
 /**
  * Replaces the expense, whole, from the version the edit was made from, and answers it as it now
  * stands (at the next version). The fields are checked under the rules of recording an expense; the
- * payer stays the one who paid, and the amount (in the group's currency, or in another one at its rate), the
- * shares and how they were split are replaced. Refused with `404` when the editor is not a member of the expense's
+ * payer stays the one who paid, and the amount (in the group's currency, or in another one at its rate, which is left out
+ * to take the rate offered on the date, see {@link recordExpense}), the shares and how they were split are replaced.
+ * Refused with `404` when the editor is not a member of the expense's
  * group, with `403` when the editor is neither its payer nor the group's owner, with `409` when the expense has
  * changed since the version given. A refused edit keeps nothing: the edit is one transaction, so two edits of one
  * version cannot both be kept.
  */
-export function editExpense(db: DatabaseSync, input: EditExpenseInput): Expense {
+export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: EditExpenseInput): Promise<Expense> {
   const { expenseId, editorId, version, date } = input;
+  // The rate is asked for the expense as it is now, outside the transaction; the edit's own rules are checked inside it.
+  const asked = findExpenseOfMember(db, editorId, expenseId);
+  const askedGroup = asked && findGroupOfMember(db, editorId, asked.groupId);
+  const offer = askedGroup ? await rateOfferFor(rates, askedGroup.currency, input.amount, date) : undefined;
   return inTransaction(db, () => {
     const { expense, group } = expenseChangeableBy(db, editorId, expenseId);
     if (expense.version !== version) {
@@ -508,7 +578,7 @@ export function editExpense(db: DatabaseSync, input: EditExpenseInput): Expense 
         `The expense has changed since version ${version}: it is at version ${expense.version}. Read it again.`,
       );
     }
-    const checked = checkExpenseFields(db, expense.groupId, group.currency, expense.paidBy, input);
+    const checked = checkExpenseFields(db, expense.groupId, group.currency, expense.paidBy, input, offer);
     const [originalCurrency, originalAmount, rate] = originalColumns(checked.original);
     const updated = db
       .prepare(
