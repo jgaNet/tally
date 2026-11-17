@@ -68,15 +68,26 @@ const SCHEMA = `
     amount     INTEGER NOT NULL,
     PRIMARY KEY (expense_id, position)
   );
+`;
+
+/**
+ * The settlements table. A settlement in cash is `paid` at once; one through the payment provider is `pending`
+ * with the provider's payment id and `payUrl`, until the provider says it `paid` or `failed`.
+ */
+const SETTLEMENTS_TABLE = `
   CREATE TABLE IF NOT EXISTS settlements (
-    id         TEXT PRIMARY KEY,
-    group_id   TEXT NOT NULL REFERENCES groups (id),
-    payer_id   TEXT NOT NULL REFERENCES accounts (id),
-    payee_id   TEXT NOT NULL REFERENCES accounts (id),
-    amount     INTEGER NOT NULL CHECK (amount >= 1),
-    method     TEXT NOT NULL CHECK (method IN ('cash')),
-    status     TEXT NOT NULL CHECK (status IN ('paid')),
-    created_at TEXT NOT NULL
+    id                  TEXT PRIMARY KEY,
+    group_id            TEXT NOT NULL REFERENCES groups (id),
+    payer_id            TEXT NOT NULL REFERENCES accounts (id),
+    payee_id            TEXT NOT NULL REFERENCES accounts (id),
+    amount              INTEGER NOT NULL CHECK (amount >= 1),
+    method              TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+    status              TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
+    provider_payment_id TEXT,
+    pay_url             TEXT,
+    created_at          TEXT NOT NULL,
+    CHECK (method = 'provider' OR (status = 'paid' AND provider_payment_id IS NULL AND pay_url IS NULL)),
+    CHECK (method = 'cash' OR (provider_payment_id IS NOT NULL AND pay_url IS NOT NULL))
   );
 `;
 
@@ -87,12 +98,24 @@ const SCHEMA = `
 function addMissingColumns(db: DatabaseSync): void {
   const expenseColumns = db.prepare('PRAGMA table_info(expenses)').all() as unknown as { name: string }[];
   const membershipColumns = db.prepare('PRAGMA table_info(group_members)').all() as unknown as { name: string }[];
+  const settlementColumns = db.prepare('PRAGMA table_info(settlements)').all() as unknown as { name: string }[];
   // A membership written before leaving a group has no `left_at`: every such membership is still current.
   if (!membershipColumns.some(column => column.name === 'left_at')) {
     db.exec('ALTER TABLE group_members ADD COLUMN left_at TEXT');
   }
   if (!expenseColumns.some(column => column.name === 'version')) {
     db.exec('ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+  }
+  // A settlement written before payments through the provider has the old table: its rules (and columns) are
+  // rebuilt, its rows kept as they were, each a cash settlement that is paid.
+  if (!settlementColumns.some(column => column.name === 'provider_payment_id')) {
+    db.exec('ALTER TABLE settlements RENAME TO settlements_before_provider');
+    db.exec(SETTLEMENTS_TABLE);
+    db.exec(
+      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
+       SELECT id, group_id, payer_id, payee_id, amount, method, status, created_at FROM settlements_before_provider`,
+    );
+    db.exec('DROP TABLE settlements_before_provider');
   }
   // An expense written before splits by shares or exact amounts was split equally.
   if (!expenseColumns.some(column => column.name === 'split_kind')) {
@@ -122,7 +145,10 @@ export function openDatabase(path: string): DatabaseSync {
     db.exec('BEGIN IMMEDIATE');
     try {
       db.exec(SCHEMA);
+      db.exec(SETTLEMENTS_TABLE);
       addMissingColumns(db);
+      // After the columns exist: an index on a column a file written before lacks would fail.
+      db.exec('CREATE INDEX IF NOT EXISTS settlements_by_payment ON settlements (provider_payment_id)');
       db.exec('COMMIT');
     } catch (error) {
       db.exec('ROLLBACK');

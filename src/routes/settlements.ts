@@ -2,10 +2,21 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
-import { findSettlementOfMember, recordCashSettlement, suggestedSettlement } from '../settlements';
+import type { ProviderConfig } from '../provider';
+import {
+  findSettlementOfMember,
+  recordCashSettlement,
+  requestProviderSettlement,
+  suggestedSettlement,
+} from '../settlements';
 
 interface RecordCashSettlementBody {
   from: string;
+  amount: number;
+}
+
+interface RequestProviderSettlementBody {
+  to: string;
   amount: number;
 }
 
@@ -18,6 +29,13 @@ const RECORD_CASH_SETTLEMENT_BODY = {
 
 const ID = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } };
 
+/** Only the shape is checked here (a missing or wrongly typed field is `400`); the values are checked by the rules. */
+const REQUEST_PROVIDER_SETTLEMENT_BODY = {
+  type: 'object',
+  required: ['to', 'amount'],
+  properties: { to: { type: 'string' }, amount: { type: 'number' } },
+};
+
 const SETTLEMENT = {
   type: 'object',
   required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at'],
@@ -27,9 +45,10 @@ const SETTLEMENT = {
     from: { type: 'string' },
     to: { type: 'string' },
     amount: { type: 'integer' },
-    method: { enum: ['cash'] },
-    status: { enum: ['paid'] },
+    method: { enum: ['cash', 'provider'] },
+    status: { enum: ['pending', 'paid', 'failed'] },
     at: { type: 'string' },
+    payUrl: { type: 'string' },
   },
 };
 
@@ -39,7 +58,7 @@ const TRANSFER = {
   properties: { from: { type: 'string' }, to: { type: 'string' }, amount: { type: 'integer' } },
 };
 
-export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSync, provider: ProviderConfig): void {
   // Only a member of the group reads its suggested settlement; to anyone else the group does not exist.
   server.get<{ Params: { id: string } }>(
     '/groups/:id/settlements/suggested',
@@ -60,6 +79,22 @@ export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSy
         groupId: request.params.id,
         payeeId: caller.id,
         payerId: request.body.from,
+        amount: request.body.amount,
+      });
+      return reply.code(201).send({ id });
+    },
+  );
+
+  // The payer is the caller, who asks the provider for a payment link to the payee; a caller who is not a member sees no group.
+  server.post<{ Params: { id: string }; Body: RequestProviderSettlementBody }>(
+    '/groups/:id/settlements/provider',
+    { schema: { body: REQUEST_PROVIDER_SETTLEMENT_BODY, response: { 201: ID } } },
+    async (request, reply) => {
+      const caller = requireCaller(db, request);
+      const id = await requestProviderSettlement(db, provider, {
+        groupId: request.params.id,
+        payerId: caller.id,
+        payeeId: request.body.to,
         amount: request.body.amount,
       });
       return reply.code(201).send({ id });
