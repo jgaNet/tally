@@ -50,8 +50,8 @@ describe('Expense.register', () => {
     expect(expense.data!.toSnapshot()).toMatchObject({
       splitKind: 'shares',
       shares: [
-        { memberId: 'ann', amount: 667 },
-        { memberId: 'bob', amount: 334 },
+        { memberId: 'ann', amount: 668 },
+        { memberId: 'bob', amount: 333 },
       ],
     });
     const [event] = expense.data!.pullDomainEvents() as unknown as { payload: { splitKind: string } }[];

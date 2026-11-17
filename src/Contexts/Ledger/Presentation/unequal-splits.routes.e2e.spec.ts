@@ -189,7 +189,7 @@ describe('recording an expense by exact amounts', () => {
 });
 
 describe('recording an expense by shares', () => {
-  it('divides by the shares with the remainder to the payer: 1001 by 2 and 1 shares, the payer second, is 667 and 334', async () => {
+  it('divides by the shares with the remainder to the first member listed: 1001 by 2 and 1 shares, the payer second, is 668 and 333', async () => {
     const groupId = await groupWithThree();
     const answer = await record(bob.token, groupId, {
       description: 'Cottage',
@@ -207,8 +207,8 @@ describe('recording an expense by shares', () => {
     };
     expect(after.splitKind).toBe('shares');
     expect(after.shares).toEqual([
-      { memberId: ann.id, amount: 667 },
-      { memberId: bob.id, amount: 334 },
+      { memberId: ann.id, amount: 668 },
+      { memberId: bob.id, amount: 333 },
     ]);
   });
 
@@ -244,8 +244,8 @@ describe('recording an expense by shares', () => {
       ],
     });
     const rows = await balances(ann.token, groupId);
-    expect(rows.find(row => row.memberId === bob.id)?.balance).toBe(667);
-    expect(rows.find(row => row.memberId === ann.id)?.balance).toBe(-667);
+    expect(rows.find(row => row.memberId === bob.id)?.balance).toBe(668);
+    expect(rows.find(row => row.memberId === ann.id)?.balance).toBe(-668);
     expect(sum(rows)).toBe(0);
   });
 

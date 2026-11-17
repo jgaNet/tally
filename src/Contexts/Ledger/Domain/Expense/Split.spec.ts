@@ -3,7 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 
 describe('Split.decide, equally', () => {
-  it('divides the amount equally, the remainder whole to the payer, and the shares add up to the amount', () => {
+  it('divides the amount equally, the remainder whole to the first member listed, and the shares add up to the amount', () => {
     const split = Split.decide({
       amount: 1000,
       payerId: 'ann',
@@ -17,16 +17,29 @@ describe('Split.decide, equally', () => {
     ]);
   });
 
-  it('gives the remainder to a payer who is not first, and keeps the order given', () => {
+  it('gives the remainder to the first member listed, not to the payer, and keeps the order given', () => {
     const split = Split.decide({
       amount: 10,
       payerId: 'bob',
       split: { kind: 'equal', memberIds: ['carol', 'bob', 'ann'] },
     });
     expect(split.data?.shares).toEqual([
-      { memberId: 'carol', amount: 3 },
-      { memberId: 'bob', amount: 4 },
+      { memberId: 'carol', amount: 4 },
+      { memberId: 'bob', amount: 3 },
       { memberId: 'ann', amount: 3 },
+    ]);
+  });
+
+  it('gives the remainder to the first member listed when the payer is last', () => {
+    const split = Split.decide({
+      amount: 1000,
+      payerId: 'carol',
+      split: { kind: 'equal', memberIds: ['ann', 'bob', 'carol'] },
+    });
+    expect(split.data?.shares).toEqual([
+      { memberId: 'ann', amount: 334 },
+      { memberId: 'bob', amount: 333 },
+      { memberId: 'carol', amount: 333 },
     ]);
   });
 
@@ -151,7 +164,7 @@ describe('Split.decide, by shares', () => {
     expect(byShares.data?.kind).toBe('shares');
   });
 
-  it('divides 1001 by 2 and 1 shares, the payer listed second: 667 and 334, the remainder to the payer', () => {
+  it('divides 1001 by 2 and 1 shares, the payer listed second: 668 and 333, the remainder to the first member listed', () => {
     const split = Split.decide({
       amount: 1001,
       payerId: 'bob',
@@ -164,8 +177,8 @@ describe('Split.decide, by shares', () => {
       },
     });
     expect(split.data?.shares).toEqual([
-      { memberId: 'ann', amount: 667 },
-      { memberId: 'bob', amount: 334 },
+      { memberId: 'ann', amount: 668 },
+      { memberId: 'bob', amount: 333 },
     ]);
   });
 
@@ -221,7 +234,7 @@ describe('Split.decide, by shares', () => {
 });
 
 describe('Split.kept', () => {
-  it('keeps the kind and the shares as they were decided, and records nothing', () => {
+  it('keeps the kind and the shares as they were decided, and records nothing, even where the remainder went to the payer before request 10', () => {
     const split = Split.kept({
       kind: 'shares',
       amount: 1001,

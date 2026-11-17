@@ -103,7 +103,7 @@ describe("a group's balances", () => {
 
     const after = await balances(carol.token, groupId);
     expect(after.status).toBe(200);
-    // Groceries, 1000 paid by Ann and split 334 / 333 / 333 (the remainder to the payer): Ann +666, Bob -333, Carol -333.
+    // Groceries, 1000 paid by Ann and split 334 / 333 / 333 (the remainder to the first member listed, Ann): Ann +666, Bob -333, Carol -333.
     // Taxi, 500 paid by Bob and split 250 / 250: Bob +250, Carol -250.
     expect(after.body).toEqual([
       { memberId: ann.id, balance: 666 },

@@ -46,11 +46,12 @@ interface SplitValue {
  * - `exact`: each member's share is the exact amount given, 0 or more, and they add up to the amount exactly;
  * - `shares`: each member's share is the amount times their shares, divided by the total of the shares, rounded down.
  *
- * In the two divisions what is left over, less than the number of members, goes whole to the payer's share, so the shares
- * always add up to the amount. The division is exact (BigInt), never a floating point one. Built through `decide()`, which
- * refuses a member listed twice, a split without its payer, amounts that do not add up, and shares below 1, so a `Split`
- * always holds shares the domain accepts. Its shares are kept with the expense as they were decided and never computed
- * again at a read.
+ * In the two divisions what is left over, less than the number of members, goes whole to the share of the member listed
+ * first in the split, whoever paid (request 10; before it went to the payer). The payer is still one of the members. The
+ * shares always add up to the amount. The division is exact (BigInt), never a floating point one. Built through `decide()`,
+ * which refuses a member listed twice, a split without its payer, amounts that do not add up, and shares below 1, so a
+ * `Split` always holds shares the domain accepts. Its shares are kept with the expense as they were decided and never
+ * computed again at a read: an expense recorded before the rule changed keeps the shares it was given.
  */
 export class Split extends ValueObject<SplitValue> {
   private constructor(value: SplitValue) {
@@ -65,7 +66,7 @@ export class Split extends ValueObject<SplitValue> {
 
     if (split.kind === 'equal') {
       const parts = split.memberIds.map(memberId => ({ memberId, weight: 1n }));
-      return Result.ok(new Split({ kind: 'equal', shares: byWeights(BigInt(amount), payerId, parts) }));
+      return Result.ok(new Split({ kind: 'equal', shares: byWeights(BigInt(amount), memberIds[0], parts) }));
     }
 
     if (split.kind === 'exact') {
@@ -85,7 +86,7 @@ export class Split extends ValueObject<SplitValue> {
     if (!split.shares.every(entry => isWholeShares(entry.shares)))
       return Result.fail(new InvalidSplitSharesException());
     const parts = split.shares.map(entry => ({ memberId: entry.memberId, weight: BigInt(entry.shares) }));
-    return Result.ok(new Split({ kind: 'shares', shares: byWeights(BigInt(amount), payerId, parts) }));
+    return Result.ok(new Split({ kind: 'shares', shares: byWeights(BigInt(amount), memberIds[0], parts) }));
   }
 
   /**
@@ -139,15 +140,15 @@ export class Split extends ValueObject<SplitValue> {
 
 /**
  * Divides `amount` by the weights of the parts, each part getting its weight's share rounded down, and gives what is left
- * over to the payer. Every weight is at least 1, so the total is never 0.
+ * over whole to the part of `firstMemberId`, the member listed first. Every weight is at least 1, so the total is never 0.
  */
-const byWeights = (amount: bigint, payerId: string, parts: { memberId: string; weight: bigint }[]): Share[] => {
+const byWeights = (amount: bigint, firstMemberId: string, parts: { memberId: string; weight: bigint }[]): Share[] => {
   const total = parts.reduce((sum, part) => sum + part.weight, 0n);
   const rounded = parts.map(part => ({ memberId: part.memberId, amount: (amount * part.weight) / total }));
   const remainder = amount - rounded.reduce((sum, part) => sum + part.amount, 0n);
   return rounded.map(part => ({
     memberId: part.memberId,
-    amount: Number(part.memberId === payerId ? part.amount + remainder : part.amount),
+    amount: Number(part.memberId === firstMemberId ? part.amount + remainder : part.amount),
   }));
 };
 

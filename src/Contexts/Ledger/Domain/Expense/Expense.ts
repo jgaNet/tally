@@ -91,7 +91,7 @@ export class Expense extends AggregateRoot {
    * A recording: the description is 1 to 100 characters and not only spaces, the amount a whole number from 1 to 100 000 000,
    * the date a real day of the calendar not after today in UTC (`now`), and the split one the members of the group
    * (`members`, the group's current members) may be in, each once, the payer among them. The shares are the `Split`'s, decided
-   * the way the split is given (equally, by exact amounts, or by shares), the remainder to the payer. The identity is generated here (DOMAIN-IDENTITY), and the recording records
+   * the way the split is given (equally, by exact amounts, or by shares), the remainder to the member listed first. The identity is generated here (DOMAIN-IDENTITY), and the recording records
    * `ExpenseRecorded`. Pure: the members and the time are given, nothing is read.
    */
   static register(

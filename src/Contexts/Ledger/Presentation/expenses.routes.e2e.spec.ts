@@ -10,7 +10,7 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
  * Recording and reading expenses over HTTP, against a database file: the API's answers (fragment 5), who may record into a
- * group and who may read an expense, the equal split with the remainder to the payer, and the refusals the domain makes.
+ * group and who may read an expense, the equal split with the remainder to the first member listed, and the refusals the domain makes.
  */
 let directory: string;
 let app: FastifyApplication;
@@ -206,7 +206,7 @@ describe('reading an expense', () => {
     expect(stranger.body).toEqual(missing.body);
   });
 
-  it('keeps the shares in the order the split was given, the payer wherever it stands', async () => {
+  it('keeps the shares in the order the split was given, the remainder to the first listed, the payer wherever it stands', async () => {
     const groupId = await createGroup('Order');
     await joinGroup(groupId, bob);
     await joinGroup(groupId, carol);
@@ -218,8 +218,8 @@ describe('reading an expense', () => {
     });
     const read1 = await read(ann.token, (body as { id: string }).id);
     expect((read1.body as { shares: unknown }).shares).toEqual([
-      { memberId: bob.id, amount: 33 },
-      { memberId: ann.id, amount: 34 },
+      { memberId: bob.id, amount: 34 },
+      { memberId: ann.id, amount: 33 },
       { memberId: carol.id, amount: 33 },
     ]);
   });
