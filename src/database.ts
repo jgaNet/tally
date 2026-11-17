@@ -63,6 +63,8 @@ const SCHEMA = `
     original_currency TEXT,
     original_amount   INTEGER,
     rate              TEXT,
+    recurring_id      TEXT,
+    recurring_day     TEXT,
     created_at  TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS expense_shares (
@@ -71,6 +73,29 @@ const SCHEMA = `
     member_id  TEXT NOT NULL REFERENCES accounts (id),
     amount     INTEGER NOT NULL,
     PRIMARY KEY (expense_id, position)
+  );
+  /*
+   * A recurring expense, with its split as given (one row per member in recurring_parts: the amount of an exact
+   * split, the shares of a split by shares, nothing for an equal one). next_on is the day of the next expense to
+   * record; it moves in the transaction that records the expense.
+   */
+  CREATE TABLE IF NOT EXISTS recurring (
+    id          TEXT PRIMARY KEY,
+    group_id    TEXT NOT NULL REFERENCES groups (id),
+    paid_by     TEXT NOT NULL REFERENCES accounts (id),
+    description TEXT NOT NULL,
+    amount      INTEGER NOT NULL,
+    starts_on   TEXT NOT NULL,
+    next_on     TEXT NOT NULL,
+    split_kind  TEXT NOT NULL CHECK (split_kind IN ('equal', 'exact', 'shares')),
+    created_at  TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS recurring_parts (
+    recurring_id TEXT NOT NULL REFERENCES recurring (id),
+    position     INTEGER NOT NULL,
+    member_id    TEXT NOT NULL REFERENCES accounts (id),
+    value        INTEGER,
+    PRIMARY KEY (recurring_id, position)
   );
   CREATE TABLE IF NOT EXISTS payout_accounts (
     account_id          TEXT PRIMARY KEY REFERENCES accounts (id),
@@ -233,6 +258,11 @@ function addMissingColumns(db: DatabaseSync): void {
     db.exec('ALTER TABLE expenses ADD COLUMN original_amount INTEGER');
     db.exec('ALTER TABLE expenses ADD COLUMN rate TEXT');
   }
+  // An expense written before recurring expenses was not recorded for one.
+  if (!expenseColumns.some(column => column.name === 'recurring_id')) {
+    db.exec('ALTER TABLE expenses ADD COLUMN recurring_id TEXT');
+    db.exec('ALTER TABLE expenses ADD COLUMN recurring_day TEXT');
+  }
   // An expense written before splits by shares or exact amounts was split equally.
   if (!expenseColumns.some(column => column.name === 'split_kind')) {
     db.exec(
@@ -273,6 +303,10 @@ export function openDatabase(path: string): DatabaseSync {
       if (historyIsNew) backfillSettlementStatuses(db);
       // After the columns exist: an index on a column a file written before lacks would fail.
       db.exec('CREATE INDEX IF NOT EXISTS settlements_by_payment ON settlements (provider_payment_id)');
+      // One expense per day of a recurring expense, whatever servers share the file.
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS expenses_by_recurring_day ON expenses (recurring_id, recurring_day) WHERE recurring_id IS NOT NULL',
+      );
       db.exec('CREATE INDEX IF NOT EXISTS notices_by_recipient ON notices (recipient_id, created_at)');
       db.exec('COMMIT');
     } catch (error) {

@@ -298,13 +298,14 @@ function sharesOfSplit(amount: number, split: SplitInput): Share[] {
  * paid in, and the shares it gives. Refused with `422` (the error names the rule) when a rule is broken. Writes
  * nothing; the caller runs it in its transaction.
  */
-function checkExpenseFields(
+export function checkExpenseFields(
   db: DatabaseSync,
   groupId: string,
   groupCurrency: Currency,
   payerId: string,
   fields: ExpenseFields,
   offer: RateOffer,
+  today: string = todayInUtc(),
 ): { description: string; amount: number; original: OriginalAmount | undefined; shares: Share[] } {
   const { description, date, split } = fields;
   const trimmedDescription = description.trim();
@@ -322,7 +323,7 @@ function checkExpenseFields(
   if (!isCalendarDay(date)) {
     throw new Refusal(422, 'DateIsInvalid', 'The date must be a real day of the calendar, written YYYY-MM-DD.');
   }
-  if (date > todayInUtc()) {
+  if (date > today) {
     throw new Refusal(422, 'DateIsInTheFuture', 'The date must not be after today (UTC).');
   }
   const members = membersOfSplit(split);
@@ -359,6 +360,49 @@ function writeShares(db: DatabaseSync, expenseId: string, shares: readonly Share
  */
 function originalColumns(original: OriginalAmount | undefined): [Currency | null, number | null, string | null] {
   return original ? [original.currency, original.amount, original.rate] : [null, null, null];
+}
+
+/**
+ * Writes a checked expense at version 1 with its shares, and tells the members of its split of their shares. The
+ * caller's transaction keeps them together. `recurring` names the recurring expense and the day it is recorded for.
+ */
+export function insertExpense(
+  db: DatabaseSync,
+  input: {
+    id: string;
+    groupId: string;
+    payerId: string;
+    date: string;
+    split: SplitInput;
+    checked: { description: string; amount: number; original: OriginalAmount | undefined; shares: Share[] };
+    at: string;
+    recurring?: string;
+  },
+): void {
+  const { id, groupId, payerId, date, checked, at } = input;
+  const [originalCurrency, originalAmount, rate] = originalColumns(checked.original);
+  db.prepare(
+    `INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind,
+       original_currency, original_amount, rate, recurring_id, recurring_day, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    groupId,
+    checked.description,
+    checked.amount,
+    date,
+    payerId,
+    input.split.kind,
+    originalCurrency,
+    originalAmount,
+    rate,
+    input.recurring ?? null,
+    input.recurring === undefined ? null : date,
+    at,
+  );
+  writeShares(db, id, checked.shares);
+  // The members of the split are told of their shares in the same transaction: the notices exist with the expense.
+  noticeExpense(db, { expenseId: id, groupId, payerId, shares: checked.shares, at });
 }
 
 export interface RecordExpenseInput extends ExpenseFields {
@@ -410,28 +454,7 @@ export async function recordExpense(db: DatabaseSync, rates: RatesConfig, input:
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
     const checked = checkExpenseFields(db, groupId, group.currency, payerId, input, offer);
-    const at = new Date().toISOString();
-    const [originalCurrency, originalAmount, rate] = originalColumns(checked.original);
-    db.prepare(
-      `INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind,
-         original_currency, original_amount, rate, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      groupId,
-      checked.description,
-      checked.amount,
-      date,
-      payerId,
-      input.split.kind,
-      originalCurrency,
-      originalAmount,
-      rate,
-      at,
-    );
-    writeShares(db, id, checked.shares);
-    // The members of the split are told of their shares in the same transaction: the notices exist with the expense.
-    noticeExpense(db, { expenseId: id, groupId, payerId, shares: checked.shares, at });
+    insertExpense(db, { id, groupId, payerId, date, split: input.split, checked, at: new Date().toISOString() });
   });
   return id;
 }

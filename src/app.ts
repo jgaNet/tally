@@ -3,6 +3,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import { openDatabase } from './database';
 import { sendError } from './http';
 import type { ProviderConfig } from './provider';
+import { recordRecurring } from './recurring';
 import { DEFAULT_REMINDER_PERIOD_SECONDS, sweepReminders } from './reminders';
 import { registerAccountRoutes } from './routes/accounts';
 import { registerBalanceRoutes } from './routes/balances';
@@ -13,6 +14,7 @@ import { registerNoticeRoutes } from './routes/notices';
 import { registerOperationRoutes } from './routes/operations';
 import { registerPayoutAccountRoutes } from './routes/payout-accounts';
 import { registerProviderRoutes } from './routes/provider';
+import { registerRecurringRoutes } from './routes/recurring';
 import { registerRateRoutes } from './routes/rates';
 import { registerSettlementRoutes } from './routes/settlements';
 import { registerStatementRoutes } from './routes/statements';
@@ -44,7 +46,7 @@ function secondsFrom(value: string | undefined, fallback: number): number {
  * URL, paying through the provider is refused. The provider has `providerTimeoutMs` (5000 by default) to answer.
  *
  * Once started, the background job runs every `jobsIntervalSeconds` (`JOBS_INTERVAL_SECONDS`, 60 by default): it
- * reminds whoever has owed too much in a group for `reminderPeriodSeconds` (`REMINDER_PERIOD_SECONDS`, a week by
+ * records the expenses of recurring expenses that have come due, and reminds whoever has owed too much in a group for `reminderPeriodSeconds` (`REMINDER_PERIOD_SECONDS`, a week by
  * default), at the time `clock` tells.
  *
  * The rates an expense in another currency is recorded at are asked of the rates service at `ratesUrl` (`RATES_URL`), the
@@ -89,6 +91,7 @@ export async function createApplication({
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
   let jobsTimer: NodeJS.Timeout | undefined;
   const runJobs = () => {
+    recordRecurring(db, clock());
     sweepReminders(db, clock(), reminderPeriodSeconds * 1000);
   };
   server.addHook('onClose', async () => {
@@ -105,6 +108,7 @@ export async function createApplication({
       registerInvitationRoutes(api, db);
       registerExpenseRoutes(api, db, rates);
       registerRateRoutes(api, db, rates);
+      registerRecurringRoutes(api, db, clock);
       registerBalanceRoutes(api, db);
       registerStatementRoutes(api, db);
       registerSettlementRoutes(api, db, provider);
