@@ -1,11 +1,14 @@
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 
-/** A notice as a member reads it (request 17): `kind` is `expense`, `amount` the member's share, `at` when it was made. */
+/**
+ * A notice as a member reads it: `kind` is `expense` (request 17), `amount` the member's share, or `reminder` (request 18), `amount`
+ * what they still owe and no expense; `at` when it was made.
+ */
 export interface NoticeView {
   id: string;
-  kind: 'expense';
+  kind: 'expense' | 'reminder';
   groupId: string;
-  expenseId: string;
+  expenseId?: string;
   amount: number;
   at: string;
 }

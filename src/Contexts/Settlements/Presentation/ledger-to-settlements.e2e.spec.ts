@@ -62,6 +62,9 @@ let api: string;
 beforeAll(async () => {
   process.env.PROVIDER_URL = await startProvider();
   process.env.PROVIDER_WEBHOOK_SECRET = SECRET;
+  // The reminders of request 18: the job runs every tenth of a second, and a period is a second.
+  process.env.JOBS_INTERVAL_SECONDS = '0.1';
+  process.env.REMINDER_PERIOD_SECONDS = '1';
   process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-ledger-to-settlements-')), 'tally.sqlite');
   app = await createApplication();
   await app.start(0);
@@ -178,4 +181,45 @@ describe('Ledger → Settlements', () => {
       { memberId: linus.id, balance: -100 },
     ]);
   });
+});
+
+describe('Ledger → Settlements', () => {
+  it('reminds a member of what the balances Ledger answers say they owe, once the debt Settlements reads there has lasted a period', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Reminded', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as {
+      id: string;
+    };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Rent', amount: 7000, date: '2026-03-01', splitBetween: [ada.id, grace.id] },
+      token: ada.token,
+    });
+    const { id: expenseId } = recorded.body as { id: string };
+    expect(expenseId).toEqual(expect.any(String));
+
+    const balances = (await http.request('GET', `${api}/groups/${groupId}/balances`, { token: ada.token })).body as {
+      memberId: string;
+      balance: number;
+    }[];
+    const owed = -balances.find(balance => balance.memberId === grace.id)!.balance;
+    expect(owed).toBe(3500);
+
+    let reminders: { groupId: string; amount: number }[] = [];
+    for (let poll = 0; poll < 200 && reminders.length === 0; poll++) {
+      const notices = (await http.request('GET', `${api}/notices`, { token: grace.token })).body as {
+        kind: string;
+        groupId: string;
+        amount: number;
+      }[];
+      reminders = notices.filter(notice => notice.kind === 'reminder');
+      if (reminders.length === 0) await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    expect(reminders[0]).toMatchObject({ groupId, amount: owed });
+  }, 30_000);
 });

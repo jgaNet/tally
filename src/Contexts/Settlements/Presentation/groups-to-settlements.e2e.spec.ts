@@ -49,6 +49,9 @@ let api: string;
 beforeAll(async () => {
   process.env.PROVIDER_URL = await startProvider();
   process.env.PROVIDER_WEBHOOK_SECRET = SECRET;
+  // The reminders of request 18: the job runs every tenth of a second, and a period is a second.
+  process.env.JOBS_INTERVAL_SECONDS = '0.1';
+  process.env.REMINDER_PERIOD_SECONDS = '1';
   process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-groups-to-settlements-')), 'tally.sqlite');
   app = await createApplication();
   await app.start(0);
@@ -213,4 +216,41 @@ describe('Groups → Settlements', () => {
       status: 'paid',
     });
   });
+});
+
+describe('Groups → Settlements', () => {
+  it('reminds a member of the group Groups answered, once the debt Settlements reads there has lasted a period', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const created = await http.request('POST', `${api}/groups`, {
+      body: { name: 'Reminded', currency: 'EUR' },
+      token: ada.token,
+    });
+    const { id: groupId } = created.body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as {
+      id: string;
+    };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Rent', amount: 6000, date: '2026-03-01', splitBetween: [ada.id, grace.id] },
+      token: ada.token,
+    });
+
+    let reminders: { groupId: string; amount: number }[] = [];
+    for (let poll = 0; poll < 200 && reminders.length === 0; poll++) {
+      const notices = (await http.request('GET', `${api}/notices`, { token: grace.token })).body as {
+        kind: string;
+        groupId: string;
+        amount: number;
+      }[];
+      reminders = notices.filter(notice => notice.kind === 'reminder');
+      if (reminders.length === 0) await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    expect(reminders[0]).toMatchObject({ groupId, amount: 3000 });
+    const members = (await http.request('GET', `${api}/groups/${groupId}/members`, { token: ada.token }))
+      .body as unknown[];
+    expect(members).toHaveLength(2);
+  }, 30_000);
 });

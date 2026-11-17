@@ -14,4 +14,9 @@ export interface ISettlementMembers {
    * when it is not, or the group is not there (as `membersOf`).
    */
   currencyOf(groupId: string, askedBy: string): Promise<string | undefined>;
+  /**
+   * The current members of every group, as account ids, in no order: what the reminders of request 18 read through the debts
+   * Settlements answers (`OutstandingDebts`). Asked by no member, so nothing is checked.
+   */
+  allMembers(): Promise<{ groupId: string; memberIds: string[] }[]>;
 }

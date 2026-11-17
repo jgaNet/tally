@@ -68,11 +68,31 @@ describe('Notice.issueFor', () => {
       expect(events[0].payload).toEqual({
         noticeId: notice.toSnapshot().id,
         memberId: notice.toSnapshot().memberId,
+        kind: 'expense',
         groupId: 'group-1',
         expenseId: 'expense-1',
         amount: 50,
         at: at.toISOString(),
       });
     }
+  });
+});
+
+describe('Notice.remind', () => {
+  it('makes a reminder of what is owed, with no expense, and records its issue', () => {
+    const notice = Notice.remind({ memberId: 'grace', groupId: 'group-1', owed: 2500, at });
+
+    const snapshot = notice.toSnapshot();
+    expect(snapshot).toEqual({
+      id: expect.any(String),
+      memberId: 'grace',
+      kind: 'reminder',
+      groupId: 'group-1',
+      amount: 2500,
+      at: at.toISOString(),
+    });
+    expect('expenseId' in snapshot).toBe(false);
+    const [event] = notice.pullDomainEvents();
+    expect(event).toBeInstanceOf(NoticeIssuedEvent);
   });
 });

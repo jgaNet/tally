@@ -8,7 +8,7 @@ import { ISettlementMembers } from '@Contexts/Settlements/Application/ISettlemen
  * model is given as a function, read when a request comes and not when the modules are built (ADR 7).
  */
 export class SettlementMembersOfGroups implements ISettlementMembers {
-  constructor(private readonly groups: () => Pick<IGroupQueries, 'membersOf' | 'groupOf'>) {}
+  constructor(private readonly groups: () => Pick<IGroupQueries, 'membersOf' | 'groupOf' | 'currentMembers'>) {}
 
   async membersOf(groupId: string, askedBy: string): Promise<string[] | undefined> {
     const members = await this.groups().membersOf(groupId, askedBy);
@@ -17,5 +17,9 @@ export class SettlementMembersOfGroups implements ISettlementMembers {
 
   async currencyOf(groupId: string, askedBy: string): Promise<string | undefined> {
     return (await this.groups().groupOf(groupId, askedBy))?.currency;
+  }
+
+  allMembers(): Promise<{ groupId: string; memberIds: string[] }[]> {
+    return this.groups().currentMembers();
   }
 }

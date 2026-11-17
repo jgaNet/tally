@@ -1,9 +1,17 @@
+import { StatementSync } from 'node:sqlite';
+
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 import { INoticeStore, NoticeView } from '@Contexts/Notifications/Application/INoticeStore';
 
 import { NoticesDatabase } from './NoticesDatabase';
 
-type NoticeRow = { id: string; group_id: string; expense_id: string; amount: number; at: string };
+type NoticeRow = { id: string; kind: string; group_id: string; expense_id: string; amount: number; at: string };
+
+/** Writes one notice with a prepared `INSERT` of the notices table; a reminder's expense is kept as ''. */
+export function insertNotice(statement: StatementSync, notice: Notice): void {
+  const { id, memberId, kind, groupId, expenseId, amount, at } = notice.toSnapshot();
+  statement.run(id, memberId, kind, groupId, expenseId ?? '', amount, at);
+}
 
 /**
  * The notices in SQLite. `insert` writes the notices of one expense in one transaction, so that a reaction that fails part-way
@@ -18,11 +26,10 @@ export class SqliteNotices implements INoticeStore {
     connection.exec('BEGIN IMMEDIATE');
     try {
       const statement = connection.prepare(
-        'INSERT INTO notifications_notices (id, member_id, group_id, expense_id, amount, at) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO notifications_notices (id, member_id, kind, group_id, expense_id, amount, at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       );
       for (const notice of notices) {
-        const { id, memberId, groupId, expenseId, amount, at } = notice.toSnapshot();
-        statement.run(id, memberId, groupId, expenseId, amount, at);
+        insertNotice(statement, notice);
       }
       connection.exec('COMMIT');
     } catch (error) {
@@ -34,16 +41,20 @@ export class SqliteNotices implements INoticeStore {
   async noticesOf(memberId: string): Promise<NoticeView[]> {
     const rows = this.database.connection
       .prepare(
-        'SELECT id, group_id, expense_id, amount, at FROM notifications_notices WHERE member_id = ? ORDER BY at DESC, seq DESC',
+        'SELECT id, kind, group_id, expense_id, amount, at FROM notifications_notices WHERE member_id = ? ORDER BY at DESC, seq DESC',
       )
       .all(memberId) as NoticeRow[];
-    return rows.map(row => ({
-      id: row.id,
-      kind: 'expense',
-      groupId: row.group_id,
-      expenseId: row.expense_id,
-      amount: row.amount,
-      at: row.at,
-    }));
+    return rows.map(row =>
+      row.kind === 'reminder'
+        ? { id: row.id, kind: 'reminder', groupId: row.group_id, amount: row.amount, at: row.at }
+        : {
+            id: row.id,
+            kind: 'expense',
+            groupId: row.group_id,
+            expenseId: row.expense_id,
+            amount: row.amount,
+            at: row.at,
+          },
+    );
   }
 }

@@ -1,5 +1,7 @@
 import { EventEmitter } from 'events';
 
+import { randomUUID } from 'crypto';
+
 import { Logger, relayOutbox } from '@Architecture/Application';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
@@ -15,6 +17,7 @@ import { localLedgerModule } from '@Contexts/Ledger/module.local';
 import { localSettlementsModule, providerSignedBy } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
+import { sweepDebts } from '@Contexts/Notifications/Application/Reminders';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
 
@@ -60,8 +63,46 @@ export async function createApplication({
     .registerRoutes('/', noticeRoutes, { module: localNotificationsModule });
 
   await app.startModules();
+  runEvery(jobsIntervalMs, app, logger, () => {
+    // A run of the background job (request 1, request 18): it notes the debts that last and reminds, in a context of its own, with no caller.
+    return localNotificationsModule.useCase(sweepDebts).run(undefined, app.executionContext(`job-${randomUUID()}`));
+  });
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an
   // in-memory outbox, and the line is where a store's outbox would be relayed.
   await relayOutbox(InMemoryOutbox.shared, app.getEventBus(), app.executionContext('startup'));
   return app;
+}
+
+/** `JOBS_INTERVAL_SECONDS` seconds, 60 when that is not set (to a number above 0); read when the application is built. */
+function jobsIntervalMs(): number {
+  const seconds = Number(process.env.JOBS_INTERVAL_SECONDS);
+  return (seconds > 0 && Number.isFinite(seconds) ? seconds : 60) * 1000;
+}
+
+/**
+ * The background job (request 1): `run` at every interval, never two at once in this process, a failure logged and the next run
+ * made all the same. The timer does not keep the process alive, and stops with the application. Several servers on one database
+ * each run it: what a run decides is held by what it saves (CONC-OPTIMISTIC), not by who runs it.
+ */
+function runEvery(
+  intervalOf: () => number,
+  app: FastifyApplication,
+  logger: Logger,
+  run: () => Promise<{ isFailure(): boolean; error?: unknown }>,
+): void {
+  let running = false;
+  const timer = setInterval(() => {
+    if (running) return;
+    running = true;
+    run()
+      .then(result => {
+        if (result.isFailure()) logger.warn('A run of the background job was refused', { error: String(result.error) });
+      })
+      .catch(error => logger.error('A run of the background job failed', error))
+      .finally(() => {
+        running = false;
+      });
+  }, intervalOf());
+  timer.unref();
+  app.fastify.addHook('onClose', async () => clearInterval(timer));
 }

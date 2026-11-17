@@ -148,7 +148,7 @@ relationships:
     downstream: Notifications
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       A reminder is for a debt that lasts, and only Settlements knows what each member still owes once the paid
-      settlements count. Notifications' sweep asks through a port it owns (OutstandingDebts) (T9).
+      settlements count. Notifications' sweep asks through a port it owns (OutstandingDebts) (T9). Carried since
+      feature 18 (ADR 15).

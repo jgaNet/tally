@@ -15,6 +15,7 @@ import { PaymentProviderOverHttp } from '@Contexts/Settlements/Infrastructure/Pa
 import { SettlementMembersOfGroups } from '@Contexts/Settlements/Infrastructure/SettlementMembersOfGroups';
 import { isSignedByProvider } from '@Contexts/Settlements/Infrastructure/ProviderSignature';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
+import { OutstandingDebtsOfBalances } from '@Contexts/Settlements/Infrastructure/OutstandingDebtsOfBalances';
 import { SettlementsDatabase } from '@Contexts/Settlements/Infrastructure/SettlementsDatabase';
 import { SqliteSettlements } from '@Contexts/Settlements/Infrastructure/SqliteSettlements';
 import { SqlitePayoutAccounts } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccounts';
@@ -35,6 +36,15 @@ export const settlementsReadModel = new SqliteSettlements(database);
 
 const groupBalances = new GroupBalancesOfLedger(() => ledgerBalancesReadModel);
 const settlementMembers = new SettlementMembersOfGroups(() => groupsMembersReadModel);
+/**
+ * What each member still owes, the read model of the debts, which Notifications asks through its own `OutstandingDebts` port for its
+ * reminders (request 18, ADR 15): the one thing of this file the reminders reach.
+ */
+export const outstandingDebtsReadModel = new OutstandingDebtsOfBalances(
+  settlementMembers,
+  groupBalances,
+  settlementsReadModel,
+);
 const paymentProvider = new PaymentProviderOverHttp(() => process.env.PROVIDER_URL);
 const payoutAccounts = new SqlitePayoutAccounts(database);
 

@@ -118,6 +118,15 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
     return rows.map(viewOf);
   }
 
+  async currentMembers(): Promise<{ groupId: string; memberIds: string[] }[]> {
+    const rows = this.database.connection
+      .prepare('SELECT group_id, account_id FROM expense_group_members ORDER BY group_id, rowid')
+      .all() as { group_id: string; account_id: string }[];
+    const groups = new Map<string, string[]>();
+    for (const { group_id, account_id } of rows) groups.set(group_id, [...(groups.get(group_id) ?? []), account_id]);
+    return [...groups].map(([groupId, memberIds]) => ({ groupId, memberIds }));
+  }
+
   async membersOf(id: string, memberId: string): Promise<MemberView[] | undefined> {
     if (!(await this.groupOf(id, memberId))) return undefined;
     const rows = this.database.connection

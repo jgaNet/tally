@@ -1,0 +1,30 @@
+import { IGroupBalances } from '@Contexts/Settlements/Application/IGroupBalances';
+import { ISettlementMembers } from '@Contexts/Settlements/Application/ISettlementMembers';
+import { IOutstandingDebtQueries, OutstandingDebt } from '@Contexts/Settlements/Domain/IOutstandingDebtQueries';
+import { ISettlementQueries } from '@Contexts/Settlements/Domain/ISettlementQueries';
+import { stillOwed } from '@Contexts/Settlements/Domain/SettlementBook/StillOwed';
+
+/**
+ * What every current member of every group still owes (request 18, ADR 15): the balances the ledger reports, with the payments
+ * waiting at the provider counted as paid, as the settlement rules and the suggestions count them, for the members Groups says
+ * the groups have now. A balance is negative for what a member owes; it is answered as a positive amount.
+ */
+export class OutstandingDebtsOfBalances implements IOutstandingDebtQueries {
+  constructor(
+    private readonly members: Pick<ISettlementMembers, 'allMembers'>,
+    private readonly balances: IGroupBalances,
+    private readonly settlements: Pick<ISettlementQueries, 'pendingOf'>,
+  ) {}
+
+  async outstandingDebts(): Promise<OutstandingDebt[]> {
+    const debts: OutstandingDebt[] = [];
+    for (const { groupId, memberIds } of await this.members.allMembers()) {
+      const owed = stillOwed(await this.balances.balancesOf(groupId), await this.settlements.pendingOf(groupId));
+      for (const memberId of memberIds) {
+        const balance = owed.get(memberId) ?? 0;
+        if (balance < 0) debts.push({ groupId, memberId, owed: -balance });
+      }
+    }
+    return debts;
+  }
+}

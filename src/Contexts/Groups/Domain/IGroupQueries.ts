@@ -22,4 +22,9 @@ export interface IGroupQueries {
   groupsOf(memberId: string): Promise<GroupView[]>;
   /** The members of the group in the order they joined, the owner first, if `memberId` is one of them. */
   membersOf(id: string, memberId: string): Promise<MemberView[] | undefined>;
+  /**
+   * The current members of every group, as account ids, one entry per group that has any, in no order. Not asked for a member: it is
+   * what a job reads (the reminders of request 18, through Settlements), never what a screen shows.
+   */
+  currentMembers(): Promise<{ groupId: string; memberIds: string[] }[]>;
 }

@@ -6,11 +6,15 @@ import { NoticeIssuedEvent } from './NoticeEvents';
 export interface NoticeSnapshot {
   id: string;
   memberId: string;
+  kind: NoticeKind;
   groupId: string;
-  expenseId: string;
+  /** The expense an `expense` notice is about; a reminder has none. */
+  expenseId?: string;
   amount: number;
   at: string;
 }
+
+export type NoticeKind = 'expense' | 'reminder';
 
 /**
  * One message owed to one member about one fact, made once from the fact (conventions/domain.yaml): that a member's share of an
@@ -20,12 +24,22 @@ export interface NoticeSnapshot {
 export class Notice extends AggregateRoot {
   readonly #memberId: string;
   readonly #groupId: string;
-  readonly #expenseId: string;
+  readonly #kind: NoticeKind;
+  readonly #expenseId: string | undefined;
   readonly #amount: number;
   readonly #at: string;
 
-  private constructor(id: Id, memberId: string, groupId: string, expenseId: string, amount: number, at: string) {
+  private constructor(
+    id: Id,
+    memberId: string,
+    groupId: string,
+    kind: NoticeKind,
+    expenseId: string | undefined,
+    amount: number,
+    at: string,
+  ) {
     super(id, 0);
+    this.#kind = kind;
     this.#memberId = memberId;
     this.#groupId = groupId;
     this.#expenseId = expenseId;
@@ -54,11 +68,12 @@ export class Notice extends AggregateRoot {
     return shares
       .filter(share => share.memberId !== payer)
       .map(share => {
-        const notice = new Notice(Id.generate(), share.memberId, groupId, expenseId, share.amount, when);
+        const notice = new Notice(Id.generate(), share.memberId, groupId, 'expense', expenseId, share.amount, when);
         notice.record(
           NoticeIssuedEvent.set({
             noticeId: notice._id.value,
             memberId: share.memberId,
+            kind: 'expense',
             groupId,
             expenseId,
             amount: share.amount,
@@ -69,13 +84,44 @@ export class Notice extends AggregateRoot {
       });
   }
 
+  /**
+   * A reminder (request 18): a notice for a member who has owed `owed` in a group for a period, made at `at` (the application's
+   * clock, handed in by the sweep). It has no expense. Records `NoticeIssued`.
+   */
+  static remind({
+    memberId,
+    groupId,
+    owed,
+    at,
+  }: {
+    memberId: string;
+    groupId: string;
+    owed: number;
+    at: Date;
+  }): Notice {
+    const when = at.toISOString();
+    const notice = new Notice(Id.generate(), memberId, groupId, 'reminder', undefined, owed, when);
+    notice.record(
+      NoticeIssuedEvent.set({
+        noticeId: notice._id.value,
+        memberId,
+        kind: 'reminder',
+        groupId,
+        amount: owed,
+        at: when,
+      }),
+    );
+    return notice;
+  }
+
   /** The notice as it is stored. */
   toSnapshot(): NoticeSnapshot {
     return {
       id: this._id.value,
       memberId: this.#memberId,
+      kind: this.#kind,
       groupId: this.#groupId,
-      expenseId: this.#expenseId,
+      ...(this.#expenseId === undefined ? {} : { expenseId: this.#expenseId }),
       amount: this.#amount,
       at: this.#at,
     };
