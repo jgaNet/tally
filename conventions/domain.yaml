@@ -146,7 +146,8 @@ relationships:
     mechanism: owned-port
     why: >-
       Only members of the group settle with each other, and only Groups knows who is a member. Settlements asks
-      through a port it owns (SettlementMembers).
+      through a port it owns (SettlementMembers). A payment through the provider is asked in the group's currency, which
+      only Groups knows, so Settlements asks for it through a port it owns too (GroupCurrency, ADR 8).
   - upstream: Settlements
     downstream: Ledger
     patterns: [customer-supplier, anti-corruption-layer]

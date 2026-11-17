@@ -30,6 +30,8 @@ import { HmacTokens } from '@Contexts/Groups/Infrastructure/HmacTokens';
 import { authenticateWith } from '@Contexts/Groups/Presentation/API/REST/authenticate';
 import { IGroupMembership } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembership';
 import { SqliteGroupMembership } from '@Contexts/Groups/Infrastructure/SqliteGroupMembership';
+import { SqliteGroupCurrency } from '@Contexts/Groups/Infrastructure/SqliteGroupCurrency';
+import { IGroupCurrency } from '@Contexts/Groups/Domain/Group/Ports/IGroupCurrency';
 import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
 import { LeaveGroupCommandEvent, LeaveGroupCommandHandler } from '@Contexts/Groups/Application/Commands';
 
@@ -53,6 +55,9 @@ export const tokens = new HmacTokens(database);
  */
 export const groupMembership: IGroupMembership = groupQueries;
 export const groupMembershipInCommand: IGroupMembership = new SqliteGroupMembership(database);
+
+/** The currency of a group, as another context's command reads it (ADR 8), inside the command's transaction. */
+export const groupCurrencyInCommand: IGroupCurrency = new SqliteGroupCurrency(database);
 
 /** Says who is calling, for the transport: the context that owns accounts provides it. */
 export const authenticate = authenticateWith(tokens);

@@ -1,18 +1,28 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { Module } from '@Architecture/Application';
 import { acceptCommand } from '@Architecture/Presentation/AcceptCommand';
-import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands';
+import {
+  PayThroughProviderCommandEvent,
+  ReceivePaymentWebhookCommandEvent,
+  RecordCashSettlementCommandEvent,
+} from '@Contexts/Settlements/Application/Commands';
 import {
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
 import { refuse } from '@Contexts/Settlements/Presentation/API/REST/Controllers/refuse';
+import { signatureMatches } from '@Contexts/Settlements/Presentation/API/REST/Controllers/ProviderSignature';
+
+/** A webhook's body as it was sent, kept beside the parsed one, for its signature (ADR 8). */
+export type WebhookRequest = FastifyRequest & { rawBody?: string };
 
 export class FastifySettlementController {
   readonly #module: Module;
+  readonly #providerWebhookSecret: string;
 
-  constructor({ module }: { module: Module }) {
+  constructor({ module, providerWebhookSecret = '' }: { module: Module; providerWebhookSecret?: string }) {
     this.#module = module;
+    this.#providerWebhookSecret = providerWebhookSecret;
   }
 
   async getSuggestedSettlements(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
@@ -31,6 +41,45 @@ export class FastifySettlementController {
       reply,
       this.#module,
       RecordCashSettlementCommandEvent.set({ groupId: req.params.id, from: req.body.from, amount: req.body.amount }),
+    );
+  }
+
+  payThroughProvider(
+    req: FastifyRequest<{ Params: { id: string }; Body: { to: string; amount: number } }>,
+    reply: FastifyReply,
+  ) {
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      PayThroughProviderCommandEvent.set({ groupId: req.params.id, to: req.body.to, amount: req.body.amount }),
+    );
+  }
+
+  /** The provider's webhook: refused with 401 and nothing changed unless it is signed; otherwise acknowledged at once. */
+  receivePaymentWebhook(req: WebhookRequest, reply: FastifyReply) {
+    const signature = req.headers['provider-signature'];
+    if (
+      !signatureMatches(
+        this.#providerWebhookSecret,
+        req.rawBody ?? '',
+        typeof signature === 'string' ? signature : undefined,
+      )
+    ) {
+      reply.code(401);
+      return { message: 'The webhook is not signed by the provider' };
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      ReceivePaymentWebhookCommandEvent.set({
+        id: String(body.id ?? ''),
+        paymentId: String(body.paymentId ?? ''),
+        status: String(body.status ?? ''),
+        at: String(body.at ?? ''),
+      }),
     );
   }
 

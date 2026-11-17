@@ -30,3 +30,16 @@ export class SettlementExceedsDebt extends SettlementException {
     super('SettlementExceedsDebt', 'The amount is more than the payer owes, or more than the payee is owed');
   }
 }
+
+export class PayeeNotAMember extends SettlementException {
+  constructor() {
+    super('PayeeNotAMember', 'The payee must be a member of the group');
+  }
+}
+
+/** The provider did not give a payment link: it is not configured, did not answer, or answered anything else (ADR 8). */
+export class ProviderUnavailable extends SettlementException {
+  constructor() {
+    super('ProviderUnavailable', 'The payment provider did not give a payment link, and nothing was recorded');
+  }
+}

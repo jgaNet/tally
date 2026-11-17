@@ -9,9 +9,10 @@ interface SettlementRow {
   payer_id: string;
   payee_id: string;
   amount: number;
-  method: 'cash';
-  status: 'paid';
+  method: SettlementReadModel['method'];
+  status: SettlementReadModel['status'];
   recorded_at: string;
+  pay_url: string | null;
 }
 
 /** What the screens read of a settlement, from the SQLite file, outside any transaction. */
@@ -33,6 +34,7 @@ export class SqliteSettlementQueries implements ISettlementQueries {
         method: row.method,
         status: row.status,
         at: row.recorded_at,
+        ...(row.pay_url !== null && { payUrl: row.pay_url }),
       };
     });
   }

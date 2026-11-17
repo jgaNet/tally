@@ -18,6 +18,7 @@ import {
 } from '@Contexts/Ledger/module.local';
 import { settlementsModuleWith } from '@Contexts/Settlements/module.local';
 import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/LedgerGroupBalances';
+import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
@@ -48,6 +49,8 @@ export async function createApplication({
   const localSettlementsModule = settlementsModuleWith(
     new LedgerGroupBalances(groupBalanceSums),
     new LedgerGroupBalances(groupBalanceSumsInCommand),
+    // The payment provider (ADR 8): its API is PROVIDER_URL; without it, paying through the provider is refused.
+    new HttpPaymentProvider(process.env.PROVIDER_URL),
   );
   const app = new FastifyApplication({
     logger,
@@ -69,7 +72,11 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
-    .registerRoutes('/', settlementRoutes, { settlementsModule: localSettlementsModule })
+    .registerRoutes('/', settlementRoutes, {
+      settlementsModule: localSettlementsModule,
+      // The secret the provider signs its webhooks with (ADR 8), read here, at the transport that checks them.
+      providerWebhookSecret: process.env.PROVIDER_WEBHOOK_SECRET ?? '',
+    })
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule });
 
   await app.startModules();
