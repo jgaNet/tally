@@ -1,9 +1,10 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { GROUPS_SCHEMA } from '@Contexts/Groups/Infrastructure/SqliteGroupRepository';
-import { GroupView, IGroupQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
+import { prepareGroupsSchema } from '@Contexts/Groups/Infrastructure/SqliteGroupRepository';
+import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
 
 type GroupRow = { id: string; name: string; currency: string; owner_id: string };
+type MemberRow = { member_id: string; name: string; role: string; joined_at: string };
 
 const toView = (row: GroupRow): GroupView => ({
   id: String(row.id),
@@ -18,7 +19,7 @@ const toView = (row: GroupRow): GroupView => ({
  */
 export class SqliteGroupQueries implements IGroupQueries {
   constructor(private readonly database: SqliteDatabase) {
-    database.prepare(connection => connection.exec(GROUPS_SCHEMA));
+    database.prepare(prepareGroupsSchema);
   }
 
   async findGroupOf(memberId: string, groupId: string): Promise<GroupView | undefined> {
@@ -40,6 +41,27 @@ export class SqliteGroupQueries implements IGroupQueries {
         )
         .all(memberId) as GroupRow[];
       return rows.map(toView);
+    });
+  }
+
+  async listMembersOf(memberId: string, groupId: string): Promise<MemberView[] | undefined> {
+    return this.database.exclusive(() => {
+      const connection = this.database.connection;
+      const asks = connection
+        .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ?')
+        .get(groupId, memberId);
+      if (!asks) return undefined;
+      const rows = connection
+        .prepare(
+          'SELECT m.account_id AS member_id, a.name, m.role, m.joined_at FROM group_members m JOIN accounts a ON a.id = m.account_id WHERE m.group_id = ? ORDER BY m.position',
+        )
+        .all(groupId) as MemberRow[];
+      return rows.map((row): MemberView => ({
+        memberId: String(row.member_id),
+        name: String(row.name),
+        role: row.role === 'owner' ? 'owner' : 'member',
+        joinedAt: String(row.joined_at),
+      }));
     });
   }
 }

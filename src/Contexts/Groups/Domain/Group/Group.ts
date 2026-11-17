@@ -1,6 +1,6 @@
-import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { AggregateRoot, AlreadyExistsException, Id, IResult, Result } from '@Architecture/Domain';
 
-import { GroupCreatedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import { GroupCreatedEvent, MemberJoinedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import { Currency, CurrencyCode } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupSnapshot, MemberSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
@@ -70,7 +70,7 @@ export class Group extends AggregateRoot {
       groupCurrency.data,
       ownerId,
       at,
-      [{ accountId: ownerId, role: 'owner' }],
+      [{ accountId: ownerId, role: 'owner', joinedAt: at.toISOString() }],
       0,
     );
     group.record(
@@ -118,6 +118,25 @@ export class Group extends AggregateRoot {
       members: this.#members.map(member => ({ ...member })),
       version: this.version,
     };
+  }
+
+  /**
+   * Adds an account as a member, once: it joins at `at`, last of the members, and MemberJoined is recorded for the
+   * store to make durable with it. An account that is a member already is refused (AlreadyExists): it cannot join
+   * again. Who may join is decided by the invitation, not here: the use case has checked it.
+   */
+  join({ accountId, at }: { accountId: string; at: Date }): IResult<undefined> {
+    if (this.isMember(accountId)) {
+      return Result.fail(new AlreadyExistsException('Groups', 'You are already a member of this group'));
+    }
+    this.#members.push({ accountId, role: 'member', joinedAt: at.toISOString() });
+    this.record(MemberJoinedEvent.set({ groupId: this._id.value, accountId }));
+    return Result.ok(undefined);
+  }
+
+  /** Whether an account is a member of this group, whatever its role. */
+  isMember(accountId: string): boolean {
+    return this.#members.some(member => member.accountId === accountId);
   }
 
   get id(): string {

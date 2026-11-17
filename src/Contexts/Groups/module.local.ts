@@ -4,17 +4,21 @@ import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
-import { createGroup, getGroup, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import { createGroup, getGroup, getGroupMembers, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { SqliteAccountRepository } from '@Contexts/Groups/Infrastructure/SqliteAccountRepository';
 import { SqliteAccountQueries } from '@Contexts/Groups/Infrastructure/SqliteAccountQueries';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
 import { SqliteSessionTokens } from '@Contexts/Groups/Infrastructure/SqliteSessionTokens';
 import { SqliteGroupRepository } from '@Contexts/Groups/Infrastructure/SqliteGroupRepository';
 import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/SqliteGroupQueries';
+import { SqliteInvitationRepository } from '@Contexts/Groups/Infrastructure/SqliteInvitationRepository';
+import { SqliteInvitationQueries } from '@Contexts/Groups/Infrastructure/SqliteInvitationQueries';
 
 /**
- * The Groups context (conventions/domain.yaml, ADR 0001, ADR 0002): accounts, and groups with their members. Its
- * adapters are the application's SQLite file; its clock is the system's, given to the use cases that record a time.
+ * The Groups context (conventions/domain.yaml, ADR 0001, ADR 0002): accounts, and groups with their members and their
+ * invitations. Its adapters are the application's SQLite file; its clock is the system's, given to the use cases that
+ * record a time.
  */
 const accounts = new SqliteAccountRepository(sharedDatabase);
 const accountQueries = new SqliteAccountQueries(sharedDatabase);
@@ -22,6 +26,8 @@ const passwords = new ScryptPasswordHasher();
 const tokens = new SqliteSessionTokens(sharedDatabase);
 const groups = new SqliteGroupRepository(sharedDatabase);
 const groupQueries = new SqliteGroupQueries(sharedDatabase);
+const invitations = new SqliteInvitationRepository(sharedDatabase);
+const invitationQueries = new SqliteInvitationQueries(sharedDatabase);
 
 export const localGroupsModule = new LiteModule({
   name: 'Groups',
@@ -32,6 +38,10 @@ export const localGroupsModule = new LiteModule({
     createGroup(groups, systemClock),
     getGroup(groupQueries),
     getMyGroups(groupQueries),
+    getGroupMembers(groupQueries),
+    createInvitation(invitations, groups, systemClock),
+    acceptInvitation(invitations, groups, systemClock),
+    getInvitation(invitationQueries),
   ],
 });
 

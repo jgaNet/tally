@@ -33,3 +33,14 @@ export const getMyGroups = query(
   'GetMyGroups',
   (groups: IGroupQueries) => async (_input: void, context) => Result.ok(await groups.listGroupsOf(callerOf(context))),
 );
+
+/** Lists the members of a group, in the order they joined, for its members only: for anyone else it does not exist. */
+export const getGroupMembers = query(
+  'GetGroupMembers',
+  (groups: IGroupQueries) =>
+    async ({ id }: { id: string }, context) => {
+      const members = await groups.listMembersOf(callerOf(context), id);
+      if (!members) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
+      return Result.ok(members);
+    },
+);

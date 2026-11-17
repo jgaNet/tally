@@ -14,6 +14,7 @@ import { localGroupsModule, authenticatedAccountOf } from '@Contexts/Groups/modu
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
+import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
 
 /**
  * The composition root of the application (docs/adr/0002). It sets up the transport, which gives each
@@ -56,6 +57,7 @@ export async function createApplication({
     .registerModule(localLedgerModule)
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
+    .registerRoutes('/', invitationRoutes, { module: localGroupsModule })
     .registerRoutes('/', operationRoutes, {});
 
   await app.startModules();
