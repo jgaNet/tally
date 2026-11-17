@@ -134,8 +134,8 @@ describe('RecordExpense', () => {
     expect(store.get(shares.data as string)).toMatchObject({
       splitKind: 'shares',
       shares: [
-        { memberId: 'alice', amount: 667 },
-        { memberId: 'bob', amount: 334 },
+        { memberId: 'alice', amount: 668 },
+        { memberId: 'bob', amount: 333 },
       ],
     });
   });

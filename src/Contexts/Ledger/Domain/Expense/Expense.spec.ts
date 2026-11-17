@@ -31,7 +31,7 @@ const sharesOf = (split: ReturnType<typeof Split.equally>): Split => split.data 
 const amountsOf = (expense: Expense) => expense.shares.map(share => [share.memberId.value, share.amount]);
 
 describe('Split, equally', () => {
-  it('gives each member the amount divided by their number, rounded down, the remainder whole to the payer', () => {
+  it('gives each member the amount divided by their number, rounded down, the remainder whole to the first member listed', () => {
     const split = Split.equally({
       amount: Amount.create(1000).data as Amount,
       payer: alice,
@@ -156,7 +156,7 @@ describe('Split, by shares', () => {
   });
 
   it('gives each member the amount times their shares, divided by the total of the shares, rounded down', () => {
-    // 1001 by 2, 1 and 1: 2/4 of 1001 is 500.5, 1/4 is 250.25; both rounded down, the remainder to the payer.
+    // 1001 by 2, 1 and 1: 2/4 of 1001 is 500.5, 1/4 is 250.25; both rounded down to 500, 250, 250, the remainder (1) to the first listed, bob.
     const split = byShares(
       [
         [bob, 2],
@@ -167,11 +167,11 @@ describe('Split, by shares', () => {
     );
 
     const amounts = sharesOf(split).shares.map(share => share.amount);
-    expect(amounts).toEqual([500, 251, 250]);
+    expect(amounts).toEqual([501, 250, 250]);
     expect(amounts.reduce((sum, amount) => sum + amount, 0)).toBe(1001);
   });
 
-  it('gives 667 and 334 for 1001 by shares of 2 and 1, the payer listed second, as the request says', () => {
+  it('gives the remainder to the first member listed: 668 and 333 for 1001 by shares of 2 and 1, the payer listed second', () => {
     const split = byShares(
       [
         [alice, 2],
@@ -182,8 +182,8 @@ describe('Split, by shares', () => {
     );
 
     expect(sharesOf(split).shares.map(share => [share.memberId.value, share.amount])).toEqual([
-      ['alice', 667],
-      ['bob', 334],
+      ['alice', 668],
+      ['bob', 333],
     ]);
   });
 
@@ -303,8 +303,8 @@ describe('Expense', () => {
     ]);
     expect(shares.splitKind).toBe('shares');
     expect(amountsOf(shares)).toEqual([
-      ['alice', 667],
-      ['bob', 334],
+      ['alice', 668],
+      ['bob', 333],
     ]);
   });
 

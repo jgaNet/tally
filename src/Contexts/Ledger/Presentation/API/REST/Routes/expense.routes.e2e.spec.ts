@@ -89,7 +89,7 @@ const PAST_DAY = '2026-03-10';
 const FUTURE_DAY = '9999-12-31';
 
 describe('expenses', () => {
-  it('splits an amount equally, the remainder to the payer, and lets a member read it in the split order', async () => {
+  it('splits an amount equally, the remainder to the first member listed, and lets a member read it in the split order', async () => {
     const alice = await signedIn('ana@example.com', 'Alice');
     const bob = await signedIn('bea@example.com', 'Bob');
     const carl = await signedIn('cai@example.com', 'Carl');
@@ -117,8 +117,8 @@ describe('expenses', () => {
       splitKind: 'equal',
       version: 1,
       shares: [
-        { memberId: bob.id, amount: 333 },
-        { memberId: alice.id, amount: 334 },
+        { memberId: bob.id, amount: 334 },
+        { memberId: alice.id, amount: 333 },
         { memberId: carl.id, amount: 333 },
       ],
     } satisfies Expense & { version: number });
@@ -150,7 +150,8 @@ describe('expenses', () => {
       ],
     });
 
-    // Bob pays: 1001 by shares of 2 (Alice) and 1 (Bob), the payer listed second, is 667 for Alice and 334 for Bob.
+    // Bob pays: 1001 by shares of 2 (Alice) and 1 (Bob), the payer listed second, is 668 for Alice (the remainder, as the
+    // first listed) and 333 for Bob.
     const shared = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
       token: bob.token,
       body: {
@@ -170,8 +171,8 @@ describe('expenses', () => {
       splitKind: 'shares',
       paidBy: bob.id,
       shares: [
-        { memberId: alice.id, amount: 667 },
-        { memberId: bob.id, amount: 334 },
+        { memberId: alice.id, amount: 668 },
+        { memberId: bob.id, amount: 333 },
       ],
     });
   });

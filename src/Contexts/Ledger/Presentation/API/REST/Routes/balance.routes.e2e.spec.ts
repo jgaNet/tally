@@ -83,7 +83,7 @@ describe('balances', () => {
     await join(alice.token, groupId, carl.token);
     await join(alice.token, groupId, dan.token);
 
-    // 1000 split three ways: 334 to Alice (the remainder), 333 each to Bob and Carl.
+    // 1000 split three ways, Alice listed first: 334 to Alice (the remainder), 333 each to Bob and Carl.
     expect(
       await record(alice.token, groupId, {
         description: 'Groceries',

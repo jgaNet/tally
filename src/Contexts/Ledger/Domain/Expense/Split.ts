@@ -32,8 +32,9 @@ export interface Share {
  * How an expense is shared out. Equally: each member's share is the amount divided by their number, rounded down. By
  * exact amounts: each member's share is the amount they were given, the amounts adding up to the expense's amount. By
  * shares: each member's share is the amount times their shares, divided by the total of the shares, rounded down. In
- * every kind the remainder, less than the number of members, goes whole to the payer's share, so the shares add up to the
- * amount exactly. The shares are computed here, once, and kept with the expense as they were decided.
+ * the equal and the shares kinds the remainder, less than the number of members, goes whole to the share of the member
+ * listed first in the split, whoever paid, so the shares add up to the amount exactly. The shares are computed here,
+ * once, and kept with the expense as they were decided.
  */
 export class Split {
   private constructor(
@@ -61,7 +62,10 @@ export class Split {
     }
   }
 
-  /** The members are the ones the expense is split between, in the order the payer gave, the payer among them. */
+  /**
+   * The members are the ones the expense is split between, in the order given, the payer among them. The remainder goes
+   * whole to the first member's share.
+   */
   static equally({ amount, payer, members }: { amount: Amount; payer: Id; members: Id[] }): IResult<Split> {
     const refusal = Split.membersRefusal(members, payer);
     if (refusal) return Result.fail(refusal);
@@ -71,9 +75,9 @@ export class Split {
     return Result.ok(
       new Split(
         'equal',
-        members.map(memberId => ({
+        members.map((memberId, index) => ({
           memberId,
-          amount: memberId.value === payer.value ? base + remainder : base,
+          amount: index === 0 ? base + remainder : base,
         })),
       ),
     );
@@ -111,8 +115,8 @@ export class Split {
 
   /**
    * Each member has a whole number of shares, at least 1. Their share is the amount times their shares, divided by the total
-   * of the shares, rounded down (exact in whole numbers, so no rounding of the big products); the remainder goes whole to the
-   * payer's share.
+   * of the shares, rounded down (exact in whole numbers, so no rounding of the big products); the remainder goes whole to
+   * the first member's share.
    */
   static byShares({
     amount,
@@ -141,7 +145,7 @@ export class Split {
         'shares',
         shares.map((share, index) => ({
           memberId: share.memberId,
-          amount: Number(parts[index] + (share.memberId.value === payer.value ? remainder : 0n)),
+          amount: Number(parts[index] + (index === 0 ? remainder : 0n)),
         })),
       ),
     );
