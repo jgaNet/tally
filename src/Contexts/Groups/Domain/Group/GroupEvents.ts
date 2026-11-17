@@ -6,3 +6,9 @@ import { DomainEvent } from '@Architecture/Domain';
  * membership fact: a member who joins later is announced by `MemberJoined` (feature 3).
  */
 export class GroupCreatedEvent extends DomainEvent<{ groupId: string; ownerId: string; createdAt: Date }> {}
+
+/**
+ * An account joined a group, as its last member. Recorded by `Group.join()` and published after its save; nothing
+ * reacts to it yet, so it is not an integration event (ADR 4). Ledger asks for the members when it decides (feature 4).
+ */
+export class MemberJoinedEvent extends DomainEvent<{ groupId: string; accountId: string; joinedAt: Date }> {}

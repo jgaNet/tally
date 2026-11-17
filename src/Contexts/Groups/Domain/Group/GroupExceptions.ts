@@ -21,3 +21,14 @@ export class InvalidCurrencyException extends Exception {
     });
   }
 }
+
+/** The account is a member of the group already: it joins once. */
+export class AlreadyMemberException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'AlreadyMember',
+      message: 'You are a member of this group already',
+    });
+  }
+}

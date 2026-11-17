@@ -2,7 +2,8 @@ import { FastifyPluginCallback } from 'fastify';
 
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
-import { createGroup, getGroup, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import { createGroup, getGroup, getGroupMembers, getMyGroups } from '@Contexts/Groups/Application/Groups';
+import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 
 import { shapeOf } from './bodyShape';
 
@@ -32,6 +33,28 @@ export const groupRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fasti
 
   fastify.get('/groups/:id', { schema: { tags: ['groups'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getGroup), { id: (req.params as { id: string }).id }),
+  );
+
+  fastify.get('/groups/:id/members', { schema: { tags: ['groups'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getGroupMembers), { id: (req.params as { id: string }).id }),
+  );
+
+  fastify.post('/groups/:id/invitations', { schema: { tags: ['invitations'] } }, (req, reply) =>
+    answerAtOnce(
+      req,
+      reply,
+      module.useCase(createInvitation),
+      { id: (req.params as { id: string }).id },
+      { created: true },
+    ),
+  );
+
+  fastify.get('/invitations/:id', { schema: { tags: ['invitations'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getInvitation), { id: (req.params as { id: string }).id }),
+  );
+
+  fastify.post('/invitations/:id/accept', { schema: { tags: ['invitations'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(acceptInvitation), { id: (req.params as { id: string }).id }),
   );
 
   done();

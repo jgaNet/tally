@@ -5,7 +5,7 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { decideCreateGroup } from '@Contexts/Groups/Domain/Group/Group.decision';
 
-import { GroupView, IGroupQueries } from './IGroupQueries';
+import { GroupView, IGroupQueries, MemberView } from './IGroupQueries';
 import { IGroupRepository } from './IGroupRepository';
 
 /**
@@ -37,4 +37,15 @@ export const getGroup = query('GetGroup', (groups: IGroupQueries) => async ({ id
 export const getMyGroups = query(
   'GetMyGroups',
   (groups: IGroupQueries) => async (_input: void, context) => Result.ok(await groups.groupsOf(callerOf(context))),
+);
+
+/** A member lists the members of the group, in the order they joined, the owner first; anyone else gets a `404`. */
+export const getGroupMembers = query(
+  'GetGroupMembers',
+  (groups: IGroupQueries) =>
+    async ({ id }: { id: string }, context) => {
+      const members: MemberView[] | undefined = await groups.membersOf(id, callerOf(context));
+      if (!members) return Result.fail(new NotFoundException('Groups', 'No group is found'));
+      return Result.ok(members);
+    },
 );
