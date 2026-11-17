@@ -87,6 +87,16 @@ const migrations: readonly string[] = [
   ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'
     CHECK (split_kind IN ('equal', 'exact', 'shares'));
   `,
+  `
+  -- A member who leaves loses their membership row. Their leaving is kept, so the group's members can
+  -- still read their statement. A later join makes a new membership row, which is last in the order.
+  CREATE TABLE former_members (
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    left_at    TEXT NOT NULL,
+    PRIMARY KEY (group_id, account_id)
+  );
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

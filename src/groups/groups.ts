@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { balancesOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
 import { Refusal } from '../refusal';
 import { type Currency, type GroupInput, validateGroup } from './validation';
@@ -86,9 +87,39 @@ export function requireMembership(db: Database, groupId: string, accountId: stri
 }
 
 /**
+ * Whether `accountId` has ever been a member of `groupId`, whether or not it still is. Reading it
+ * changes nothing.
+ */
+export function hasBeenMember(db: Database, groupId: string, accountId: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM memberships WHERE group_id = ? AND account_id = ?
+       UNION ALL
+       SELECT 1 FROM former_members WHERE group_id = ? AND account_id = ?`,
+    )
+    .get(groupId, accountId, groupId, accountId);
+  return row !== undefined;
+}
+
+/**
+ * The accounts among `accountIds` that are no longer members of `groupId`, each once. Those who have
+ * left cannot be in a new expense, nor pay one, and an expense that names them cannot be changed.
+ */
+export function leftMembersAmong(db: Database, groupId: string, accountIds: readonly string[]): string[] {
+  const current = new Set(
+    (
+      db.prepare('SELECT account_id FROM memberships WHERE group_id = ?').all(groupId) as unknown as {
+        account_id: string;
+      }[]
+    ).map(row => row.account_id),
+  );
+  return [...new Set(accountIds)].filter(accountId => !current.has(accountId));
+}
+
+/**
  * Makes `accountId` a member of `groupId`, as a member who joins by an invitation. Someone already
- * a member is refused with `409`. Runs inside `inTransaction`, so the check and the write cannot
- * be split by another join.
+ * a member is refused with `409`. Someone who left joins again as a new member, last in the order.
+ * Runs inside `inTransaction`, so the check and the write cannot be split by another join.
  */
 export function joinGroup(db: Database, groupId: string, accountId: string): void {
   const existing = db
@@ -102,6 +133,29 @@ export function joinGroup(db: Database, groupId: string, accountId: string): voi
     accountId,
     new Date().toISOString(),
   );
+}
+
+/**
+ * Makes `accountId` leave `groupId`, once its balance is 0. The owner cannot leave the group they
+ * created; anyone outside the group is refused with `404`, as for a group that does not exist. The
+ * balance is read and the membership removed in one transaction, so no expense lands between them.
+ */
+export function leaveGroup(db: Database, groupId: string, accountId: string): void {
+  inTransaction(db, () => {
+    const group = requireMembership(db, groupId, accountId);
+    if (group.ownerId === accountId) {
+      throw new Refusal(403, 'OwnerCannotLeave', 'The owner cannot leave the group they created.');
+    }
+    const balance = balancesOf(db, groupId).find(entry => entry.memberId === accountId)?.balance ?? 0;
+    if (balance !== 0) {
+      throw new Refusal(409, 'BalanceNotZero', 'Your balance in this group must be 0 before you leave it.');
+    }
+    db.prepare('DELETE FROM memberships WHERE group_id = ? AND account_id = ?').run(groupId, accountId);
+    db.prepare(
+      `INSERT INTO former_members (group_id, account_id, left_at) VALUES (?, ?, ?)
+       ON CONFLICT (group_id, account_id) DO UPDATE SET left_at = excluded.left_at`,
+    ).run(groupId, accountId, new Date().toISOString());
+  });
 }
 
 export interface Member {

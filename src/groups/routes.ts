@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { requireAccount } from '../auth';
 import type { Database } from '../database';
 import { Refusal } from '../refusal';
-import { createGroup, groupForMember, groupsOfMember, membersOf, requireMembership } from './groups';
+import { createGroup, groupForMember, groupsOfMember, leaveGroup, membersOf, requireMembership } from './groups';
 import { CURRENCIES } from './validation';
 
 const memberSchema = {
@@ -89,6 +89,20 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
       const account = requireAccount(db, request);
       requireMembership(db, request.params.id, account.id);
       return membersOf(db, request.params.id);
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/groups/:id/leave',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      },
+    },
+    async (request, reply) => {
+      const account = requireAccount(db, request);
+      leaveGroup(db, request.params.id, account.id);
+      return reply.code(204).send();
     },
   );
 }

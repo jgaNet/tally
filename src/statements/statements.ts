@@ -1,4 +1,5 @@
 import type { Database } from '../database';
+import { hasBeenMember } from '../groups/groups';
 import { Refusal } from '../refusal';
 
 export interface StatementEntry {
@@ -34,11 +35,11 @@ interface StatementRow {
  * paid or is in the split of, the earliest date first, then the earliest recorded first. Each entry
  * carries what the member paid and their share, and their running balance. Reading changes nothing.
  *
- * Refuses with `404` when `memberId` has never been a member of the group.
+ * A member who has left keeps their statement. Refuses with `404` when `memberId` has never been a
+ * member of the group.
  */
 export function statementOf(db: Database, groupId: string, memberId: string): Statement {
-  const member = db.prepare('SELECT 1 FROM memberships WHERE group_id = ? AND account_id = ?').get(groupId, memberId);
-  if (member === undefined) {
+  if (!hasBeenMember(db, groupId, memberId)) {
     throw new Refusal(404, 'NotFound', 'There is no such member in this group.');
   }
 

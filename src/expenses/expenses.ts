@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { type Database, inTransaction } from '../database';
-import { requireMembership } from '../groups/groups';
+import { leftMembersAmong, requireMembership } from '../groups/groups';
 import { Refusal } from '../refusal';
 import { type ExpenseInput, type SplitInput, type SplitKind, validateExpense } from './validation';
 
@@ -217,7 +217,9 @@ export function requireExpense(db: Database, expenseId: string, accountId: strin
 /**
  * The expense, for an edit or a delete by `accountId`, who must be its payer or the owner of its
  * group. Another member is refused with `403`; anyone outside the group is refused with `404`, as
- * if the expense did not exist. Runs inside `inTransaction`, so the check and the write cannot be split.
+ * if the expense did not exist. An expense that names a member who has left is refused with `409`:
+ * it is kept as it was, so that member's balance stays 0. Runs inside `inTransaction`, so the check
+ * and the write cannot be split.
  */
 function requireEditor(db: Database, expenseId: string, accountId: string): Expense {
   const expense = requireExpense(db, expenseId, accountId);
@@ -226,6 +228,14 @@ function requireEditor(db: Database, expenseId: string, accountId: string): Expe
     if (group.ownerId !== accountId) {
       throw new Refusal(403, 'NotPermitted', 'Only the member who paid for this expense, or the owner, may change it.');
     }
+  }
+  const named = [expense.paidBy, ...expense.shares.map(share => share.memberId)];
+  if (leftMembersAmong(db, expense.groupId, named).length > 0) {
+    throw new Refusal(
+      409,
+      'MemberHasLeft',
+      'A member who has left the group is in this expense, so it cannot be changed.',
+    );
   }
   return expense;
 }
