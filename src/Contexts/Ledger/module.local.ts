@@ -10,9 +10,12 @@ import {
   getMemberStatement,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
+import { BalancesCountingSettlements } from '@Contexts/Ledger/Infrastructure/BalancesCountingSettlements';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { LedgerDatabase } from '@Contexts/Ledger/Infrastructure/LedgerDatabase';
+import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
 import { SqliteExpenses } from '@Contexts/Ledger/Infrastructure/SqliteExpenses';
+import { settlementsReadModel } from '@Contexts/Settlements/module.local';
 
 /**
  * The Ledger context, as data (ADR 1, ADR 5): its expenses in SQLite at `LEDGER_DATABASE_PATH`, or the application's
@@ -25,20 +28,25 @@ const database = new LedgerDatabase(
 );
 const expenses = new SqliteExpenses(database);
 const groupMembers = new GroupMembersOfGroups(() => groupsMembersReadModel);
+/** What the group's settlements paid, read from Settlements' read model at a request, never when the modules are built (ADR 7, ADR 11). */
+const settledAmounts = new SettledAmountsOfSettlements(() => settlementsReadModel);
+/** The balances as every reader sees them: the expenses', plus the settlements (request 12). */
+const balancesCountingSettlements = new BalancesCountingSettlements(expenses, settledAmounts);
 
 /**
- * The balances, the read model of the expenses' balances, which Groups asks through its own `MemberBalances` port before a
- * member leaves (ADR 7): the one thing of Ledger another context reaches through this file. Groups' wiring imports this one
- * and this one imports Groups', each for the read model the other asks; both are read at a request (ADR 7).
+ * The balances, the read model of the balances, which Groups asks through its own `MemberBalances` port before a member leaves
+ * (ADR 7), and Settlements asks for its suggestions (ADR 10): the one thing of Ledger another context reaches through this file. It
+ * counts the settlements of the group (ADR 11). Groups' wiring imports this one and this one imports Groups' and Settlements', each for
+ * the read model the other asks; all are read at a request (ADR 7).
  */
-export const ledgerBalancesReadModel = expenses;
+export const ledgerBalancesReadModel = balancesCountingSettlements;
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
   useCases: [
     recordExpense(expenses, groupMembers, systemClock),
     getExpense(expenses, groupMembers),
-    getGroupBalances(expenses, groupMembers),
+    getGroupBalances(balancesCountingSettlements, groupMembers),
     getGroupExpenses(expenses, groupMembers),
     getMemberStatement(expenses, groupMembers),
     editExpense(expenses, groupMembers, systemClock),

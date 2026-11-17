@@ -15,6 +15,7 @@ why, what it costs, and when to revisit it.
 | [8](0008-the-remainder-goes-to-the-first-member-listed.md) | The remainder of a split goes to the first member listed, not to the payer |
 | [9](0009-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
 | [10](0010-suggested-settlements-read-the-balances-through-two-owned-ports.md) | Suggested settlements read the balances through two ports Settlements owns |
+| [11](0011-settlement-in-cash-and-the-settlement-book.md) | A cash settlement is decided in a SettlementBook, and Ledger counts it in every balance |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

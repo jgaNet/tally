@@ -4,6 +4,7 @@ import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
+import { IBalanceQueries } from '@Contexts/Ledger/Domain/IBalanceQueries';
 import {
   decideRecordExpense,
   decideEditExpense,
@@ -139,19 +140,19 @@ export const getExpense = query(
 
 /**
  * A member of a group reads every member's balance, in the order they joined (the order Groups gives them): what the
- * member paid for the group's expenses less their shares in them, so the balances add up to 0. Anyone who is not a member
- * gets the answer for a group that does not exist.
+ * member paid for the group's expenses less their shares in them, and what the group's settlements have paid since
+ * (request 12), so the balances add up to 0. Anyone who is not a member gets the answer for a group that does not exist.
  */
 export const getGroupBalances = query(
   'GetGroupBalances',
-  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+  (balances: IBalanceQueries, groupMembers: IGroupMembers) =>
     async ({ id }: { id: string }, context) => {
       const members = await groupMembers.membersOf(id, callerOf(context));
       if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
-      const balances = await expenses.balancesOf(id);
+      const counted = await balances.balancesOf(id);
       const answer: BalanceView[] = memberIdsOf(members).map(memberId => ({
         memberId,
-        balance: balances.get(memberId) ?? 0,
+        balance: counted.get(memberId) ?? 0,
       }));
       return Result.ok(answer);
     },
