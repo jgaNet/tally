@@ -12,6 +12,8 @@ import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { operationRoutes } from '@Bootstrap/Fastify/operations.routes';
 import { localGroupsModule, authenticatedAccountOf } from '@Contexts/Groups/module.local';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { localSettlementsModule } from '@Contexts/Settlements/module.local';
+import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
@@ -56,6 +58,8 @@ export async function createApplication({
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
+    .registerModule(localSettlementsModule)
+    .registerModule(localNotificationsModule)
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', invitationRoutes, { module: localGroupsModule })

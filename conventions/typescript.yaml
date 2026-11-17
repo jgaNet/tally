@@ -22,6 +22,8 @@ root: .
 contexts:
   - Groups
   - Ledger
+  - Settlements
+  - Notifications
 contexts_tree:
   alias: '@Contexts'
   path: src/Contexts
