@@ -319,13 +319,13 @@ describe('settling up in cash', () => {
       );
     });
 
-    it('lets a member leave only once the settlements bring their balance to 0', async () => {
+    it('lets a member leave at once, whatever they still owe, and the owner takes over what is left', async () => {
       await oneExpenseBetweenAdaAndGrace();
-      expect((await call(app, 'POST', `/groups/${groupId}/leave`, { token: graceToken })).status).toBe(409);
       await settle({ from: graceId, amount: 300 }, adaToken);
-      expect((await call(app, 'POST', `/groups/${groupId}/leave`, { token: graceToken })).status).toBe(409);
-      await settle({ from: graceId, amount: 200 }, adaToken);
+      expect(await balancesOf()).toEqual({ [adaId]: 200, [graceId]: -200, [linusId]: 0 });
+
       expect((await call(app, 'POST', `/groups/${groupId}/leave`, { token: graceToken })).status).toBe(204);
+      expect(await balancesOf()).toEqual({ [adaId]: 0, [linusId]: 0 });
     });
 
     it("leaves a member's statement on its expenses alone: its balance is what the expenses give", async () => {

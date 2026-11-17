@@ -122,13 +122,38 @@ describe('leaving a group', () => {
       expect(await leave(graceToken)).toEqual({ status: 404, body: { type: 'NotFound', message: expect.any(String) } });
     });
 
-    it('refuses a leave while the balance is not 0, with 409, and keeps the member in the group', async () => {
-      await record(adaToken, { amount: 1000, splitBetween: [adaId, graceId] });
-      const answer = await leave(graceToken);
-      expect(answer).toEqual({ status: 409, body: { type: 'BalanceNotZero', message: expect.any(String) } });
+    it('lets a member leave at a balance that is not 0, with 204, and the owner takes over what they owed', async () => {
+      // Ada paid 600 for herself, Grace and Linus, 300 each for the two of them: Ada is owed 600, Grace and Linus owe 300.
+      await record(adaToken, {
+        amount: 600,
+        splitExactly: [
+          { memberId: adaId, amount: 0 },
+          { memberId: graceId, amount: 300 },
+          { memberId: linusId, amount: 300 },
+        ],
+      });
+      expect(asMap((await balances()).body)).toEqual({ [adaId]: 600, [graceId]: -300, [linusId]: -300 });
 
-      expect((await members()).body.map((row: { memberId: string }) => row.memberId)).toContain(graceId);
-      expect(asMap((await balances()).body)[graceId]).toBe(-500);
+      expect((await leave(graceToken)).status).toBe(204);
+      expect(asMap((await balances()).body)).toEqual({ [adaId]: 300, [linusId]: -300 });
+      expect((await members()).body.map((row: { memberId: string }) => row.memberId)).toEqual([adaId, linusId]);
+    });
+
+    it('lets a member leave who is owed money, and the owner takes over the debt owed to the member', async () => {
+      // Grace paid 600 for herself and Ada: Grace is owed 300, Ada owes 300.
+      await record(graceToken, { amount: 600, splitBetween: [adaId, graceId] });
+      expect((await leave(graceToken)).status).toBe(204);
+      expect(asMap((await balances()).body)).toEqual({ [adaId]: 0, [linusId]: 0 });
+    });
+
+    it('keeps the balances of the group at a total of 0 when a member with a balance leaves', async () => {
+      await record(linusToken, { amount: 900, splitBetween: [adaId, graceId, linusId] });
+      await record(graceToken, { amount: 400, splitBetween: [graceId, linusId] });
+      expect(Object.values(asMap((await balances()).body)).reduce((sum, value) => sum + value, 0)).toBe(0);
+
+      expect((await leave(graceToken)).status).toBe(204);
+      const rows = (await balances()).body as { memberId: string; balance: number }[];
+      expect(rows.reduce((sum, row) => sum + row.balance, 0)).toBe(0);
     });
 
     it('refuses the owner, with 403, and keeps the owner in the group even at a balance of 0', async () => {
@@ -269,6 +294,24 @@ describe('leaving a group', () => {
       expect(
         (await call(app, 'GET', '/groups/mine', { token: graceToken })).body.map((g: { id: string }) => g.id),
       ).toEqual([groupId]);
+    });
+
+    it('starts a member who left at a balance and joins again at 0, and the owner keeps what passed to them', async () => {
+      await record(adaToken, {
+        amount: 600,
+        splitExactly: [
+          { memberId: adaId, amount: 0 },
+          { memberId: graceId, amount: 300 },
+          { memberId: linusId, amount: 300 },
+        ],
+      });
+      await leave(graceToken);
+      await join(graceToken);
+
+      expect(asMap((await balances()).body)).toEqual({ [adaId]: 300, [linusId]: -300, [graceId]: 0 });
+      // What the rejoined member owes from now on counts, and only that.
+      await record(linusToken, { amount: 200, splitBetween: [linusId, graceId] });
+      expect(asMap((await balances()).body)).toEqual({ [adaId]: 300, [linusId]: -200, [graceId]: -100 });
     });
 
     it('gives the rejoined member the join time of the rejoin, which is after the one before', async () => {

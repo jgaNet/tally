@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { inTransaction } from './database';
 import { newToken } from './credentials';
 import { findGroupOf } from './groups';
+import { resetBalanceOnRejoin } from './balances';
 import { addMember, isMember } from './members';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
@@ -61,6 +62,8 @@ export function acceptInvitation(db: DatabaseSync, accountId: string, id: string
       throw new Refusal(409, 'AlreadyMember', 'The account is already a member of this group.');
     }
     addMember(db, invitation.groupId, accountId);
+    // A member who joins again starts at a balance of 0, whatever they were left with when they left.
+    resetBalanceOnRejoin(db, invitation.groupId, accountId);
   });
 }
 

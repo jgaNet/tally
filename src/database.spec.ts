@@ -97,6 +97,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
         DROP TABLE debt_notes;
         DROP TABLE notices;
@@ -126,7 +127,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
       expect(db.prepare('SELECT id FROM notices ORDER BY rowid').all()).toEqual([{ id: 'n1' }, { id: 'n2' }]);
       db.prepare(
         "INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('r', 'a', 'reminder', 'g', NULL, 2500, '2026-11-09T00:00:00.000Z')",
@@ -141,7 +142,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
     } finally {
       db.close();
     }
@@ -151,6 +152,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec('DROP TABLE debt_notes');
       before.exec('DROP TABLE notices');
       before.exec('DROP TABLE settlement_history');
@@ -162,7 +164,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
       expect(db.prepare('SELECT COUNT(*) AS count FROM notices').get()).toEqual({ count: 0 });
       expect(() =>
         db.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
@@ -193,6 +195,7 @@ describe('the database', () => {
     // The file as the schema was before splits could be unequal: no column for the kind of split, version 5.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec('DROP TABLE payment_decisions');
       before.exec('DROP TABLE payout_accounts');
       before.exec('DROP TABLE settlements');
@@ -231,6 +234,7 @@ describe('the database', () => {
     // The file as the schema was before a membership could end: no column for it, version 6.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec('DROP TABLE payment_decisions');
       before.exec('DROP TABLE payout_accounts');
       before.exec('DROP TABLE settlements');
@@ -273,6 +277,7 @@ describe('the database', () => {
     // The file as the schema was before settlements: no table for them, version 7.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec('DROP TABLE payment_decisions');
       before.exec('DROP TABLE payout_accounts');
       before.exec('DROP TABLE settlements');
@@ -303,6 +308,7 @@ describe('the database', () => {
     // The file as the schema was before provider settlements: the settlements table of version 8, one cash row.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
         DROP TABLE payment_decisions;
         DROP TABLE payout_accounts;
@@ -333,7 +339,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -354,6 +360,7 @@ describe('the database', () => {
     // The file as the schema was at version 10: a provider settlement paid, and the decision kept for its payment.
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
         DROP TABLE payment_decisions;
         DROP TABLE payout_accounts;
@@ -392,7 +399,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
       expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
         { id: 's', status: 'paid', provider_id: 'pay_9' },
       ]);
@@ -421,6 +428,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
         INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
         DROP TABLE payout_accounts;
@@ -436,7 +444,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
       expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
       db.exec(
         "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
@@ -464,6 +472,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
     try {
+      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
         DROP TABLE settlement_history;
         ALTER TABLE payment_decisions DROP COLUMN decided_at;
@@ -482,7 +491,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 15 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
       const history = (id: string) =>
         db.prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq').all(id);
       expect(history('cash')).toEqual([{ status: 'paid', at: '2026-11-02T00:00:00.000Z' }]);

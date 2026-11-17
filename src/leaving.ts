@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { listBalances } from './balances';
 import { inTransaction } from './database';
 import { findGroupOf } from './groups';
 import { Refusal } from './refusal';
@@ -8,11 +7,13 @@ import { hasWaitingSettlement } from './settlements';
 import { requireCaller } from './sessions';
 
 /**
- * The account leaves the group, once its balance in the group is 0. The owner of the group cannot leave
- * it. A member who leaves is no longer among the members or the balances of the group, nor is the group
- * among their groups; the expenses they were in stay as they were. The check and the leaving are one
- * write transaction, so no expense can land between them. For an account that is not a member, the
- * group does not exist.
+ * The account leaves the group, whatever its balance is. The owner of the group cannot leave it. What the
+ * account owes, or is owed, passes to the owner of the group, in the same write transaction that takes the
+ * account out of the group (see `balances.ts`). A member who leaves is no longer among the members or the
+ * balances of the group, nor is the group among their groups; the expenses they were in stay as they were. A
+ * payment or refund through the provider still waiting for them keeps them in the group until it has ended. The
+ * check and the leaving are one write transaction, so no expense or settlement can land between them. For an
+ * account that is not a member, the group does not exist.
  */
 export function leaveGroup(db: DatabaseSync, accountId: string, groupId: string): void {
   inTransaction(db, () => {
@@ -21,9 +22,7 @@ export function leaveGroup(db: DatabaseSync, accountId: string, groupId: string)
     if (group.ownerId === accountId) {
       throw new Refusal(403, 'OwnerCannotLeave', 'The owner cannot leave the group they created.');
     }
-    const balance = listBalances(db, groupId).find(row => row.memberId === accountId)?.balance ?? 0;
-    if (balance !== 0) throw new Refusal(409, 'BalanceNotZero', 'The balance must be 0 to leave the group.');
-    // A payment or a refund through the provider still waiting for the member would move their balance after they left.
+    // A payment or a refund through the provider still waiting for the member would move the balance the owner takes over.
     if (hasWaitingSettlement(db, groupId, accountId)) {
       throw new Refusal(
         409,

@@ -263,6 +263,14 @@ const MIGRATIONS: readonly string[] = [
     SELECT id, status, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now') FROM settlements
     WHERE method = 'provider' AND status <> 'pending' ORDER BY rowid;
   `,
+  `
+  -- The balance a member's row carries away from their own balance. A member's balance is what their expenses and
+  -- settlements give, less this offset. When a member leaves, nothing is written: the owner of the group takes over
+  -- what the member's balance is, for as long as they are gone. When the member joins again, the offset becomes what
+  -- their balance is then, so they start at 0, and the owner's offset moves by the opposite, so the owner keeps what
+  -- passed to them. The offsets of a group add up to 0, which keeps its balances at a total of 0.
+  ALTER TABLE group_members ADD COLUMN balance_offset INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /**

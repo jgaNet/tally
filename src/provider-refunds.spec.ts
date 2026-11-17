@@ -345,6 +345,22 @@ describe('refunding a settlement paid through the payment provider', () => {
   });
 
   describe('webhooks that say refunded', () => {
+    it('keeps the balances at a total of 0 when the provider refunds a payment whose payer has left', async () => {
+      const settlement = await paidSettlement();
+      expect((await call(app, 'POST', `/groups/${groupId}/leave`, { token: graceToken })).status).toBe(204);
+      expect(await balancesOf()).toEqual({ [adaId]: 1000, [linusId]: -1000 });
+
+      // The provider refunds the payment on its own: Grace owes 1000 again, and Ada, who took over Grace's balance, carries it.
+      expect((await decide('pay_1', 'refunded')).status).toBe(204);
+      // Grace has left, so the settlement is read by Ada, a member.
+      expect((await call(app, 'GET', `/settlements/${settlement}`, { token: adaToken })).body).toMatchObject({
+        status: 'refunded',
+      });
+      const after = await balancesOf();
+      expect(Object.values(after).reduce((sum, value) => sum + value, 0)).toBe(0);
+      expect(after).toEqual({ [adaId]: 1000, [linusId]: -1000 });
+    });
+
     it('refunds a payment the provider refunds on its own, with no refund asked, and the balances go back', async () => {
       const settlement = await paidSettlement();
       expect((await decide('pay_1', 'refunded')).status).toBe(204);
