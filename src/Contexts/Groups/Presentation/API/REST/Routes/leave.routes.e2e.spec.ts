@@ -154,7 +154,7 @@ describe('leaving a group', () => {
     expect(await leave(stranger.token, groupId)).toMatchObject({ status: 'ERROR', error: { type: 'NotFound' } });
   });
 
-  it('refuses a member whose balance in the group is not 0, and keeps them in it', async () => {
+  it('lets a member leave whatever their balance, and the balance passes to the owner in the same step', async () => {
     const alice = await signedIn('alice.owed@example.com', 'Alice');
     const bob = await signedIn('bob.owed@example.com', 'Bob');
     const groupId = await createGroup(alice.token, 'Dinner');
@@ -166,8 +166,10 @@ describe('leaving a group', () => {
       members: [alice.id, bob.id],
     });
 
-    expect(await leave(bob.token, groupId)).toMatchObject({ status: 'ERROR', error: { type: 'BalanceNotZero' } });
-    expect((await http.get(`${api}/groups/${groupId}`, { token: bob.token })).status).toBe(200);
+    expect(await leave(bob.token, groupId)).toMatchObject({ status: 'SUCCESS' });
+    expect((await http.get(`${api}/groups/${groupId}`, { token: bob.token })).status).toBe(404);
+    // Alice was owed 50; Bob owed 50 and left with it, so what is left of the balances is Alice's, at 0, and they add up to 0.
+    expect(await balances(alice.token, groupId)).toEqual([{ memberId: alice.id, balance: 0 }]);
   });
 
   it('takes an even member out of the group: it is no longer among its members, its balances, or their groups', async () => {
@@ -320,7 +322,7 @@ describe('Groups → Ledger (GroupMembers)', () => {
 });
 
 describe('Ledger → Groups (MemberBalances)', () => {
-  it('refuses a member to leave a group whose balance Ledger keeps for them is not 0, and reads that balance by the group id Groups answered', async () => {
+  it("lets a member leave a group whose balance Ledger keeps for them, and reads the owner's balance with it by the group id Groups answered", async () => {
     const alice = await signedIn('alice.balances@example.com', 'Alice');
     const bob = await signedIn('bob.balances@example.com', 'Bob');
     const groupId = await createGroup(alice.token, 'Balances');
@@ -334,9 +336,9 @@ describe('Ledger → Groups (MemberBalances)', () => {
     });
     const expenseId = recorded.result as string;
 
-    expect(await leave(bob.token, groupId)).toMatchObject({ status: 'ERROR', error: { type: 'BalanceNotZero' } });
-    expect(await balances(alice.token, groupId)).toEqual(expect.arrayContaining([{ memberId: bob.id, balance: -50 }]));
+    expect(await balances(alice.token, groupId)).toEqual(expect.arrayContaining([{ memberId: alice.id, balance: 50 }]));
+    expect(await leave(bob.token, groupId)).toMatchObject({ status: 'SUCCESS' });
+    expect(await balances(alice.token, groupId)).toEqual([{ memberId: alice.id, balance: 0 }]);
     expect((await readExpense(alice.token, expenseId)).id).toBe(expenseId);
-    expect((await http.get(`${api}/groups/${groupId}`, { token: bob.token })).status).toBe(200);
   });
 });

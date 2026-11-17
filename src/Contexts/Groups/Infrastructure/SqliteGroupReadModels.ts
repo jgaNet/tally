@@ -77,6 +77,19 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
     });
   }
 
+  /**
+   * The balances passed to the owner in the group, in the order they passed (request 20). Read without the database lock, as
+   * `memberIdsOf` is: Ledger asks inside the transaction of the command that decides on a balance, and `exclusive` would wait for it.
+   */
+  async passagesOf(groupId: string): Promise<{ from: string; to: string; amount: number }[]> {
+    return this.database
+      .all<{ from_account_id: string; to_account_id: string; amount: number }>(
+        'SELECT from_account_id, to_account_id, amount FROM balance_passages WHERE group_id = ? ORDER BY position',
+        groupId,
+      )
+      .map(row => ({ from: row.from_account_id, to: row.to_account_id, amount: row.amount }));
+  }
+
   /** Whether the account is a member now: asked by a query, outside any transaction, so it waits for one in progress. */
   async isMemberOf(groupId: string, accountId: string): Promise<boolean> {
     return this.database.exclusive(

@@ -850,3 +850,46 @@ describe('refund through the provider (request 15)', () => {
     expect(await http.request('POST', `${api}/settlements/${settlementId}/refund`, {})).toMatchObject({ status: 401 });
   });
 });
+
+describe('Settlements → Groups (WaitingPayments)', () => {
+  it('keeps the id a payment request answered, has Groups refuse the leave of the member it waits on, and lets the leave through once the webhook says that same settlement was paid', async () => {
+    const { ann, bob, groupId } = await dinnerGroup('lv1');
+    const paid = await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 10 });
+    expect(paid).toMatchObject({ status: 'SUCCESS' });
+    const settlementId = paid.result as string;
+    const { paymentId } = lastPayment();
+    expect((await http.get(`${api}/settlements/${settlementId}`, { token: bob.token })).body).toMatchObject({
+      id: settlementId,
+      status: 'pending',
+    });
+
+    const waiting = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
+    expect(await outcome((waiting.body as { operationId: string }).operationId, bob.token)).toMatchObject({
+      status: 'ERROR',
+      error: { type: 'PaymentWaitingAtProvider' },
+    });
+    expect((await http.get(`${api}/groups/${groupId}`, { token: bob.token })).status).toBe(200);
+
+    expect(await deliver({ id: 'wh_lv1_1', paymentId, status: 'succeeded', at: '2026-11-17T10:00:00Z' })).toMatchObject(
+      {
+        status: 'SUCCESS',
+      },
+    );
+    expect((await http.get(`${api}/settlements/${settlementId}`, { token: bob.token })).body).toMatchObject({
+      id: settlementId,
+      status: 'paid',
+    });
+    // Bob owed 30 and paid 10 of it: he owes 20, which passes to Ann; the balances of the group are Ann's, at 0.
+    expect(await balances(ann.token, groupId)).toMatchObject({
+      body: [
+        { memberId: ann.id, balance: 20 },
+        { memberId: bob.id, balance: -20 },
+      ],
+    });
+    const left = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
+    expect(await outcome((left.body as { operationId: string }).operationId, bob.token)).toMatchObject({
+      status: 'SUCCESS',
+    });
+    expect((await balances(ann.token, groupId)).body).toEqual([{ memberId: ann.id, balance: 0 }]);
+  });
+});

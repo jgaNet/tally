@@ -1,7 +1,7 @@
 import { Id } from '@Architecture/Domain';
 
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
-import { GroupRole, IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
+import { GroupRole, IGroupMembers, PassedBalance } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 
 /**
  * Ledger's port to Groups, answered over Groups' read model (ADR 3): the ids the read model gives, translated into
@@ -25,5 +25,13 @@ export class GroupMembersFromGroups implements IGroupMembers {
 
   async hasBeenMember(groupId: string, accountId: Id): Promise<boolean> {
     return this.groups().hasBeenMemberOf(groupId, accountId.value);
+  }
+
+  async passedBalancesOf(groupId: string): Promise<PassedBalance[]> {
+    return (await this.groups().passagesOf(groupId)).map(passage => ({
+      from: new Id(passage.from),
+      to: new Id(passage.to),
+      amount: passage.amount,
+    }));
   }
 }

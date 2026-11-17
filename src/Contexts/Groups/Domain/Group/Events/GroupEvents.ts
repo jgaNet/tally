@@ -6,5 +6,13 @@ export class GroupCreatedEvent extends DomainEvent<{ groupId: string; ownerId: s
 /** An account joined a group by an invitation: it is a member from now on, after the members who joined before it. */
 export class MemberJoinedEvent extends DomainEvent<{ groupId: string; accountId: string }> {}
 
-/** A member left a group, once their balance in it was 0: it is no longer among the group's members. */
+/** A member left a group: it is no longer among the group's members, and its balance was passed to the owner in the same step. */
 export class MemberLeftEvent extends DomainEvent<{ groupId: string; accountId: string }> {}
+
+/** A member's balance passed to the group's owner when the member left (request 20): `amount` is what the leaver had. */
+export class BalancePassedEvent extends DomainEvent<{
+  groupId: string;
+  fromAccountId: string;
+  toAccountId: string;
+  amount: number;
+}> {}

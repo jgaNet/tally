@@ -10,6 +10,16 @@ export interface DepartureSnapshot extends MembershipSnapshot {
 }
 
 /**
+ * A balance passed to the owner when a member left (request 20): the leaver's balance at the time, taken from `from` and given
+ * to `to`, the owner. It is kept for good: a former member who joins again still has it counted, so its balance is 0 again.
+ */
+export interface PassageSnapshot {
+  from: string;
+  to: string;
+  amount: number;
+}
+
+/**
  * What a group is made of, as it is kept. The creation time is an ISO string, as the store keeps it; `version` is the
  * one the group was read at, and `members` are in the order they joined, the owner first.
  */
@@ -21,6 +31,8 @@ export interface GroupSnapshot {
   members: MembershipSnapshot[];
   /** The members who left, in no particular order; none of them is among `members` (ADR 4). */
   departed: DepartureSnapshot[];
+  /** The balances passed to the owner when members left, in the order they passed (request 20). */
+  passages: PassageSnapshot[];
   createdAt: string;
   version: number;
 }

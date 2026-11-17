@@ -24,6 +24,7 @@ const store = new Map([
         { accountId: 'bob', joinedAt: '2026-03-02T10:00:00.000Z' },
       ],
       departed: [],
+      passages: [],
       createdAt: '2026-03-01T10:00:00.000Z',
       version: 2,
     },

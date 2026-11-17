@@ -6,7 +6,7 @@ import { MemberBalanceReadModel } from '@Contexts/Ledger/Application/ReadModel/M
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
-import { GroupRole, IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
+import { GroupRole, IGroupMembers, PassedBalance } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 
 /** The expenses kept in a Map: the double the unit tests use for the repository. */
 export type InMemoryExpenseStore = Map<string, ExpenseSnapshot>;
@@ -96,5 +96,10 @@ export class InMemoryGroupMembers implements IGroupMembers {
   /** The test gives only the current members, so a former one is not known here: it is a member only while it is given. */
   async hasBeenMember(groupId: string, accountId: Id): Promise<boolean> {
     return (this.members.get(groupId) ?? []).includes(accountId.value);
+  }
+
+  /** The test gives no departures, so no balance has passed: the balances are the ones the expenses make. */
+  async passedBalancesOf(_groupId: string): Promise<PassedBalance[]> {
+    return [];
   }
 }

@@ -2,6 +2,7 @@ import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import { GroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 import {
+  BalancePassedEvent,
   GroupCreatedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
@@ -10,9 +11,9 @@ import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
   AlreadyAMember,
-  BalanceNotZero,
   NotAMember,
   OwnerCannotLeave,
+  PaymentWaitingAtProvider,
 } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 
 /** One member of a group: an account, from the moment it joined. */
@@ -26,11 +27,18 @@ export interface Departure extends Membership {
   leftAt: Date;
 }
 
+/** A balance passed to the owner when a member left (request 20): the leaver's balance, from the leaver to the owner. */
+export interface Passage {
+  from: Id;
+  to: Id;
+  amount: number;
+}
+
 /**
  * A group of people who share expenses, in one currency fixed when it is created and never changed. Its owner is its
- * first member; whoever joins later joins by an invitation, and may leave once their balance is 0 (the owner never does).
- * A member who left is kept apart in `departed`: the expenses they were in still say who they were, and joining again
- * makes them a member once more.
+ * first member; whoever joins later joins by an invitation, and may leave whatever their balance (the owner never does):
+ * the balance passes to the owner in the same step. A member who left is kept apart in `departed`: the expenses they were
+ * in still say who they were, and joining again makes them a member once more.
  */
 export class Group extends AggregateRoot {
   private constructor(
@@ -42,6 +50,8 @@ export class Group extends AggregateRoot {
     readonly members: Membership[],
     /** The members who left, kept as they were: none of them is in `members`. */
     readonly departed: Departure[],
+    /** The balances passed to the owner when members left, in the order they passed. */
+    readonly passages: Passage[],
     readonly createdAt: Date,
     version: number,
   ) {
@@ -66,6 +76,7 @@ export class Group extends AggregateRoot {
       currency,
       ownerId,
       [{ accountId: ownerId, joinedAt: now }],
+      [],
       [],
       now,
       0,
@@ -104,6 +115,11 @@ export class Group extends AggregateRoot {
         joinedAt: new Date(member.joinedAt),
         leftAt: leftAt[index],
       })),
+      snapshot.passages.map(passage => ({
+        from: new Id(passage.from),
+        to: new Id(passage.to),
+        amount: passage.amount,
+      })),
       createdAt,
       snapshot.version,
     );
@@ -133,18 +149,39 @@ export class Group extends AggregateRoot {
   }
 
   /**
-   * The member leaves the group, at `now`. `balance` is the member's balance in the group, read by the handler from Ledger:
-   * the leave is refused while it is not 0, and the owner never leaves. The member is kept as a former one, with the time it
-   * left. For anyone who is not a member the group does not exist; the handler answers that before it reads the balance.
+   * The member leaves the group, at `now`, whatever their balance: `balance` is the member's balance in the group, read by the
+   * handler from Ledger, and it passes to the owner in the same step (a `BalancePassed` recorded beside `MemberLeft`). The leave
+   * is refused while `paymentWaiting` says a payment they pay or receive is waiting at the provider, and the owner never leaves.
+   * The member is kept as a former one, with the time it left. For anyone who is not a member the group does not exist; the
+   * handler answers that before it reads the balance.
    */
-  leave({ accountId, balance, now }: { accountId: Id; balance: number; now: Date }): IResult {
+  leave({
+    accountId,
+    balance,
+    paymentWaiting,
+    now,
+  }: {
+    accountId: Id;
+    balance: number;
+    paymentWaiting: boolean;
+    now: Date;
+  }): IResult {
     if (!this.isMember(accountId)) return Result.fail(new NotAMember());
     if (accountId.value === this.ownerId.value) return Result.fail(new OwnerCannotLeave());
-    if (balance !== 0) return Result.fail(new BalanceNotZero());
+    if (paymentWaiting) return Result.fail(new PaymentWaitingAtProvider());
 
     const index = this.members.findIndex(member => member.accountId.value === accountId.value);
     const [member] = this.members.splice(index, 1);
     this.departed.push({ accountId: member.accountId, joinedAt: member.joinedAt, leftAt: now });
+    this.passages.push({ from: accountId, to: this.ownerId, amount: balance });
+    this.record(
+      BalancePassedEvent.set({
+        groupId: this._id.value,
+        fromAccountId: accountId.value,
+        toAccountId: this.ownerId.value,
+        amount: balance,
+      }),
+    );
     this.record(MemberLeftEvent.set({ groupId: this._id.value, accountId: accountId.value }));
     return Result.ok();
   }
@@ -163,6 +200,11 @@ export class Group extends AggregateRoot {
         accountId: member.accountId.value,
         joinedAt: member.joinedAt.toISOString(),
         leftAt: member.leftAt.toISOString(),
+      })),
+      passages: this.passages.map(passage => ({
+        from: passage.from.value,
+        to: passage.to.value,
+        amount: passage.amount,
       })),
       createdAt: this.createdAt.toISOString(),
       version: this.version,

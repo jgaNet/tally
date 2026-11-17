@@ -33,6 +33,8 @@ import { SqliteInvitationRepository } from '@Contexts/Groups/Infrastructure/Sqli
 import { authenticateWithToken } from '@Contexts/Groups/Presentation/API/REST/authenticate';
 import { BalancesFromLedger } from '@Contexts/Groups/Infrastructure/BalancesFromLedger';
 import { memberBalances as ledgerMemberBalances } from '@Contexts/Ledger/module.local';
+import { waitingPayments as settlementsWaitingPayments } from '@Contexts/Settlements/module.local';
+import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsFromSettlements';
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
 
 const database = sharedDatabase();
@@ -58,6 +60,13 @@ export const groupMembers: IGroupMembersQueries = groupReadModels;
  */
 const balances = new BalancesFromLedger(() => ledgerMemberBalances);
 
+/**
+ * The payments a member pays or receives that are waiting at the provider, read from Settlements' read model before the member may
+ * leave (request 20). Settlements' wiring imports `groupMembers` from this file, so the adapter reads Settlements' export when it is
+ * asked, not while this file is evaluated.
+ */
+const waiting = new WaitingPaymentsFromSettlements(() => settlementsWaitingPayments);
+
 /** Says who is calling, for the transport: the account a bearer token names. */
 export const authenticate = authenticateWithToken(tokens, systemClock);
 
@@ -77,7 +86,7 @@ export const localGroupsModule = new Module({
     },
     {
       event: LeaveGroupCommandEvent,
-      handlers: [new LeaveGroupCommandHandler(groups, balances, systemClock)],
+      handlers: [new LeaveGroupCommandHandler(groups, balances, waiting, systemClock)],
     },
   ],
   queries: [

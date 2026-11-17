@@ -23,6 +23,12 @@ interface DepartedRow extends MemberRow {
   left_at: string;
 }
 
+interface PassageRow {
+  from_account_id: string;
+  to_account_id: string;
+  amount: number;
+}
+
 /**
  * The groups, in the application's file. It runs inside the command's transaction, which holds the file, so it takes
  * no lock of its own. A save that finds the group at another version than it was read at is a conflict, and the
@@ -47,6 +53,10 @@ export class SqliteGroupRepository implements IGroupRepository {
       'SELECT account_id, joined_at, left_at FROM group_members WHERE group_id = ? AND left_at IS NOT NULL ORDER BY left_at',
       id.value,
     );
+    const passages = this.database.all<PassageRow>(
+      'SELECT from_account_id, to_account_id, amount FROM balance_passages WHERE group_id = ? ORDER BY position',
+      id.value,
+    );
     return Group.fromSnapshot({
       id: row.id,
       name: row.name,
@@ -58,13 +68,18 @@ export class SqliteGroupRepository implements IGroupRepository {
         joinedAt: member.joined_at,
         leftAt: member.left_at,
       })),
+      passages: passages.map(passage => ({
+        from: passage.from_account_id,
+        to: passage.to_account_id,
+        amount: passage.amount,
+      })),
       createdAt: row.created_at,
       version: row.version,
     });
   }
 
   async save(group: Group): Promise<IResult> {
-    const { id, name, currency, ownerId, members, departed, createdAt, version } = group.toSnapshot();
+    const { id, name, currency, ownerId, members, departed, passages, createdAt, version } = group.toSnapshot();
     if (version === 0) {
       this.database.run(
         'INSERT INTO groups (id, name, currency, owner_id, created_at, version) VALUES (?, ?, ?, ?, ?, ?)',
@@ -104,6 +119,18 @@ export class SqliteGroupRepository implements IGroupRepository {
         member.leftAt,
         id,
         member.accountId,
+      ),
+    );
+    // A passage is kept as it was made, at its place in the order they passed: one written once is never written again.
+    passages.forEach((passage, position) =>
+      this.database.run(
+        `INSERT OR IGNORE INTO balance_passages (group_id, position, from_account_id, to_account_id, amount)
+         VALUES (?, ?, ?, ?, ?)`,
+        id,
+        position,
+        passage.from,
+        passage.to,
+        passage.amount,
       ),
     );
     return Result.ok();

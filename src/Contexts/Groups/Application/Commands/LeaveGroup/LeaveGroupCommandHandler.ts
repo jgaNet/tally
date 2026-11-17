@@ -4,17 +4,20 @@ import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
 import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
+import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPayments';
 import { LeaveGroupCommandEvent } from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandEvent';
 
 /**
- * A signed-in member leaves a group once their balance in it is 0; the owner never does. For anyone who is not a member the
- * group does not exist. The balance is read from Ledger through the port Groups owns (ADR 4), inside the command's
- * transaction; the group decides and keeps the member as a former one, so the expenses they were in still say who they were.
+ * A signed-in member leaves a group whatever their balance in it; the owner never does, and a member with a payment waiting at
+ * the provider may not (request 20). For anyone who is not a member the group does not exist. The balance and the waiting
+ * payments are read inside the command's transaction, through the ports Groups owns (ADR 4): the balance passes to the owner in
+ * the same step, and the member is kept as a former one, so the expenses they were in still say who they were.
  */
 export class LeaveGroupCommandHandler extends CommandHandler<LeaveGroupCommandEvent> {
   constructor(
     private groups: IGroupRepository,
     private balances: IMemberBalances,
+    private waiting: IWaitingPayments,
     private clock: Clock,
   ) {
     super();
@@ -30,7 +33,8 @@ export class LeaveGroupCommandHandler extends CommandHandler<LeaveGroupCommandEv
     }
 
     const balance = await this.balances.balanceOf(payload.groupId, caller.data);
-    const left = group.leave({ accountId: caller.data, balance, now: this.clock() });
+    const paymentWaiting = await this.waiting.waitingOf(payload.groupId, caller.data);
+    const left = group.leave({ accountId: caller.data, balance, paymentWaiting, now: this.clock() });
     if (left.isFailure()) return left;
 
     const saved = await this.groups.save(group);

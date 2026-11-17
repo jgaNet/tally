@@ -36,6 +36,15 @@ export function createGroupsTables(database: SqliteDatabase): void {
     invited_by TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`);
+  // The balances passed to the owner when members left (request 20), in the order they passed: kept for good.
+  database.exec(`CREATE TABLE IF NOT EXISTS balance_passages (
+    group_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    from_account_id TEXT NOT NULL,
+    to_account_id TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    PRIMARY KEY (group_id, position)
+  )`);
 
   addColumnUnlessThere(database, 'groups', 'version', 'INTEGER NOT NULL DEFAULT 1');
   addColumnUnlessThere(database, 'group_members', 'joined_at', "TEXT NOT NULL DEFAULT ''");

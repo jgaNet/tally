@@ -3,6 +3,13 @@ import { Id } from '@Architecture/Domain';
 /** A member's role in a group: the owner, or a member who joined. */
 export type GroupRole = 'owner' | 'member';
 
+/** A balance passed to the group's owner when a member left (request 20): `amount` is the leaver's balance, taken from `from`. */
+export interface PassedBalance {
+  from: Id;
+  to: Id;
+  amount: number;
+}
+
 /**
  * Ledger's port to Groups, which it owns (ADR 3): who may be in a split, and who may change an expense. The ids of the
  * group's current members, in the order they joined; none when there is no such group. Answered by an adapter over
@@ -23,4 +30,10 @@ export interface IGroupMembers {
    * by the members of the group, and an expense of theirs is kept as it was. Read by a query, outside any transaction.
    */
   hasBeenMember(groupId: string, accountId: Id): Promise<boolean>;
+  /**
+   * The balances passed to the owner when members left, in the order they passed (request 20). A balance reads them: the leaver
+   * gives up what it had, the owner takes it, so the balances of the group still add up to 0. Read inside a command's transaction
+   * (no lock) or by a query.
+   */
+  passedBalancesOf(groupId: string): Promise<PassedBalance[]>;
 }

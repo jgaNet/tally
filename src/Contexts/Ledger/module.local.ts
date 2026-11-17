@@ -42,7 +42,7 @@ const members = new GroupMembersFromGroups(() => groupMembers);
  */
 const settled = new SettledAmountsFromSettlements(() => settlementsSettledAmounts);
 /** The balances: counted into in the transaction of each expense, and read by a member of the group (T4), with what is settled. */
-const balances = new SqliteMemberBalances(database, settled);
+const balances = new SqliteMemberBalances(database, settled, members);
 
 /** A member's balance in a group, read by Groups before the member leaves it (ADR 4): Ledger's read model, exported. */
 export const memberBalances: IMemberBalancesQueries = balances;

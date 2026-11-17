@@ -28,4 +28,10 @@ export interface IGroupMembersQueries {
    * transaction, to say what every member still owes (ADR 10). A group with none is not listed.
    */
   membersOfEveryGroup(): Promise<{ groupId: string; memberIds: string[] }[]>;
+  /**
+   * The balances passed to the owner when members left the group, in the order they passed (request 20): each leaver's balance
+   * at the time, from and to whom. Kept for good, a former member who joined again keeps them. Read by Ledger when it reads a
+   * balance, inside a command's transaction (so it takes no lock) or by a query.
+   */
+  passagesOf(groupId: string): Promise<{ from: string; to: string; amount: number }[]>;
 }

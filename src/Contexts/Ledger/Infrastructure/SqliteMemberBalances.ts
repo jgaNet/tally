@@ -3,10 +3,18 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import { IBalanceCounts } from '@Contexts/Ledger/Application/Ports/IBalanceCounts';
 import { IBalanceQueries } from '@Contexts/Ledger/Application/Ports/IBalanceQueries';
 import { ISettledAmounts } from '@Contexts/Ledger/Application/Ports/ISettledAmounts';
+import { IGroupMembers, PassedBalance } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { MemberBalanceReadModel } from '@Contexts/Ledger/Application/ReadModel/MemberBalanceReadModel';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IMemberBalancesQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalancesQueries';
 import { createLedgerTables } from '@Contexts/Ledger/Infrastructure/LedgerTables';
+
+/**
+ * What a passage (request 20) makes to a member's balance: the leaver gives up the balance it passed, which the owner takes. So
+ * the leaver's balance is 0 once it left, and the owner's is what it was plus the leaver's, and the balances still add up to 0.
+ */
+const passageEffectOn = (passage: PassedBalance, memberId: string): number =>
+  (passage.to.value === memberId ? passage.amount : 0) - (passage.from.value === memberId ? passage.amount : 0);
 
 /**
  * The balances, in the application's file. `count` writes in the command's transaction, so the expense and its balances are
@@ -18,6 +26,7 @@ export class SqliteMemberBalances implements IBalanceCounts, IBalanceQueries, IM
   constructor(
     private database: SqliteDatabase,
     private settled: ISettledAmounts,
+    private groupMembers: IGroupMembers,
   ) {
     createLedgerTables(database);
   }
@@ -54,7 +63,11 @@ export class SqliteMemberBalances implements IBalanceCounts, IBalanceQueries, IM
         memberId,
       )?.balance ?? 0;
     const settled = (await this.settled.settledOf(groupId)).find(row => row.memberId === memberId);
-    return recorded + (settled?.amount ?? 0);
+    const passed = (await this.groupMembers.passedBalancesOf(groupId)).reduce(
+      (total, passage) => total + passageEffectOn(passage, memberId),
+      0,
+    );
+    return recorded + (settled?.amount ?? 0) + passed;
   }
 
   async balancesOf(groupId: string): Promise<MemberBalanceReadModel[]> {
@@ -70,6 +83,11 @@ export class SqliteMemberBalances implements IBalanceCounts, IBalanceQueries, IM
       );
       for (const settled of await this.settled.settledOf(groupId)) {
         balances.set(settled.memberId, (balances.get(settled.memberId) ?? 0) + settled.amount);
+      }
+      for (const passage of await this.groupMembers.passedBalancesOf(groupId)) {
+        for (const memberId of [passage.from.value, passage.to.value]) {
+          balances.set(memberId, (balances.get(memberId) ?? 0) + passageEffectOn(passage, memberId));
+        }
       }
       return [...balances].map(([memberId, balance]) => ({ memberId, balance }));
     } finally {

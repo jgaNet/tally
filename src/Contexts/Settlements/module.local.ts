@@ -32,6 +32,7 @@ import {
 } from '@Contexts/Settlements/Application/Commands/SetPayoutAccount';
 import { GetPayoutAccountQueryHandler } from '@Contexts/Settlements/Application/Queries/GetPayoutAccount';
 import { ISettledAmountsQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettledAmountsQueries';
+import { IWaitingPaymentsQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingPaymentsQueries';
 import { IOutstandingDebtsQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/IOutstandingDebtsQueries';
 import { OutstandingDebtsReadModel } from '@Contexts/Settlements/Application/ReadModel/OutstandingDebtsReadModel';
 import { GroupBalancesFromLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesFromLedger';
@@ -57,6 +58,9 @@ const payoutAccountReadModels = new SqlitePayoutAccountReadModels(database);
 
 /** What has been settled in a group, read by Ledger when it reads a balance (ADR 7): Settlements' read model, exported. */
 export const settledAmounts: ISettledAmountsQueries = readModels;
+
+/** The payments waiting at the provider, which keep a member in the group until they end (request 20): Settlements' read model, exported. */
+export const waitingPayments: IWaitingPaymentsQueries = readModels;
 
 /** The signature of the provider's webhooks, checked by the transport before a webhook is decided (request 13). */
 export const webhookSignatures: IWebhookSignatures = new HmacWebhookSignatures();

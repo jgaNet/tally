@@ -40,9 +40,12 @@ export class OwnerCannotLeave extends GroupException {
   }
 }
 
-/** A member leaves a group once their balance in it is 0: what they owe or are owed is settled first. */
-export class BalanceNotZero extends GroupException {
+/** A member cannot leave while a payment they pay or receive through the provider is pending or being refunded (request 20). */
+export class PaymentWaitingAtProvider extends GroupException {
   constructor() {
-    super('BalanceNotZero', 'A member can leave a group only once their balance in it is 0');
+    super(
+      'PaymentWaitingAtProvider',
+      'You cannot leave this group while a payment you pay or receive is waiting at the provider',
+    );
   }
 }

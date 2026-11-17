@@ -1,6 +1,7 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { IPendingPayments } from '@Contexts/Settlements/Application/Ports/IPendingPayments';
+import { IWaitingPaymentsQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingPaymentsQueries';
 import { ISettlementQueries } from '@Contexts/Settlements/Application/Ports/ISettlementQueries';
 import { SettlementReadModel } from '@Contexts/Settlements/Application/ReadModel/SettlementReadModel';
 import {
@@ -18,7 +19,9 @@ import { historyOfGroup, SettlementRow } from '@Contexts/Settlements/Infrastruct
  * counts the payments waiting at the provider, which the suggestions count as paid. Neither takes a lock of its own: Ledger reads
  * `settledOf` when it reads a balance, inside a command's transaction (it holds the file already) or inside its own exclusive read.
  */
-export class SqliteSettlementReadModels implements ISettlementQueries, ISettledAmountsQueries, IPendingPayments {
+export class SqliteSettlementReadModels
+  implements ISettlementQueries, ISettledAmountsQueries, IPendingPayments, IWaitingPaymentsQueries
+{
   constructor(private database: SqliteDatabase) {
     createSettlementsTables(database);
   }
@@ -56,6 +59,23 @@ export class SqliteSettlementReadModels implements ISettlementQueries, ISettledA
 
   async pendingEffectOf(groupId: string): Promise<SettledAmountOf[]> {
     return this.effectOf(groupId, ['pending']);
+  }
+
+  /**
+   * Whether a payment through the provider that the member pays or receives in the group is waiting: pending, or being refunded
+   * (requests 13 and 15). Read inside the leave's transaction, which holds the file already, so it takes no lock.
+   */
+  async isWaitingFor(groupId: string, memberId: string): Promise<boolean> {
+    return (
+      this.database.get<{ found: number }>(
+        `SELECT 1 AS found FROM settlements
+         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding') AND (payer = ? OR payee = ?)
+         LIMIT 1`,
+        groupId,
+        memberId,
+        memberId,
+      ) !== undefined
+    );
   }
 
   /** The change the settlements with these statuses make to each member's balance: up for a payer, down for a payee. */

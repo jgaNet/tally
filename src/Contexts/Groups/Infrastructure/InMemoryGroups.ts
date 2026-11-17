@@ -8,6 +8,7 @@ import { GroupReadModel } from '@Contexts/Groups/Application/ReadModel/GroupRead
 import { MemberReadModel } from '@Contexts/Groups/Application/ReadModel/MemberReadModel';
 import { AccountSnapshot } from '@Contexts/Groups/Domain/Account/DTOs';
 import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
+import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPayments';
 
 /** The groups kept in memory, shared by the in-memory adapters of the ports, for the specs. */
 export type InMemoryGroupStore = Map<string, GroupSnapshot>;
@@ -63,6 +64,19 @@ export class InMemoryGroupReadModels implements IGroupQueries {
       role: member.accountId === snapshot.ownerId ? 'owner' : 'member',
       joinedAt: member.joinedAt,
     }));
+  }
+}
+
+/** The payments waiting at the provider, as the test gives them: the members of a group who have one, keyed by the group's id and the member's. */
+export class InMemoryWaitingPayments implements IWaitingPayments {
+  constructor(private waiting: Set<string> = new Set()) {}
+
+  wait(groupId: string, accountId: string): void {
+    this.waiting.add(`${groupId}/${accountId}`);
+  }
+
+  async waitingOf(groupId: string, accountId: Id): Promise<boolean> {
+    return this.waiting.has(`${groupId}/${accountId.value}`);
   }
 }
 

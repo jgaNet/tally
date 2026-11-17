@@ -17,6 +17,7 @@ import {
   InMemoryGroupStore,
   InMemoryGroupReadModels,
   InMemoryMemberBalances,
+  InMemoryWaitingPayments,
 } from '@Contexts/Groups/Infrastructure/InMemoryGroups';
 import {
   InMemoryInvitationRepository,
@@ -30,13 +31,17 @@ const signedInAs = (subjectId: string) =>
   new ExecutionContext({ traceId: 'trace', eventBus, auth: { subjectId, role: Role.USER } });
 const anonymous = () => new ExecutionContext({ traceId: 'trace', eventBus, auth: { role: Role.GUEST } });
 
-/** A group owned by alice, with bob in it: the stores the commands share, and Ledger's balances as the test gives them. */
+/**
+ * A group owned by alice, with bob in it: the stores the commands share, Ledger's balances and Settlements' waiting payments
+ * as the test gives them.
+ */
 const setup = async () => {
   const groupStore: InMemoryGroupStore = new Map();
   const invitationStore: InMemoryInvitationStore = new Map();
   const groups = new InMemoryGroupRepository(groupStore);
   const invitations = new InMemoryInvitationRepository(invitationStore);
   const balances = new InMemoryMemberBalances();
+  const waiting = new InMemoryWaitingPayments();
   const group = await new CreateGroupCommandHandler(groups, () => at).execute(
     CreateGroupCommandEvent.set({ name: 'Lisbon', currency: 'EUR' }),
     signedInAs('alice'),
@@ -53,8 +58,10 @@ const setup = async () => {
   return {
     groupId,
     balances,
+    waiting,
+    groupStore,
     groupReadModels: new InMemoryGroupReadModels(groupStore),
-    handler: new LeaveGroupCommandHandler(groups, balances, () => later),
+    handler: new LeaveGroupCommandHandler(groups, balances, waiting, () => later),
   };
 };
 
@@ -67,7 +74,7 @@ describe('LeaveGroup', () => {
     expect(refused.isFailure()).toBe(true);
   });
 
-  it('takes a member out of the group once their balance in it is 0, and says so', async () => {
+  it('takes a member out of the group, and says so', async () => {
     const { groupId, groupReadModels, handler } = await setup();
 
     const result = await handler.execute(LeaveGroupCommandEvent.set({ groupId }), signedInAs('bob'));
@@ -77,14 +84,25 @@ describe('LeaveGroup', () => {
     expect((await groupReadModels.listMembers(groupId, 'alice'))?.map(member => member.memberId)).toEqual(['alice']);
   });
 
-  it('refuses a member whose balance in the group is not 0, and keeps them in it', async () => {
-    const { groupId, balances, groupReadModels, handler } = await setup();
+  it('takes a member out whatever their balance, and passes it to the owner in the same step', async () => {
+    const { groupId, groupStore, balances, handler } = await setup();
     balances.set(groupId, 'bob', -300);
 
     const result = await handler.execute(LeaveGroupCommandEvent.set({ groupId }), signedInAs('bob'));
 
-    expect(result).toMatchObject({ error: { type: 'BalanceNotZero' } });
+    expect(result.isSuccess()).toBe(true);
+    expect(groupStore.get(groupId)?.passages).toEqual([{ from: 'bob', to: 'alice', amount: -300 }]);
+  });
+
+  it('refuses a member while a payment they pay or receive waits at the provider, and keeps them in it', async () => {
+    const { groupId, waiting, groupReadModels, groupStore, handler } = await setup();
+    waiting.wait(groupId, 'bob');
+
+    const result = await handler.execute(LeaveGroupCommandEvent.set({ groupId }), signedInAs('bob'));
+
+    expect(result).toMatchObject({ error: { type: 'PaymentWaitingAtProvider' } });
     expect(await groupReadModels.findForMember(groupId, 'bob')).not.toBeNull();
+    expect(groupStore.get(groupId)?.passages).toEqual([]);
   });
 
   it('refuses the owner, whatever their balance', async () => {
