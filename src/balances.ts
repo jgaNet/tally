@@ -21,14 +21,15 @@ interface BalanceRow {
  * to its amount, so the balances of a group always add up to 0.
  *
  * A settlement counts once it is paid: a cash settlement from the moment it is recorded, one through the
- * provider once the provider says it succeeded. Then the payer's balance goes up by its amount, the payee's
- * goes down by it. So the balances still add up to 0.
+ * provider once the provider says it succeeded. It keeps counting while it is being refunded, as the money has
+ * not gone back yet; once it is refunded it counts for nothing. Then the payer's balance goes up by its amount,
+ * the payee's goes down by it. So the balances still add up to 0.
  *
  * It is one statement, so every balance is of the same snapshot of the database: an expense or a
  * settlement recorded meanwhile is counted in all of them or in none. A read changes nothing.
  */
 export function listBalances(db: DatabaseSync, groupId: string): Balance[] {
-  return balancesCounting(db, groupId, "('paid')");
+  return balancesCounting(db, groupId, "('paid', 'refunding')");
 }
 
 /**
@@ -38,11 +39,14 @@ export function listBalances(db: DatabaseSync, groupId: string): Balance[] {
  * from. The balances still add up to 0. A read changes nothing.
  */
 export function listBalancesIncludingWaiting(db: DatabaseSync, groupId: string): Balance[] {
-  return balancesCounting(db, groupId, "('paid', 'pending')");
+  return balancesCounting(db, groupId, "('paid', 'pending', 'refunding')");
 }
 
-/** The balances, counting the settlements whose status is one of `statuses`, a SQL list written here, never from input. */
-function balancesCounting(db: DatabaseSync, groupId: string, statuses: "('paid')" | "('paid', 'pending')"): Balance[] {
+/** The statuses a balance counts, as the SQL list of them, written here and never from input. */
+type CountedStatuses = "('paid', 'refunding')" | "('paid', 'pending', 'refunding')";
+
+/** The balances, counting the settlements whose status is one of `statuses`. */
+function balancesCounting(db: DatabaseSync, groupId: string, statuses: CountedStatuses): Balance[] {
   const rows = db
     .prepare(
       `SELECT m.account_id AS member_id,

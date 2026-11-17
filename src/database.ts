@@ -152,6 +152,37 @@ const MIGRATIONS: readonly string[] = [
     status TEXT NOT NULL CHECK (status IN ('paid', 'failed'))
   );
   `,
+  `
+  -- A settlement through the provider may be refunded: 'refunding' while the provider is asked for the refund,
+  -- then 'refunded' once it says the payment is refunded. A payment's decision may be 'refunded' too: a payment
+  -- that succeeded is refunded later. Both CHECK constraints are rebuilt, their rows copied as they are.
+  CREATE TABLE settlements_next (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    payer_id TEXT NOT NULL REFERENCES accounts (id),
+    payee_id TEXT NOT NULL REFERENCES accounts (id),
+    amount INTEGER NOT NULL CHECK (amount >= 1),
+    method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+    provider_id TEXT,
+    pay_url TEXT,
+    created_at TEXT NOT NULL
+  );
+  INSERT INTO settlements_next (id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at)
+    SELECT id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at FROM settlements;
+  DROP TABLE settlements;
+  ALTER TABLE settlements_next RENAME TO settlements;
+  CREATE INDEX settlements_group ON settlements (group_id);
+  CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
+
+  CREATE TABLE payment_decisions_next (
+    payment_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('paid', 'failed', 'refunded'))
+  );
+  INSERT INTO payment_decisions_next (payment_id, status) SELECT payment_id, status FROM payment_decisions;
+  DROP TABLE payment_decisions;
+  ALTER TABLE payment_decisions_next RENAME TO payment_decisions;
+  `,
 ];
 
 /**

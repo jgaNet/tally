@@ -68,10 +68,13 @@ export async function call(
 
 export const ada = { email: 'ada@example.com', password: 'analytical-engine', name: 'Ada Lovelace' };
 
-/** One payment asked of the fake provider: the path it was asked on, and the body Tally sent. */
+/**
+ * One request asked of the fake provider: the path it was asked on, and the body Tally sent: a payment's amount
+ * and currency, or, for a refund, only its reference.
+ */
 export interface ProviderRequest {
   path: string;
-  body: { reference: string; amount: number; currency: string };
+  body: { reference: string; amount?: number; currency?: string };
 }
 
 /** How the fake provider answers: its status, and the body it sends, as JSON, or as the `raw` text when given. */
@@ -87,7 +90,10 @@ export interface FakeProvider {
   readonly url: string;
   /** Every request it has received, the earliest first. */
   readonly requests: ProviderRequest[];
-  /** How it answers the next payment: by default `201`, with a new id and a link. Set by the test. */
+  /**
+   * How it answers the next request: by default `201`, with a new payment id and a link for a payment, and a new
+   * refund id for a refund. Set by the test.
+   */
   answer: (request: ProviderRequest, number: number) => ProviderAnswer;
   stop(): Promise<void>;
 }
@@ -98,10 +104,10 @@ export async function startFakeProvider(): Promise<FakeProvider> {
   const provider: FakeProvider = {
     url: '',
     requests,
-    answer: (_request, number) => ({
-      status: 201,
-      body: { id: `pay_${number}`, payUrl: `https://pay.example/pay_${number}` },
-    }),
+    answer: (request, number) =>
+      request.path.endsWith('/refunds')
+        ? { status: 201, body: { id: `ref_${number}` } }
+        : { status: 201, body: { id: `pay_${number}`, payUrl: `https://pay.example/pay_${number}` } },
     stop: async () => undefined,
   };
   const server = createServer((incoming, outgoing) => {

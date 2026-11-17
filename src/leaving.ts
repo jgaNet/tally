@@ -23,9 +23,13 @@ export function leaveGroup(db: DatabaseSync, accountId: string, groupId: string)
     }
     const balance = listBalances(db, groupId).find(row => row.memberId === accountId)?.balance ?? 0;
     if (balance !== 0) throw new Refusal(409, 'BalanceNotZero', 'The balance must be 0 to leave the group.');
-    // A payment through the provider still waiting for the member would move their balance after they left.
+    // A payment or a refund through the provider still waiting for the member would move their balance after they left.
     if (hasWaitingSettlement(db, groupId, accountId)) {
-      throw new Refusal(409, 'SettlementWaiting', 'A payment through the provider is still waiting for this member.');
+      throw new Refusal(
+        409,
+        'SettlementWaiting',
+        'A payment or a refund through the provider is still waiting for this member.',
+      );
     }
     db.prepare('UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?').run(
       new Date().toISOString(),

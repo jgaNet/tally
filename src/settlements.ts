@@ -6,8 +6,16 @@ import { inTransaction } from './database';
 import { findGroupOf } from './groups';
 import { isMember } from './members';
 import { Refusal } from './refusal';
-import { createProviderPayment, type ProviderConfig, assertProviderConfigured } from './provider';
+import {
+  assertProviderConfigured,
+  createProviderPayment,
+  refundProviderPayment,
+  type ProviderConfig,
+} from './provider';
 import { requireCaller } from './sessions';
+
+/** The status of a settlement: `pending`, `paid` or `failed` for one through the provider, and `refunding` or `refunded` once paid. */
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
 
 /** One transfer that brings a balance to 0: `from` pays `to` the `amount`. Both are members' account ids. */
 export interface Transfer {
@@ -55,7 +63,8 @@ export function suggestSettlements(balances: Balance[]): Transfer[] {
  * A settlement as it is read: the payer `from` pays the payee `to` the `amount`, when it was recorded at `at`.
  * A cash settlement is paid from the moment it is recorded. One through the provider is `pending` until the
  * provider decides it: `paid` once it succeeded, `failed` once it did not; `payUrl` is the link where the
- * payer pays it.
+ * payer pays it. A paid one is `refunding` while the provider is asked to refund it, and `refunded` once the
+ * provider says the payment is refunded.
  */
 export interface Settlement {
   id: string;
@@ -64,7 +73,7 @@ export interface Settlement {
   to: string;
   amount: number;
   method: 'cash' | 'provider';
-  status: 'pending' | 'paid' | 'failed';
+  status: SettlementStatus;
   at: string;
   payUrl?: string;
 }
@@ -88,7 +97,7 @@ interface SettlementRow {
   payee_id: string;
   amount: number;
   method: 'cash' | 'provider';
-  status: 'pending' | 'paid' | 'failed';
+  status: SettlementStatus;
   pay_url: string | null;
   created_at: string;
 }
@@ -203,41 +212,81 @@ export function releaseSettlement(db: DatabaseSync, settlementId: string): void 
   ).run(settlementId);
 }
 
+/** The decision a webhook's status makes on a payment, or `undefined` for a status that decides nothing. */
+function decisionOf(status: string): PaymentDecision | undefined {
+  if (status === 'succeeded') return 'paid';
+  if (status === 'failed') return 'failed';
+  if (status === 'refunded') return 'refunded';
+  return undefined;
+}
+
+/** A decision the provider made on a payment, as Tally keeps it: `paid` (it succeeded), `failed`, or `refunded`. */
+type PaymentDecision = 'paid' | 'failed' | 'refunded';
+
 /**
- * Applies the provider's decision on a payment: `succeeded` makes it `paid`, `failed` makes it `failed`. The
- * first decision a payment receives is the one that counts: it is kept with the payment, and applied to its
- * settlement, if the settlement is still `pending`. So a decision that comes again, or a contrary one after the
- * first, changes nothing: a payment ends once, however many webhooks say so, and in whatever order they come.
- * `pending` and any other status change nothing. A decision for a payment Tally has not yet been answered for
- * is kept, and applied when its answer is kept.
+ * Applies the provider's decision on a payment: `succeeded` makes it `paid`, `failed` makes it `failed`, and
+ * `refunded` makes it `refunded`. A payment moves forward once: the first decision it receives is kept with it,
+ * and applied to its settlement, if the settlement is still waiting for it. A decision that comes again changes
+ * nothing, and so does a contrary one after the first, with one exception: a payment that succeeded may later be
+ * refunded, so a `refunded` after a `paid` moves it on, and it ends there. Whatever comes after a `refunded`
+ * changes nothing, and so does a `refunded` after a `failed`. A `refunded` that arrives before the `succeeded` of
+ * the same payment is kept as it is, so the settlement is `refunded`, never counted. `pending` and any other
+ * status change nothing. A decision for a payment Tally has not yet been answered for is kept, and applied when
+ * its answer is kept.
  *
  * It is one write transaction, so two servers on the same database that receive the decision at once keep
  * the first one, and the settlement changes once.
  */
 export function applyPaymentDecision(db: DatabaseSync, paymentId: string, status: string): void {
-  const decided = status === 'succeeded' ? 'paid' : status === 'failed' ? 'failed' : undefined;
+  const decided = decisionOf(status);
   if (decided === undefined) return;
   inTransaction(db, () => {
-    db.prepare('INSERT OR IGNORE INTO payment_decisions (payment_id, status) VALUES (?, ?)').run(paymentId, decided);
+    const kept = keptDecision(db, paymentId);
+    if (kept === undefined) {
+      db.prepare('INSERT INTO payment_decisions (payment_id, status) VALUES (?, ?)').run(paymentId, decided);
+    } else if (kept === 'paid' && decided === 'refunded') {
+      db.prepare("UPDATE payment_decisions SET status = 'refunded' WHERE payment_id = ?").run(paymentId);
+    }
     applyKeptDecision(db, paymentId);
   });
 }
 
-/** Makes the settlement of the payment `paid` or `failed` as its kept decision says, if it is still pending. */
-function applyKeptDecision(db: DatabaseSync, paymentId: string): void {
+/** The decision kept for the payment, if Tally has one. */
+function keptDecision(db: DatabaseSync, paymentId: string): PaymentDecision | undefined {
   const kept = db.prepare('SELECT status FROM payment_decisions WHERE payment_id = ?').get(paymentId) as
-    { status: 'paid' | 'failed' } | undefined;
-  if (kept === undefined) return;
-  db.prepare(
-    "UPDATE settlements SET status = ? WHERE provider_id = ? AND method = 'provider' AND status = 'pending'",
-  ).run(kept.status, paymentId);
+    { status: PaymentDecision } | undefined;
+  return kept?.status;
 }
 
-/** Whether a settlement waits at the provider for the account, as its payer or as its payee, in the group. */
+/**
+ * Makes the settlement of the payment as its kept decision says: `paid` or `failed` while it is pending, and
+ * `refunded` while it is pending, paid or being refunded.
+ */
+function applyKeptDecision(db: DatabaseSync, paymentId: string): void {
+  const kept = keptDecision(db, paymentId);
+  if (kept === undefined) return;
+  if (kept === 'refunded') {
+    db.prepare(
+      "UPDATE settlements SET status = 'refunded' WHERE provider_id = ? AND method = 'provider' AND status IN ('pending', 'paid', 'refunding')",
+    ).run(paymentId);
+    return;
+  }
+  db.prepare(
+    "UPDATE settlements SET status = ? WHERE provider_id = ? AND method = 'provider' AND status = 'pending'",
+  ).run(kept, paymentId);
+}
+
+/**
+ * Whether a settlement waits at the provider for the account, as its payer or as its payee, in the group: one
+ * whose payment is still pending, or whose refund the provider has not yet said is done. Either would move the
+ * account's balance once the provider decides it.
+ */
 export function hasWaitingSettlement(db: DatabaseSync, groupId: string, accountId: string): boolean {
   return (
     db
-      .prepare("SELECT 1 FROM settlements WHERE group_id = ? AND status = 'pending' AND (payer_id = ? OR payee_id = ?)")
+      .prepare(
+        "SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?)",
+      )
       .get(groupId, accountId, accountId) !== undefined
   );
 }
@@ -266,6 +315,60 @@ export function findSettlementOf(db: DatabaseSync, accountId: string, settlement
   return settlement;
 }
 
+/**
+ * Refunds a settlement paid through the provider, whole: the payee `payeeId` asks the provider to refund its
+ * payment, with the settlement's id as the reference. The settlement is `refunding` until the provider says the
+ * payment is refunded, by its webhook, and it is still counted as paid meanwhile.
+ *
+ * Only the payee may refund, and only a `paid` settlement: a cash settlement is not refunded through Tally, and nor
+ * is one whose payer or payee is no longer a member of the group, so that the balances still add up to 0. For an
+ * account that is not a member of the group the settlement does not exist; for a member who is not its payee the
+ * refund is refused with `NotAllowed`. Anything else is refused, and nothing changes.
+ *
+ * The checks and the `refunding` are one write transaction, so two refunds asked at once are decided one after the
+ * other: the second finds the settlement already refunding. The provider is asked after that transaction. When it
+ * does not answer `201` with an `id`, or not in time, the settlement goes back to `paid`, and the refusal is answered.
+ */
+export async function refundSettlement(
+  db: DatabaseSync,
+  provider: ProviderConfig,
+  payeeId: string,
+  settlementId: string,
+): Promise<void> {
+  const reserved = inTransaction(db, () => {
+    const settlement = findSettlementOf(db, payeeId, settlementId);
+    if (!settlement) throw new Refusal(404, 'NotFound', 'There is no such settlement.');
+    if (settlement.to !== payeeId) refuse(403, 'NotAllowed', 'Only the payee of the settlement may refund it.');
+    if (settlement.method !== 'provider') {
+      refuse(409, 'NotRefundable', 'Only a settlement paid through the payment provider is refunded.');
+    }
+    if (settlement.status !== 'paid') refuse(409, 'NotRefundable', 'Only a paid settlement is refunded.');
+    if (!isMember(db, settlement.groupId, settlement.from) || !isMember(db, settlement.groupId, settlement.to)) {
+      refuse(409, 'NotRefundable', 'The payer and the payee of the settlement must both be members of the group.');
+    }
+    assertProviderConfigured(provider);
+    const row = db.prepare('SELECT provider_id FROM settlements WHERE id = ?').get(settlementId) as {
+      provider_id: string | null;
+    };
+    if (row.provider_id === null) {
+      refuse(409, 'NotRefundable', 'The provider does not know the payment of this settlement.');
+    }
+    db.prepare("UPDATE settlements SET status = 'refunding' WHERE id = ? AND status = 'paid'").run(settlementId);
+    return { paymentId: row.provider_id, provider };
+  });
+  try {
+    await refundProviderPayment(reserved.provider, { paymentId: reserved.paymentId, reference: settlementId });
+  } catch (error) {
+    releaseRefund(db, settlementId);
+    throw error;
+  }
+}
+
+/** Puts back a settlement whose refund the provider did not take: `refunding` becomes `paid`, and nothing else moves. */
+function releaseRefund(db: DatabaseSync, settlementId: string): void {
+  db.prepare("UPDATE settlements SET status = 'paid' WHERE id = ? AND status = 'refunding'").run(settlementId);
+}
+
 const transferSchema = {
   type: 'object',
   required: ['from', 'to', 'amount'],
@@ -288,7 +391,7 @@ const settlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
     method: { enum: ['cash', 'provider'] },
-    status: { enum: ['pending', 'paid', 'failed'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },
   },
@@ -361,6 +464,12 @@ export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync,
       return reply.code(201).send({ id });
     },
   );
+
+  app.post<{ Params: { id: string } }>('/settlements/:id/refund', async (request, reply) => {
+    const accountId = requireCaller(db, request);
+    await refundSettlement(db, provider, accountId, request.params.id);
+    return reply.code(204).send();
+  });
 
   app.get<{ Params: { id: string } }>(
     '/settlements/:id',

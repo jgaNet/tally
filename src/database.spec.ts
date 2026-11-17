@@ -97,7 +97,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 10 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 11 });
     } finally {
       db.close();
     }
@@ -245,7 +245,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 10 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 11 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -255,6 +255,70 @@ describe('the database', () => {
       expect(() =>
         db.exec(`INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
           VALUES ('x', 'g', 'b', 'a', 100, 'cheque', 'paid', '2026-11-03T00:00:00.000Z')`),
+      ).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps the provider settlements and decisions of a file at version 10, and takes refunds', () => {
+    openDatabase(database.path).close();
+    // The file as the schema was at version 10: a provider settlement paid, and the decision kept for its payment.
+    const before = new DatabaseSync(database.path);
+    try {
+      before.exec(`
+        DROP TABLE payment_decisions;
+        DROP TABLE settlements;
+        CREATE TABLE settlements (
+          id TEXT PRIMARY KEY,
+          group_id TEXT NOT NULL REFERENCES groups (id),
+          payer_id TEXT NOT NULL REFERENCES accounts (id),
+          payee_id TEXT NOT NULL REFERENCES accounts (id),
+          amount INTEGER NOT NULL CHECK (amount >= 1),
+          method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+          status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
+          provider_id TEXT,
+          pay_url TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX settlements_group ON settlements (group_id);
+        CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
+        CREATE TABLE payment_decisions (
+          payment_id TEXT PRIMARY KEY,
+          status TEXT NOT NULL CHECK (status IN ('paid', 'failed'))
+        );
+        INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x'), ('b', 'b@example.com', 'B', 'x');
+        INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
+        INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at)
+          VALUES ('s', 'g', 'b', 'a', 300, 'provider', 'paid', 'pay_9', 'https://pay.example/pay_9', '2026-11-02T00:00:00.000Z');
+        INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_9', 'paid');
+        PRAGMA user_version = 10;
+      `);
+    } finally {
+      before.close();
+    }
+
+    const db = openDatabase(database.path);
+    try {
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 11 });
+      expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
+        { id: 's', status: 'paid', provider_id: 'pay_9' },
+      ]);
+      expect(db.prepare('SELECT payment_id, status FROM payment_decisions').all()).toEqual([
+        { payment_id: 'pay_9', status: 'paid' },
+      ]);
+      // The rebuilt tables take a refund in progress, a refund made, and a refund said by the provider.
+      db.exec("UPDATE settlements SET status = 'refunding' WHERE id = 's'");
+      db.exec("UPDATE settlements SET status = 'refunded' WHERE id = 's'");
+      db.exec("INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_10', 'refunded')");
+      expect(() => db.exec("UPDATE settlements SET status = 'chargeback' WHERE id = 's'")).toThrow();
+      expect(() =>
+        db.exec("INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_11', 'pending')"),
+      ).toThrow();
+      // The provider's id of a payment is still given to one settlement only.
+      expect(() =>
+        db.exec(`INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_id, created_at)
+          VALUES ('t', 'g', 'b', 'a', 100, 'provider', 'pending', 'pay_9', '2026-11-03T00:00:00.000Z')`),
       ).toThrow();
     } finally {
       db.close();

@@ -250,7 +250,7 @@ describe('paying through the payment provider: the provider’s webhook', () => 
 
     it('acknowledges a signed webhook whose status it does not know, and changes nothing', async () => {
       const settlement = await askGraceToPayAda();
-      expect((await decide('pay_1', 'refunded')).status).toBe(204);
+      expect((await decide('pay_1', 'authorized')).status).toBe(204);
       expect((await settlementOf(settlement)).status).toBe('pending');
     });
 

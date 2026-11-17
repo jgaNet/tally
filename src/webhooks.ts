@@ -9,7 +9,8 @@ import { Refusal } from './refusal';
  * the `Provider-Signature` header. A webhook without a valid signature is refused with `401` and changes
  * nothing. A signed one is acknowledged with `204` whatever it says, so the provider stops sending it; a
  * decision it carries is applied to the settlement of its payment, if Tally has one, as `applyPaymentDecision`
- * applies it: a webhook that comes twice, late, out of order or at once with another changes a payment once.
+ * applies it: a webhook that comes twice, late, out of order or at once with another changes a payment once,
+ * and a payment that succeeded may be refunded later, by a webhook that says `refunded`.
  *
  * The signature is over the body exactly as it was sent, so this scope reads the body as bytes and parses it
  * only once it is signed. The scope is its own, so that this parser serves this route alone.

@@ -71,6 +71,33 @@ export async function createProviderPayment(
   }
 }
 
+/**
+ * Asks the provider to refund the payment `paymentId`, with the settlement's id as the `reference`. Only `201`
+ * with an `id` is an answer: any other answer, or none within the time allowed, is refused.
+ */
+export async function refundProviderPayment(
+  config: ProviderConfig & { url: string },
+  input: { paymentId: string; reference: string },
+): Promise<void> {
+  try {
+    const response = await fetch(`${config.url}/payments/${encodeURIComponent(input.paymentId)}/refunds`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reference: input.reference }),
+      signal: AbortSignal.timeout(config.timeoutMs ?? 5000),
+    });
+    if (response.status !== 201) {
+      await response.body?.cancel();
+      throw providerUnavailable();
+    }
+    const answer = (await response.json()) as { id?: unknown } | null;
+    if (typeof answer?.id !== 'string' || answer.id === '') throw providerUnavailable();
+  } catch (error) {
+    if (error instanceof Refusal) throw error;
+    throw providerUnavailable();
+  }
+}
+
 /** The signature of a webhook's body as the provider sends it: HMAC-SHA256 with the secret, in lowercase hexadecimal. */
 export function signWebhookBody(secret: string, body: Buffer): string {
   return createHmac('sha256', secret).update(body).digest('hex');
