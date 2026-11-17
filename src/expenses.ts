@@ -333,7 +333,8 @@ const idSchema = {
   properties: { id: { type: 'string' } },
 };
 
-const expenseSchema = {
+/** An expense as it is read, by its id or in a group's list. */
+export const expenseSchema = {
   type: 'object',
   required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares', 'splitKind', 'version'],
   properties: {

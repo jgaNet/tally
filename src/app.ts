@@ -5,6 +5,7 @@ import { registerBalanceRoutes } from './balances';
 import { openDatabase } from './database';
 import { registerExpenseRoutes } from './expenses';
 import { registerGroupRoutes } from './groups';
+import { registerHistoryRoutes } from './history';
 import { registerInvitationRoutes } from './invitations';
 import { registerOperationRoutes } from './operations';
 import { Refusal } from './refusal';
@@ -48,6 +49,7 @@ export async function createApplication({
       registerInvitationRoutes(instance, db);
       registerExpenseRoutes(instance, db);
       registerBalanceRoutes(instance, db);
+      registerHistoryRoutes(instance, db);
       registerOperationRoutes(instance, db);
     },
     { prefix: `/${apiPrefix}` },
