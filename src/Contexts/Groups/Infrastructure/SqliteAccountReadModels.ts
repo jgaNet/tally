@@ -1,0 +1,31 @@
+import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+
+import { IAccountCredentials } from '@Contexts/Groups/Application/Ports/IAccountCredentials';
+import { IAccountQueries } from '@Contexts/Groups/Application/Ports/IAccountQueries';
+import { AccountReadModel } from '@Contexts/Groups/Application/ReadModel/AccountReadModel';
+import { CredentialsReadModel } from '@Contexts/Groups/Application/ReadModel/CredentialsReadModel';
+import { createAccountsTable } from '@Contexts/Groups/Infrastructure/AccountsTable';
+
+/** What is read of the accounts outside any command's transaction: it waits for the one in progress, if any. */
+export class SqliteAccountReadModels implements IAccountQueries, IAccountCredentials {
+  constructor(private database: SqliteDatabase) {
+    createAccountsTable(database);
+  }
+
+  async findById(id: string): Promise<AccountReadModel | null> {
+    const row = await this.database.exclusive(() =>
+      this.database.get<AccountReadModel>('SELECT id, email, name FROM accounts WHERE id = ?', id),
+    );
+    return row ?? null;
+  }
+
+  async findByEmail(email: string): Promise<CredentialsReadModel | null> {
+    const row = await this.database.exclusive(() =>
+      this.database.get<{ id: string; password_hash: string }>(
+        'SELECT id, password_hash FROM accounts WHERE email = ?',
+        email,
+      ),
+    );
+    return row ? { accountId: row.id, passwordHash: row.password_hash } : null;
+  }
+}

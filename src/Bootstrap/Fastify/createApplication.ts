@@ -1,12 +1,15 @@
 import { Logger, relayOutbox } from '@Architecture/Application';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
-import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
+import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
+import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
 
 import { localTrackerModule, trackedEventBus } from '@Contexts/Tracker/module.local';
 import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { localGroupsModule } from '@Contexts/Groups/module.local';
+import { authenticate, localGroupsModule } from '@Contexts/Groups/module.local';
+import { accountRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
@@ -28,18 +31,30 @@ export async function createApplication({
     .split(',')
     .filter(Boolean),
 }: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
-  const app = new FastifyApplication({ logger, apiPrefix, port, webOrigins })
+  // What the application knows is kept in one SQLite file (ADR 2): the state, the outbox and the operations.
+  const database = sharedDatabase();
+  const outbox = new SqliteOutbox(database);
+  const app = new FastifyApplication({
+    logger,
+    apiPrefix,
+    port,
+    webOrigins,
+    authenticate,
+    unitOfWork: () => new SqliteUnitOfWork(database, outbox),
+  })
     .setEventBus(trackedEventBus)
     .registerModule(localTrackerModule)
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
+    .registerRoutes('/accounts', accountRoutes, { groupsModule: localGroupsModule })
+    .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule })
     .registerRoutes('/tracker/operations', operationRoutes, { operationsModule: localTrackerModule });
 
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with
-  // an in-memory outbox, and the line is where a store's outbox would be relayed. The context is
+  // the file's outbox, and the line is where it is relayed. The context is
   // one a request would get, with a unit of work of its own, so that each reaction it delivers
   // runs in a transaction of its own and publishes through the outbox, as after a request.
-  await relayOutbox(InMemoryOutbox.shared, app.getEventBus(), app.executionContext('startup'));
+  await relayOutbox(outbox, app.getEventBus(), app.executionContext('startup'));
   return app;
 }

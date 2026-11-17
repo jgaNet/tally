@@ -43,9 +43,13 @@ describe('GetOperation', () => {
     }
   });
 
-  it('asks an anonymous caller to sign in for anything else, known or not', async () => {
-    for (const id of ['alice', 'unknown']) {
-      expect((await handler.execute({ id }, anonymous)).error).toBeInstanceOf(NotAllowedException);
+  it('asks an anonymous caller to sign in for an operation an account started', async () => {
+    expect((await handler.execute({ id: 'alice' }, anonymous)).error).toBeInstanceOf(NotAllowedException);
+  });
+
+  it('says an operation nobody has recorded does not exist, signed in or not', async () => {
+    for (const context of [anonymous, as(Role.USER, 'bob')]) {
+      expect((await handler.execute({ id: 'unknown' }, context)).error).toBeInstanceOf(NotFoundException);
     }
   });
 

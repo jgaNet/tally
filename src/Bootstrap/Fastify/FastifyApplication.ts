@@ -11,7 +11,7 @@ import Fastify, {
 import fastifyCors from '@fastify/cors';
 
 import { Role } from '@SharedKernel/Domain';
-import { Application, ExecutionContext, Logger } from '@Architecture/Application';
+import { Application, ExecutionContext, Logger, UnitOfWork } from '@Architecture/Application';
 import { formatOf } from '@Architecture/Presentation/Format';
 import { InMemoryUnitOfWork } from '@Architecture/Infrastructure/UnitOfWork/InMemoryUnitOfWork';
 
@@ -30,6 +30,8 @@ export interface FastifyApplicationOptions {
    * Without one, every caller is anonymous.
    */
   authenticate?(request: FastifyRequest): Promise<void>;
+  /** A unit of work for each request, and for each reaction; the in-memory one without it. */
+  unitOfWork?: () => UnitOfWork;
 }
 
 /**
@@ -43,13 +45,23 @@ export class FastifyApplication extends Application {
   readonly logger: Logger;
   readonly apiPrefix: string;
   readonly port: number;
+  readonly #unitOfWork: () => UnitOfWork;
 
-  constructor({ logger, apiPrefix, port = 0, webOrigins = [], authenticate }: FastifyApplicationOptions) {
+  constructor({
+    logger,
+    apiPrefix,
+    port = 0,
+    webOrigins = [],
+    authenticate,
+    unitOfWork = () => new InMemoryUnitOfWork(),
+  }: FastifyApplicationOptions) {
     super();
     this.logger = logger;
     this.apiPrefix = apiPrefix;
     this.port = port;
-    this.fastify = Fastify({ logger: false });
+    this.#unitOfWork = unitOfWork;
+    // A field of the wrong type is a 400, not a value converted into the type the schema asks for.
+    this.fastify = Fastify({ logger: false, ajv: { customOptions: { coerceTypes: false } } });
 
     // Anonymous until the authentication says otherwise; without one, anonymous throughout.
     this.fastify.addHook('onRequest', async request => {
@@ -137,7 +149,7 @@ export class FastifyApplication extends Application {
       traceId,
       auth,
       eventBus: this.getEventBus(),
-      unitOfWork: new InMemoryUnitOfWork(),
+      unitOfWork: this.#unitOfWork(),
       logger: this.logger,
     });
   }

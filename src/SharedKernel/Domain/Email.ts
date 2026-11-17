@@ -9,7 +9,7 @@ import { Exception } from '@Architecture/Domain/Exception';
  */
 export class Email extends ValueObject<string> {
   static readonly MAX_LENGTH = 254;
-  static readonly FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  static readonly FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   private constructor(email: string) {
     super(email);

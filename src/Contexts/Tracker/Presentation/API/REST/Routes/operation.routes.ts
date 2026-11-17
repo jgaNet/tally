@@ -39,7 +39,7 @@ export const operationRoutes = function (
         params: {
           type: 'object',
           properties: {
-            id: { type: 'string', format: 'uuid' },
+            id: { type: 'string' },
           },
         },
         response: GetOperationResSchema,

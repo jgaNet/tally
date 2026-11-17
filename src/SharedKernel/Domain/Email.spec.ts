@@ -10,11 +10,18 @@ describe('Email', () => {
     expect(email.data?.username).toBe('alice');
   });
 
-  it.each(['', 'alice', 'alice@', '@example.com', 'alice@example', 'a b@example.com'])('refuses "%s"', raw => {
-    const email = Email.create(raw);
+  it.each(['', 'alice', 'alice@', '@example.com', 'alice@example', 'a b@example.com', 'a@.com', 'a@b.'])(
+    'refuses "%s"',
+    raw => {
+      const email = Email.create(raw);
 
-    expect(email.isFailure()).toBe(true);
-    expect(email.error).toBeInstanceOf(InvalidEmailFormat);
+      expect(email.isFailure()).toBe(true);
+      expect(email.error).toBeInstanceOf(InvalidEmailFormat);
+    },
+  );
+
+  it('accepts anything with a dot after the @', () => {
+    expect(Email.create('a@b.c').isSuccess()).toBe(true);
   });
 
   it('compares by value', () => {

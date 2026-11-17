@@ -1,0 +1,20 @@
+# Request 1, accounts: signing up, signing in, reading one's own account, and the operation read at /v1/operations.
+# The operation is the contract's record (http.operation in conventions/architecture.yaml), as the first fragment has it.
+resources:
+  account:
+    schema:
+      type: object
+      required: [id, email, name]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+routes:
+  POST /v1/accounts:
+    202: accepted
+  POST /v1/accounts/login:
+    200: { type: object, required: [token], properties: { token: { type: string } } }
+  GET /v1/accounts/me:
+    200: account
+  GET /v1/operations/{operationId}:
+    200: operation

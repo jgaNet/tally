@@ -18,13 +18,14 @@ export class GetOperationQueryHandler extends QueryHandler<
 > {
   async execute({ id }: { id: string }, context: ExecutionContext): Promise<IResult<OperationRecord>> {
     const record = await this.queries.findById(id);
-    if (record && !record.subjectId) return Result.ok(record);
+    if (!record) return Result.fail(new NotFoundException('Tracker', 'Operation not found', { id }));
+    if (!record.subjectId) return Result.ok(record);
 
     const reader = requireSignedIn(context, 'Tracker');
     if (reader.isFailure()) return reader;
 
     // An operation someone else started does not exist, as far as you know.
-    const visible = record && (context.auth.role === Role.ADMIN || record.subjectId === reader.data.value);
+    const visible = context.auth.role === Role.ADMIN || record.subjectId === reader.data.value;
     if (!visible) return Result.fail(new NotFoundException('Tracker', 'Operation not found', { id }));
 
     return Result.ok(record);

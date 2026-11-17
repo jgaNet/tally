@@ -32,9 +32,8 @@ describe('the application a project starts from', () => {
       headers: { 'x-trace-id': traceId },
     });
 
-    // An operation is followed by whoever started it; nobody started this one, and an anonymous
-    // caller is told to sign in (401, API-CALLER-AT-TRANSPORT) rather than whether it exists.
-    expect(answer.status).toBe(401);
+    // An operation nobody recorded does not exist, for an anonymous caller as for anyone.
+    expect(answer.status).toBe(404);
     expect(answer.body).toEqual({ message: expect.any(String) });
     expect(answer.headers.get('x-trace-id')).toBe(traceId);
   });
