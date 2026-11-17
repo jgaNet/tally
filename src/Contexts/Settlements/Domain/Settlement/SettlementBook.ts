@@ -23,6 +23,17 @@ export type SettlementMethod = 'cash' | 'provider';
 /** A settlement is pending until the provider says how its payment ended; a paid one may be refunded, and then refunding and refunded (ADR 9). */
 export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
 
+/** A status a settlement has had, and when Tally learned it (request 19). */
+export interface SettlementStatusLine {
+  readonly status: SettlementStatus;
+  readonly at: Date;
+}
+
+/** A status a settlement took in this transaction, for the repository to store with the settlement (request 19). */
+export interface SettlementStatusChange extends SettlementStatusLine {
+  readonly settlementId: Id;
+}
+
 /** A settlement of the group: who paid whom, how much, how it is paid, its status, and when it was recorded. */
 export interface Settlement {
   readonly id: Id;
@@ -33,6 +44,8 @@ export interface Settlement {
   readonly method: SettlementMethod;
   status: SettlementStatus;
   readonly at: Date;
+  /** Every status the settlement has had, the earliest first, each with when Tally learned it (request 19). Its last line is `status`. */
+  readonly history: SettlementStatusLine[];
   /** The payment's id at the provider, for a settlement through the provider. */
   readonly providerPaymentId?: string;
   /** The link the payer pays at, for a settlement through the provider. */
@@ -74,6 +87,7 @@ export interface RefundProposal {
 export class SettlementBook extends AggregateRoot {
   #settlements: Settlement[];
   #unsaved = new Set<Settlement>();
+  #unsavedHistory: SettlementStatusChange[] = [];
 
   private constructor(groupId: Id, version: number, settlements: Settlement[]) {
     super(groupId, version);
@@ -88,6 +102,11 @@ export class SettlementBook extends AggregateRoot {
   /** The settlements the book decided or changed since it was read, for the repository to store. */
   get unsaved(): readonly Settlement[] {
     return [...this.#unsaved];
+  }
+
+  /** The statuses settlements took since the book was read, in the order they were taken, for the repository to store. */
+  get unsavedHistory(): readonly SettlementStatusChange[] {
+    return [...this.#unsavedHistory];
   }
 
   /** A payee's payment in cash, decided now: recorded as paid, and SettlementRecorded. */
@@ -200,8 +219,7 @@ export class SettlementBook extends AggregateRoot {
   keepRefund(proposal: RefundProposal, at: Date): IResult {
     const settlement = this.#settlements.find(candidate => candidate.id.equals(proposal.settlementId));
     if (!settlement || settlement.status !== 'paid') return Result.fail(new SettlementNotPaid());
-    settlement.status = 'refunding';
-    this.#unsaved.add(settlement);
+    this.#moveTo(settlement, 'refunding', at);
     this.record(
       RefundRequestedEvent.set({
         settlementId: settlement.id.value,
@@ -221,7 +239,7 @@ export class SettlementBook extends AggregateRoot {
    * refunding, and it is never counted again. Any other word, a payment this book does not know, and a word that the
    * settlement has already passed (a repeated one, a late `pending`, a `succeeded` after a refund) changes nothing.
    */
-  receivePayment({ paymentId, status }: { paymentId: string; status: string }): void {
+  receivePayment({ paymentId, status, at }: { paymentId: string; status: string; at: Date }): void {
     const settlement = this.#settlements.find(
       candidate => candidate.method === 'provider' && candidate.providerPaymentId === paymentId,
     );
@@ -236,20 +254,17 @@ export class SettlementBook extends AggregateRoot {
     };
     if (status === 'refunded') {
       if (settlement.status !== 'pending' && settlement.status !== 'paid' && settlement.status !== 'refunding') return;
-      settlement.status = 'refunded';
+      this.#moveTo(settlement, 'refunded', at);
       this.record(SettlementRefundedEvent.set(ended));
     } else if (settlement.status !== 'pending') {
       return;
     } else if (status === 'succeeded') {
-      settlement.status = 'paid';
+      this.#moveTo(settlement, 'paid', at);
       this.record(SettlementPaidEvent.set(ended));
     } else if (status === 'failed') {
-      settlement.status = 'failed';
+      this.#moveTo(settlement, 'failed', at);
       this.record(SettlementFailedEvent.set(ended));
-    } else {
-      return;
     }
-    this.#unsaved.add(settlement);
   }
 
   /** The refusal of a settlement on these balances, or none: the rules of a settlement, on what is still owed. */
@@ -277,10 +292,20 @@ export class SettlementBook extends AggregateRoot {
     return owing;
   }
 
-  #keep(settlement: Settlement): Settlement {
-    const kept: Settlement = { ...settlement };
+  /** A settlement kept for the first time: its first status is the one it was recorded or asked with. */
+  #keep(settlement: Omit<Settlement, 'history'>): Settlement {
+    const kept: Settlement = { ...settlement, history: [{ status: settlement.status, at: settlement.at }] };
     this.#settlements.push(kept);
     this.#unsaved.add(kept);
+    this.#unsavedHistory.push({ settlementId: kept.id, status: kept.status, at: kept.at });
     return kept;
+  }
+
+  /** The settlement takes a new status, learned at `at`: its history and the statuses to store grow by it. */
+  #moveTo(settlement: Settlement, status: SettlementStatus, at: Date): void {
+    settlement.status = status;
+    settlement.history.push({ status, at });
+    this.#unsaved.add(settlement);
+    this.#unsavedHistory.push({ settlementId: settlement.id, status, at });
   }
 }

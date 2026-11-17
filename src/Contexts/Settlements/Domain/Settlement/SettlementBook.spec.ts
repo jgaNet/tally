@@ -7,6 +7,8 @@ import {
   SettlementExceedsDebt,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 
+const NOW = new Date('2026-11-01T10:00:00.000Z');
+
 const at = new Date('2026-01-01T10:00:00.000Z');
 const payer = new Id('payer');
 const payee = new Id('payee');
@@ -176,7 +178,7 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
   it('becomes paid when the provider says it succeeded, and records SettlementPaid', () => {
     const { book } = kept(20);
     book.pullDomainEvents();
-    book.receivePayment({ paymentId: 'pay-20', status: 'succeeded' });
+    book.receivePayment({ paymentId: 'pay-20', status: 'succeeded', at: NOW });
 
     expect(book.unsaved[0].status).toBe('paid');
     expect(book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementPaidEvent']);
@@ -184,7 +186,7 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
 
   it('becomes failed when the provider says it failed, and frees what it held', () => {
     const { book } = kept(20);
-    book.receivePayment({ paymentId: 'pay-20', status: 'failed' });
+    book.receivePayment({ paymentId: 'pay-20', status: 'failed', at: NOW });
 
     expect(book.unsaved[0].status).toBe('failed');
     expect(book.proposePayment({ ...decision, amount: 30 }).isSuccess()).toBe(true);
@@ -192,13 +194,13 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
 
   it('changes nothing for a pending word, an unknown payment, a word it does not know, or a payment already ended', () => {
     const { book } = kept(20);
-    book.receivePayment({ paymentId: 'pay-20', status: 'pending' });
-    book.receivePayment({ paymentId: 'unknown', status: 'succeeded' });
-    book.receivePayment({ paymentId: 'pay-20', status: 'disputed' });
+    book.receivePayment({ paymentId: 'pay-20', status: 'pending', at: NOW });
+    book.receivePayment({ paymentId: 'unknown', status: 'succeeded', at: NOW });
+    book.receivePayment({ paymentId: 'pay-20', status: 'disputed', at: NOW });
     expect(book.unsaved[0].status).toBe('pending');
 
-    book.receivePayment({ paymentId: 'pay-20', status: 'succeeded' });
-    book.receivePayment({ paymentId: 'pay-20', status: 'failed' });
+    book.receivePayment({ paymentId: 'pay-20', status: 'succeeded', at: NOW });
+    book.receivePayment({ paymentId: 'pay-20', status: 'failed', at: NOW });
     expect(book.unsaved[0].status).toBe('paid');
     expect(book.pullDomainEvents()).toHaveLength(2);
   });

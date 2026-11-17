@@ -13,6 +13,8 @@ import {
   SettlementNotPaid,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 
+const NOW = new Date('2026-11-01T10:00:00.000Z');
+
 const at = new Date('2026-01-01T10:00:00.000Z');
 const payer = new Id('payer');
 const payee = new Id('payee');
@@ -29,7 +31,7 @@ function paidThroughProvider(): { book: SettlementBook; settlementId: Id } {
   if (proposal.isFailure()) throw new Error('the payment must be proposed');
   const kept = book.keepPayment(proposal.data, { id: 'prov-1', payUrl: 'https://pay.example/prov-1' }, at);
   if (kept.isFailure()) throw new Error('the payment must be kept');
-  book.receivePayment({ paymentId: 'prov-1', status: 'succeeded' });
+  book.receivePayment({ paymentId: 'prov-1', status: 'succeeded', at: NOW });
   book.pullDomainEvents();
   return { book, settlementId: proposal.data.id };
 }
@@ -102,7 +104,7 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
   it('makes a paid settlement refunded, and records SettlementRefunded', () => {
     const { book, settlementId } = paidThroughProvider();
 
-    book.receivePayment({ paymentId: 'prov-1', status: 'refunded' });
+    book.receivePayment({ paymentId: 'prov-1', status: 'refunded', at: NOW });
 
     expect(statusOf(book, settlementId)).toBe('refunded');
     const events = book.pullDomainEvents();
@@ -116,17 +118,17 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
     if (proposal.isFailure()) throw new Error('the refund must be proposed');
     book.keepRefund(proposal.data, at);
 
-    book.receivePayment({ paymentId: 'prov-1', status: 'refunded' });
+    book.receivePayment({ paymentId: 'prov-1', status: 'refunded', at: NOW });
 
     expect(statusOf(book, settlementId)).toBe('refunded');
   });
 
   it('leaves a refunded settlement refunded when the same word arrives again, and counts it once', () => {
     const { book } = paidThroughProvider();
-    book.receivePayment({ paymentId: 'prov-1', status: 'refunded' });
+    book.receivePayment({ paymentId: 'prov-1', status: 'refunded', at: NOW });
     book.pullDomainEvents();
 
-    book.receivePayment({ paymentId: 'prov-1', status: 'refunded' });
+    book.receivePayment({ paymentId: 'prov-1', status: 'refunded', at: NOW });
 
     expect(book.pullDomainEvents()).toHaveLength(0);
   });
@@ -138,9 +140,9 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
     book.keepPayment(proposal.data, { id: 'prov-3', payUrl: 'https://pay.example/prov-3' }, at);
     book.pullDomainEvents();
 
-    book.receivePayment({ paymentId: 'prov-3', status: 'refunded' });
-    book.receivePayment({ paymentId: 'prov-3', status: 'succeeded' });
-    book.receivePayment({ paymentId: 'prov-3', status: 'pending' });
+    book.receivePayment({ paymentId: 'prov-3', status: 'refunded', at: NOW });
+    book.receivePayment({ paymentId: 'prov-3', status: 'succeeded', at: NOW });
+    book.receivePayment({ paymentId: 'prov-3', status: 'pending', at: NOW });
 
     expect(statusOf(book, proposal.data.id)).toBe('refunded');
     const events = book.pullDomainEvents();
@@ -151,11 +153,11 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
 
   it('changes nothing for a succeeded or pending word that arrives after a refund', () => {
     const { book, settlementId } = paidThroughProvider();
-    book.receivePayment({ paymentId: 'prov-1', status: 'refunded' });
+    book.receivePayment({ paymentId: 'prov-1', status: 'refunded', at: NOW });
     book.pullDomainEvents();
 
-    book.receivePayment({ paymentId: 'prov-1', status: 'succeeded' });
-    book.receivePayment({ paymentId: 'prov-1', status: 'pending' });
+    book.receivePayment({ paymentId: 'prov-1', status: 'succeeded', at: NOW });
+    book.receivePayment({ paymentId: 'prov-1', status: 'pending', at: NOW });
 
     expect(statusOf(book, settlementId)).toBe('refunded');
     expect(book.pullDomainEvents()).toHaveLength(0);
@@ -166,10 +168,10 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
     const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
     book.keepPayment(proposal.data, { id: 'prov-4', payUrl: 'https://pay.example/prov-4' }, at);
-    book.receivePayment({ paymentId: 'prov-4', status: 'failed' });
+    book.receivePayment({ paymentId: 'prov-4', status: 'failed', at: NOW });
     book.pullDomainEvents();
 
-    book.receivePayment({ paymentId: 'prov-4', status: 'refunded' });
+    book.receivePayment({ paymentId: 'prov-4', status: 'refunded', at: NOW });
 
     expect(statusOf(book, proposal.data.id)).toBe('failed');
     expect(book.pullDomainEvents().some(event => event instanceof SettlementFailedEvent)).toBe(false);

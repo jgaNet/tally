@@ -5,6 +5,7 @@ import {
   WebhookRequest,
 } from '@Contexts/Settlements/Presentation/API/REST/Controllers/FastifySettlementController';
 import {
+  GetGroupSettlementsResSchema,
   GetPayoutAccountResSchema,
   GetSettlementResSchema,
   GetSuggestedSettlementsResSchema,
@@ -63,6 +64,11 @@ export const settlementRoutes = function (
       },
     },
     controller.payThroughProvider.bind(controller),
+  );
+  fastify.get(
+    '/groups/:id/settlements',
+    { schema: { tags: ['settlements'], response: GetGroupSettlementsResSchema } },
+    controller.getGroupSettlements.bind(controller),
   );
   fastify.get(
     '/settlements/:id',

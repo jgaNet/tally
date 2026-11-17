@@ -116,6 +116,7 @@ describe('Settlements: a settlement in cash is recorded by its payee, and the ba
       method: 'cash',
       status: 'paid',
       at: expect.any(String),
+      history: [{ status: 'paid', at: expect.any(String) }],
     });
   });
 

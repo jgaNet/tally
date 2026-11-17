@@ -1,6 +1,10 @@
 import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture/Domain';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { Settlement, SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
+import {
+  Settlement,
+  SettlementBook,
+  SettlementStatusLine,
+} from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
 import { SETTLEMENT_STATEMENTS } from '@Contexts/Settlements/Infrastructure/settlements.schema';
 
@@ -30,7 +34,18 @@ export class SqliteSettlementBookRepository implements ISettlementBookRepository
     const rows = connection
       .prepare('SELECT * FROM settlements WHERE group_id = ? ORDER BY recorded_at, rowid')
       .all(groupId.value) as unknown as SettlementRow[];
-    return SettlementBook.open(groupId, row ? Number(row.version) : 0, rows.map(toSettlement));
+    const history = connection
+      .prepare(
+        `SELECT h.settlement_id, h.status, h.at FROM settlement_history h
+         JOIN settlements s ON s.id = h.settlement_id
+         WHERE s.group_id = ? ORDER BY h.id`,
+      )
+      .all(groupId.value) as unknown as HistoryRow[];
+    return SettlementBook.open(
+      groupId,
+      row ? Number(row.version) : 0,
+      rows.map(row => toSettlement(row, historyOf(history, row.id))),
+    );
   }
 
   async findByPaymentId(paymentId: string): Promise<SettlementBook | null> {
@@ -89,11 +104,29 @@ export class SqliteSettlementBookRepository implements ISettlementBookRepository
           settlement.payUrl ?? null,
         );
     }
+    for (const change of book.unsavedHistory) {
+      connection
+        .prepare('INSERT INTO settlement_history (settlement_id, status, at) VALUES (?, ?, ?)')
+        .run(change.settlementId.value, change.status, change.at.toISOString());
+    }
     return Result.ok();
   }
 }
 
-function toSettlement(row: SettlementRow): Settlement {
+interface HistoryRow {
+  settlement_id: string;
+  status: SettlementStatusLine['status'];
+  at: string;
+}
+
+/** The lines of one settlement, the earliest first, out of the rows of the group's history. */
+function historyOf(rows: HistoryRow[], settlementId: string): SettlementStatusLine[] {
+  return rows
+    .filter(row => row.settlement_id === settlementId)
+    .map(row => ({ status: row.status, at: new Date(row.at) }));
+}
+
+function toSettlement(row: SettlementRow, history: SettlementStatusLine[]): Settlement {
   return {
     id: new Id(row.id),
     groupId: new Id(row.group_id),
@@ -103,6 +136,7 @@ function toSettlement(row: SettlementRow): Settlement {
     method: row.method,
     status: row.status,
     at: new Date(row.recorded_at),
+    history,
     ...(row.provider_payment_id !== null && { providerPaymentId: row.provider_payment_id }),
     ...(row.pay_url !== null && { payUrl: row.pay_url }),
   };

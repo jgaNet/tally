@@ -187,6 +187,7 @@ describe('Settlements: a payment through the provider waits as pending, and the 
       method: 'provider',
       status: 'pending',
       at: expect.any(String),
+      history: [{ status: 'pending', at: expect.any(String) }],
       payUrl: 'https://pay.example/prov-' + String(counter),
     });
     expect(await balances(groupId, ann.token)).toEqual({ [ann.id]: 30, [bob.id]: -30 });

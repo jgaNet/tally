@@ -6,6 +6,8 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import { SqliteSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBookRepository';
 
+const NOW = new Date('2026-11-01T10:00:00.000Z');
+
 const at = new Date('2026-11-01T10:00:00.000Z');
 const payer = new Id('payer');
 const payee = new Id('payee');
@@ -60,7 +62,7 @@ describe('SqliteSettlementBookRepository: a webhook that is late, or at the same
     const second = start();
     const late = await second.repository.findByPaymentId('late-pay');
     expect(late).not.toBeNull();
-    late!.receivePayment({ paymentId: 'late-pay', status: 'succeeded' });
+    late!.receivePayment({ paymentId: 'late-pay', status: 'succeeded', at: NOW });
     expect(late!.unsaved).toHaveLength(1);
     expect(late!.unsaved[0].status).toBe('paid');
     expect((await second.repository.save(late!)).isSuccess()).toBe(true);
@@ -68,8 +70,8 @@ describe('SqliteSettlementBookRepository: a webhook that is late, or at the same
 
     const third = start();
     const after = await third.repository.findByPaymentId('late-pay');
-    after!.receivePayment({ paymentId: 'late-pay', status: 'pending' });
-    after!.receivePayment({ paymentId: 'late-pay', status: 'failed' });
+    after!.receivePayment({ paymentId: 'late-pay', status: 'pending', at: NOW });
+    after!.receivePayment({ paymentId: 'late-pay', status: 'failed', at: NOW });
     expect(after!.unsaved).toHaveLength(0);
   });
 
@@ -87,8 +89,8 @@ describe('SqliteSettlementBookRepository: a webhook that is late, or at the same
     const other = start();
     const firstReading = await server.repository.findByPaymentId('shared-pay');
     const secondReading = await other.repository.findByPaymentId('shared-pay');
-    firstReading!.receivePayment({ paymentId: 'shared-pay', status: 'succeeded' });
-    secondReading!.receivePayment({ paymentId: 'shared-pay', status: 'succeeded' });
+    firstReading!.receivePayment({ paymentId: 'shared-pay', status: 'succeeded', at: NOW });
+    secondReading!.receivePayment({ paymentId: 'shared-pay', status: 'succeeded', at: NOW });
 
     expect((await server.repository.save(firstReading!)).isSuccess()).toBe(true);
     const conflict = await other.repository.save(secondReading!);
@@ -97,7 +99,7 @@ describe('SqliteSettlementBookRepository: a webhook that is late, or at the same
 
     // The second server re-reads in a new transaction: the payment is paid already, so it records nothing.
     const reread = await other.repository.findByPaymentId('shared-pay');
-    reread!.receivePayment({ paymentId: 'shared-pay', status: 'succeeded' });
+    reread!.receivePayment({ paymentId: 'shared-pay', status: 'succeeded', at: NOW });
     expect(reread!.unsaved).toHaveLength(0);
   });
 });

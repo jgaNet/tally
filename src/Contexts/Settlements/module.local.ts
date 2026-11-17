@@ -6,6 +6,7 @@ import { ISettlementEffects } from '@Contexts/Settlements/Domain/Settlement/Port
 import { IGroupBalances } from '@Contexts/Settlements/Domain/Settlement/Ports/IGroupBalances';
 import { IMemberDebts } from '@Contexts/Settlements/Domain/Settlement/Ports/IMemberDebts';
 import {
+  GetGroupSettlementsQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
@@ -120,12 +121,16 @@ export function settlementsModuleWith(
       },
       {
         event: ReceivePaymentWebhookCommandEvent,
-        handlers: [new ReceivePaymentWebhookCommandHandler(new SqliteSettlementBookRepository(database))],
+        handlers: [new ReceivePaymentWebhookCommandHandler(new SqliteSettlementBookRepository(database), systemClock)],
       },
     ],
     queries: [
       new GetSuggestedSettlementsQueryHandler(balances, waitingEffects, new GroupsSettlementMembers(groupMembership)),
       new GetSettlementQueryHandler(
+        new SqliteSettlementQueries(database),
+        new GroupsSettlementMembers(groupMembership),
+      ),
+      new GetGroupSettlementsQueryHandler(
         new SqliteSettlementQueries(database),
         new GroupsSettlementMembers(groupMembership),
       ),

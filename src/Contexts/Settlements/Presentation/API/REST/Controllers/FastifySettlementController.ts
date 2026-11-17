@@ -9,6 +9,7 @@ import {
   SetPayoutAccountCommandEvent,
 } from '@Contexts/Settlements/Application/Commands';
 import {
+  GetGroupSettlementsQueryHandler,
   GetPayoutAccountQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
@@ -99,6 +100,14 @@ export class FastifySettlementController {
   /** A signed-in person reads their own payout account: 404 when they have set none (request 16). */
   async getPayoutAccount(req: FastifyRequest, reply: FastifyReply) {
     const result = await this.#module.getQuery(GetPayoutAccountQueryHandler).handle(undefined, req.executionContext);
+    return result.isFailure() ? refuse(reply, result.error) : result.data;
+  }
+
+  /** A member of the group lists its settlements, the most recent first, each with its history (request 19). */
+  async getGroupSettlements(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetGroupSettlementsQueryHandler)
+      .handle({ id: req.params.id }, req.executionContext);
     return result.isFailure() ? refuse(reply, result.error) : result.data;
   }
 

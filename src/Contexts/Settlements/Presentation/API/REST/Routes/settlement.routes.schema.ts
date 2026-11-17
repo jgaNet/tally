@@ -91,9 +91,19 @@ export const ProviderWebhookResSchema = {
   401: RefusedSchema,
 } as const;
 
+/** One line of a settlement's history: a status it has had, and when Tally learned it (request 19). */
+const SettlementStatusLineSchema = {
+  type: 'object',
+  required: ['status', 'at'],
+  properties: {
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+    at: { type: 'string' },
+  },
+} as const;
+
 const SettlementSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at'],
+  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -103,6 +113,7 @@ const SettlementSchema = {
     method: { enum: ['cash', 'provider'] },
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
+    history: { type: 'array', minItems: 1, items: SettlementStatusLineSchema },
     payUrl: { type: 'string', minLength: 1 },
   },
   allOf: [
@@ -116,6 +127,13 @@ const SettlementSchema = {
 /** A settlement as a member of its group reads it. */
 export const GetSettlementResSchema = {
   200: SettlementSchema,
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;
+
+/** The settlements of a group, the most recently recorded first, as a member of the group reads them (request 19). */
+export const GetGroupSettlementsResSchema = {
+  200: { type: 'array', items: SettlementSchema },
   401: RefusedSchema,
   404: RefusedSchema,
 } as const;
