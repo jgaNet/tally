@@ -18,6 +18,8 @@ import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
+import { localSettlementsModule } from '@Contexts/Settlements/module.local';
+import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 
 /**
  * The composition root (ADR 40, ADR 2): it opens the database the application keeps what it knows in, builds each
@@ -69,6 +71,8 @@ export async function createApplication({
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(groups.module)
     .registerModule(ledger)
+    .registerModule(localSettlementsModule)
+    .registerModule(localNotificationsModule)
     .registerRoutes('/', accountRoutes, { module: groups.module })
     .registerRoutes('/', groupRoutes, { module: groups.module })
     .registerRoutes('/', invitationRoutes, { module: groups.module })
