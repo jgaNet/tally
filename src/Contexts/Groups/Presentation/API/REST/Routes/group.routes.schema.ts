@@ -14,6 +14,28 @@ const GroupSchema = {
   },
 } as const;
 
+const InvitationSchema = {
+  type: 'object',
+  required: ['id', 'groupId', 'groupName', 'invitedBy'],
+  properties: {
+    id: { type: 'string' },
+    groupId: { type: 'string' },
+    groupName: { type: 'string' },
+    invitedBy: { type: 'string' },
+  },
+} as const;
+
+const MemberSchema = {
+  type: 'object',
+  required: ['memberId', 'name', 'role', 'joinedAt'],
+  properties: {
+    memberId: { type: 'string' },
+    name: { type: 'string' },
+    role: { type: 'string', enum: ['owner', 'member'] },
+    joinedAt: { type: 'string' },
+  },
+} as const;
+
 export const CreateGroupBodySchema = {
   type: 'object',
   required: ['name', 'currency'],
@@ -37,4 +59,19 @@ export const GetGroupResSchema = {
 export const GetMyGroupsResSchema = {
   200: { description: 'Success', type: 'array', items: GroupSchema },
   401: RefusedSchema,
+} as const;
+
+/** A command answered later (202 with an operation, the way request 2 answers): the operation's result says what it did. */
+export const LaterCommandResSchema = CreateGroupResSchema;
+
+export const GetInvitationResSchema = {
+  200: { description: 'Success', ...InvitationSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;
+
+export const GetGroupMembersResSchema = {
+  200: { description: 'Success', type: 'array', items: MemberSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
 } as const;

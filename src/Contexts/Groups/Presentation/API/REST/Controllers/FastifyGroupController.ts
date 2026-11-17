@@ -4,8 +4,17 @@ import { Exception, NotAllowedException, NotFoundException } from '@Architecture
 import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
-import { CreateGroupCommandEvent } from '@Contexts/Groups/Application/Commands';
-import { GetGroupQueryHandler, GetMyGroupsQueryHandler } from '@Contexts/Groups/Application/Queries';
+import {
+  AcceptInvitationCommandEvent,
+  CreateGroupCommandEvent,
+  CreateInvitationCommandEvent,
+} from '@Contexts/Groups/Application/Commands';
+import {
+  GetGroupMembersQueryHandler,
+  GetGroupQueryHandler,
+  GetInvitationQueryHandler,
+  GetMyGroupsQueryHandler,
+} from '@Contexts/Groups/Application/Queries';
 
 export class FastifyGroupController {
   #module: Module;
@@ -28,6 +37,30 @@ export class FastifyGroupController {
 
   async getMyGroups(req: FastifyRequest, reply: FastifyReply) {
     const result = await this.#module.getQuery(GetMyGroupsQueryHandler).handle(undefined, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  async createInvitation(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, CreateInvitationCommandEvent.set({ groupId: req.params.id }));
+  }
+
+  async getInvitation(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetInvitationQueryHandler)
+      .handle({ id: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  async acceptInvitation(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, AcceptInvitationCommandEvent.set({ invitationId: req.params.id }));
+  }
+
+  async getGroupMembers(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetGroupMembersQueryHandler)
+      .handle({ id: req.params.id }, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }

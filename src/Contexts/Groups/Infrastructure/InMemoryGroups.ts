@@ -1,39 +1,72 @@
-import { IResult, Result } from '@Architecture/Domain';
+import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture/Domain';
 
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { GroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
 import { IGroupQueries } from '@Contexts/Groups/Application/Ports/IGroupQueries';
 import { GroupReadModel } from '@Contexts/Groups/Application/ReadModel/GroupReadModel';
+import { MemberReadModel } from '@Contexts/Groups/Application/ReadModel/MemberReadModel';
+import { AccountSnapshot } from '@Contexts/Groups/Domain/Account/DTOs';
 
-/** The groups kept in memory, shared by the in-memory adapters of the two ports, for the specs. */
+/** The groups kept in memory, shared by the in-memory adapters of the ports, for the specs. */
 export type InMemoryGroupStore = Map<string, GroupSnapshot>;
 
 export class InMemoryGroupRepository implements IGroupRepository {
   constructor(private store: InMemoryGroupStore = new Map()) {}
 
+  async findById(id: Id): Promise<Group | null> {
+    const snapshot = this.store.get(id.value);
+    return snapshot ? Group.fromSnapshot(snapshot) : null;
+  }
+
   async save(group: Group): Promise<IResult> {
     const snapshot = group.toSnapshot();
-    this.store.set(snapshot.id, snapshot);
+    if (snapshot.version === 0) {
+      this.store.set(snapshot.id, { ...snapshot, version: 1 });
+      return Result.ok();
+    }
+    const kept = this.store.get(snapshot.id);
+    if (!kept || kept.version !== snapshot.version) {
+      return Result.fail(new ConcurrencyConflictException('Groups', 'The group has changed', { id: snapshot.id }));
+    }
+    this.store.set(snapshot.id, { ...snapshot, version: snapshot.version + 1 });
     return Result.ok();
   }
 }
 
 export class InMemoryGroupReadModels implements IGroupQueries {
-  constructor(private store: InMemoryGroupStore) {}
+  /** `accounts` is where the members' names are read from, when the members are listed. */
+  constructor(
+    private store: InMemoryGroupStore,
+    private accounts: Map<string, AccountSnapshot> = new Map(),
+  ) {}
 
   async findForMember(groupId: string, accountId: string): Promise<GroupReadModel | null> {
     const snapshot = this.store.get(groupId);
-    return snapshot && snapshot.memberIds.includes(accountId) ? toReadModel(snapshot) : null;
+    return snapshot && isMember(snapshot, accountId) ? toReadModel(snapshot) : null;
   }
 
   async listForMember(accountId: string): Promise<GroupReadModel[]> {
     return [...this.store.values()]
-      .filter(snapshot => snapshot.memberIds.includes(accountId))
+      .filter(snapshot => isMember(snapshot, accountId))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map(toReadModel);
   }
+
+  async listMembers(groupId: string, accountId: string): Promise<MemberReadModel[] | null> {
+    const snapshot = this.store.get(groupId);
+    if (!snapshot || !isMember(snapshot, accountId)) return null;
+    return snapshot.members.map(member => ({
+      memberId: member.accountId,
+      name: this.accounts.get(member.accountId)?.name ?? '',
+      role: member.accountId === snapshot.ownerId ? 'owner' : 'member',
+      joinedAt: member.joinedAt,
+    }));
+  }
 }
+
+const isMember = (snapshot: GroupSnapshot, accountId: string): boolean =>
+  snapshot.members.some(member => member.accountId === accountId);
 
 const toReadModel = (snapshot: GroupSnapshot): GroupReadModel => ({
   id: snapshot.id,

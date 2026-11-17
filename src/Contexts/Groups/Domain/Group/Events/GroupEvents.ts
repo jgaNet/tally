@@ -2,3 +2,6 @@ import { DomainEvent } from '@Architecture/Domain';
 
 /** A group was created: it exists under the id it was born with, and its owner is its first member. */
 export class GroupCreatedEvent extends DomainEvent<{ groupId: string; ownerId: string }> {}
+
+/** An account joined a group by an invitation: it is a member from now on, after the members who joined before it. */
+export class MemberJoinedEvent extends DomainEvent<{ groupId: string; accountId: string }> {}

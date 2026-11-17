@@ -19,8 +19,12 @@ const store = new Map([
       name: 'Lisbon',
       currency: 'EUR',
       ownerId: 'alice',
-      memberIds: ['alice', 'bob'],
+      members: [
+        { accountId: 'alice', joinedAt: '2026-03-01T10:00:00.000Z' },
+        { accountId: 'bob', joinedAt: '2026-03-02T10:00:00.000Z' },
+      ],
       createdAt: '2026-03-01T10:00:00.000Z',
+      version: 2,
     },
   ],
 ]);

@@ -18,3 +18,10 @@ export class InvalidCurrency extends GroupException {
     super('InvalidCurrency', 'A currency is one of EUR, USD, GBP, CHF, CAD or AUD');
   }
 }
+
+/** An account that is already a member of the group asks to join it again. */
+export class AlreadyAMember extends GroupException {
+  constructor() {
+    super('AlreadyAMember', 'You are already a member of this group');
+  }
+}
