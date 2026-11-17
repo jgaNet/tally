@@ -65,3 +65,17 @@ export class PayerNotInSplitException extends Exception {
     });
   }
 }
+
+/**
+ * The expense changed since the version the edit was made from was read: its author reads it again and decides (feature 6).
+ * Refused by name, after a second writer's edit was kept and this one was re-decided against it.
+ */
+export class ExpenseChangedSinceReadException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'ExpenseChangedSinceRead',
+      message: 'The expense changed since it was read: read it again, and decide',
+    });
+  }
+}

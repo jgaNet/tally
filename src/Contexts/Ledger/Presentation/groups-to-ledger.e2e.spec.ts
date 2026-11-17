@@ -112,6 +112,47 @@ describe('Groups → Ledger', () => {
     ]);
   });
 
+  it('reads, from Groups, the role of each member, so the owner of a group made in Groups may change an expense another member recorded in it', async () => {
+    const owner = await signedInPerson('Owner');
+    const grace = await signedInPerson('Grace');
+    const linus = await signedInPerson('Linus');
+
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: owner.token })
+    ).body as { id: string };
+    for (const person of [grace, linus]) {
+      const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: owner.token }))
+        .body as { id: string };
+      await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: person.token });
+    }
+
+    const { id: expenseId } = (
+      await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+        body: { description: 'Bread', amount: 300, date: '2020-01-15', splitBetween: [grace.id, linus.id] },
+        token: grace.token,
+      })
+    ).body as { id: string };
+
+    // Linus is a member, but neither the payer nor the owner: refused. The owner, who is not the payer, may edit it.
+    const edit = {
+      description: 'Bread',
+      amount: 200,
+      date: '2020-01-15',
+      splitBetween: [grace.id, linus.id],
+      version: 1,
+    };
+    expect((await http.request('PUT', `${api}/expenses/${expenseId}`, { body: edit, token: linus.token })).status).toBe(
+      403,
+    );
+    expect((await http.request('PUT', `${api}/expenses/${expenseId}`, { body: edit, token: owner.token })).status).toBe(
+      204,
+    );
+    expect((await http.request('GET', `${api}/expenses/${expenseId}`, { token: owner.token })).body).toMatchObject({
+      paidBy: grace.id,
+      version: 2,
+    });
+  });
+
   it('does not find a group Groups does not have a member in: Ledger answers it as a group that does not exist', async () => {
     const ada = await signedInPerson('Ada');
     const stranger = await signedInPerson('Stranger');

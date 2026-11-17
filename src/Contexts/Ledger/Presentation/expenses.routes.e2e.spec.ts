@@ -87,6 +87,7 @@ describe('recording an expense', () => {
         { memberId: grace.id, amount: 333 },
         { memberId: linus.id, amount: 333 },
       ],
+      version: 1,
     });
   });
 

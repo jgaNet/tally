@@ -4,7 +4,10 @@ export interface ShareView {
   amount: number;
 }
 
-/** What `GetExpense` answers: an expense as it was recorded, its shares in the order of the split. */
+/**
+ * What `GetExpense` answers: an expense as it is stored, its shares in the order of the split, and the version it is at (1
+ * when it is recorded, one more at each edit).
+ */
 export interface ExpenseView {
   id: string;
   groupId: string;
@@ -13,6 +16,7 @@ export interface ExpenseView {
   date: string;
   paidBy: string;
   shares: ShareView[];
+  version: number;
 }
 
 /** What `GetGroupBalances` answers for one member: what the group owes them (positive) or they owe (negative). */

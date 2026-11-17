@@ -22,7 +22,8 @@ export class LedgerDatabase {
           description TEXT NOT NULL,
           amount INTEGER NOT NULL,
           date TEXT NOT NULL,
-          paid_by TEXT NOT NULL
+          paid_by TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS ledger_expenses_by_group ON ledger_expenses (group_id);
         CREATE TABLE IF NOT EXISTS ledger_expense_shares (
@@ -33,24 +34,33 @@ export class LedgerDatabase {
           PRIMARY KEY (expense_id, position)
         );
       `);
-      this.#createBalances(connection);
+      this.#migrate(connection);
       this.#connection = connection;
     }
     return this.#connection;
   }
 
   /**
-   * The table of balances, the read model `GetGroupBalances` reads: one row per member per group, kept in the same
-   * transaction as the expenses that move it. Made once: when a file had expenses before it existed, it is filled from them
-   * in the same transaction, so two servers opening the file at once cannot count an expense twice.
+   * What a file written before this layout needs, made once, in one transaction so that two servers opening the file at
+   * once cannot do it twice (feature 6, feature 5):
+   * - the version of each expense, which a file of feature 4 did not keep: every expense it holds is at version 1, as it
+   *   was recorded and never edited;
+   * - the table of balances, the read model `GetGroupBalances` reads: one row per member per group, kept in the same
+   *   transaction as the expenses that move it. When a file had expenses before it existed, it is filled from them.
    */
-  #createBalances(connection: DatabaseSync): void {
+  #migrate(connection: DatabaseSync): void {
     connection.exec('BEGIN IMMEDIATE');
     try {
-      const present = connection
+      const hasVersion = connection
+        .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'version'")
+        .get();
+      if (!hasVersion) {
+        connection.exec('ALTER TABLE ledger_expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+      }
+      const hasBalances = connection
         .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_balances'")
         .get();
-      if (!present) {
+      if (!hasBalances) {
         connection.exec(`
           CREATE TABLE ledger_balances (
             group_id TEXT NOT NULL,

@@ -12,6 +12,12 @@ export class ExpenseDate extends ValueObject<string> {
     if (!isRealDay(raw) || raw > today) return Result.fail(new InvalidExpenseDateException());
     return Result.ok(new ExpenseDate(raw));
   }
+
+  /** A day as it was stored: a real day, whenever it was decided, so it is not held to today again (`fromSnapshot`). */
+  static restore(raw: string): IResult<ExpenseDate> {
+    if (!isRealDay(raw)) return Result.fail(new InvalidExpenseDateException());
+    return Result.ok(new ExpenseDate(raw));
+  }
 }
 
 /** Whether `raw` is a day that exists: the calendar rolls `2026-02-30` over, so it must read back as written. */
