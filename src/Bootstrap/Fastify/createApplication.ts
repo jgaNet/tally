@@ -16,6 +16,8 @@ import { expenseRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/exp
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/balance.routes';
 import { statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/statement.routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { localSettlementsModule } from '@Contexts/Settlements/module.local';
+import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 
 /**
  * The composition root (ADR 27): the application's state is in one SQLite file (DATABASE_PATH), and every request
@@ -55,6 +57,8 @@ export async function createApplication({
     .registerModule(localTrackerModule)
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
+    .registerModule(localSettlementsModule)
+    .registerModule(localNotificationsModule)
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule })
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
