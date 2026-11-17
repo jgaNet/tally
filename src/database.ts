@@ -84,6 +84,12 @@ const MIGRATIONS: readonly string[] = [
   -- versions existed were never edited, so they are at version 1.
   ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
   `,
+  `
+  -- How an expense was split: 'equal' between its members, 'exact' by amounts, or 'shares' by a number of
+  -- shares each. Expenses recorded before splits could be unequal were all split equally.
+  ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'
+    CHECK (split_kind IN ('equal', 'exact', 'shares'));
+  `,
 ];
 
 /**

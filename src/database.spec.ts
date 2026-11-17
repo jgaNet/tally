@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import { Application } from './app';
 import { inTransaction, openDatabase } from './database';
 import { ada, call, Reachable, startApplication, temporaryDatabase } from './test-support';
@@ -96,10 +97,41 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 5 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 6 });
     } finally {
       db.close();
     }
+  });
+
+  it('reads an expense recorded before splits could be unequal as split equally', async () => {
+    const first = await start();
+    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
+    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
+    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
+      .id;
+    const expenseId = (
+      await call(first, 'POST', `/groups/${groupId}/expenses`, {
+        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
+        token,
+      })
+    ).body.id;
+    await first.stop();
+    apps.pop();
+
+    // The file as the schema was before splits could be unequal: no column for the kind of split, version 5.
+    const before = new DatabaseSync(database.path);
+    try {
+      before.exec('ALTER TABLE expenses DROP COLUMN split_kind');
+      before.exec('PRAGMA user_version = 5');
+    } finally {
+      before.close();
+    }
+
+    const second = await start();
+    expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({
+      splitKind: 'equal',
+      shares: [{ memberId: adaId, amount: 1000 }],
+    });
   });
 
   it('keeps all of a transaction that completes, and none of one that throws', () => {

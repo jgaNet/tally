@@ -1,5 +1,5 @@
 import { Application } from './app';
-import { equalShares, todayUtc } from './expenses';
+import { equalShares, sharesByWeight, todayUtc } from './expenses';
 import { ada, call, startApplication, temporaryDatabase } from './test-support';
 
 const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
@@ -69,6 +69,13 @@ describe('expenses', () => {
   }
 
   const refusal = (type: string) => ({ status: 422, body: { type, message: expect.any(String) } });
+
+  /** The expense split by the amounts given, in place of the equal split of the default expense. */
+  const byAmounts = (splitExactly: unknown[], fields: Record<string, unknown> = {}) => ({
+    splitBetween: undefined,
+    splitExactly,
+    ...fields,
+  });
 
   describe('the equal split', () => {
     it('gives 1000 split between three members to the two others 333 each and to the payer 334', () => {
@@ -245,6 +252,7 @@ describe('expenses', () => {
             { memberId: graceId, amount: 333 },
             { memberId: linusId, amount: 333 },
           ],
+          splitKind: 'equal',
           version: 1,
         },
       });
@@ -332,6 +340,7 @@ describe('expenses', () => {
           { memberId: adaId, amount: 450 },
           { memberId: graceId, amount: 450 },
         ],
+        splitKind: 'equal',
         version: 2,
       });
     });
@@ -527,6 +536,365 @@ describe('expenses', () => {
       } finally {
         await other.stop();
       }
+    });
+  });
+
+  describe('the shares of a split by shares', () => {
+    it('gives 1001 by shares of 2 and 1, the payer listed second, 667 and 334', () => {
+      expect(
+        sharesByWeight(
+          1001,
+          [
+            { memberId: graceId, shares: 2 },
+            { memberId: adaId, shares: 1 },
+          ],
+          adaId,
+        ),
+      ).toEqual([
+        { memberId: graceId, amount: 667 },
+        { memberId: adaId, amount: 334 },
+      ]);
+    });
+
+    it('gives the same shares as the equal split when every member has one share', () => {
+      const members = [graceId, linusId, adaId];
+      expect(
+        sharesByWeight(
+          1000,
+          members.map(memberId => ({ memberId, shares: 1 })),
+          adaId,
+        ),
+      ).toEqual(equalShares(1000, members, adaId));
+    });
+
+    it('gives the remainder to the payer even when the payer has the fewest shares', () => {
+      expect(
+        sharesByWeight(
+          1001,
+          [
+            { memberId: graceId, shares: 3 },
+            { memberId: linusId, shares: 1 },
+            { memberId: adaId, shares: 1 },
+          ],
+          adaId,
+        ),
+      ).toEqual([
+        { memberId: graceId, amount: 600 },
+        { memberId: linusId, amount: 200 },
+        { memberId: adaId, amount: 201 },
+      ]);
+    });
+
+    it('does the arithmetic in whole numbers, so a huge number of shares cannot overflow it', () => {
+      expect(
+        sharesByWeight(
+          100_000_000,
+          [
+            { memberId: graceId, shares: 1 },
+            { memberId: adaId, shares: 9_000_000_000_000_000 },
+          ],
+          adaId,
+        ),
+      ).toEqual([
+        { memberId: graceId, amount: 0 },
+        { memberId: adaId, amount: 100_000_000 },
+      ]);
+    });
+
+    it.each([
+      [1, [1, 2, 3]],
+      [999_983, [5, 3, 11, 2]],
+      [100_000_000, [7, 1, 1]],
+    ])('never loses a unit: %i split by these shares adds up exactly to the amount', (amount, counts) => {
+      const weights = counts.map((shares, index) => ({ memberId: `member-${index}`, shares }));
+      const total = sharesByWeight(amount, weights, 'member-0').reduce((sum, share) => sum + share.amount, 0);
+      expect(total).toBe(amount);
+    });
+  });
+
+  describe('the shape of the split', () => {
+    it('refuses a body with none of the three splits with 400', async () => {
+      const body = expense({ splitBetween: undefined });
+      expect((await call(app, 'POST', `/groups/${groupId}/expenses`, { body, token: adaToken })).status).toBe(400);
+    });
+
+    it('refuses a body with more than one of the three splits with 400', async () => {
+      const exactly = [
+        { memberId: adaId, amount: 500 },
+        { memberId: graceId, amount: 500 },
+      ];
+      const byShares = [
+        { memberId: adaId, shares: 1 },
+        { memberId: graceId, shares: 1 },
+      ];
+      expect((await record({ splitExactly: exactly })).status).toBe(400);
+      expect((await record({ splitByShares: byShares })).status).toBe(400);
+      expect((await record({ splitExactly: exactly, splitByShares: byShares })).status).toBe(400);
+    });
+
+    it('refuses a split by shares that is not a list of members with their whole numbers of shares, with 400', async () => {
+      const splitByShares = [{ memberId: adaId, shares: 1.5 }];
+      expect((await record({ splitBetween: undefined, splitByShares })).status).toBe(400);
+      expect(
+        (await record({ splitBetween: undefined, splitExactly: [{ memberId: adaId, amount: '1000' }] })).status,
+      ).toBe(400);
+    });
+
+    it('refuses a split by amounts with a fraction of a unit, with 400', async () => {
+      const splitExactly = [
+        { memberId: adaId, amount: 500.5 },
+        { memberId: graceId, amount: 499.5 },
+      ];
+      expect((await record({ splitBetween: undefined, splitExactly })).status).toBe(400);
+    });
+  });
+
+  describe('splitting by exact amounts', () => {
+    it('gives each member the amount of their share, in the order given, and says the expense is split by amounts', async () => {
+      const id = await recordedExpense(
+        byAmounts([
+          { memberId: linusId, amount: 200 },
+          { memberId: adaId, amount: 500 },
+          { memberId: graceId, amount: 300 },
+        ]),
+      );
+      expect(await readExpense(id)).toMatchObject({
+        splitKind: 'exact',
+        shares: [
+          { memberId: linusId, amount: 200 },
+          { memberId: adaId, amount: 500 },
+          { memberId: graceId, amount: 300 },
+        ],
+      });
+    });
+
+    it('accepts the payer alone with the whole amount, and a member with an amount of 0 when the amounts still add up', async () => {
+      expect((await record(byAmounts([{ memberId: adaId, amount: 1000 }]))).status).toBe(201);
+      expect(
+        (
+          await record(
+            byAmounts([
+              { memberId: adaId, amount: 1000 },
+              { memberId: graceId, amount: 0 },
+            ]),
+          )
+        ).status,
+      ).toBe(201);
+    });
+
+    it.each([
+      ['less than the amount', 499],
+      ['more than the amount', 501],
+    ])('refuses amounts that add up to %s of the expense', async (_, graceAmount) => {
+      const splitExactly = [
+        { memberId: adaId, amount: 500 },
+        { memberId: graceId, amount: graceAmount },
+      ];
+      expect(await record(byAmounts(splitExactly))).toEqual(refusal('InvalidSplit'));
+    });
+
+    it('refuses a negative amount, even when the other amounts make up the total', async () => {
+      const splitExactly = [
+        { memberId: adaId, amount: 1100 },
+        { memberId: graceId, amount: -100 },
+      ];
+      expect(await record(byAmounts(splitExactly))).toEqual(refusal('InvalidSplit'));
+    });
+
+    it('refuses a split that does not name the payer, names a member twice, or names an outsider', async () => {
+      const outsider = await accountOf({ email: 'outsider@example.com', password: 'outside-2000', name: 'Outsider' });
+      expect(
+        await record(
+          byAmounts([
+            { memberId: graceId, amount: 600 },
+            { memberId: linusId, amount: 400 },
+          ]),
+        ),
+      ).toEqual(refusal('InvalidSplit'));
+      expect(
+        await record(
+          byAmounts([
+            { memberId: adaId, amount: 500 },
+            { memberId: graceId, amount: 250 },
+            { memberId: graceId, amount: 250 },
+          ]),
+        ),
+      ).toEqual(refusal('InvalidSplit'));
+      expect(
+        await record(
+          byAmounts([
+            { memberId: adaId, amount: 500 },
+            { memberId: outsider.id, amount: 500 },
+          ]),
+        ),
+      ).toEqual(refusal('InvalidSplit'));
+    });
+
+    it('refuses an empty split, which does not name the payer', async () => {
+      expect(await record(byAmounts([]))).toEqual(refusal('InvalidSplit'));
+    });
+  });
+
+  describe('splitting by shares', () => {
+    /** The expense split by the shares given, in place of the equal split of the default expense. */
+    const byShares = (splitByShares: unknown[], fields: Record<string, unknown> = {}) => ({
+      splitBetween: undefined,
+      splitByShares,
+      ...fields,
+    });
+
+    it('gives 1001 by shares of 2 and 1, the payer listed second, 667 to the first and 334 to the payer', async () => {
+      const id = await recordedExpense(
+        byShares(
+          [
+            { memberId: graceId, shares: 2 },
+            { memberId: adaId, shares: 1 },
+          ],
+          { amount: 1001 },
+        ),
+      );
+      expect(await readExpense(id)).toMatchObject({
+        splitKind: 'shares',
+        shares: [
+          { memberId: graceId, amount: 667 },
+          { memberId: adaId, amount: 334 },
+        ],
+      });
+    });
+
+    it('splits 1000 by shares of 1, 1 and 1 as the equal split does', async () => {
+      const id = await recordedExpense(
+        byShares([
+          { memberId: graceId, shares: 1 },
+          { memberId: linusId, shares: 1 },
+          { memberId: adaId, shares: 1 },
+        ]),
+      );
+      expect((await readExpense(id)).shares).toEqual([
+        { memberId: graceId, amount: 333 },
+        { memberId: linusId, amount: 333 },
+        { memberId: adaId, amount: 334 },
+      ]);
+    });
+
+    it.each([0, -1])('refuses a member with %i shares, as each member has at least 1', async shares => {
+      const splitByShares = [
+        { memberId: adaId, shares: 1 },
+        { memberId: graceId, shares },
+      ];
+      expect(await record(byShares(splitByShares))).toEqual(refusal('InvalidSplit'));
+    });
+
+    it('refuses a split by shares that does not name the payer', async () => {
+      const splitByShares = [
+        { memberId: graceId, shares: 1 },
+        { memberId: linusId, shares: 1 },
+      ];
+      expect(await record(byShares(splitByShares))).toEqual(refusal('InvalidSplit'));
+    });
+  });
+
+  describe('editing the split', () => {
+    it('turns an equal split into one by amounts, and counts one more version', async () => {
+      const id = await recordedExpense();
+      const answer = await change(id, {
+        splitBetween: undefined,
+        splitExactly: [
+          { memberId: adaId, amount: 400 },
+          { memberId: graceId, amount: 600 },
+        ],
+      });
+      expect(answer.status).toBe(204);
+      expect(await readExpense(id)).toMatchObject({
+        splitKind: 'exact',
+        version: 2,
+        shares: [
+          { memberId: adaId, amount: 400 },
+          { memberId: graceId, amount: 600 },
+        ],
+      });
+    });
+
+    it('turns a split by amounts into one by shares, and then into an equal one', async () => {
+      const id = await recordedExpense();
+      await change(id, {
+        splitBetween: undefined,
+        splitByShares: [
+          { memberId: adaId, shares: 1 },
+          { memberId: graceId, shares: 3 },
+        ],
+      });
+      expect(await readExpense(id)).toMatchObject({
+        splitKind: 'shares',
+        version: 2,
+        shares: [
+          { memberId: adaId, amount: 250 },
+          { memberId: graceId, amount: 750 },
+        ],
+      });
+      expect(await change(id, { version: 2 })).toEqual({ status: 204, body: undefined });
+      expect(await readExpense(id)).toMatchObject({ splitKind: 'equal', version: 3 });
+    });
+
+    it('refuses an edit that gives two splits, or none, with 400, and keeps the expense', async () => {
+      const id = await recordedExpense();
+      expect(
+        (
+          await change(id, {
+            splitExactly: [
+              { memberId: adaId, amount: 1000 },
+              { memberId: graceId, amount: 0 },
+            ],
+          })
+        ).status,
+      ).toBe(400);
+      expect((await change(id, { splitBetween: undefined })).status).toBe(400);
+      expect(await readExpense(id)).toMatchObject({ splitKind: 'equal', version: 1 });
+    });
+
+    it('refuses an edit whose amounts no longer add up to the new amount, and keeps nothing of it', async () => {
+      const id = await recordedExpense(
+        byAmounts([
+          { memberId: adaId, amount: 600 },
+          { memberId: graceId, amount: 400 },
+        ]),
+      );
+      const answer = await change(id, {
+        amount: 900,
+        splitBetween: undefined,
+        splitExactly: [
+          { memberId: adaId, amount: 600 },
+          { memberId: graceId, amount: 400 },
+        ],
+      });
+      expect(answer).toEqual(refusal('InvalidSplit'));
+      expect(await readExpense(id)).toMatchObject({ amount: 1000, splitKind: 'exact', version: 1 });
+    });
+  });
+
+  describe('the balances of an unequal split', () => {
+    it("counts each member's share of an expense split by amounts or by shares, in the balances", async () => {
+      await recordedExpense({
+        splitBetween: undefined,
+        splitExactly: [
+          { memberId: adaId, amount: 700 },
+          { memberId: graceId, amount: 300 },
+        ],
+      });
+      await recordedExpense(
+        {
+          amount: 1001,
+          splitBetween: undefined,
+          splitByShares: [
+            { memberId: graceId, shares: 2 },
+            { memberId: adaId, shares: 1 },
+          ],
+        },
+        graceToken,
+      );
+      // Ada paid 1000 and has shares 700 + 333. Grace paid 1001 and has shares 300 + 668: the payer keeps
+      // the remainder of 1001 split by 2 and 1 shares, 668 and 333. Linus has no share, and is even.
+      expect((await balancesOf()).map((member: { balance: number }) => member.balance)).toEqual([-33, 33, 0]);
     });
   });
 });
