@@ -59,6 +59,26 @@ const MIGRATIONS: readonly string[] = [
     created_at TEXT NOT NULL
   );
   `,
+  `
+  CREATE TABLE expenses (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    description TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    paid_by TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
+
+  -- The shares of an expense, in the order its split was given: position is that order.
+  CREATE TABLE expense_shares (
+    expense_id TEXT NOT NULL REFERENCES expenses (id),
+    position INTEGER NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    amount INTEGER NOT NULL,
+    PRIMARY KEY (expense_id, position)
+  );
+  `,
 ];
 
 /**

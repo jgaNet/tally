@@ -2,6 +2,7 @@ import cors from '@fastify/cors';
 import Fastify, { FastifyError, FastifyInstance } from 'fastify';
 import { registerAccountRoutes } from './accounts';
 import { openDatabase } from './database';
+import { registerExpenseRoutes } from './expenses';
 import { registerGroupRoutes } from './groups';
 import { registerInvitationRoutes } from './invitations';
 import { registerOperationRoutes } from './operations';
@@ -44,6 +45,7 @@ export async function createApplication({
       registerAccountRoutes(instance, db);
       registerGroupRoutes(instance, db);
       registerInvitationRoutes(instance, db);
+      registerExpenseRoutes(instance, db);
       registerOperationRoutes(instance, db);
     },
     { prefix: `/${apiPrefix}` },
