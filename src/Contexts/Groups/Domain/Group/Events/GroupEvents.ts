@@ -8,3 +8,10 @@ export class GroupCreatedEvent extends DomainEvent<{
   ownerId: string;
   createdAt: string;
 }> {}
+
+/** An account joined a group, and when: the member's place in the group's order is the order of these facts. */
+export class MemberJoinedEvent extends DomainEvent<{
+  groupId: string;
+  accountId: string;
+  joinedAt: string;
+}> {}

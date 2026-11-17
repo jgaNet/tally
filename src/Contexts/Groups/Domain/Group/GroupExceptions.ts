@@ -18,3 +18,9 @@ export class InvalidCurrency extends GroupException {
     super('InvalidCurrency', `The currency must be one of ${currencies.join(', ')}`);
   }
 }
+
+export class AlreadyMember extends GroupException {
+  constructor() {
+    super('AlreadyMember', 'This account is already a member of the group');
+  }
+}

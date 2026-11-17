@@ -1,6 +1,7 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { IGroupQueries } from '@Contexts/Groups/Application/Ports/IGroupQueries';
 import { GroupReadModel } from '@Contexts/Groups/Application/ReadModel/GroupReadModel';
+import { MemberReadModel } from '@Contexts/Groups/Application/ReadModel/MemberReadModel';
 import { GROUP_STATEMENTS } from '@Contexts/Groups/Infrastructure/groups.schema';
 
 const READ_MODEL = 'SELECT g.id, g.name, g.currency, g.owner_id AS ownerId FROM tally_groups g';
@@ -34,5 +35,23 @@ export class SqliteGroupQueries implements IGroupQueries {
           .all(accountId) as unknown,
     );
     return rows as GroupReadModel[];
+  }
+
+  async listMembers(groupId: string): Promise<MemberReadModel[]> {
+    const rows = await this.database.exclusive(
+      connection =>
+        connection
+          .prepare(
+            `SELECT m.account_id AS memberId, a.name AS name,
+                    CASE WHEN m.account_id = g.owner_id THEN 'owner' ELSE 'member' END AS role,
+                    m.joined_at AS joinedAt
+               FROM group_members m
+               JOIN tally_groups g ON g.id = m.group_id
+               JOIN accounts a ON a.id = m.account_id
+              WHERE m.group_id = ? ORDER BY m.position`,
+          )
+          .all(groupId) as unknown,
+    );
+    return rows as MemberReadModel[];
   }
 }

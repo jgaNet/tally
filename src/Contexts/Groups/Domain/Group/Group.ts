@@ -1,8 +1,15 @@
-import { AggregateRoot, Id } from '@Architecture/Domain';
+import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import { GroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
-import { GroupCreatedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import { AlreadyMember } from '@Contexts/Groups/Domain/Group/GroupExceptions';
+import { GroupCreatedEvent, MemberJoinedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+
+/** An account in a group, from the moment it joined: the owner's is the group's creation. */
+export interface Membership {
+  readonly accountId: Id;
+  readonly joinedAt: Date;
+}
 
 /**
  * A group: the people who share expenses in one currency. It is made by `create()`, which records the fact, and its
@@ -16,7 +23,7 @@ export class Group extends AggregateRoot {
     readonly name: GroupName,
     readonly currency: Currency,
     readonly ownerId: Id,
-    readonly memberIds: readonly Id[],
+    private _members: Membership[],
     readonly createdAt: Date,
   ) {
     super(id, version);
@@ -33,7 +40,7 @@ export class Group extends AggregateRoot {
     ownerId: Id;
     at: Date;
   }): Group {
-    const group = new Group(Id.generate(), 0, name, currency, ownerId, [ownerId], at);
+    const group = new Group(Id.generate(), 0, name, currency, ownerId, [{ accountId: ownerId, joinedAt: at }], at);
     group.record(
       GroupCreatedEvent.set({
         groupId: group._id.value,
@@ -46,6 +53,23 @@ export class Group extends AggregateRoot {
     return group;
   }
 
+  /**
+   * Adds an account as a member, from now on. It is refused when the account is already a member: a group is joined
+   * once per account, however many invitations lead to it. Records MemberJoined.
+   */
+  join(accountId: Id, at: Date): IResult {
+    if (this.hasMember(accountId)) return Result.fail(new AlreadyMember());
+    this._members = [...this._members, { accountId, joinedAt: at }];
+    this.record(
+      MemberJoinedEvent.set({
+        groupId: this._id.value,
+        accountId: accountId.value,
+        joinedAt: at.toISOString(),
+      }),
+    );
+    return Result.ok();
+  }
+
   /** Reconstitutes a stored group. It records nothing, and refuses corrupted data by throwing. */
   static fromSnapshot(snapshot: GroupSnapshot): Group {
     const name = GroupName.create(snapshot.name);
@@ -56,7 +80,7 @@ export class Group extends AggregateRoot {
       currency.isFailure() ||
       !snapshot.id ||
       !snapshot.ownerId ||
-      !snapshot.memberIds.includes(snapshot.ownerId) ||
+      !snapshot.members.some(member => member.accountId === snapshot.ownerId) ||
       Number.isNaN(createdAt.getTime())
     ) {
       throw new Error(`Corrupted group ${snapshot.id}`);
@@ -67,14 +91,19 @@ export class Group extends AggregateRoot {
       name.data,
       currency.data,
       new Id(snapshot.ownerId),
-      snapshot.memberIds.map(memberId => new Id(memberId)),
+      snapshot.members.map(member => ({ accountId: new Id(member.accountId), joinedAt: new Date(member.joinedAt) })),
       createdAt,
     );
   }
 
+  /** The members in the order they joined, the owner first. */
+  get members(): readonly Membership[] {
+    return this._members;
+  }
+
   /** Whether this account is one of the group's members: the only people who may see it. */
   hasMember(accountId: Id): boolean {
-    return this.memberIds.some(memberId => memberId.equals(accountId));
+    return this._members.some(member => member.accountId.equals(accountId));
   }
 
   toSnapshot(): GroupSnapshot {
@@ -83,7 +112,10 @@ export class Group extends AggregateRoot {
       name: this.name.value,
       currency: this.currency.value,
       ownerId: this.ownerId.value,
-      memberIds: this.memberIds.map(memberId => memberId.value),
+      members: this._members.map(member => ({
+        accountId: member.accountId.value,
+        joinedAt: member.joinedAt.toISOString(),
+      })),
       createdAt: this.createdAt.toISOString(),
       version: this.version,
     };

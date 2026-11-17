@@ -5,7 +5,7 @@ feature: invite-and-join
 intent: >-
   Any member creates an invitation whose id is the link; anyone signed in who has it reads it and joins the group, once; the members are listed in the order they joined.
 
-done: false
+done: true
 
 hotSpots:
   - question: Is an invitation part of the Group, or an aggregate of its own?

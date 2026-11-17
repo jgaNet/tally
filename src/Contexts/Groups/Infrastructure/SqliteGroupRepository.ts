@@ -24,21 +24,21 @@ export class SqliteGroupRepository implements IGroupRepository {
     const row = connection.prepare('SELECT * FROM tally_groups WHERE id = ?').get(id.value) as GroupRow | undefined;
     if (!row) return null;
     const members = connection
-      .prepare('SELECT account_id FROM group_members WHERE group_id = ? ORDER BY position')
-      .all(id.value) as { account_id: string }[];
+      .prepare('SELECT account_id, joined_at FROM group_members WHERE group_id = ? ORDER BY position')
+      .all(id.value) as { account_id: string; joined_at: string }[];
     return Group.fromSnapshot({
       id: row.id,
       name: row.name,
       currency: row.currency,
       ownerId: row.owner_id,
-      memberIds: members.map(member => member.account_id),
+      members: members.map(member => ({ accountId: member.account_id, joinedAt: member.joined_at })),
       createdAt: row.created_at,
       version: row.version,
     });
   }
 
   async save(group: Group): Promise<IResult> {
-    const { id, name, currency, ownerId, memberIds, createdAt, version } = group.toSnapshot();
+    const { id, name, currency, ownerId, members, createdAt, version } = group.toSnapshot();
     const { connection } = this.database;
     if (version === 0) {
       connection
@@ -55,10 +55,10 @@ export class SqliteGroupRepository implements IGroupRepository {
       }
     }
     connection.prepare('DELETE FROM group_members WHERE group_id = ?').run(id);
-    memberIds.forEach((accountId, position) =>
+    members.forEach(({ accountId, joinedAt }, position) =>
       connection
-        .prepare('INSERT INTO group_members (group_id, account_id, position) VALUES (?, ?, ?)')
-        .run(id, accountId, position),
+        .prepare('INSERT INTO group_members (group_id, account_id, position, joined_at) VALUES (?, ?, ?, ?)')
+        .run(id, accountId, position, joinedAt),
     );
     return Result.ok();
   }

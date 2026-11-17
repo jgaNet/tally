@@ -42,7 +42,7 @@ describe('Group', () => {
   it('is made with its owner as its first member, and records GroupCreated', () => {
     const group = create();
     expect(group.ownerId.value).toBe('owner-1');
-    expect(group.memberIds.map(member => member.value)).toEqual(['owner-1']);
+    expect(group.members.map(member => member.accountId.value)).toEqual(['owner-1']);
     expect(group.hasMember(new Id('owner-1'))).toBe(true);
     expect(group.hasMember(new Id('someone-else'))).toBe(false);
     const events = group.pullDomainEvents();
@@ -66,6 +66,38 @@ describe('Group', () => {
   it('refuses corrupted data by throwing', () => {
     const snapshot = create().toSnapshot();
     expect(() => Group.fromSnapshot({ ...snapshot, currency: 'JPY' })).toThrow('Corrupted group');
-    expect(() => Group.fromSnapshot({ ...snapshot, memberIds: [] })).toThrow('Corrupted group');
+    expect(() => Group.fromSnapshot({ ...snapshot, members: [] })).toThrow('Corrupted group');
+  });
+
+  it('adds an account as a member from now on, and records MemberJoined', () => {
+    const group = create();
+    group.pullDomainEvents();
+    const later = new Date('2026-02-03T04:05:06.000Z');
+    expect(group.join(new Id('bob'), later).isFailure()).toBe(false);
+    expect(group.hasMember(new Id('bob'))).toBe(true);
+    expect(group.members.map(member => member.accountId.value)).toEqual(['owner-1', 'bob']);
+    const events = group.pullDomainEvents();
+    expect(events.map(event => event.name)).toEqual(['MemberJoinedEvent']);
+    expect(events[0].payload).toEqual({ groupId: group._id.value, accountId: 'bob', joinedAt: later.toISOString() });
+  });
+
+  it('refuses an account already a member, with AlreadyMember, and records nothing', () => {
+    const group = create();
+    group.pullDomainEvents();
+    const result = group.join(new Id('owner-1'), at);
+    expect(result.isFailure() && result.error.type).toBe('AlreadyMember');
+    expect(group.members).toHaveLength(1);
+    expect(group.pullDomainEvents()).toEqual([]);
+  });
+
+  it('keeps when each member joined through its snapshot', () => {
+    const group = create();
+    group.join(new Id('bob'), new Date('2026-02-03T04:05:06.000Z'));
+    const snapshot = group.toSnapshot();
+    expect(snapshot.members).toEqual([
+      { accountId: 'owner-1', joinedAt: at.toISOString() },
+      { accountId: 'bob', joinedAt: '2026-02-03T04:05:06.000Z' },
+    ]);
+    expect(Group.fromSnapshot({ ...snapshot, version: 1 }).toSnapshot()).toEqual({ ...snapshot, version: 1 });
   });
 });

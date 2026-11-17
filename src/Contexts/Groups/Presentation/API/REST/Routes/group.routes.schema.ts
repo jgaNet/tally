@@ -14,6 +14,17 @@ const GroupSchema = {
   },
 } as const;
 
+const MemberSchema = {
+  type: 'object',
+  required: ['memberId', 'name', 'role', 'joinedAt'],
+  properties: {
+    memberId: { type: 'string' },
+    name: { type: 'string' },
+    role: { enum: ['owner', 'member'] },
+    joinedAt: { type: 'string' },
+  },
+} as const;
+
 /** The shape of each body: a field missing or of the wrong type is a 400; what a value may be is the domain's. */
 export const CreateGroupBodySchema = {
   type: 'object',
@@ -39,4 +50,15 @@ export const GetGroupResSchema = {
 export const GetMyGroupsResSchema = {
   200: { type: 'array', items: GroupSchema },
   401: RefusedSchema,
+} as const;
+
+export const CreateInvitationResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  401: RefusedSchema,
+} as const;
+
+export const GetGroupMembersResSchema = {
+  200: { type: 'array', items: MemberSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
 } as const;

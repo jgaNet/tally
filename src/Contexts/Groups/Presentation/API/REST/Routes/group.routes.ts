@@ -4,6 +4,8 @@ import { FastifyGroupController } from '@Contexts/Groups/Presentation/API/REST/C
 import {
   CreateGroupBodySchema,
   CreateGroupResSchema,
+  CreateInvitationResSchema,
+  GetGroupMembersResSchema,
   GetGroupResSchema,
   GetMyGroupsResSchema,
 } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes.schema';
@@ -29,6 +31,16 @@ export const groupRoutes = function (
     '/groups/:id',
     { schema: { tags: ['groups'], response: GetGroupResSchema } },
     controller.getGroup.bind(controller),
+  );
+  fastify.post(
+    '/groups/:id/invitations',
+    { schema: { tags: ['invitations'], response: CreateInvitationResSchema } },
+    controller.createInvitation.bind(controller),
+  );
+  fastify.get(
+    '/groups/:id/members',
+    { schema: { tags: ['groups'], response: GetGroupMembersResSchema } },
+    controller.getMembers.bind(controller),
   );
 
   done();
