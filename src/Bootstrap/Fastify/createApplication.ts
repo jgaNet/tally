@@ -9,7 +9,7 @@ import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes'
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { authenticate, localGroupsModule } from '@Contexts/Groups/module.local';
-import { accountRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
+import { accountRoutes, groupRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
@@ -46,7 +46,9 @@ export async function createApplication({
     .registerModule(localTrackerModule)
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
-    .registerRoutes('/accounts', accountRoutes, { groupsModule: localGroupsModule })
+    // The Groups context's routes write their whole paths, so they are served at the root of the API.
+    .registerRoutes('/', accountRoutes, { groupsModule: localGroupsModule })
+    .registerRoutes('/', groupRoutes, { groupsModule: localGroupsModule })
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule })
     .registerRoutes('/tracker/operations', operationRoutes, { operationsModule: localTrackerModule });
 
