@@ -1,5 +1,7 @@
 import { AggregateRoot, DomainEvent, Exception, Id, IResult, Result } from '@Architecture/Domain';
 
+import { PayoutAccount } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccount';
+import { PayeeHasNoPayoutAccountException } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccountExceptions';
 import {
   GroupNotFoundException,
   InvalidSettlementAmountException,
@@ -32,10 +34,12 @@ export interface WaitingPayment {
 
 /**
  * A payment proposed, before the provider is asked for its link: the settlement's identity, which is the reference the provider is
- * given, and when it was decided. Nothing is kept until the book records it with the link (`recordPayment`).
+ * given, the provider's id of the payee's payout account the money goes to (request 16), and when it was decided. Nothing is kept
+ * until the book records it with the link (`recordPayment`).
  */
 export interface PaymentProposal extends SettlementDraft {
   readonly id: string;
+  readonly payee: string;
   readonly at: string;
 }
 
@@ -180,13 +184,21 @@ export class SettlementBook extends AggregateRoot {
 
   /**
    * The first step of a payment through the provider (request 13): the same rules as in cash, checked against the book as it was
-   * opened, and the settlement's identity generated (it is the reference the provider is given). Nothing is recorded: the provider
-   * is asked only once the rules hold, and `recordPayment` keeps the payment with the link it answers.
+   * opened, and then the payee must have a payout account (request 16), read by the use case from its repository: a payee without
+   * one is refused by name, before the provider is asked. The settlement's identity is generated (it is the reference the provider is
+   * given). Nothing is recorded: the provider is asked only once the rules hold, and `recordPayment` keeps the payment with the link it
+   * answers.
    */
-  proposePayment(draft: SettlementDraft, now: Date): IResult<PaymentProposal> {
+  proposePayment(draft: SettlementDraft, payeeAccount: PayoutAccount | undefined, now: Date): IResult<PaymentProposal> {
     const refusal = this.#refusalOf(draft);
     if (refusal) return Result.fail(refusal);
-    return Result.ok({ id: Id.generate().value, ...draft, at: now.toISOString() });
+    if (!payeeAccount) return Result.fail(new PayeeHasNoPayoutAccountException());
+    return Result.ok({
+      id: Id.generate().value,
+      ...draft,
+      payee: payeeAccount.providerAccountId,
+      at: now.toISOString(),
+    });
   }
 
   /**

@@ -107,14 +107,15 @@ describe('Groups → Settlements (SettlementMembers)', () => {
       body: { description: 'Lunch', amount: 1000, date: PAST_DAY, splitBetween: [ann.id, bob.id] },
     });
 
-    // No provider is configured in this application: Settlements finds the group and its members and checks the rules, then refuses
-    // the payment for want of a link, and keeps nothing.
+    // No provider is configured in this application: Ann cannot have set a payout account the provider must confirm (request 16), so
+    // Settlements finds the group and its members, checks the rules and the payee's account, and refuses the payment by name before
+    // anything is asked, keeping nothing.
     const asked = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
       token: bob.token,
       body: { to: ann.id, amount: 500 },
     });
     expect(asked.status).toBe(422);
-    expect(asked.body).toEqual({ type: 'ProviderUnavailable', message: expect.any(String) });
+    expect(asked.body).toEqual({ type: 'PayeeHasNoPayoutAccount', message: expect.any(String) });
 
     // Eve is not in this group: the same 404 as for a group that does not exist.
     const outsider = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {

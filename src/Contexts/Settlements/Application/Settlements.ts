@@ -4,6 +4,7 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 
 import { IGroupBalances } from '@Contexts/Settlements/Application/IGroupBalances';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/IPaymentProvider';
+import { IPayoutAccountStore } from '@Contexts/Settlements/Application/IPayoutAccountStore';
 import { ISettlementMembers } from '@Contexts/Settlements/Application/ISettlementMembers';
 import { ISettlementStore, SettlementView } from '@Contexts/Settlements/Application/ISettlementStore';
 import { IWebhookSignature } from '@Contexts/Settlements/Application/IWebhookSignature';
@@ -56,8 +57,9 @@ export interface PayThroughProviderInput {
 /**
  * Asks to pay a member through the payment provider, the caller being the payer (request 13, the storm's `PayThroughProvider`). The
  * caller must be a member of the group, else the group's `404`. The rules are the same as in cash, checked on the book as it stands
- * (the payments waiting at the provider count as paid), before the provider is asked: a refused payment never reaches it. The
- * provider is then asked for the link, with the settlement's id as its reference and the group's currency; the book decides again
+ * (the payments waiting at the provider count as paid), and the payee must have a payout account (request 16, read from its
+ * repository), before the provider is asked: a refused payment never reaches it. The provider is then asked for the link, with the
+ * settlement's id as its reference, the group's currency, and the payee's payout account as the payee; the book decides again
  * with the link in hand and keeps the settlement pending, with the link the payer pays at. The provider's answer is refused, and
  * nothing kept, unless it gives a link. The store's version check holds a second payment decided at the same moment to the rules
  * again, on the first one's balances, and the provider's payment that is then not kept is never counted (its webhook changes
@@ -69,6 +71,7 @@ export const payThroughProvider = command(
     store: ISettlementStore,
     members: ISettlementMembers,
     balances: IGroupBalances,
+    payouts: IPayoutAccountStore,
     provider: IPaymentProvider,
     clock: Clock,
   ) =>
@@ -77,12 +80,17 @@ export const payThroughProvider = command(
       const book = await openBook(store, members, balances, groupId);
       if (!book || !book.hasMember(payerId)) return Result.fail(new GroupNotFoundException());
 
-      const proposed = book.proposePayment({ from: payerId, to, amount }, clock());
+      const proposed = book.proposePayment({ from: payerId, to, amount }, await payouts.payoutAccountOf(to), clock());
       if (proposed.isFailure()) return Result.fail(proposed.error);
 
       const currency = await members.currencyOf(groupId);
       if (!currency) return Result.fail(new GroupNotFoundException());
-      const link = await provider.requestPayment({ reference: proposed.data.id, amount, currency });
+      const link = await provider.requestPayment({
+        reference: proposed.data.id,
+        amount,
+        currency,
+        payee: proposed.data.payee,
+      });
       // A payment id the provider already gave another settlement is no link for this one: refused, as any answer Tally cannot keep.
       const reused = link !== undefined && (await store.settlementOfPayment(link.id)) !== undefined;
 

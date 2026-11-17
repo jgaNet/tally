@@ -10,6 +10,7 @@ import {
   recordCashSettlement,
   refundSettlement,
 } from '@Contexts/Settlements/Application/Settlements';
+import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
 
 /** The body of a cash settlement: its shape only; whether the amount is at least 1 and allowed is the domain's (request 12). */
@@ -17,6 +18,9 @@ type RecordCashBody = { readonly from: string; readonly amount: number };
 
 /** The body of a payment through the provider: the payee and the amount, shape only (request 13). */
 type PayThroughProviderBody = { readonly to: string; readonly amount: number };
+
+/** The body of a payout account: the provider's id of the account, shape only; whether the provider knows it is the domain's (request 16). */
+type SetPayoutAccountBody = { readonly accountId: string };
 
 /** The provider's webhook body: its own id, the payment's id, the status it says, and when it decided it (request 13). */
 type PaymentWebhookBody = {
@@ -32,7 +36,8 @@ type RawBodyRequest = FastifyRequest & { rawBody?: string };
 /**
  * The settlements' routes: the suggested settlements (request 11, the API's fragment 11), a cash settlement recorded by its payee and
  * read back by a member of its group (request 12, fragment 12), and a payment through the provider with the provider's signed webhook
- * (request 13, fragment 13), and a refund of one by its payee (request 15, fragment 15). Each answers its use case at once. A body whose shape is wrong (a missing field, or a value of the wrong
+ * (request 13, fragment 13), a refund of one by its payee (request 15, fragment 15), and a member's payout account at the provider, set and
+ * read by its owner (request 16, fragment 16). Each answers its use case at once. A body whose shape is wrong (a missing field, or a value of the wrong
  * type) is `400` before the use case runs. A caller who is not a member of the group gets the group's `404`, and a settlement of a group
  * they are not in does not exist for them. The webhook is the one route anyone may call: its JSON body is kept as it was sent, so that
  * its signature is checked over those very bytes.
@@ -129,6 +134,24 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
 
   fastify.get<{ Params: { id: string } }>('/settlements/:id', (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getSettlement), req.params.id),
+  );
+
+  fastify.put<{ Body: SetPayoutAccountBody }>(
+    '/accounts/me/payout-account',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['accountId'],
+          properties: { accountId: { type: 'string' } },
+        },
+      },
+    },
+    (req, reply) => answerAtOnce(req, reply, module.useCase(setPayoutAccount), { accountId: req.body.accountId }),
+  );
+
+  fastify.get('/accounts/me/payout-account', (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getPayoutAccount), undefined),
   );
 
   done();

@@ -15,6 +15,7 @@ why, what it costs, and when to revisit it.
 | [8](0008-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
 | [9](0009-suggested-settlements-read-two-owned-ports-and-are-computed-at-the-read.md) | Suggested settlements read two owned ports, and are computed at the read |
 | [10](0010-cash-settlements-are-a-book-per-group-and-the-balances-count-them.md) | Cash settlements are decided in a book per group, and the balances count them |
+| [11](0011-payout-accounts-are-an-aggregate-per-person-and-the-provider-knows-them.md) | A payout account is an aggregate per person, and the provider says whether it knows it |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

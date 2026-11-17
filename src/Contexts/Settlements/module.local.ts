@@ -10,6 +10,7 @@ import {
   recordCashSettlement,
   refundSettlement,
 } from '@Contexts/Settlements/Application/Settlements';
+import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { ISettlementRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
 import { BalanceRoster, BalancesFromLedger } from '@Contexts/Settlements/Infrastructure/BalancesFromLedger';
 import { GroupRoster, MembersFromGroups } from '@Contexts/Settlements/Infrastructure/MembersFromGroups';
@@ -20,6 +21,10 @@ import {
   SqliteSettlementStore,
   settlementsTablesSchema,
 } from '@Contexts/Settlements/Infrastructure/SqliteSettlementStore';
+import {
+  SqlitePayoutAccountStore,
+  payoutAccountsTablesSchema,
+} from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountStore';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADRs 8, 9 and 10): its wiring, as data. Its tables are opened by the composition
@@ -27,9 +32,10 @@ import {
  * group through `roster`, Groups' read model, and the balances through `balances`, Ledger's read model; a cash settlement (request 12)
  * is decided in the group's book, read the same way and kept in this context's own tables. A payment through the provider (request 13)
  * is asked of the payment provider, configured by `payments` (PROVIDER_URL, PROVIDER_WEBHOOK_SECRET), and its webhook is checked with
- * the same secret. This file imports no other context. The module lists each use case once.
+ * the same secret. A person's payout account at the provider (request 16, ADR 11) is set and read by the caller, and a payment to a
+ * member is refused without one. This file imports no other context. The module lists each use case once.
  */
-export const settlementsSchema = settlementsTablesSchema;
+export const settlementsSchema = [...settlementsTablesSchema, ...payoutAccountsTablesSchema];
 
 /** What the payment provider needs of the environment: its API's base URL, and the secret its webhooks are signed with. */
 export interface PaymentsConfig {
@@ -54,18 +60,22 @@ export function settlementsWiring(
   payments: PaymentsConfig = {},
 ): LiteModule {
   const store = new SqliteSettlementStore(database);
+  const payouts = new SqlitePayoutAccountStore(database);
   const members = new MembersFromGroups(roster);
   const counted = new BalancesFromLedger(balances);
+  const provider = new HttpPaymentProvider(payments.providerUrl);
 
   return new LiteModule({
     name: 'Settlements',
     useCases: [
       getSuggestedSettlements(store, members, counted),
       recordCashSettlement(store, members, counted, systemClock),
-      payThroughProvider(store, members, counted, new HttpPaymentProvider(payments.providerUrl), systemClock),
+      payThroughProvider(store, members, counted, payouts, provider, systemClock),
       receivePaymentWebhook(store, members, counted, new HmacWebhookSignature(payments.webhookSecret)),
-      refundSettlement(store, members, counted, new HttpPaymentProvider(payments.providerUrl)),
+      refundSettlement(store, members, counted, provider),
       getSettlement(store, members),
+      setPayoutAccount(payouts, provider, systemClock),
+      getPayoutAccount(payouts),
     ],
   });
 }

@@ -44,6 +44,15 @@ beforeAll(async () => {
 
   nextPayment = 0;
   provider = createServer((req: IncomingMessage, res: ServerResponse) => {
+    // A payout account the provider knows is `acct-…` (request 16): `GET /accounts/{id}` answers its id, and nothing else is known.
+    const account = /^\/accounts\/([^/]+)$/.exec(req.url ?? '');
+    if (req.method === 'GET' && account) {
+      const known = decodeURIComponent(account[1]).startsWith('acct-');
+      res.statusCode = known ? 200 : 404;
+      res.setHeader('content-type', 'application/json');
+      res.end(known ? JSON.stringify({ id: decodeURIComponent(account[1]) }) : '{}');
+      return;
+    }
     let text = '';
     req.on('data', chunk => (text += chunk));
     req.on('end', () => {
@@ -96,6 +105,11 @@ async function person(name: string, email: string) {
   const login = await http.request('POST', `${api}/accounts/login`, { body: { email, password } });
   const token = (login.body as { token: string }).token;
   const me = await http.request('GET', `${api}/accounts/me`, { token });
+  // Every person has a payout account at the provider, so that a payment to them can be asked (request 16).
+  await http.request('PUT', `${api}/accounts/me/payout-account`, {
+    token,
+    body: { accountId: `acct-${name.toLowerCase()}` },
+  });
   return { token, id: (me.body as { id: string }).id, name };
 }
 
@@ -177,7 +191,7 @@ describe('a payment through the provider', () => {
     expect(asked.status).toBe(201);
     const id = (asked.body as { id: string }).id;
 
-    expect(providerRequests).toEqual([{ reference: id, amount: 1000, currency: 'EUR' }]);
+    expect(providerRequests).toEqual([{ reference: id, amount: 1000, currency: 'EUR', payee: 'acct-ann' }]);
 
     const read1 = await read(bob.token, id);
     expect(read1.status).toBe(200);

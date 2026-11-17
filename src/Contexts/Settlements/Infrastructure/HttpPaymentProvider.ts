@@ -1,28 +1,50 @@
 import { IPaymentProvider, PaymentRequest, RefundRequest } from '@Contexts/Settlements/Application/IPaymentProvider';
 import { ProviderPayment } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { ProviderPayoutAccount } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccount';
 
 /** How long the provider has to answer a payment request, in milliseconds: past it, the request is refused (request 13). */
 export const PROVIDER_TIMEOUT_MS = 5000;
 
 /**
- * The payment provider over its HTTP API (feature 13): `POST {PROVIDER_URL}/payments` with `{ reference, amount, currency }`, answered
- * `201 { id, payUrl }`. Any other answer, no answer within the timeout, a body without a payment id and a link, or no base URL at all
- * (`PROVIDER_URL` is not set), answers `undefined`: the request is refused and nothing is kept. It never throws.
+ * The payment provider over its HTTP API (feature 13): `POST {PROVIDER_URL}/payments` with `{ reference, amount, currency, payee }`,
+ * answered `201 { id, payUrl }` (request 16: `payee` is the payee's payout account). Any other answer, no answer within the timeout, a
+ * body without a payment id and a link, or no base URL at all (`PROVIDER_URL` is not set), answers `undefined`: the request is refused
+ * and nothing is kept. It never throws. `GET {PROVIDER_URL}/accounts/{id}` answers `200 { id }` for an account the provider knows
+ * (request 16); any other answer, a timeout or no base URL answers `undefined`.
  */
 export class HttpPaymentProvider implements IPaymentProvider {
   constructor(private readonly baseUrl: string | undefined) {}
 
-  async requestPayment({ reference, amount, currency }: PaymentRequest): Promise<ProviderPayment | undefined> {
+  async requestPayment({ reference, amount, currency, payee }: PaymentRequest): Promise<ProviderPayment | undefined> {
     if (!this.baseUrl) return undefined;
     try {
       const response = await fetch(`${this.baseUrl}/payments`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ reference, amount, currency }),
+        body: JSON.stringify({ reference, amount, currency, payee }),
         signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       });
       if (response.status !== 201) return undefined;
       return linkOf(await response.json());
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * `GET {PROVIDER_URL}/accounts/{id}` (request 16): `200 { id }` is an account the provider knows, answered with its id. Any other
+   * answer, no answer within the timeout, a body without the id, or no base URL, answers `undefined`. It never throws.
+   */
+  async payoutAccountFor(accountId: string): Promise<ProviderPayoutAccount | undefined> {
+    if (!this.baseUrl) return undefined;
+    try {
+      const response = await fetch(`${this.baseUrl}/accounts/${encodeURIComponent(accountId)}`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+      });
+      if (response.status !== 200) return undefined;
+      const answer = (await response.json()) as { id?: unknown } | null;
+      return typeof answer?.id === 'string' && answer.id !== '' ? { id: answer.id } : undefined;
     } catch {
       return undefined;
     }
