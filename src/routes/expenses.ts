@@ -2,7 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
-import { deleteExpense, editExpense, findExpenseOfMember, recordExpense, type SplitInput } from '../expenses';
+import {
+  deleteExpense,
+  editExpense,
+  expensesOfGroup,
+  findExpenseOfMember,
+  recordExpense,
+  type SplitInput,
+} from '../expenses';
 
 /** The split a body names: exactly one of its three fields (the shape is checked by the schema). */
 interface SplitBody {
@@ -124,6 +131,16 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync)
         split: splitOf(request.body),
       });
       return reply.code(201).send({ id });
+    },
+  );
+
+  // Only a member of the group reads its expenses, the latest date first; to anyone else the group does not exist.
+  server.get<{ Params: { id: string } }>(
+    '/groups/:id/expenses',
+    { schema: { response: { 200: { type: 'array', items: EXPENSE } } } },
+    async request => {
+      const caller = requireCaller(db, request);
+      return expensesOfGroup(db, caller.id, request.params.id);
     },
   );
 

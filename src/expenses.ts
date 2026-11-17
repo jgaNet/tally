@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { findGroupOfMember, membersOfGroup } from './groups';
 import { Refusal } from './refusal';
 import { characters } from './text';
-import { inTransaction } from './transactions';
+import { inReadSnapshot, inTransaction } from './transactions';
 
 /** A description has 1 to this many characters. */
 const MAX_DESCRIPTION_LENGTH = 100;
@@ -52,6 +52,10 @@ interface ExpenseRow {
 interface ShareRow {
   member_id: string;
   amount: number;
+}
+
+interface ShareOfExpenseRow extends ShareRow {
+  expense_id: string;
 }
 
 /**
@@ -247,6 +251,21 @@ export function recordExpense(db: DatabaseSync, input: RecordExpenseInput): stri
   return id;
 }
 
+/** An expense as it reads, given its row and its shares in the order of the split. */
+function expenseOf(row: ExpenseRow, shares: readonly ShareRow[]): Expense {
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    description: row.description,
+    amount: row.amount,
+    date: row.spent_on,
+    paidBy: row.paid_by,
+    version: row.version,
+    splitKind: row.split_kind,
+    shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
+  };
+}
+
 /**
  * The expense with this id, when `accountId` is a member of its group; `undefined` otherwise, as if it
  * did not exist. Reading never changes it.
@@ -263,17 +282,41 @@ export function findExpenseOfMember(db: DatabaseSync, accountId: string, expense
   const shares = db
     .prepare('SELECT member_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position ASC')
     .all(row.id) as unknown as ShareRow[];
-  return {
-    id: row.id,
-    groupId: row.group_id,
-    description: row.description,
-    amount: row.amount,
-    date: row.spent_on,
-    paidBy: row.paid_by,
-    version: row.version,
-    splitKind: row.split_kind,
-    shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
-  };
+  return expenseOf(row, shares);
+}
+
+/**
+ * Every expense of the group that is not deleted, as a member of the group reads each: the latest date
+ * first, and on the same date the most recently recorded first. An edit does not change when an
+ * expense was recorded, so it does not move it. Refused with `404` when `accountId` is not a member of
+ * the group, as if it did not exist. It reads one consistent state of the file and changes nothing.
+ */
+export function expensesOfGroup(db: DatabaseSync, accountId: string, groupId: string): Expense[] {
+  return inReadSnapshot(db, () => {
+    if (!findGroupOfMember(db, accountId, groupId)) {
+      throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    }
+    const rows = db
+      .prepare(
+        `SELECT id, group_id, description, amount, spent_on, paid_by, version, split_kind FROM expenses
+         WHERE group_id = ? ORDER BY spent_on DESC, created_at DESC, rowid DESC`,
+      )
+      .all(groupId) as unknown as ExpenseRow[];
+    const shareRows = db
+      .prepare(
+        `SELECT s.expense_id, s.member_id, s.amount FROM expense_shares s
+         JOIN expenses e ON e.id = s.expense_id
+         WHERE e.group_id = ? ORDER BY s.expense_id ASC, s.position ASC`,
+      )
+      .all(groupId) as unknown as ShareOfExpenseRow[];
+    const sharesByExpense = new Map<string, ShareRow[]>();
+    for (const share of shareRows) {
+      const shares = sharesByExpense.get(share.expense_id) ?? [];
+      shares.push(share);
+      sharesByExpense.set(share.expense_id, shares);
+    }
+    return rows.map(row => expenseOf(row, sharesByExpense.get(row.id) ?? []));
+  });
 }
 
 /**

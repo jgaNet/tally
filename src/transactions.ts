@@ -15,3 +15,19 @@ export function inTransaction<T>(db: DatabaseSync, work: () => T): T {
     throw error;
   }
 }
+
+/**
+ * Runs `work` as a read snapshot: every read it makes sees one consistent state of the file, whatever
+ * other servers write meanwhile. It writes nothing.
+ */
+export function inReadSnapshot<T>(db: DatabaseSync, work: () => T): T {
+  db.exec('BEGIN');
+  try {
+    const result = work();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
