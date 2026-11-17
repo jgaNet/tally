@@ -5,7 +5,7 @@ feature: create-a-group
 intent: >-
   A signed-in person creates a group in a currency fixed for good, owns it and is its first member; only its members see it.
 
-done: false
+done: true
 
 hotSpots:
   - question: Is the owner's membership a fact of its own when a group is created?

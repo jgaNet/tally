@@ -18,21 +18,21 @@ const signInBody = {
   properties: { email: { type: 'string' }, password: { type: 'string' } },
 };
 
-/** The accounts' routes, under `/v1/accounts`: each answers its use case at once, and nothing else. */
+/** The accounts' routes, under `/v1/accounts` (the API's root, each route its full path: docs/adr/0003): each answers its use case at once, and nothing else. */
 export const accountRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fastify, { module }, done) => {
   fastify.post<{ Body: { email: string; password: string; name: string } }>(
-    '/',
+    '/accounts',
     { schema: { body: signUpBody, tags: ['accounts'] } },
     (req, reply) => answerAtOnce(req, reply, module.useCase(signUp), req.body, { created: true }),
   );
 
   fastify.post<{ Body: { email: string; password: string } }>(
-    '/login',
+    '/accounts/login',
     { schema: { body: signInBody, tags: ['accounts'] } },
     (req, reply) => answerAtOnce(req, reply, module.useCase(signIn), req.body),
   );
 
-  fastify.get('/me', { schema: { tags: ['accounts'] } }, (req, reply) =>
+  fastify.get('/accounts/me', { schema: { tags: ['accounts'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getMyAccount), undefined),
   );
 

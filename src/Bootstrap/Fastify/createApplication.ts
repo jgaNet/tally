@@ -13,6 +13,7 @@ import { operationRoutes } from '@Bootstrap/Fastify/operations.routes';
 import { localGroupsModule, authenticatedAccountOf } from '@Contexts/Groups/module.local';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
+import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 
 /**
  * The composition root of the application (docs/adr/0002). It sets up the transport, which gives each
@@ -24,7 +25,8 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
  * Configuration is in the environment: `PORT`, `API_PREFIX` (`v1`), `DATABASE_PATH` (`tally.db`),
  * `JOBS_INTERVAL_SECONDS` (60), `WEB_ORIGINS` (a comma-separated list).
  *
- * A context is added here: its `LiteModule` registered, its routes under its own prefix with `{ module }`:
+ * A context is added here: its `LiteModule` registered, its routes under its own prefix with `{ module }`, or at the
+ * API's root when it serves more than one resource (docs/adr/0003):
  *
  *   .registerModule(localTasksModule)
  *   .registerRoutes('/tasks', taskRoutes, { module: localTasksModule });
@@ -52,7 +54,8 @@ export async function createApplication({
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
-    .registerRoutes('/accounts', accountRoutes, { module: localGroupsModule })
+    .registerRoutes('/', accountRoutes, { module: localGroupsModule })
+    .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', operationRoutes, {});
 
   await app.startModules();

@@ -306,7 +306,8 @@ checklists:
       - >-
         Registered in the composition root (`src/Bootstrap/Fastify/createApplication.ts`): its module after
         the Tracker's, its routes under its own prefix (`/notes`), which the transport serves under the API's
-        (`/v1/notes`).
+        (`/v1/notes`); a context that serves more than one resource mounts its routes at the API's root, each route
+        written with its full path (docs/adr/0003).
 profiles_held:
   lite:
     checklists:
@@ -407,7 +408,8 @@ profiles_held:
             to other contexts' integration events (an `EventHandler`, as in Full).
           - >-
             Registered in the composition root (`src/Bootstrap/Fastify/createApplication.ts`): its module, and
-            its routes under its own prefix with `{ module }`.
+            its routes under its own prefix with `{ module }` (or at the API's root, each route its full path, when
+            it serves more than one resource: docs/adr/0003).
     shows:
       use-case:
         - src/Architecture/Application/Lite/UseCase.ts

@@ -1,24 +1,38 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
+import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
+
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import { createGroup, getGroup, getMyGroups } from '@Contexts/Groups/Application/Groups';
 import { SqliteAccountRepository } from '@Contexts/Groups/Infrastructure/SqliteAccountRepository';
 import { SqliteAccountQueries } from '@Contexts/Groups/Infrastructure/SqliteAccountQueries';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
 import { SqliteSessionTokens } from '@Contexts/Groups/Infrastructure/SqliteSessionTokens';
+import { SqliteGroupRepository } from '@Contexts/Groups/Infrastructure/SqliteGroupRepository';
+import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/SqliteGroupQueries';
 
 /**
- * The Groups context (conventions/domain.yaml, ADR 0001, ADR 0002): accounts for now, groups and their
- * members in the features to come. Its adapters are the application's SQLite file.
+ * The Groups context (conventions/domain.yaml, ADR 0001, ADR 0002): accounts, and groups with their members. Its
+ * adapters are the application's SQLite file; its clock is the system's, given to the use cases that record a time.
  */
 const accounts = new SqliteAccountRepository(sharedDatabase);
 const accountQueries = new SqliteAccountQueries(sharedDatabase);
 const passwords = new ScryptPasswordHasher();
 const tokens = new SqliteSessionTokens(sharedDatabase);
+const groups = new SqliteGroupRepository(sharedDatabase);
+const groupQueries = new SqliteGroupQueries(sharedDatabase);
 
 export const localGroupsModule = new LiteModule({
   name: 'Groups',
-  useCases: [signUp(accounts, passwords), signIn(accounts, passwords, tokens), getMyAccount(accountQueries)],
+  useCases: [
+    signUp(accounts, passwords),
+    signIn(accounts, passwords, tokens),
+    getMyAccount(accountQueries),
+    createGroup(groups, systemClock),
+    getGroup(groupQueries),
+    getMyGroups(groupQueries),
+  ],
 });
 
 /**
