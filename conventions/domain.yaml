@@ -61,7 +61,6 @@ relationships:
     downstream: Ledger
     patterns: [customer-supplier, anti-corruption-layer]
     mechanism: owned-port
-    planned: true
     why: >-
       Only a member of the group may be in a split, and only Groups knows who is a member now, in which order, with
       which role, and who has ever been one. Ledger asks in its own words, through a port it owns (GroupMembers), when

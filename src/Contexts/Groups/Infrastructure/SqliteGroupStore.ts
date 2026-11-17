@@ -3,6 +3,7 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import { GroupView, IGroupStore } from '@Contexts/Groups/Application/IGroupStore';
 import { Group, GroupMember, GroupSnapshot } from '@Contexts/Groups/Domain/Group/Group';
+import { IGroupRoster } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
 
 /**
  * The groups' tables (ADR 2, ADR 5). A group's members are rows of `group_members`, in the order they joined (`position`,
@@ -37,7 +38,7 @@ export const groupsTablesSchema = [
  * updated only while it is still at the version the aggregate was loaded at, and the members are added after that. A
  * group that another writer changed first is refused with a ConcurrencyConflictException.
  */
-export class SqliteGroupStore implements IGroupStore {
+export class SqliteGroupStore implements IGroupStore, IGroupRoster {
   constructor(private readonly database: SqliteDatabase) {}
 
   async add(group: Group): Promise<void> {
@@ -104,6 +105,13 @@ export class SqliteGroupStore implements IGroupStore {
         .all(memberId),
     ) as unknown as GroupViewRow[];
     return rows.map(toView);
+  }
+
+  async membersOf(groupId: string): Promise<string[] | undefined> {
+    const rows = this.database.read(db =>
+      db.prepare('SELECT account_id FROM group_members WHERE group_id = ? ORDER BY position').all(groupId),
+    ) as unknown as { account_id: string }[];
+    return rows.length > 0 ? rows.map(row => row.account_id) : undefined;
   }
 
   /** Adds the members that are not stored yet: the ones already there keep the row they were given (`position` is theirs). */

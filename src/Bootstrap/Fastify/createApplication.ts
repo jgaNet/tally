@@ -13,7 +13,8 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
 import { groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
-import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
+import { ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 
 /**
  * The composition root (ADR 40, ADR 2): it opens the database the application keeps what it knows in, builds each
@@ -28,7 +29,8 @@ import { localLedgerModule } from '@Contexts/Ledger/module.local';
  *   .registerModule(groups.module)
  *   .registerRoutes('/', accountRoutes, { module: groups.module })
  *   .registerRoutes('/', groupRoutes, { module: groups.module })
- *   .registerRoutes('/', invitationRoutes, { module: groups.module });
+ *   .registerRoutes('/', invitationRoutes, { module: groups.module })
+ *   .registerRoutes('/', expenseRoutes, { module: ledger });
  */
 export async function createApplication({
   logger = new ConsoleLogger({ debug: false }),
@@ -46,8 +48,9 @@ export async function createApplication({
   databasePath?: string;
   webOrigins?: string[];
 } = {}): Promise<FastifyApplication> {
-  const database = SqliteDatabase.open(databasePath, groupsSchema);
+  const database = SqliteDatabase.open(databasePath, [...groupsSchema, ...ledgerSchema]);
   const groups = await groupsWiring(database);
+  const ledger = ledgerWiring(database, groups.roster);
 
   const app = new FastifyApplication({
     logger,
@@ -59,10 +62,11 @@ export async function createApplication({
   })
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(groups.module)
-    .registerModule(localLedgerModule)
+    .registerModule(ledger)
     .registerRoutes('/', accountRoutes, { module: groups.module })
     .registerRoutes('/', groupRoutes, { module: groups.module })
     .registerRoutes('/', invitationRoutes, { module: groups.module })
+    .registerRoutes('/', expenseRoutes, { module: ledger })
     .onStop(() => database.close());
 
   await app.startModules();

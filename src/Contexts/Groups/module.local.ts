@@ -21,7 +21,10 @@ import { SqliteInvitationStore, invitationsTablesSchema } from '@Contexts/Groups
  */
 export const groupsSchema = [...accountsSchema, ...groupsTablesSchema, ...invitationsTablesSchema];
 
-/** The Groups module, and the authentication the transport gives every request (named exports, ADR 2). */
+/**
+ * The Groups module, the authentication the transport gives every request (named exports, ADR 2), and the roster of
+ * groups other contexts read (`roster`, the read-model port of ADR 6, for Ledger's split).
+ */
 export async function groupsWiring(database: SqliteDatabase) {
   const accounts = new SqliteAccountStore(database);
   const passwords = new ScryptPasswordHasher();
@@ -44,5 +47,5 @@ export async function groupsWiring(database: SqliteDatabase) {
       getGroupMembers(groups, accounts),
     ],
   });
-  return { module, authenticate: authenticateWith(tokens) };
+  return { module, authenticate: authenticateWith(tokens), roster: groups };
 }

@@ -10,6 +10,7 @@ why, what it costs, and when to revisit it.
 | [3](0003-account-registered-is-a-domain-event-before-anything-reacts.md) | AccountRegistered is a domain event before anything reacts to it |
 | [4](0004-refusals-answer-422-409-and-401-by-kind.md) | Refusals answer 422 for a rule, 409 for a conflict, and 401 for a refused proof |
 | [5](0005-group-is-an-aggregate-and-groupcreated-is-a-domain-event.md) | Group is an aggregate, and GroupCreated is a domain event before anything reacts to it |
+| [6](0006-ledger-asks-groups-who-may-be-in-a-split.md) | Ledger asks Groups who may be in a split over a roster, and the expense is an aggregate |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
