@@ -1,44 +1,30 @@
-import { decideCreateGroup, CreateGroupCommand } from './Group.decision';
-import { GroupCreatedEvent } from './GroupEvents';
+import { CreateGroupCommand, decideCreateGroup } from './Group.decision';
 
-const at = new Date('2026-04-01T09:00:00.000Z');
 const createWith = (overrides: Partial<CreateGroupCommand> = {}): CreateGroupCommand => ({
   name: 'Lisbon trip',
   currency: 'EUR',
-  ownerId: '3c9d2f1e-0000-4000-8000-000000000001',
   ...overrides,
 });
 
 describe('decideCreateGroup', () => {
-  it('makes the group, owned by its creator, and records its creation', () => {
-    const decision = decideCreateGroup(undefined, createWith(), at);
-
+  it('answers the validated name and currency', () => {
+    const decision = decideCreateGroup(undefined, createWith(), new Date());
     expect(decision.isSuccess()).toBe(true);
-    const group = decision.data!.state;
-    expect(group.name.value).toBe('Lisbon trip');
-    expect(group.currency.value).toBe('EUR');
-    expect(group.ownerId).toBe('3c9d2f1e-0000-4000-8000-000000000001');
-    expect(group._id.value).toMatch(/^[0-9a-f-]{36}$/);
-    expect(group.pullDomainEvents()).toEqual([
-      GroupCreatedEvent.set({
-        groupId: group._id.value,
-        ownerId: '3c9d2f1e-0000-4000-8000-000000000001',
-        createdAt: at,
-      }),
-    ]);
+    expect(decision.data!.state.name.value).toBe('Lisbon trip');
+    expect(decision.data!.state.currency.value).toBe('EUR');
   });
 
   it('trims the name', () => {
-    const decision = decideCreateGroup(undefined, createWith({ name: '  Climbing club  ' }), at);
+    const decision = decideCreateGroup(undefined, createWith({ name: '  Climbing club  ' }), new Date());
     expect(decision.data!.state.name.value).toBe('Climbing club');
   });
 
   it.each(['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'])('accepts the currency %s', currency => {
-    expect(decideCreateGroup(undefined, createWith({ currency }), at).isSuccess()).toBe(true);
+    expect(decideCreateGroup(undefined, createWith({ currency }), new Date()).isSuccess()).toBe(true);
   });
 
   it.each(['JPY', 'eur', '', 'EURO'])('refuses the currency %j, which is not one of the six', currency => {
-    const decision = decideCreateGroup(undefined, createWith({ currency }), at);
+    const decision = decideCreateGroup(undefined, createWith({ currency }), new Date());
     expect(decision.isFailure() && decision.error.type).toBe('InvalidCurrency');
   });
 
@@ -47,11 +33,11 @@ describe('decideCreateGroup', () => {
     ['only spaces', '   '],
     ['61 characters', 'a'.repeat(61)],
   ])('refuses a name that is %s', (_label, name) => {
-    const decision = decideCreateGroup(undefined, createWith({ name }), at);
+    const decision = decideCreateGroup(undefined, createWith({ name }), new Date());
     expect(decision.isFailure() && decision.error.type).toBe('InvalidGroupName');
   });
 
   it('accepts a name of 60 characters', () => {
-    expect(decideCreateGroup(undefined, createWith({ name: 'a'.repeat(60) }), at).isSuccess()).toBe(true);
+    expect(decideCreateGroup(undefined, createWith({ name: 'a'.repeat(60) }), new Date()).isSuccess()).toBe(true);
   });
 });

@@ -32,8 +32,8 @@ export class Group extends AggregateRoot {
     this.#createdAt = createdAt;
   }
 
-  /** A new group, with its id generated here, recording that its owner created it at `at`. */
-  static create({
+  /** A new group, with its id generated here, recording that its owner registered it at `at`. */
+  static register({
     name,
     currency,
     ownerId,

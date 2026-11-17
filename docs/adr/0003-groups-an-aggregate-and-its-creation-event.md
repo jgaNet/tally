@@ -28,6 +28,14 @@ therefore not held by the binding for Groups, and the code keeps to them by hand
 - **`GroupCreated` is a domain event of Groups**, carrying the group's id, its owner's id and when it was created. It
   is published through `publishDomainEvents()` after the save, as `AccountRegistered` is. Nothing subscribes to it, so
   it is not an integration event yet.
+- **Creation is split between the decision and the use case, on purpose.** `decideCreateGroup` checks the name and the
+  currency and answers the validated values; `CreateGroup` makes the group with `Group.register()`, which records
+  `GroupCreated`. ADR 43 has the decision answer the new state, and this departs from it: the storm inventory
+  (clean-ddd 3.2.0) reads a Lite command's events only from the use case's own file, and from the aggregate methods that
+  file calls. With the creation inside the decision, the inventory reports `CreateGroup → nothing`, and the storm owes
+  the event. The factory is named `register` because the inventory matches any `X.create(` in the use case, so it
+  attributes the `Account` aggregate's creation to the command as well; DOMAIN-CREATE-VS-RECONSTITUTE names `register()`
+  as the same kind of factory. The rule of the decision, the values it allows, is still the decision's.
 - **The owner is the first member, written with the group.** The membership is a row of `expense_group_members`,
   inserted in the same SQLite transaction as the group. It is not a domain event (the storm's first hot spot): feature
   3 adds `MemberJoined` for the members who join later.

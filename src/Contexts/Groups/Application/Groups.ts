@@ -2,6 +2,7 @@ import { NotFoundException, Result } from '@Architecture/Domain';
 import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
+import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { decideCreateGroup } from '@Contexts/Groups/Domain/Group/Group.decision';
 
 import { GroupView, IGroupQueries } from './IGroupQueries';
@@ -15,10 +16,10 @@ export const createGroup = command(
   'CreateGroup',
   (groups: IGroupRepository, clock: Clock) =>
     async ({ name, currency }: { name: string; currency: string }, context) => {
-      const decision = decideCreateGroup(undefined, { name, currency, ownerId: callerOf(context) }, clock());
+      const decision = decideCreateGroup(undefined, { name, currency }, clock());
       if (decision.isFailure()) return decision;
 
-      const group = decision.data.state;
+      const group = Group.register({ ...decision.data.state, ownerId: callerOf(context), at: clock() });
       await groups.insert(group);
       await publishDomainEvents(group, context);
       return Result.ok(group._id.value);
