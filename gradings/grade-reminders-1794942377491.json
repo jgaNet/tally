@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 1,
+  "control": "plain",
+  "project": "/var/tmp/j6/trees/plain-2",
+  "ref": "b61e9a697f1aef94a091be8dde20e9c288c4bf92",
+  "commit": "b61e9a697f1aef94a091be8dde20e9c288c4bf92",
+  "base": "83a0dec4ce7d7990b771b5617709b59050030a5b",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "create-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "invite-and-join",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "record-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "balances",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "edit-and-delete-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "unequal-splits",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "history-and-statement",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "leave-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "remainder-to-the-first",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "41e0db301a9638769a9600eafdf45276ed11d87c",
+      "mechanical": false
+    },
+    {
+      "feature": "suggested-settlements",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "settle-in-cash",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "pay-through-the-provider",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "webhooks-late-twice-out-of-order",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "refund-through-the-provider",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "payout-accounts",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "notices",
+      "M2": {
+        "pass": true,
+        "tests": "3 passed, 3 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "reminders",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 3 passed, 4 total",
+        "failed": [
+          "reminders › never reminds because someone read, only at a run of the background job"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● reminders › never reminds because someone read, only at a run of the background job",
+          "    - Expected  -  1",
+          "    + Received  + 52",
+          "Tests:       1 failed, 3 passed, 4 total"
+        ],
+        "together": {
+          "failed": [
+            "reminders › never reminds because someone read, only at a run of the background job"
+          ],
+          "tests": "1 failed, 3 passed, 4 total"
+        }
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 131995,
+  "workers": 2
+}
