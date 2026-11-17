@@ -9,6 +9,7 @@ import { registerHistoryRoutes } from './history';
 import { registerInvitationRoutes } from './invitations';
 import { registerLeaveRoutes } from './leaving';
 import { registerOperationRoutes } from './operations';
+import { registerSettlementRoutes } from './settlements';
 import { Refusal } from './refusal';
 
 /** The running application: what the server entry point and the tests start and stop. */
@@ -52,6 +53,7 @@ export async function createApplication({
       registerExpenseRoutes(instance, db);
       registerBalanceRoutes(instance, db);
       registerHistoryRoutes(instance, db);
+      registerSettlementRoutes(instance, db);
       registerOperationRoutes(instance, db);
     },
     { prefix: `/${apiPrefix}` },
