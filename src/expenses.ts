@@ -255,7 +255,7 @@ export function findExpenseOf(db: DatabaseSync, accountId: string, expenseId: st
     .prepare(
       `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.version
        FROM expenses e JOIN group_members m ON m.group_id = e.group_id
-       WHERE e.id = ? AND m.account_id = ?`,
+       WHERE e.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
     .get(expenseId, accountId) as ExpenseRow | undefined;
   if (!row) return undefined;
@@ -273,6 +273,21 @@ export function findExpenseOf(db: DatabaseSync, accountId: string, expenseId: st
     splitKind: row.split_kind,
     version: row.version,
   };
+}
+
+/**
+ * An expense that concerns a member who has left the group, as its payer or in its split, is frozen: it
+ * can no longer be edited or deleted, so that the balance of the member who left stays 0.
+ */
+function checkNoFormerMember(db: DatabaseSync, expense: Expense): void {
+  const concerned = [expense.paidBy, ...expense.shares.map(share => share.memberId)];
+  if (concerned.some(memberId => !isMember(db, expense.groupId, memberId))) {
+    throw new Refusal(
+      409,
+      'ExpenseOfFormerMember',
+      'The expense concerns a member who has left the group, so it can no longer be changed.',
+    );
+  }
 }
 
 /**
@@ -296,6 +311,7 @@ export function editExpense(db: DatabaseSync, accountId: string, expenseId: stri
     const expense = findExpenseOf(db, accountId, expenseId);
     if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
     checkMayChange(db, accountId, expense);
+    checkNoFormerMember(db, expense);
     if (edit.version !== expense.version) {
       throw new Refusal(409, 'ExpenseChanged', 'The expense changed since this version was read: read it again.');
     }
@@ -322,6 +338,7 @@ export function deleteExpense(db: DatabaseSync, accountId: string, expenseId: st
     const expense = findExpenseOf(db, accountId, expenseId);
     if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
     checkMayChange(db, accountId, expense);
+    checkNoFormerMember(db, expense);
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
   });

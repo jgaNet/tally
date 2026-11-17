@@ -97,7 +97,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 6 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 7 });
     } finally {
       db.close();
     }
@@ -122,6 +122,8 @@ describe('the database', () => {
     const before = new DatabaseSync(database.path);
     try {
       before.exec('ALTER TABLE expenses DROP COLUMN split_kind');
+      before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
+      before.exec('ALTER TABLE group_members DROP COLUMN left_at');
       before.exec('PRAGMA user_version = 5');
     } finally {
       before.close();
@@ -132,6 +134,36 @@ describe('the database', () => {
       splitKind: 'equal',
       shares: [{ memberId: adaId, amount: 1000 }],
     });
+  });
+
+  it('keeps the members recorded before leaving existed current, in the order they joined', async () => {
+    const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
+    const first = await start();
+    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
+    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
+    const graceId = (await call(first, 'POST', '/accounts', { body: grace })).body.id;
+    const graceToken = (await call(first, 'POST', '/accounts/login', { body: grace })).body.token;
+    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
+      .id;
+    const invitation = (await call(first, 'POST', `/groups/${groupId}/invitations`, { token })).body.id;
+    await call(first, 'POST', `/invitations/${invitation}/accept`, { token: graceToken });
+    await first.stop();
+    apps.pop();
+
+    // The file as the schema was before a membership could end: no column for it, version 6.
+    const before = new DatabaseSync(database.path);
+    try {
+      before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
+      before.exec('ALTER TABLE group_members DROP COLUMN left_at');
+      before.exec('PRAGMA user_version = 6');
+    } finally {
+      before.close();
+    }
+
+    const second = await start();
+    const members = (await call(second, 'GET', `/groups/${groupId}/members`, { token })).body;
+    expect(members.map((member: { memberId: string }) => member.memberId)).toEqual([adaId, graceId]);
+    expect(members[1].role).toBe('member');
   });
 
   it('keeps all of a transaction that completes, and none of one that throws', () => {

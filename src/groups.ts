@@ -73,7 +73,7 @@ export function findGroupOf(db: DatabaseSync, accountId: string, groupId: string
   const row = db
     .prepare(
       `SELECT ${groupColumns} FROM groups g JOIN group_members m ON m.group_id = g.id
-       WHERE g.id = ? AND m.account_id = ?`,
+       WHERE g.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
     .get(groupId, accountId) as GroupRow | undefined;
   return row && toGroup(row);
@@ -84,7 +84,7 @@ export function listGroupsOf(db: DatabaseSync, accountId: string): Group[] {
   const rows = db
     .prepare(
       `SELECT ${groupColumns} FROM groups g JOIN group_members m ON m.group_id = g.id
-       WHERE m.account_id = ? ORDER BY g.created_at DESC, g.rowid DESC`,
+       WHERE m.account_id = ? AND m.left_at IS NULL ORDER BY g.created_at DESC, g.rowid DESC`,
     )
     .all(accountId) as unknown as GroupRow[];
   return rows.map(toGroup);

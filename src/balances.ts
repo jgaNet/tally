@@ -15,7 +15,7 @@ interface BalanceRow {
 }
 
 /**
- * The balance of every member of the group, in the order they joined, the earliest first. A member's
+ * The balance of every member of the group now, in the order they joined, the earliest first. A member's
  * balance is what they paid for the group's expenses, minus their shares in them: positive when the
  * group owes them, negative when they owe the group, 0 when they are even. Every expense's shares add up
  * to its amount, so the balances of a group always add up to 0.
@@ -32,8 +32,8 @@ export function listBalances(db: DatabaseSync, groupId: string): Balance[] {
          - COALESCE((SELECT SUM(s.amount) FROM expense_shares s JOIN expenses e ON e.id = s.expense_id
                      WHERE e.group_id = m.group_id AND s.account_id = m.account_id), 0) AS balance
        FROM group_members m
-       WHERE m.group_id = ?
-       ORDER BY m.joined_at, m.rowid`,
+       WHERE m.group_id = ? AND m.left_at IS NULL
+       ORDER BY m.joined_order`,
     )
     .all(groupId) as unknown as BalanceRow[];
   return rows.map(row => ({ memberId: row.member_id, balance: row.balance }));

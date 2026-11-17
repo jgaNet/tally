@@ -90,6 +90,19 @@ const MIGRATIONS: readonly string[] = [
   ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'
     CHECK (split_kind IN ('equal', 'exact', 'shares'));
   `,
+  `
+  -- A membership is a row of group_members, from the moment its member joins. When the member leaves, the
+  -- row stays, with the moment it ended in left_at: it is current while left_at is null. A member who
+  -- joins again has their row renewed, and so is last in the group's order of members: joined_order is
+  -- that order, one more than the last one given at each join.
+  ALTER TABLE group_members ADD COLUMN left_at TEXT;
+  ALTER TABLE group_members ADD COLUMN joined_order INTEGER;
+  UPDATE group_members SET joined_order = (
+    SELECT COUNT(*) FROM group_members o
+    WHERE o.group_id = group_members.group_id
+      AND (o.joined_at < group_members.joined_at
+           OR (o.joined_at = group_members.joined_at AND o.rowid <= group_members.rowid)));
+  `,
 ];
 
 /**

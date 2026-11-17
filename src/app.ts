@@ -7,6 +7,7 @@ import { registerExpenseRoutes } from './expenses';
 import { registerGroupRoutes } from './groups';
 import { registerHistoryRoutes } from './history';
 import { registerInvitationRoutes } from './invitations';
+import { registerLeaveRoutes } from './leaving';
 import { registerOperationRoutes } from './operations';
 import { Refusal } from './refusal';
 
@@ -47,6 +48,7 @@ export async function createApplication({
       registerAccountRoutes(instance, db);
       registerGroupRoutes(instance, db);
       registerInvitationRoutes(instance, db);
+      registerLeaveRoutes(instance, db);
       registerExpenseRoutes(instance, db);
       registerBalanceRoutes(instance, db);
       registerHistoryRoutes(instance, db);

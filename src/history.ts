@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { type Expense, expenseSchema, type SplitKind } from './expenses';
 import { findGroupOf } from './groups';
-import { isMember } from './members';
+import { hasBeenMember } from './members';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
@@ -145,6 +145,7 @@ const statementSchema = {
 /**
  * The expenses of a group and the statements of its members are read by the members of the group. For
  * anyone else the group does not exist; a member who has never been in the group does not exist either.
+ * A member who has left the group keeps their statement, which the members of the group can still read.
  */
 export function registerHistoryRoutes(app: FastifyInstance, db: DatabaseSync): void {
   app.get<{ Params: { id: string } }>(
@@ -164,7 +165,7 @@ export function registerHistoryRoutes(app: FastifyInstance, db: DatabaseSync): v
       const accountId = requireCaller(db, request);
       const groupId = request.params.id;
       if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
-      if (!isMember(db, groupId, request.params.memberId)) {
+      if (!hasBeenMember(db, groupId, request.params.memberId)) {
         throw new Refusal(404, 'NotFound', 'There is no such member of the group.');
       }
       return statementOf(db, groupId, request.params.memberId);
