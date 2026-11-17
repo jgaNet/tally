@@ -96,7 +96,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 4 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 5 });
     } finally {
       db.close();
     }

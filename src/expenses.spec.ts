@@ -245,6 +245,7 @@ describe('expenses', () => {
             { memberId: graceId, amount: 333 },
             { memberId: linusId, amount: 333 },
           ],
+          version: 1,
         },
       });
     });
@@ -277,6 +278,255 @@ describe('expenses', () => {
         { memberId: graceId, amount: 5 },
         { memberId: adaId, amount: 5 },
       ]);
+    });
+  });
+
+  describe('the version of an expense', () => {
+    it('is 1 when the expense is recorded, and the read answers it as an integer', async () => {
+      const id = await recordedExpense();
+      expect((await call(app, 'GET', `/expenses/${id}`, { token: adaToken })).body.version).toBe(1);
+    });
+  });
+
+  // An edit sends the expense whole, from the version its author read.
+  const edit = (fields: Record<string, unknown> = {}) => ({
+    description: 'Groceries',
+    amount: 1000,
+    date: '2026-11-01',
+    splitBetween: [adaId, graceId, linusId],
+    version: 1,
+    ...fields,
+  });
+
+  const change = (id: string, fields: Record<string, unknown> = {}, token = adaToken) =>
+    call(app, 'PUT', `/expenses/${id}`, { body: edit(fields), token });
+
+  const readExpense = async (id: string, token = adaToken) =>
+    (await call(app, 'GET', `/expenses/${id}`, { token })).body;
+
+  const balancesOf = async (token = adaToken) =>
+    (await call(app, 'GET', `/groups/${groupId}/balances`, { token })).body;
+
+  const remove = (id: string, token = adaToken) => call(app, 'DELETE', `/expenses/${id}`, { token });
+
+  const notFound = { status: 404, body: { type: 'NotFound', message: expect.any(String) } };
+
+  describe('editing an expense', () => {
+    it('replaces the description, amount, date and split, computes the shares again, and adds one version', async () => {
+      const id = await recordedExpense();
+      const answer = await change(id, {
+        description: 'Dinner',
+        amount: 900,
+        date: '2026-10-30',
+        splitBetween: [adaId, graceId],
+      });
+      expect(answer).toEqual({ status: 204, body: undefined });
+      expect(await readExpense(id)).toEqual({
+        id,
+        groupId,
+        description: 'Dinner',
+        amount: 900,
+        date: '2026-10-30',
+        paidBy: adaId,
+        shares: [
+          { memberId: adaId, amount: 450 },
+          { memberId: graceId, amount: 450 },
+        ],
+        version: 2,
+      });
+    });
+
+    it('gives one more version at each edit, each made from the version before it', async () => {
+      const id = await recordedExpense();
+      expect((await change(id, { description: 'First' })).status).toBe(204);
+      expect((await change(id, { description: 'Second', version: 2 })).status).toBe(204);
+      expect(await readExpense(id)).toMatchObject({ description: 'Second', version: 3 });
+    });
+
+    it('keeps the payer as the one who paid when the owner edits an expense of another member', async () => {
+      const id = await recordedExpense({}, graceToken);
+      expect((await change(id, { description: 'Edited by the owner' }, adaToken)).status).toBe(204);
+      expect(await readExpense(id, graceToken)).toMatchObject({ paidBy: graceId, description: 'Edited by the owner' });
+    });
+
+    it('lets the payer edit their own expense', async () => {
+      const id = await recordedExpense({}, graceToken);
+      expect((await change(id, { description: 'Edited by the payer' }, graceToken)).status).toBe(204);
+      expect(await readExpense(id, graceToken)).toMatchObject({ paidBy: graceId, description: 'Edited by the payer' });
+    });
+
+    it('refuses an edit that leaves the payer out of the split, even when the owner makes it', async () => {
+      const id = await recordedExpense({}, graceToken);
+      expect(await change(id, { splitBetween: [adaId, linusId] }, adaToken)).toEqual(refusal('InvalidSplit'));
+      expect(await readExpense(id, graceToken)).toMatchObject({ version: 1, shares: expect.any(Array) });
+    });
+
+    it('refuses an edit by another member of the group with 403, and keeps nothing of it', async () => {
+      const id = await recordedExpense({}, graceToken);
+      const answer = await change(id, { description: 'Not for linus to change' }, linusToken);
+      expect(answer).toEqual({ status: 403, body: { type: 'NotAllowed', message: expect.any(String) } });
+      expect(await readExpense(id)).toMatchObject({ description: 'Groceries', version: 1 });
+    });
+
+    it('refuses an edit by an account outside the group as if the expense did not exist', async () => {
+      const id = await recordedExpense();
+      const outsider = await accountOf({ email: 'outsider@example.com', password: 'outside-2000', name: 'Outsider' });
+      const notMember = await change(id, {}, outsider.token);
+      const missing = await change('no-such-expense', {}, outsider.token);
+      expect(notMember).toEqual(notFound);
+      expect(missing).toEqual(notMember);
+    });
+
+    it('refuses an edit made from a version that is no longer the current one, and keeps nothing of it', async () => {
+      const id = await recordedExpense();
+      expect((await change(id, { description: 'First' })).status).toBe(204);
+      expect(await change(id, { description: 'Stale', version: 1 })).toEqual({
+        status: 409,
+        body: { type: 'ExpenseChanged', message: expect.any(String) },
+      });
+      expect(await readExpense(id)).toMatchObject({ description: 'First', version: 2 });
+    });
+
+    it.each([
+      ['a zero amount', { amount: 0 }, 'InvalidAmount'],
+      ['an amount above the maximum', { amount: 100_000_001 }, 'InvalidAmount'],
+      ['a description of only spaces', { description: '   ' }, 'InvalidDescription'],
+      ['a date that is not a day', { date: '2026-02-29' }, 'InvalidDate'],
+      ['a date after today', { date: tomorrowUtc() }, 'FutureDate'],
+    ])('refuses %s with the rule of recording it, and keeps nothing', async (_, fields, type) => {
+      const id = await recordedExpense();
+      expect(await change(id, fields)).toEqual(refusal(type));
+      expect(await readExpense(id)).toMatchObject({ amount: 1000, description: 'Groceries', version: 1 });
+    });
+
+    it('refuses a split that names a member twice with the rule of recording it, and keeps nothing', async () => {
+      const id = await recordedExpense();
+      expect(await change(id, { splitBetween: [adaId, graceId, graceId] })).toEqual(refusal('InvalidSplit'));
+      expect(await readExpense(id)).toMatchObject({ version: 1 });
+    });
+
+    it('refuses a split that names an account which is not a member of the group', async () => {
+      const id = await recordedExpense();
+      const outsider = await accountOf({ email: 'outsider@example.com', password: 'outside-2000', name: 'Outsider' });
+      expect(await change(id, { splitBetween: [adaId, outsider.id] })).toEqual(refusal('InvalidSplit'));
+    });
+
+    it('refuses a body without its version, or with a version that is not a whole number from 1, with 400', async () => {
+      const id = await recordedExpense();
+      const body: Record<string, unknown> = edit();
+      delete body.version;
+      expect((await call(app, 'PUT', `/expenses/${id}`, { body, token: adaToken })).status).toBe(400);
+      for (const version of [0, 1.5, '1']) {
+        expect((await change(id, { version })).status).toBe(400);
+      }
+      expect(await readExpense(id)).toMatchObject({ version: 1 });
+    });
+
+    it('refuses a request without a token with 401', async () => {
+      const id = await recordedExpense();
+      expect((await call(app, 'PUT', `/expenses/${id}`, { body: edit() })).status).toBe(401);
+    });
+
+    it('keeps exactly one of two edits made at once from the same version, on the same server', async () => {
+      const id = await recordedExpense();
+      const [first, second] = await Promise.all([
+        change(id, { description: 'Edit one' }),
+        change(id, { description: 'Edit two' }),
+      ]);
+      expect([first.status, second.status].sort()).toEqual([204, 409]);
+      const kept = first.status === 204 ? 'Edit one' : 'Edit two';
+      expect(await readExpense(id)).toMatchObject({ description: kept, version: 2 });
+    });
+
+    it('keeps exactly one of two edits made at once from the same version, through two servers on one database', async () => {
+      const id = await recordedExpense();
+      const other = await startApplication(database.path);
+      try {
+        const [first, second] = await Promise.all([
+          call(app, 'PUT', `/expenses/${id}`, { body: edit({ splitBetween: [adaId, graceId] }), token: adaToken }),
+          call(other, 'PUT', `/expenses/${id}`, { body: edit({ splitBetween: [adaId, linusId] }), token: adaToken }),
+        ]);
+        expect([first.status, second.status].sort()).toEqual([204, 409]);
+        const kept = first.status === 204 ? [adaId, graceId] : [adaId, linusId];
+        const expense = await readExpense(id);
+        expect(expense).toMatchObject({ version: 2 });
+        expect(expense.shares.map((share: { memberId: string }) => share.memberId)).toEqual(kept);
+        const balances = await balancesOf();
+        expect(balances.reduce((sum: number, member: { balance: number }) => sum + member.balance, 0)).toBe(0);
+      } finally {
+        await other.stop();
+      }
+    });
+  });
+
+  describe('deleting an expense', () => {
+    it('deletes the expense, which is then not read by anyone, and answers 204', async () => {
+      const id = await recordedExpense();
+      expect(await remove(id)).toEqual({ status: 204, body: undefined });
+      expect(await call(app, 'GET', `/expenses/${id}`, { token: adaToken })).toEqual(notFound);
+    });
+
+    it('takes the expense out of every balance', async () => {
+      const id = await recordedExpense({ amount: 999 });
+      expect((await balancesOf()).map((member: { balance: number }) => member.balance)).not.toEqual([0, 0, 0]);
+      await remove(id);
+      expect(await balancesOf()).toEqual([
+        { memberId: adaId, balance: 0 },
+        { memberId: graceId, balance: 0 },
+        { memberId: linusId, balance: 0 },
+      ]);
+    });
+
+    it('lets the payer delete their own expense', async () => {
+      const id = await recordedExpense({}, graceToken);
+      expect((await remove(id, graceToken)).status).toBe(204);
+    });
+
+    it('lets the owner delete an expense of another member', async () => {
+      const id = await recordedExpense({}, graceToken);
+      expect((await remove(id, adaToken)).status).toBe(204);
+    });
+
+    it('refuses a delete by another member with 403, and keeps the expense', async () => {
+      const id = await recordedExpense({}, graceToken);
+      expect(await remove(id, linusToken)).toEqual({
+        status: 403,
+        body: { type: 'NotAllowed', message: expect.any(String) },
+      });
+      expect((await call(app, 'GET', `/expenses/${id}`, { token: linusToken })).status).toBe(200);
+    });
+
+    it('answers a delete by an account outside the group as if the expense did not exist', async () => {
+      const id = await recordedExpense();
+      const outsider = await accountOf({ email: 'outsider@example.com', password: 'outside-2000', name: 'Outsider' });
+      expect(await remove(id, outsider.token)).toEqual(notFound);
+      expect(await remove('no-such-expense', outsider.token)).toEqual(notFound);
+    });
+
+    it('answers 404 to a second delete of the same expense', async () => {
+      const id = await recordedExpense();
+      expect((await remove(id)).status).toBe(204);
+      expect(await remove(id)).toEqual(notFound);
+    });
+
+    it('refuses a request without a token with 401', async () => {
+      const id = await recordedExpense();
+      expect((await call(app, 'DELETE', `/expenses/${id}`)).status).toBe(401);
+    });
+
+    it('deletes the expense once when two deletes are made at once through two servers on one database', async () => {
+      const id = await recordedExpense();
+      const other = await startApplication(database.path);
+      try {
+        const [first, second] = await Promise.all([
+          remove(id),
+          call(other, 'DELETE', `/expenses/${id}`, { token: adaToken }),
+        ]);
+        expect([first.status, second.status].sort()).toEqual([204, 404]);
+        expect((await call(app, 'GET', `/expenses/${id}`, { token: adaToken })).status).toBe(404);
+      } finally {
+        await other.stop();
+      }
     });
   });
 });

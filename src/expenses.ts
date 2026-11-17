@@ -24,6 +24,8 @@ export interface Expense {
   date: string;
   paidBy: string;
   shares: Share[];
+  /** 1 when the expense is recorded, one more at each edit. */
+  version: number;
 }
 
 /** What a member records: the amount is in hundredths of the group's currency, like every amount. */
@@ -34,6 +36,11 @@ export interface NewExpense {
   splitBetween: string[];
 }
 
+/** An edit gives the expense again, whole, from the version its author read. */
+export interface ExpenseEdit extends NewExpense {
+  version: number;
+}
+
 interface ExpenseRow {
   id: string;
   group_id: string;
@@ -41,6 +48,7 @@ interface ExpenseRow {
   amount: number;
   date: string;
   paid_by: string;
+  version: number;
 }
 
 interface ShareRow {
@@ -100,7 +108,7 @@ function checkDate(date: string): void {
 
 /**
  * The split holds each member once, names the payer among them, and names only members of the group.
- * It is checked where it is written, inside the write transaction that records the expense.
+ * It is checked where it is written, inside the write transaction that records or edits the expense.
  */
 function checkSplit(db: DatabaseSync, groupId: string, payerId: string, splitBetween: readonly string[]): void {
   if (new Set(splitBetween).size !== splitBetween.length) {
@@ -112,6 +120,16 @@ function checkSplit(db: DatabaseSync, groupId: string, payerId: string, splitBet
   if (!splitBetween.every(memberId => isMember(db, groupId, memberId))) {
     refuse('InvalidSplit', 'Every member in the split must be a member of the group.');
   }
+}
+
+/** Writes the shares of the split, computed from the amount, in the order the split was given. */
+function writeShares(db: DatabaseSync, expenseId: string, input: NewExpense, payerId: string): void {
+  const insertShare = db.prepare(
+    'INSERT INTO expense_shares (expense_id, position, account_id, amount) VALUES (?, ?, ?, ?)',
+  );
+  equalShares(input.amount, input.splitBetween, payerId).forEach((share, position) => {
+    insertShare.run(expenseId, position, share.memberId, share.amount);
+  });
 }
 
 /**
@@ -128,14 +146,9 @@ export function createExpense(db: DatabaseSync, accountId: string, groupId: stri
   inTransaction(db, () => {
     checkSplit(db, groupId, accountId, input.splitBetween);
     db.prepare(
-      'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, version, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)',
     ).run(id, groupId, description, input.amount, input.date, accountId, new Date().toISOString());
-    const insertShare = db.prepare(
-      'INSERT INTO expense_shares (expense_id, position, account_id, amount) VALUES (?, ?, ?, ?)',
-    );
-    equalShares(input.amount, input.splitBetween, accountId).forEach((share, position) => {
-      insertShare.run(id, position, share.memberId, share.amount);
-    });
+    writeShares(db, id, input, accountId);
   });
   return id;
 }
@@ -144,7 +157,7 @@ export function createExpense(db: DatabaseSync, accountId: string, groupId: stri
 export function findExpenseOf(db: DatabaseSync, accountId: string, expenseId: string): Expense | undefined {
   const row = db
     .prepare(
-      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by
+      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.version
        FROM expenses e JOIN group_members m ON m.group_id = e.group_id
        WHERE e.id = ? AND m.account_id = ?`,
     )
@@ -161,7 +174,58 @@ export function findExpenseOf(db: DatabaseSync, accountId: string, expenseId: st
     date: row.date,
     paidBy: row.paid_by,
     shares: shares.map(share => ({ memberId: share.account_id, amount: share.amount })),
+    version: row.version,
   };
+}
+
+/**
+ * Only the payer of an expense and the owner of its group may change it. For any other member of the
+ * group the change is refused; the caller is known to be a member, as the expense was found for them.
+ */
+function checkMayChange(db: DatabaseSync, accountId: string, expense: Expense): void {
+  if (accountId === expense.paidBy) return;
+  if (accountId === findGroupOf(db, accountId, expense.groupId)?.ownerId) return;
+  throw new Refusal(403, 'NotAllowed', 'Only the payer of the expense or the owner of the group may change it.');
+}
+
+/**
+ * Replaces the expense whole with the one given, from the version its author read, and gives it one more
+ * version. The payer stays the one who paid, and must stay in the split. The shares are computed again.
+ * An expense changed since that version is refused with `ExpenseChanged`, and nothing of the edit is kept.
+ * Check, version and write are one write transaction, so two edits from the same version cannot both land.
+ */
+export function editExpense(db: DatabaseSync, accountId: string, expenseId: string, edit: ExpenseEdit): void {
+  inTransaction(db, () => {
+    const expense = findExpenseOf(db, accountId, expenseId);
+    if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
+    checkMayChange(db, accountId, expense);
+    if (edit.version !== expense.version) {
+      throw new Refusal(409, 'ExpenseChanged', 'The expense changed since this version was read: read it again.');
+    }
+    const description = checkDescription(edit.description);
+    checkAmount(edit.amount);
+    checkDate(edit.date);
+    checkSplit(db, expense.groupId, expense.paidBy, edit.splitBetween);
+    db.prepare(
+      'UPDATE expenses SET description = ?, amount = ?, date = ?, version = version + 1 WHERE id = ? AND version = ?',
+    ).run(description, edit.amount, edit.date, expenseId, edit.version);
+    db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
+    writeShares(db, expenseId, edit, expense.paidBy);
+  });
+}
+
+/**
+ * Deletes the expense with its shares: it is no longer read, and counts in no balance. Only its payer and
+ * the owner of its group may delete it, as for an edit.
+ */
+export function deleteExpense(db: DatabaseSync, accountId: string, expenseId: string): void {
+  inTransaction(db, () => {
+    const expense = findExpenseOf(db, accountId, expenseId);
+    if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
+    checkMayChange(db, accountId, expense);
+    db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
+    db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
+  });
 }
 
 const idSchema = {
@@ -172,7 +236,7 @@ const idSchema = {
 
 const expenseSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares', 'version'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -189,6 +253,7 @@ const expenseSchema = {
         properties: { memberId: { type: 'string' }, amount: { type: 'integer' } },
       },
     },
+    version: { type: 'integer', minimum: 1 },
   },
 };
 
@@ -221,5 +286,35 @@ export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync): v
     const expense = findExpenseOf(db, accountId, request.params.id);
     if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
     return expense;
+  });
+
+  app.put<{ Params: { id: string }; Body: ExpenseEdit }>(
+    '/expenses/:id',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['description', 'amount', 'date', 'splitBetween', 'version'],
+          properties: {
+            description: { type: 'string' },
+            amount: { type: 'integer' },
+            date: { type: 'string' },
+            splitBetween: { type: 'array', items: { type: 'string' } },
+            version: { type: 'integer', minimum: 1 },
+          },
+        },
+      },
+    },
+    (request, reply) => {
+      const accountId = requireCaller(db, request);
+      editExpense(db, accountId, request.params.id, request.body);
+      return reply.code(204).send();
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/expenses/:id', (request, reply) => {
+    const accountId = requireCaller(db, request);
+    deleteExpense(db, accountId, request.params.id);
+    return reply.code(204).send();
   });
 }

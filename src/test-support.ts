@@ -29,7 +29,7 @@ export interface Answer {
 /** One request to the application; a JSON `body` is sent as JSON, a `token` as the bearer token. */
 export async function call(
   app: Reachable,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   { body, token, raw }: { body?: unknown; token?: string; raw?: string } = {},
 ): Promise<Answer> {
