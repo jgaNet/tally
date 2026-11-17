@@ -1,0 +1,12 @@
+# Request 6 (feature 6): an expense edited from the version its author read, or deleted, by its payer or the owner.
+# The fragment is numbered after 6-balances.yaml, so the composition keeps its order; the request's own number is in the comment.
+# PUT and DELETE answer 202 (all_routes) and their refusals as the operation's ERROR; a 401 for a caller not signed in.
+resources:
+  expense:
+    gains:
+      version: { type: integer, minimum: 1 }
+routes:
+  PUT /v1/expenses/{id}:
+    2xx: {}
+  DELETE /v1/expenses/{id}:
+    2xx: {}

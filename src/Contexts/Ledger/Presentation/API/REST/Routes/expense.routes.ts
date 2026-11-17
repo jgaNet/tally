@@ -4,6 +4,7 @@ import { Module } from '@Architecture/Application';
 
 import { FastifyExpenseController } from '@Contexts/Ledger/Presentation/API/REST/Controllers/FastifyExpenseController';
 import {
+  EditExpenseBodySchema,
   GetExpenseResSchema,
   LaterCommandResSchema,
   RecordExpenseBodySchema,
@@ -21,6 +22,19 @@ export const expenseRoutes = function (
     '/groups/:id/expenses',
     { schema: { tags: ['expenses'], body: RecordExpenseBodySchema, response: LaterCommandResSchema } },
     controller.recordExpense.bind(controller),
+  );
+
+  // Answered 202 and read at the operation: an edit from the version its author read, or a deletion (request 6).
+  fastify.put(
+    '/expenses/:id',
+    { schema: { tags: ['expenses'], body: EditExpenseBodySchema, response: LaterCommandResSchema } },
+    controller.editExpense.bind(controller),
+  );
+
+  fastify.delete(
+    '/expenses/:id',
+    { schema: { tags: ['expenses'], response: LaterCommandResSchema } },
+    controller.deleteExpense.bind(controller),
   );
 
   fastify.get(

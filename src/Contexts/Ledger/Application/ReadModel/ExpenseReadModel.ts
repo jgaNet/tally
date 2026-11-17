@@ -4,7 +4,7 @@ export interface ExpenseShareReadModel {
   amount: number;
 }
 
-/** An expense as a member of its group reads it: its description, amount, day and payer, and the shares in split order. */
+/** An expense as a member of its group reads it: its description, amount, day, payer and version, and the shares in split order. */
 export interface ExpenseReadModel {
   id: string;
   groupId: string;
@@ -12,5 +12,7 @@ export interface ExpenseReadModel {
   amount: number;
   date: string;
   paidBy: string;
+  /** The version it was last saved at: 1 when recorded, one more at each edit. */
+  version: number;
   shares: ExpenseShareReadModel[];
 }

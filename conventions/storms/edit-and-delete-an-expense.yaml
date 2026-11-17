@@ -5,7 +5,7 @@ feature: edit-and-delete-an-expense
 intent: >-
   An expense's payer or the group's owner edits it whole, from the version they read, or deletes it; of two edits at once, one is kept and the other is refused by name.
 
-done: false
+done: true
 
 hotSpots:
   - question: Is the version an edit gives the aggregate's own version?

@@ -3,7 +3,11 @@ import { Id } from '@Architecture/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
-import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import {
+  ExpenseDeletedEvent,
+  ExpenseEditedEvent,
+  ExpenseRecordedEvent,
+} from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 
 const now = new Date('2026-03-10T10:00:00.000Z');
 const [alice, bob, carl] = ['alice', 'bob', 'carl'].map(id => new Id(id));
@@ -79,6 +83,7 @@ describe('Expense', () => {
         { memberId: 'bob', amount: 333 },
         { memberId: 'carl', amount: 333 },
       ],
+      version: 0,
     });
   });
 
@@ -121,5 +126,96 @@ describe('Expense', () => {
     expect(recordExpense({ amount: 1.5 })).toMatchObject({ error: { type: 'InvalidAmount' } });
     expect(recordExpense({ amount: 100_000_000 }).isSuccess()).toBe(true);
     expect(recordExpense({ amount: 100_000_001 })).toMatchObject({ error: { type: 'InvalidAmount' } });
+  });
+});
+
+/** An expense as the repository would have read it back: saved once, at version 1. */
+const savedExpense = (overrides: Partial<Parameters<typeof Expense.create>[0]> = {}): Expense => {
+  const recorded = (recordExpense(overrides).data as Expense).toSnapshot();
+  return Expense.fromSnapshot({ ...recorded, version: 1 });
+};
+
+const editing = (overrides: Partial<Parameters<Expense['edit']>[0]> = {}) => ({
+  by: alice,
+  byOwner: false,
+  version: 1,
+  description: 'Groceries, again',
+  amount: 900,
+  date: '2026-03-10',
+  splitBetween: [alice, bob],
+  groupMembers: [alice, bob, carl],
+  now,
+  ...overrides,
+});
+
+describe('Expense, edited and deleted', () => {
+  it('is born at version 0, which the repository saves as 1', () => {
+    expect((recordExpense().data as Expense).version).toBe(0);
+    expect(savedExpense().version).toBe(1);
+  });
+
+  it('is edited whole by its payer, from the version it was read at, and the edit keeps the payer and the event', () => {
+    const saved = savedExpense();
+    const edited = saved.edit(editing());
+
+    expect(edited.isSuccess()).toBe(true);
+    const expense = edited.data as Expense;
+    expect(expense._id.value).toBe(saved._id.value);
+    expect(expense.paidBy.value).toBe('alice');
+    expect(expense.version).toBe(1);
+    expect(expense.shares.map(share => [share.memberId.value, share.amount])).toEqual([
+      ['alice', 450],
+      ['bob', 450],
+    ]);
+    expect(expense.pullDomainEvents()).toEqual([
+      ExpenseEditedEvent.set({ expenseId: expense._id.value, groupId: 'flat' }),
+    ]);
+  });
+
+  it('is edited by the owner of its group, who keeps the payer as well', () => {
+    const edited = savedExpense().edit(editing({ by: carl, byOwner: true }));
+
+    expect(edited.isSuccess()).toBe(true);
+    expect((edited.data as Expense).paidBy.value).toBe('alice');
+  });
+
+  it('refuses an edit by a member who is neither the payer nor the owner', () => {
+    const refused = savedExpense().edit(editing({ by: bob, byOwner: false }));
+
+    expect(refused).toMatchObject({ error: { type: 'NotThePayerOrTheOwner' } });
+  });
+
+  it('refuses an edit made from a version the expense has since left, and names it', () => {
+    const refused = savedExpense().edit(editing({ version: 0 }));
+
+    expect(refused).toMatchObject({ error: { type: 'ExpenseChanged' } });
+  });
+
+  it('refuses an edit that gives a split with a stranger, the same as recording one', () => {
+    const refused = savedExpense().edit(editing({ splitBetween: [alice, new Id('stranger')] }));
+
+    expect(refused).toMatchObject({ error: { type: 'NotAMemberOfTheGroup' } });
+  });
+
+  it('refuses an edit that leaves the payer out of the split', () => {
+    const refused = savedExpense().edit(editing({ splitBetween: [bob, carl] }));
+
+    expect(refused).toMatchObject({ error: { type: 'PayerNotInSplit' } });
+  });
+
+  it('is deleted by its payer or the owner, and records the deletion', () => {
+    const saved = savedExpense();
+    const deleted = saved.delete({ by: alice, byOwner: false });
+
+    expect(deleted.isSuccess()).toBe(true);
+    expect((deleted.data as Expense).pullDomainEvents()).toEqual([
+      ExpenseDeletedEvent.set({ expenseId: saved._id.value, groupId: 'flat' }),
+    ]);
+  });
+
+  it('refuses a deletion by a member who is neither the payer nor the owner', () => {
+    expect(savedExpense().delete({ by: bob, byOwner: false })).toMatchObject({
+      error: { type: 'NotThePayerOrTheOwner' },
+    });
   });
 });

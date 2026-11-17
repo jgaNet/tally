@@ -16,13 +16,21 @@ export class SqliteMemberBalances implements IBalanceCounts, IBalanceQueries {
   }
 
   async count(expense: Expense): Promise<void> {
+    this.apply(expense, 1);
+  }
+
+  async uncount(expense: Expense): Promise<void> {
+    this.apply(expense, -1);
+  }
+
+  private apply(expense: Expense, sign: 1 | -1): void {
     for (const { memberId, change } of expense.balanceChanges()) {
       this.database.run(
         `INSERT INTO member_balances (group_id, member_id, balance) VALUES (?, ?, ?)
          ON CONFLICT (group_id, member_id) DO UPDATE SET balance = balance + excluded.balance`,
         expense.groupId.value,
         memberId.value,
-        change,
+        sign * change,
       );
     }
   }

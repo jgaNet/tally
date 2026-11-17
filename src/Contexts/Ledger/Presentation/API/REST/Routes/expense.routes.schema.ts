@@ -5,7 +5,7 @@ const RefusedSchema = {
 
 const ExpenseSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'version', 'shares'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -13,6 +13,7 @@ const ExpenseSchema = {
     amount: { type: 'integer' },
     date: { type: 'string' },
     paidBy: { type: 'string' },
+    version: { type: 'integer', minimum: 1 },
     shares: {
       type: 'array',
       items: {
@@ -33,6 +34,19 @@ export const RecordExpenseBodySchema = {
     amount: { type: 'integer' },
     date: { type: 'string' },
     splitBetween: { type: 'array', items: { type: 'string' } },
+  },
+} as const;
+
+/** The body of an edit: the expense as it is given again, and the version its author read (request 6). */
+export const EditExpenseBodySchema = {
+  type: 'object',
+  required: ['description', 'amount', 'date', 'splitBetween', 'version'],
+  properties: {
+    description: { type: 'string' },
+    amount: { type: 'integer' },
+    date: { type: 'string' },
+    splitBetween: { type: 'array', items: { type: 'string' } },
+    version: { type: 'integer' },
   },
 } as const;
 

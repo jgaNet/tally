@@ -7,6 +7,11 @@ import {
   RecordExpenseCommandEvent,
   RecordExpenseCommandHandler,
 } from '@Contexts/Ledger/Application/Commands/RecordExpense';
+import {
+  DeleteExpenseCommandEvent,
+  DeleteExpenseCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/DeleteExpense';
+import { EditExpenseCommandEvent, EditExpenseCommandHandler } from '@Contexts/Ledger/Application/Commands/EditExpense';
 import { GetExpenseQueryHandler, GetGroupBalancesQueryHandler } from '@Contexts/Ledger/Application/Queries';
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { SqliteExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteExpenseReadModels';
@@ -28,6 +33,14 @@ export const localLedgerModule = new Module({
     {
       event: RecordExpenseCommandEvent,
       handlers: [new RecordExpenseCommandHandler(expenses, members, systemClock, balances)],
+    },
+    {
+      event: EditExpenseCommandEvent,
+      handlers: [new EditExpenseCommandHandler(expenses, members, systemClock, balances)],
+    },
+    {
+      event: DeleteExpenseCommandEvent,
+      handlers: [new DeleteExpenseCommandHandler(expenses, members, balances)],
     },
   ],
   queries: [

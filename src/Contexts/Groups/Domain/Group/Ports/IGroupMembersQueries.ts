@@ -11,4 +11,9 @@ export interface IGroupMembersQueries {
   memberIdsOf(groupId: string): Promise<string[]>;
   /** Whether the account is a member of the group now, read by a query outside any transaction. */
   isMemberOf(groupId: string, accountId: string): Promise<boolean>;
+  /**
+   * The account's role in the group now: `owner` for the one who created it, `member` for whoever joined, null when it is
+   * not a member or there is no such group. Read by the command deciding on it, inside its own transaction: no lock.
+   */
+  roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null>;
 }

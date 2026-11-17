@@ -71,6 +71,18 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
     );
   }
 
+  /** The role of a member, read inside the command deciding on it, so it takes no lock (as `memberIdsOf` does). */
+  async roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null> {
+    const row = this.database.get<{ owner_id: string }>(
+      `SELECT g.owner_id AS owner_id FROM group_members m JOIN groups g ON g.id = m.group_id
+       WHERE m.group_id = ? AND m.account_id = ?`,
+      groupId,
+      accountId,
+    );
+    if (!row) return null;
+    return row.owner_id === accountId ? 'owner' : 'member';
+  }
+
   /** The members are listed only to one of them: the same answer as a group that is not there, for anyone else. */
   async listMembers(groupId: string, accountId: string): Promise<MemberReadModel[] | null> {
     return this.database.exclusive(() => {

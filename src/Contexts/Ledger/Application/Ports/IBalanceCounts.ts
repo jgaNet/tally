@@ -7,4 +7,6 @@ import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
  */
 export interface IBalanceCounts {
   count(expense: Expense): Promise<void>;
+  /** Takes an expense out of the balances again: the expense was edited, or deleted, and its counted shares are forgotten. */
+  uncount(expense: Expense): Promise<void>;
 }

@@ -2,16 +2,33 @@ import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
-import { NotAMemberOfTheGroup } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
-import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import {
+  ExpenseChanged,
+  NotAMemberOfTheGroup,
+  NotThePayerOrTheOwner,
+} from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
+import {
+  ExpenseDeletedEvent,
+  ExpenseEditedEvent,
+  ExpenseRecordedEvent,
+} from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { SpentOn } from '@Contexts/Ledger/Domain/Expense/SpentOn';
 import { Share, Split } from '@Contexts/Ledger/Domain/Expense/Split';
 
+/** What an expense says, once its description, amount, day and split have been checked and its shares computed. */
+interface Decided {
+  description: Description;
+  amount: Amount;
+  spentOn: SpentOn;
+  shares: Share[];
+}
+
 /**
  * An amount a member of a group paid, split equally between some of its members, the payer among them. It holds what
- * was decided: its amount, its day, the payer and the shares, which add up to the amount. Once recorded it is not
- * changed: the balances are read from it, and no aggregate holds a running total.
+ * was decided: its amount, its day, the payer and the shares, which add up to the amount. It has a version: 1 when it
+ * is recorded, and one more at each save of a change (the aggregate's version, ADR 8). The balances are read from its
+ * shares; no aggregate holds a running total.
  */
 export class Expense extends AggregateRoot {
   private constructor(
@@ -22,8 +39,9 @@ export class Expense extends AggregateRoot {
     readonly spentOn: SpentOn,
     readonly paidBy: Id,
     readonly shares: Share[],
+    version: number,
   ) {
-    super(id);
+    super(id, version);
   }
 
   /**
@@ -50,23 +68,68 @@ export class Expense extends AggregateRoot {
     groupMembers: Id[];
     now: Date;
   }): IResult<Expense> {
-    const text = Description.create(description);
-    if (text.isFailure()) return text;
-    const value = Amount.create(amount);
-    if (value.isFailure()) return value;
-    const day = SpentOn.create(date, now.toISOString().slice(0, 10));
-    if (day.isFailure()) return day;
-    const split = Split.equally({ amount: value.data, payer: paidBy, members: splitBetween });
-    if (split.isFailure()) return split;
+    const decided = Expense.decide({ paidBy, description, amount, date, splitBetween, groupMembers, now });
+    if (decided.isFailure()) return decided;
 
-    const isMember = (memberId: Id) => groupMembers.some(member => member.value === memberId.value);
-    if (!isMember(paidBy) || !split.data.shares.every(share => isMember(share.memberId))) {
-      return Result.fail(new NotAMemberOfTheGroup());
-    }
-
-    const expense = new Expense(Id.generate(), groupId, text.data, value.data, day.data, paidBy, split.data.shares);
+    const { description: text, amount: value, spentOn, shares } = decided.data;
+    const expense = new Expense(Id.generate(), groupId, text, value, spentOn, paidBy, shares, 0);
     expense.record(ExpenseRecordedEvent.set({ expenseId: expense._id.value, groupId: groupId.value }));
     return Result.ok(expense);
+  }
+
+  /**
+   * Replaces the expense, whole, from the version its author read. Only its payer, or the owner of its group, may change
+   * it (`byOwner` is the group's role of the caller, read by the handler). The payer stays the one who paid. The edit is
+   * refused when the expense has changed since `version` was read, and the new shares are computed from what the edit
+   * gives. The returned expense keeps this version: the repository stores version + 1 when it saves it.
+   */
+  edit({
+    by,
+    byOwner,
+    version,
+    description,
+    amount,
+    date,
+    splitBetween,
+    groupMembers,
+    now,
+  }: {
+    by: Id;
+    byOwner: boolean;
+    version: number;
+    description: string;
+    amount: number;
+    date: string;
+    splitBetween: Id[];
+    groupMembers: Id[];
+    now: Date;
+  }): IResult<Expense> {
+    if (!this.mayChange(by, byOwner)) return Result.fail(new NotThePayerOrTheOwner());
+    if (version !== this.version) return Result.fail(new ExpenseChanged());
+
+    const decided = Expense.decide({
+      paidBy: this.paidBy,
+      description,
+      amount,
+      date,
+      splitBetween,
+      groupMembers,
+      now,
+    });
+    if (decided.isFailure()) return decided;
+
+    const { description: text, amount: value, spentOn, shares } = decided.data;
+    const edited = new Expense(this._id, this.groupId, text, value, spentOn, this.paidBy, shares, this.version);
+    edited.record(ExpenseEditedEvent.set({ expenseId: this._id.value, groupId: this.groupId.value }));
+    return Result.ok(edited);
+  }
+
+  /** Deletes the expense: it is gone from every read once the repository removes it. Only its payer or the owner may. */
+  delete({ by, byOwner }: { by: Id; byOwner: boolean }): IResult<Expense> {
+    if (!this.mayChange(by, byOwner)) return Result.fail(new NotThePayerOrTheOwner());
+
+    this.record(ExpenseDeletedEvent.set({ expenseId: this._id.value, groupId: this.groupId.value }));
+    return Result.ok(this);
   }
 
   static fromSnapshot(snapshot: ExpenseSnapshot): Expense {
@@ -87,6 +150,7 @@ export class Expense extends AggregateRoot {
       day.data,
       new Id(snapshot.paidBy),
       split.shares,
+      snapshot.version,
     );
   }
 
@@ -115,6 +179,46 @@ export class Expense extends AggregateRoot {
       date: this.spentOn.value,
       paidBy: this.paidBy.value,
       shares: this.shares.map(share => ({ memberId: share.memberId.value, amount: share.amount })),
+      version: this.version,
     };
+  }
+
+  /** The payer, or the owner of the group, may change an expense; no one else. */
+  private mayChange(by: Id, byOwner: boolean): boolean {
+    return byOwner || by.value === this.paidBy.value;
+  }
+
+  /** The rules of an expense's content, shared by recording and editing: the same refusals, the same computed shares. */
+  private static decide({
+    paidBy,
+    description,
+    amount,
+    date,
+    splitBetween,
+    groupMembers,
+    now,
+  }: {
+    paidBy: Id;
+    description: string;
+    amount: number;
+    date: string;
+    splitBetween: Id[];
+    groupMembers: Id[];
+    now: Date;
+  }): IResult<Decided> {
+    const text = Description.create(description);
+    if (text.isFailure()) return text;
+    const value = Amount.create(amount);
+    if (value.isFailure()) return value;
+    const day = SpentOn.create(date, now.toISOString().slice(0, 10));
+    if (day.isFailure()) return day;
+    const split = Split.equally({ amount: value.data, payer: paidBy, members: splitBetween });
+    if (split.isFailure()) return split;
+
+    const isMember = (memberId: Id) => groupMembers.some(member => member.value === memberId.value);
+    if (!isMember(paidBy) || !split.data.shares.every(share => isMember(share.memberId))) {
+      return Result.fail(new NotAMemberOfTheGroup());
+    }
+    return Result.ok({ description: text.data, amount: value.data, spentOn: day.data, shares: split.data.shares });
   }
 }

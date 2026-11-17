@@ -4,10 +4,13 @@ import { Exception, NotAllowedException, NotFoundException } from '@Architecture
 import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
+import { DeleteExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/DeleteExpense';
+import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense';
 import { GetExpenseQueryHandler } from '@Contexts/Ledger/Application/Queries';
 
 type RecordExpenseBody = { description: string; amount: number; date: string; splitBetween: string[] };
+type EditExpenseBody = RecordExpenseBody & { version: number };
 
 export class FastifyExpenseController {
   #module: Module;
@@ -23,6 +26,19 @@ export class FastifyExpenseController {
       this.#module,
       RecordExpenseCommandEvent.set({ groupId: req.params.id, ...req.body }),
     );
+  }
+
+  async editExpense(req: FastifyRequest<{ Params: { id: string }; Body: EditExpenseBody }>, reply: FastifyReply) {
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      EditExpenseCommandEvent.set({ expenseId: req.params.id, ...req.body }),
+    );
+  }
+
+  async deleteExpense(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, DeleteExpenseCommandEvent.set({ expenseId: req.params.id }));
   }
 
   async getExpense(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

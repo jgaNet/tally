@@ -1,8 +1,9 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 /**
- * The expenses and their shares, in the application's file, made by whoever opens it first. An expense is written once
- * and never changed; its shares are kept in the order the split was given (`position`).
+ * The expenses and their shares, in the application's file, made by whoever opens it first. An expense's `version` is the
+ * one it was last saved at: 1 when recorded, one more at each edit (ADR 8). Its shares are kept in the order the split was
+ * given (`position`); an edit replaces them, and a deletion removes the expense and them.
  */
 export function createLedgerTables(database: SqliteDatabase): void {
   database.exec(`CREATE TABLE IF NOT EXISTS expenses (
@@ -11,8 +12,14 @@ export function createLedgerTables(database: SqliteDatabase): void {
     description TEXT NOT NULL,
     amount INTEGER NOT NULL,
     spent_on TEXT NOT NULL,
-    paid_by TEXT NOT NULL
+    paid_by TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1
   )`);
+  // A file made before expenses had a version: each of them is at version 1, the one it was recorded at.
+  const columns = database.all<{ name: string }>('PRAGMA table_info(expenses)');
+  if (!columns.some(column => column.name === 'version')) {
+    database.exec('ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+  }
   database.exec('CREATE INDEX IF NOT EXISTS expenses_by_group ON expenses (group_id)');
   database.exec(`CREATE TABLE IF NOT EXISTS expense_shares (
     expense_id TEXT NOT NULL,

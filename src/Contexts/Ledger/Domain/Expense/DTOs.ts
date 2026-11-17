@@ -6,7 +6,7 @@ export interface ShareSnapshot {
 
 /**
  * What an expense is made of, as it is kept: its amount and its day, the payer, and each member's share in the order the
- * split was given. Its id is the one it was born with.
+ * split was given. Its id is the one it was born with; its version is the one it was last saved at (1 when recorded).
  */
 export interface ExpenseSnapshot {
   id: string;
@@ -16,4 +16,5 @@ export interface ExpenseSnapshot {
   date: string;
   paidBy: string;
   shares: ShareSnapshot[];
+  version: number;
 }

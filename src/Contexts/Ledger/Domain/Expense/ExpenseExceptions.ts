@@ -51,3 +51,17 @@ export class NotAMemberOfTheGroup extends LedgerException {
     super('NotAMemberOfTheGroup', 'Only members of the group may be in the split');
   }
 }
+
+/** An edit made from a version the expense has since left: its author reads it again and decides. */
+export class ExpenseChanged extends LedgerException {
+  constructor() {
+    super('ExpenseChanged', 'The expense has changed since you read it: read it again and decide');
+  }
+}
+
+/** Only the payer of an expense, or the owner of its group, may edit or delete it. */
+export class NotThePayerOrTheOwner extends LedgerException {
+  constructor() {
+    super('NotThePayerOrTheOwner', 'Only the payer of an expense or the owner of the group may change it');
+  }
+}

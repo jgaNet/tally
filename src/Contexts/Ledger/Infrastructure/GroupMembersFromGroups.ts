@@ -1,7 +1,7 @@
 import { Id } from '@Architecture/Domain';
 
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
-import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
+import { GroupRole, IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 
 /**
  * Ledger's port to Groups, answered over Groups' read-model port (ADR 3): the ids the read model gives, translated into
@@ -16,5 +16,9 @@ export class GroupMembersFromGroups implements IGroupMembers {
 
   async isMember(groupId: string, accountId: Id): Promise<boolean> {
     return this.groups.isMemberOf(groupId, accountId.value);
+  }
+
+  async roleOf(groupId: string, accountId: Id): Promise<GroupRole | null> {
+    return this.groups.roleOf(groupId, accountId.value);
   }
 }
