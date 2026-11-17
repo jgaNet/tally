@@ -1,0 +1,16 @@
+/** One member's share of an expense as a member reads it. */
+export interface ExpenseShareReadModel {
+  memberId: string;
+  amount: number;
+}
+
+/** An expense as a member of its group reads it: its description, amount, day and payer, and the shares in split order. */
+export interface ExpenseReadModel {
+  id: string;
+  groupId: string;
+  description: string;
+  amount: number;
+  date: string;
+  paidBy: string;
+  shares: ExpenseShareReadModel[];
+}

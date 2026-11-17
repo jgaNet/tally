@@ -1,0 +1,14 @@
+/**
+ * The read-model port another context reads Groups' members through (ADR 3): the ids of a group's members, in the
+ * order they joined, the owner first. It answers for any group, to a caller that is not a member too: it is a fact
+ * another context decides with, never a screen. Empty when there is no such group.
+ */
+export interface IGroupMembersQueries {
+  /**
+   * The ids of the group's members in join order, empty when there is no such group. Read by the command that decides
+   * on them, inside its own transaction: it sees what that transaction has written.
+   */
+  memberIdsOf(groupId: string): Promise<string[]>;
+  /** Whether the account is a member of the group now, read by a query outside any transaction. */
+  isMemberOf(groupId: string, accountId: string): Promise<boolean>;
+}

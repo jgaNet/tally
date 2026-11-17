@@ -29,6 +29,7 @@ import { SqliteGroupRepository } from '@Contexts/Groups/Infrastructure/SqliteGro
 import { SqliteInvitationReadModels } from '@Contexts/Groups/Infrastructure/SqliteInvitationReadModels';
 import { SqliteInvitationRepository } from '@Contexts/Groups/Infrastructure/SqliteInvitationRepository';
 import { authenticateWithToken } from '@Contexts/Groups/Presentation/API/REST/authenticate';
+import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
 
 const database = sharedDatabase();
 const accounts = new SqliteAccountRepository(database);
@@ -39,6 +40,12 @@ const invitations = new SqliteInvitationRepository(database);
 const invitationReadModels = new SqliteInvitationReadModels(database);
 const passwordHasher = new ScryptPasswordHasher();
 const tokens = HmacTokenIssuer.inDatabase(database);
+
+/**
+ * The membership Ledger splits expenses with (ADR 3): a read-model adapter, exported for the Ledger's wiring to take up
+ * through its own port. Nothing else of Groups is exported.
+ */
+export const groupMembers: IGroupMembersQueries = groupReadModels;
 
 /** Says who is calling, for the transport: the account a bearer token names. */
 export const authenticate = authenticateWithToken(tokens, systemClock);

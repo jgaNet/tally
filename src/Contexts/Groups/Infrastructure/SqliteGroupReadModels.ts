@@ -1,6 +1,7 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { IGroupQueries } from '@Contexts/Groups/Application/Ports/IGroupQueries';
+import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
 import { GroupReadModel } from '@Contexts/Groups/Application/ReadModel/GroupReadModel';
 import { MemberReadModel } from '@Contexts/Groups/Application/ReadModel/MemberReadModel';
 import { createGroupsTables } from '@Contexts/Groups/Infrastructure/GroupsTables';
@@ -20,7 +21,7 @@ interface MemberRow {
 }
 
 /** The groups' read models: what is read outside any command's transaction, so it waits for the one in progress. */
-export class SqliteGroupReadModels implements IGroupQueries {
+export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQueries {
   constructor(private database: SqliteDatabase) {
     createGroupsTables(database);
   }
@@ -45,6 +46,29 @@ export class SqliteGroupReadModels implements IGroupQueries {
       ),
     );
     return rows.map(toReadModel);
+  }
+
+  /**
+   * The members of any group, in join order, for another context that splits with them (ADR 3). It is read without the
+   * database lock: it is asked inside the command deciding the split, whose transaction holds that lock, and `exclusive`
+   * would wait for the transaction to end.
+   */
+  async memberIdsOf(groupId: string): Promise<string[]> {
+    return this.database
+      .all<{ account_id: string }>('SELECT account_id FROM group_members WHERE group_id = ? ORDER BY position', groupId)
+      .map(row => row.account_id);
+  }
+
+  /** Whether the account is a member now: asked by a query, outside any transaction, so it waits for one in progress. */
+  async isMemberOf(groupId: string, accountId: string): Promise<boolean> {
+    return this.database.exclusive(
+      () =>
+        this.database.get<{ found: number }>(
+          'SELECT 1 AS found FROM group_members WHERE group_id = ? AND account_id = ?',
+          groupId,
+          accountId,
+        ) !== undefined,
+    );
   }
 
   /** The members are listed only to one of them: the same answer as a group that is not there, for anyone else. */
