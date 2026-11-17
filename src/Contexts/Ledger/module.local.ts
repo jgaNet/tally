@@ -27,6 +27,8 @@ import { SettlementsSettledAmounts } from '@Contexts/Ledger/Infrastructure/Settl
 import { GroupsMembers } from '@Contexts/Ledger/Infrastructure/GroupsMembers';
 import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/SqliteStatementQueries';
 import { IGroupBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupBalanceSums';
+import { ExpenseRecordedEventHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedEventHandler';
+import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3, ADR 7): the expenses of each group, recorded with their equal
@@ -96,6 +98,7 @@ export const localLedgerModule = new Module({
       ],
     },
   ],
+  domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedEventHandler()] }],
   queries: [
     new GetExpenseQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
     new GetGroupBalancesQueryHandler(

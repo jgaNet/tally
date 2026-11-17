@@ -21,6 +21,7 @@ import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/Ledger
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
+import { noticeRoutes } from '@Contexts/Notifications/Presentation/API/REST/Routes';
 import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
@@ -77,6 +78,7 @@ export async function createApplication({
       // The secret the provider signs its webhooks with (ADR 8), read here, at the transport that checks them.
       providerWebhookSecret: process.env.PROVIDER_WEBHOOK_SECRET ?? '',
     })
+    .registerRoutes('/', noticeRoutes, { notificationsModule: localNotificationsModule })
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule });
 
   await app.startModules();

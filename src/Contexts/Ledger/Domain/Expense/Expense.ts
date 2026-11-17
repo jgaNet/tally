@@ -81,6 +81,7 @@ export class Expense extends AggregateRoot {
         paidBy: split.payer.value,
         amount: amount.value,
         splitKind: split.kind,
+        shares: split.shares.map(share => ({ memberId: share.memberId.value, amount: share.amount })),
         recordedAt: at.toISOString(),
       }),
     );
