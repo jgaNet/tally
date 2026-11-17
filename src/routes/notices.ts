@@ -5,10 +5,11 @@ import { requireCaller } from '../http';
 
 const NOTICE = {
   type: 'object',
-  required: ['id', 'kind', 'groupId', 'expenseId', 'amount', 'at'],
+  // A reminder has no expense: `expenseId` is answered by an expense's notice only.
+  required: ['id', 'kind', 'groupId', 'amount', 'at'],
   properties: {
     id: { type: 'string' },
-    kind: { enum: ['expense'] },
+    kind: { enum: ['expense', 'reminder'] },
     groupId: { type: 'string' },
     expenseId: { type: 'string' },
     amount: { type: 'integer' },

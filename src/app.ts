@@ -3,6 +3,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import { openDatabase } from './database';
 import { sendError } from './http';
 import type { ProviderConfig } from './provider';
+import { DEFAULT_REMINDER_PERIOD_SECONDS, sweepReminders } from './reminders';
 import { registerAccountRoutes } from './routes/accounts';
 import { registerBalanceRoutes } from './routes/balances';
 import { registerExpenseRoutes } from './routes/expenses';
@@ -23,6 +24,14 @@ export interface Application {
   readonly address: string;
   start(port?: number): Promise<void>;
   stop(): Promise<void>;
+  /** One run of the background job, at the application's clock: what the timer does every interval. */
+  runJobs(): void;
+}
+
+/** A positive number of seconds from the environment, or `fallback` when it is not set or not one. */
+function secondsFrom(value: string | undefined, fallback: number): number {
+  const seconds = Number(value);
+  return value !== undefined && value.trim() !== '' && Number.isFinite(seconds) && seconds > 0 ? seconds : fallback;
 }
 
 /**
@@ -31,6 +40,10 @@ export interface Application {
  * Settlements through the payment provider need `providerUrl` (`PROVIDER_URL`), the base of the provider's API,
  * and the webhooks it sends are verified with `providerWebhookSecret` (`PROVIDER_WEBHOOK_SECRET`); without the
  * URL, paying through the provider is refused. The provider has `providerTimeoutMs` (5000 by default) to answer.
+ *
+ * Once started, the background job runs every `jobsIntervalSeconds` (`JOBS_INTERVAL_SECONDS`, 60 by default): it
+ * reminds whoever has owed too much in a group for `reminderPeriodSeconds` (`REMINDER_PERIOD_SECONDS`, a week by
+ * default), at the time `clock` tells.
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
@@ -39,6 +52,9 @@ export async function createApplication({
   providerUrl = process.env.PROVIDER_URL,
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET,
   providerTimeoutMs = 5000,
+  jobsIntervalSeconds = secondsFrom(process.env.JOBS_INTERVAL_SECONDS, 60),
+  reminderPeriodSeconds = secondsFrom(process.env.REMINDER_PERIOD_SECONDS, DEFAULT_REMINDER_PERIOD_SECONDS),
+  clock = () => new Date(),
 }: {
   apiPrefix?: string;
   port?: number;
@@ -46,6 +62,9 @@ export async function createApplication({
   providerUrl?: string;
   providerWebhookSecret?: string;
   providerTimeoutMs?: number;
+  jobsIntervalSeconds?: number;
+  reminderPeriodSeconds?: number;
+  clock?: () => Date;
 } = {}): Promise<Application> {
   const db = openDatabase(databasePath);
   // An empty value is no value: the provider is not configured.
@@ -56,7 +75,13 @@ export async function createApplication({
   };
   // A body's values are checked by the rules, not coerced: a number where a string is due is a `400`.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
+  let jobsTimer: NodeJS.Timeout | undefined;
+  const runJobs = () => {
+    sweepReminders(db, clock(), reminderPeriodSeconds * 1000);
+  };
   server.addHook('onClose', async () => {
+    clearInterval(jobsTimer);
+    jobsTimer = undefined;
     db.close();
   });
   server.setErrorHandler(sendError);
@@ -87,9 +112,19 @@ export async function createApplication({
     },
     async start(listenOn = port) {
       address = await server.listen({ port: listenOn, host: '127.0.0.1' });
+      jobsTimer ??= setInterval(() => {
+        try {
+          runJobs();
+        } catch (error) {
+          // A run that fails (another server holding the file too long) changes nothing: the next one tries again.
+          server.log.error(error);
+        }
+      }, jobsIntervalSeconds * 1000);
+      jobsTimer.unref();
     },
     async stop() {
       await server.close();
     },
+    runJobs,
   };
 }

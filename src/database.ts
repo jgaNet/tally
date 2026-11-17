@@ -74,21 +74,35 @@ const SCHEMA = `
     set_at              TEXT NOT NULL
   );
   /*
-   * A notice to a member about an expense: written in the transaction that records the expense, so it exists
-   * exactly when the expense does. It names the expense without a foreign key: deleting the expense keeps it.
-   * One per expense and recipient, whatever happens to the server.
+   * The debts the background job watches: a member it saw owing more than the reminder threshold in a group,
+   * since noted_at, and when it last reminded them. A member seen owing less is no longer watched.
    */
+  CREATE TABLE IF NOT EXISTS lasting_debts (
+    group_id         TEXT NOT NULL REFERENCES groups (id),
+    account_id       TEXT NOT NULL REFERENCES accounts (id),
+    noted_at         TEXT NOT NULL,
+    last_reminded_at TEXT,
+    PRIMARY KEY (group_id, account_id)
+  );
+`;
+
+/**
+ * A notice to a member. One about an expense is written in the transaction that records the expense, so it exists
+ * exactly when the expense does; it names the expense without a foreign key: deleting the expense keeps it. One
+ * per expense and recipient, whatever happens to the server. A reminder (of a lasting debt) has no expense.
+ */
+const NOTICES_TABLE = `
   CREATE TABLE IF NOT EXISTS notices (
     id           TEXT PRIMARY KEY,
     recipient_id TEXT NOT NULL REFERENCES accounts (id),
-    kind         TEXT NOT NULL CHECK (kind IN ('expense')),
+    kind         TEXT NOT NULL CHECK (kind IN ('expense', 'reminder')),
     group_id     TEXT NOT NULL REFERENCES groups (id),
-    expense_id   TEXT NOT NULL,
+    expense_id   TEXT,
     amount       INTEGER NOT NULL,
     created_at   TEXT NOT NULL,
+    CHECK ((kind = 'expense') = (expense_id IS NOT NULL)),
     UNIQUE (kind, expense_id, recipient_id)
   );
-  CREATE INDEX IF NOT EXISTS notices_by_recipient ON notices (recipient_id, created_at);
 `;
 
 /**
@@ -153,6 +167,18 @@ function addMissingColumns(db: DatabaseSync): void {
     );
     db.exec('DROP TABLE settlements_before_refund');
   }
+  // A notices table written before reminders lacks their kind, and requires an expense: its rows are kept.
+  const noticesTable = db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notices'`).get() as
+    { sql: string } | undefined;
+  if (noticesTable && !noticesTable.sql.includes(`'reminder'`)) {
+    db.exec('ALTER TABLE notices RENAME TO notices_before_reminders');
+    db.exec(NOTICES_TABLE);
+    db.exec(
+      `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
+       SELECT id, recipient_id, kind, group_id, expense_id, amount, created_at FROM notices_before_reminders`,
+    );
+    db.exec('DROP TABLE notices_before_reminders');
+  }
   // An expense written before splits by shares or exact amounts was split equally.
   if (!expenseColumns.some(column => column.name === 'split_kind')) {
     db.exec(
@@ -182,9 +208,11 @@ export function openDatabase(path: string): DatabaseSync {
     try {
       db.exec(SCHEMA);
       db.exec(SETTLEMENTS_TABLE);
+      db.exec(NOTICES_TABLE);
       addMissingColumns(db);
       // After the columns exist: an index on a column a file written before lacks would fail.
       db.exec('CREATE INDEX IF NOT EXISTS settlements_by_payment ON settlements (provider_payment_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS notices_by_recipient ON notices (recipient_id, created_at)');
       db.exec('COMMIT');
     } catch (error) {
       db.exec('ROLLBACK');
