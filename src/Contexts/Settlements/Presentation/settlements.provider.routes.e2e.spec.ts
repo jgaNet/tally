@@ -204,6 +204,7 @@ describe('a payment through the provider', () => {
       method: 'provider',
       status: 'pending',
       at: expect.any(String),
+      history: [{ status: 'pending', at: expect.any(String) }],
       payUrl: `https://pay.example/${paymentOf(id)}`,
     });
     expect((await balances(groupId)).body).toEqual(atStart());

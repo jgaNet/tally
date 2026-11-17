@@ -41,7 +41,7 @@ export const recordCashSettlement = command(
       const recorded = book.recordCash({ from, to: payeeId, amount }, clock());
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
-      await store.save(book, recorded.data);
+      await store.save(book, recorded.data, recorded.data.at);
       await publishDomainEvents(book, context);
       return Result.ok(recorded.data.id);
     },
@@ -97,7 +97,7 @@ export const payThroughProvider = command(
       const recorded = book.recordPayment(proposed.data, reused ? undefined : link);
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
-      await store.save(book, recorded.data);
+      await store.save(book, recorded.data, recorded.data.at);
       await publishDomainEvents(book, context);
       return Result.ok(recorded.data.id);
     },
@@ -122,7 +122,13 @@ export interface PaymentWebhookInput {
  */
 export const receivePaymentWebhook = command(
   'ReceivePaymentWebhook',
-  (store: ISettlementStore, members: ISettlementMembers, balances: IGroupBalances, signatures: IWebhookSignature) =>
+  (
+    store: ISettlementStore,
+    members: ISettlementMembers,
+    balances: IGroupBalances,
+    signatures: IWebhookSignature,
+    clock: Clock,
+  ) =>
     async ({ body, signature, paymentId, status }: PaymentWebhookInput, context): Promise<IResult<void>> => {
       if (!signatures.isSignedByProvider(body, signature)) return Result.fail(new SignatureNotValidException());
 
@@ -134,7 +140,8 @@ export const receivePaymentWebhook = command(
       const changed = book.receive(settlement, status);
       if (!changed) return Result.ok(undefined);
 
-      await store.save(book, changed);
+      // The status is learned now: its history line is the time Tally was told (request 19).
+      await store.save(book, changed, clock().toISOString());
       await publishDomainEvents(book, context);
       return Result.ok(undefined);
     },
@@ -151,7 +158,13 @@ export const receivePaymentWebhook = command(
  */
 export const refundSettlement = command(
   'RefundSettlement',
-  (store: ISettlementStore, members: ISettlementMembers, balances: IGroupBalances, provider: IPaymentProvider) =>
+  (
+    store: ISettlementStore,
+    members: ISettlementMembers,
+    balances: IGroupBalances,
+    provider: IPaymentProvider,
+    clock: Clock,
+  ) =>
     async (settlementId: string, context): Promise<IResult<void>> => {
       const payeeId = callerOf(context);
       const settlement = await store.settlementOf(settlementId);
@@ -166,16 +179,31 @@ export const refundSettlement = command(
       const recorded = book.recordRefund(settlement, accepted);
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
-      await store.save(book, recorded.data);
+      await store.save(book, recorded.data, clock().toISOString());
       await publishDomainEvents(book, context);
       return Result.ok(undefined);
     },
 );
 
 /**
- * A settlement as a member of its group reads it: its group, payer, payee, amount, how it was paid, its status and when it was
- * decided (and, through the provider, the link the payer pays at). To anyone else it does not exist: the same `404` for a settlement
- * that does not exist and one of a group the caller is not in.
+ * The settlements of a group, as a member of it reads them (request 19, the storm's `GetGroupSettlements`): each as `GetSettlement`
+ * reads it, with its history, the most recently decided first. The members are the group's current members (a settlement stays the
+ * group's after its payer or payee leaves). To anyone else the group does not exist: the group's `404`.
+ */
+export const getGroupSettlements = query(
+  'GetGroupSettlements',
+  (store: ISettlementStore, members: ISettlementMembers) =>
+    async (groupId: string, context): Promise<IResult<SettlementView[]>> => {
+      const memberIds = await members.membersOf(groupId);
+      if (!memberIds || !memberIds.includes(callerOf(context))) return Result.fail(new GroupNotFoundException());
+      return Result.ok(await store.viewsOfGroup(groupId));
+    },
+);
+
+/**
+ * A settlement as a member of its group reads it: its group, payer, payee, amount, how it was paid, its status, when it was
+ * decided, and every status it has had, the earliest first (request 19), and (through the provider) the link the payer pays at. To
+ * anyone else it does not exist: the same `404` for a settlement that does not exist and one of a group the caller is not in.
  */
 export const getSettlement = query(
   'GetSettlement',

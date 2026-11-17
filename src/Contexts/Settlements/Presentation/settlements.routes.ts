@@ -4,6 +4,7 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
 import {
+  getGroupSettlements,
   getSettlement,
   payThroughProvider,
   receivePaymentWebhook,
@@ -130,6 +131,10 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
 
   fastify.post<{ Params: { id: string } }>('/settlements/:id/refund', (req, reply) =>
     answerAtOnce(req, reply, module.useCase(refundSettlement), req.params.id),
+  );
+
+  fastify.get<{ Params: { id: string } }>('/groups/:id/settlements', (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getGroupSettlements), req.params.id),
   );
 
   fastify.get<{ Params: { id: string } }>('/settlements/:id', (req, reply) =>

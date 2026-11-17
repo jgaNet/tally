@@ -5,7 +5,7 @@ feature: settlement-history
 intent: >-
   A member lists the group's settlements, the most recent first, each with every status it has had and when Tally learned it.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where does a settlement's history come from?

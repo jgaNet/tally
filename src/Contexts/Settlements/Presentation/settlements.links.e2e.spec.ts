@@ -66,6 +66,30 @@ const groupWithBob = async () => {
 };
 
 describe('Groups → Settlements (SettlementMembers)', () => {
+  it('the settlements of the group Groups made are listed by the id its creation answered, each with its history (request 19)', async () => {
+    const groupId = await groupWithBob();
+    const paid = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Dinner', amount: 1000, date: PAST_DAY, splitBetween: [ann.id, bob.id] },
+    });
+    expect(paid.status).toBe(201);
+    const settled = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      token: ann.token,
+      body: { from: bob.id, amount: 500 },
+    });
+    const settlementId = (settled.body as { id: string }).id;
+
+    // Bob, a member Groups made, lists the group by the id its creation answered: the settlement is there, paid once.
+    const listed = await http.request('GET', `${api}/groups/${groupId}/settlements`, { token: bob.token });
+    expect(listed.status).toBe(200);
+    const [only] = listed.body as { id: string; groupId: string; history: { status: string }[] }[];
+    expect(listed.body as unknown[]).toHaveLength(1);
+    expect(only).toMatchObject({ id: settlementId, groupId, history: [{ status: 'paid' }] });
+
+    // Eve is not in the group Groups made: to her it does not exist.
+    expect((await http.request('GET', `${api}/groups/${groupId}/settlements`, { token: eve.token })).status).toBe(404);
+  });
+
   it('a settlement is recorded in the group Groups made, by the id its creation answered, and is read back with that group', async () => {
     const groupId = await groupWithBob();
 

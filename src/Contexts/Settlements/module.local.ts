@@ -4,6 +4,7 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
 import {
+  getGroupSettlements,
   getSettlement,
   payThroughProvider,
   receivePaymentWebhook,
@@ -86,8 +87,9 @@ export function settlementsWiring(
       getSuggestedSettlements(store, members, counted),
       recordCashSettlement(store, members, counted, systemClock),
       payThroughProvider(store, members, counted, payouts, provider, systemClock),
-      receivePaymentWebhook(store, members, counted, new HmacWebhookSignature(payments.webhookSecret)),
-      refundSettlement(store, members, counted, provider),
+      receivePaymentWebhook(store, members, counted, new HmacWebhookSignature(payments.webhookSecret), systemClock),
+      refundSettlement(store, members, counted, provider, systemClock),
+      getGroupSettlements(store, members),
       getSettlement(store, members),
       setPayoutAccount(payouts, provider, systemClock),
       getPayoutAccount(payouts),

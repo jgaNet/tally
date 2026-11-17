@@ -110,6 +110,7 @@ describe('a cash settlement', () => {
       method: 'cash',
       status: 'paid',
       at: expect.any(String),
+      history: [{ status: 'paid', at: expect.any(String) }],
     });
 
     expect((await balances(groupId)).body).toEqual([

@@ -1,7 +1,11 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { ISettlementStore, SettlementView } from '@Contexts/Settlements/Application/ISettlementStore';
+import {
+  ISettlementStore,
+  SettlementStatusEntry,
+  SettlementView,
+} from '@Contexts/Settlements/Application/ISettlementStore';
 import { WaitingPayment, SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import { Settlement, SettlementMethod, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
@@ -13,7 +17,8 @@ import { Settlement, SettlementMethod, SettlementStatus } from '@Contexts/Settle
  * changes after it is decided; a
  * provider's payment keeps the provider's id (`payment_id`, the webhook names it) and the link the payer pays at (`pay_url`). The
  * balances read the paid ones through `SqliteSettlementRoster`, so a settlement is counted once it is paid. The group is a group of
- * Groups: the foreign key only names its id, as Ledger's does.
+ * Groups: the foreign key only names its id, as Ledger's does. `settlement_history` is one line per status a settlement has had, with
+ * when Tally learned it (request 19), written with the status in the same transaction.
  */
 export const settlementsTablesSchema = [
   `CREATE TABLE IF NOT EXISTS settlement_books (
@@ -33,8 +38,25 @@ export const settlementsTablesSchema = [
      pay_url TEXT,
      CHECK (method = 'cash' OR (payment_id IS NOT NULL AND pay_url IS NOT NULL))
    )`,
+  `CREATE TABLE IF NOT EXISTS settlement_history (
+     seq INTEGER PRIMARY KEY AUTOINCREMENT,
+     settlement_id TEXT NOT NULL REFERENCES settlements(id),
+     status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+     learned_at TEXT NOT NULL
+   )`,
   'CREATE INDEX IF NOT EXISTS settlements_by_group ON settlements (group_id)',
+  'CREATE INDEX IF NOT EXISTS settlement_history_by_settlement ON settlement_history (settlement_id)',
 ];
+
+/**
+ * The history of a settlement (request 19): one line per status it has had, written in the transaction of the status's fact, so a
+ * webhook that changes nothing writes nothing. `seq` keeps them in the order they were learned.
+ */
+interface HistoryRow {
+  settlement_id: string;
+  status: SettlementStatus;
+  learned_at: string;
+}
 
 interface SettlementRow {
   id: string;
@@ -62,8 +84,8 @@ const toSettlement = (row: SettlementRow): Settlement => ({
   ...(row.payment_id !== null && row.pay_url !== null && { payment: { id: row.payment_id, payUrl: row.pay_url } }),
 });
 
-/** What a screen shows of a settlement: the link the payer pays at, through the provider only. */
-const toView = (settlement: Settlement): SettlementView => ({
+/** What a screen shows of a settlement: its history (request 19), and the link the payer pays at, through the provider only. */
+const toView = (settlement: Settlement, history: SettlementStatusEntry[]): SettlementView => ({
   id: settlement.id,
   groupId: settlement.groupId,
   from: settlement.from,
@@ -72,8 +94,11 @@ const toView = (settlement: Settlement): SettlementView => ({
   method: settlement.method,
   status: settlement.status,
   at: settlement.at,
+  history,
   ...(settlement.payment && { payUrl: settlement.payment.payUrl }),
 });
+
+const toEntry = (row: HistoryRow): SettlementStatusEntry => ({ status: row.status, at: row.learned_at });
 
 /**
  * The settlements in SQLite. `save` checks the group's book is still at the version it was read at, and stores the next one with the
@@ -100,9 +125,10 @@ export class SqliteSettlementStore implements ISettlementStore {
     return rows.map(row => ({ from: row.payer_id, to: row.payee_id, amount: row.amount }));
   }
 
-  async save(book: SettlementBook, settlement: Settlement): Promise<void> {
+  async save(book: SettlementBook, settlement: Settlement, learnedAt: string): Promise<void> {
     this.#checkVersion(book);
-    this.database.writer
+    const writer = this.database.writer;
+    writer
       .prepare(
         `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, payment_id, pay_url)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -120,12 +146,40 @@ export class SqliteSettlementStore implements ISettlementStore {
         settlement.payment?.id ?? null,
         settlement.payment?.payUrl ?? null,
       );
+    writer
+      .prepare('INSERT INTO settlement_history (settlement_id, status, learned_at) VALUES (?, ?, ?)')
+      .run(settlement.id, settlement.status, learnedAt);
   }
 
   async viewOf(settlementId: string): Promise<SettlementView | undefined> {
     const row = this.database.read(db => db.prepare('SELECT * FROM settlements WHERE id = ?').get(settlementId)) as
       SettlementRow | undefined;
-    return row ? toView(toSettlement(row)) : undefined;
+    if (!row) return undefined;
+    const history = this.database.read(db =>
+      db
+        .prepare(
+          'SELECT settlement_id, status, learned_at FROM settlement_history WHERE settlement_id = ? ORDER BY seq',
+        )
+        .all(settlementId),
+    ) as unknown as HistoryRow[];
+    return toView(toSettlement(row), history.map(toEntry));
+  }
+
+  async viewsOfGroup(groupId: string): Promise<SettlementView[]> {
+    const rows = this.database.read(db =>
+      db.prepare('SELECT * FROM settlements WHERE group_id = ? ORDER BY recorded_at DESC, rowid DESC').all(groupId),
+    ) as unknown as SettlementRow[];
+    const history = this.database.read(db =>
+      db
+        .prepare(
+          `SELECT h.settlement_id, h.status, h.learned_at FROM settlement_history h
+           JOIN settlements s ON s.id = h.settlement_id WHERE s.group_id = ? ORDER BY h.seq`,
+        )
+        .all(groupId),
+    ) as unknown as HistoryRow[];
+    const byId = new Map<string, SettlementStatusEntry[]>();
+    for (const line of history) byId.set(line.settlement_id, [...(byId.get(line.settlement_id) ?? []), toEntry(line)]);
+    return rows.map(row => toView(toSettlement(row), byId.get(row.id) ?? []));
   }
 
   async settlementOf(settlementId: string): Promise<Settlement | undefined> {
