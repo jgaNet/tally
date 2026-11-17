@@ -6,45 +6,62 @@ import { OriginalAmountSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import {
   InvalidOriginalAmountException,
   InvalidRateException,
+  NoRateOfferedException,
   NonPositiveRateException,
   OriginalCurrencyIsGroupCurrencyException,
+  RateOutsideBandException,
   UnknownCurrencyException,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 
 /** The largest amount of an expense, in whole units of the group's currency. */
 export const MAX_EXPENSE_AMOUNT = 100_000_000;
 
-/** What was paid in another currency, as the payer gives it (request 21): its currency, its amount in hundredths, its rate. */
+/**
+ * The rate a rates service offers for one currency to the group's on a day (request 22, docs/adr/0021), as the Expense is given it.
+ * `offered` is the rate; `none` is a service that answers no rate, or that fails to (no answer in time, another answer): an expense
+ * cannot be taken on it; `unavailable` is a server with no rates service at all, where the payer's rate stands (request 21).
+ */
+export type OfferedRate = { kind: 'offered'; rate: string } | { kind: 'none' } | { kind: 'unavailable' };
+
+/**
+ * What was paid in another currency, as the payer gives it (request 21, request 22): its currency, its amount in hundredths, and its
+ * rate as a string. The rate is left out when the expense takes the rate offered on its date (request 22).
+ */
 export interface OriginalAmountInput {
   currency: string;
   amount: number;
-  rate: string;
+  rate?: string;
 }
 
 /**
  * How an expense's amount is given (request 21): either its `amount` in the group's currency, or its `original` in another currency,
- * converted at the rate the payer states to the `groupCurrency`. The transport gives exactly one of the two; the domain refuses both.
+ * converted at the rate the expense is recorded at to the `groupCurrency`. The transport gives exactly one of the two; the domain
+ * refuses both. `offered` is the rate offered for the original's currency to the group's on the expense's date (request 22): it is
+ * asked by the use case before the expense decides, and it is `none` when there is nothing to ask (an unknown currency is refused first).
  */
 export interface AmountInput {
   amount?: number;
   original?: OriginalAmountInput;
   groupCurrency?: string;
+  offered?: OfferedRate;
 }
 
-/** A rate, as the payer states it: a decimal number, written as a string, with at most 6 digits after the point. */
+/** A rate, as a payer states it or a service offers it: a decimal number written as a string, with at most 6 digits after the point. */
 const RATE_SHAPE = /^\d+(\.\d{1,6})?$/;
 /** A rate is kept as an integer of millionths, so that its product with an amount is exact. */
 const MILLIONTHS = 1_000_000n;
+/** A rate may differ from the one offered by 2 % of the offered rate, at most (request 22). */
+const BAND_PERCENT = 2n;
 
 /**
  * What an expense was paid in when that was not the group's currency (request 21, the storm's hot spot 1, docs/adr/0020). It keeps
- * the currency, the amount in that currency's hundredths and the rate as the payer gave it, the string. The expense's amount in the
- * group's currency is the amount times the rate, rounded to the nearest whole number, a half up: computed in integers, never in
+ * the currency, the amount in that currency's hundredths and the rate the expense is recorded at, the string. The expense's amount in
+ * the group's currency is the amount times the rate, rounded to the nearest whole number, a half up: computed in integers, never in
  * floating point, so that `1000` at `"0.9545"` is `954.5`, which is `955`.
  *
- * `create()` refuses a currency that is not one of Tally's, the group's own, an amount that is not 1 to 100 000 000, and a rate that
- * is not a decimal of at most 6 digits after the point, or is not greater than 0. Without the group's currency (`create(input)`) it
- * checks the rest: that is how the store's kept value is read back, which was checked when it was given.
+ * `create()` decides the rate (request 22, docs/adr/0021) against the offer, and refuses a currency that is not one of Tally's, the
+ * group's own, an amount that is not 1 to 100 000 000, and a rate that is not one the offer allows (`recordedRate`). `read()` checks
+ * what the store kept, which was checked when it was given.
  */
 export class OriginalAmount {
   readonly currency: CurrencyCode;
@@ -57,11 +74,20 @@ export class OriginalAmount {
     this.rate = rate;
   }
 
-  static create(input: OriginalAmountInput, groupCurrency?: string): IResult<OriginalAmount> {
+  static create(input: OriginalAmountInput, groupCurrency: string, offered: OfferedRate): IResult<OriginalAmount> {
     if (!CURRENCIES.includes(input.currency as CurrencyCode)) return Result.fail(new UnknownCurrencyException());
-    if (groupCurrency !== undefined && input.currency === groupCurrency) {
-      return Result.fail(new OriginalCurrencyIsGroupCurrencyException());
+    if (input.currency === groupCurrency) return Result.fail(new OriginalCurrencyIsGroupCurrencyException());
+    if (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > MAX_EXPENSE_AMOUNT) {
+      return Result.fail(new InvalidOriginalAmountException());
     }
+    const rate = recordedRate(input.rate, offered);
+    if (rate.isFailure()) return rate;
+    return Result.ok(new OriginalAmount(input.currency as CurrencyCode, input.amount, rate.data));
+  }
+
+  /** Reads what the store kept: the currency, the amount and the rate it was recorded at, each checked as `create()` checks it. */
+  static read(input: OriginalAmountSnapshot): IResult<OriginalAmount> {
+    if (!CURRENCIES.includes(input.currency as CurrencyCode)) return Result.fail(new UnknownCurrencyException());
     if (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > MAX_EXPENSE_AMOUNT) {
       return Result.fail(new InvalidOriginalAmountException());
     }
@@ -79,6 +105,45 @@ export class OriginalAmount {
   toSnapshot(): OriginalAmountSnapshot {
     return { currency: this.currency, amount: this.amount, rate: this.rate };
   }
+}
+
+/**
+ * The rate an expense in another currency is recorded at (request 22, docs/adr/0021). Left out, it is the rate offered. Given, it is
+ * the payer's, and the offer decides whether it stands:
+ *
+ * - no rates service (`unavailable`): the payer's rate stands, whatever it is (request 21);
+ * - a service with no rate (`none`): refused, as there is no rate to compare it with, `NoRateOffered`;
+ * - a rate offered: refused by name when it differs from the offered rate by more than 2 % of the offered rate, `RateOutsideBand`.
+ *
+ * A rate that is not a decimal of at most 6 digits, or is 0, is refused whatever the offer. Left out with no rate offered, it is
+ * refused too (`NoRateOffered`): an expense is never recorded at no rate.
+ */
+export function recordedRate(stated: string | undefined, offered: OfferedRate): IResult<string> {
+  if (stated === undefined) {
+    return offered.kind === 'offered' ? Result.ok(offered.rate) : Result.fail(new NoRateOfferedException());
+  }
+  if (!RATE_SHAPE.test(stated)) return Result.fail(new InvalidRateException());
+  if (rateInMillionths(stated) === 0n) return Result.fail(new NonPositiveRateException());
+  if (offered.kind === 'unavailable') return Result.ok(stated);
+  if (offered.kind === 'none') return Result.fail(new NoRateOfferedException());
+  if (!withinBand(stated, offered.rate)) return Result.fail(new RateOutsideBandException());
+  return Result.ok(stated);
+}
+
+/**
+ * Whether a rate a service offers is one the Expense can take: a decimal of at most 6 digits after the point, written as a string,
+ * greater than 0 (request 22). The adapter checks what it reads with it; anything else is no rate offered.
+ */
+export function isOfferableRate(rate: unknown): rate is string {
+  return typeof rate === 'string' && RATE_SHAPE.test(rate) && rateInMillionths(rate) > 0n;
+}
+
+/** Whether `stated` differs from `offered` by no more than 2 % of `offered`, both in millionths, exactly. */
+function withinBand(stated: string, offered: string): boolean {
+  const a = rateInMillionths(stated);
+  const b = rateInMillionths(offered);
+  const difference = a > b ? a - b : b - a;
+  return difference * 100n <= b * BAND_PERCENT;
 }
 
 /** The rate in millionths: `"12.5"` is 12 500 000. The rate is checked to be a decimal of at most 6 digits before this is read. */

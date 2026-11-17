@@ -193,7 +193,7 @@ export class Expense extends AggregateRoot {
   static fromSnapshot(snapshot: ExpenseSnapshot): Expense {
     const description = ExpenseDescription.create(snapshot.description);
     const split = Split.fromSnapshot({ kind: snapshot.splitKind, shares: snapshot.shares });
-    const original = snapshot.original === undefined ? undefined : OriginalAmount.create(snapshot.original);
+    const original = snapshot.original === undefined ? undefined : OriginalAmount.read(snapshot.original);
     if (
       description.isFailure() ||
       !isRealDay(snapshot.date) ||
@@ -297,11 +297,12 @@ function checkExpense({
 }> {
   const text = ExpenseDescription.create(description);
   if (text.isFailure()) return text;
-  const money_ = amountOf(money);
-  if (money_.isFailure()) return money_;
+  // The date comes before the amount: the rate offered for an expense in another currency is the one on its date (request 22).
   if (!isRealDay(date) || date > dayOf(at)) {
     return Result.fail(new InvalidDateException());
   }
+  const money_ = amountOf(money);
+  if (money_.isFailure()) return money_;
   const checkedSplit = Split.of({ input: split, amount: money_.data.amount, payerId: paidBy, members });
   if (checkedSplit.isFailure()) return checkedSplit;
   return Result.ok({
@@ -315,11 +316,13 @@ function checkExpense({
 /**
  * The amount of an expense in the group's currency, and what it was paid in when that was another currency (request 21). Given
  * either as the group's amount or as an original, never both: the amount is refused by name when it is neither whole nor in range.
+ * The rate of an original is decided against the offer it is given (request 22); with no offer, nothing is offered.
  */
 function amountOf({
   amount,
   original,
   groupCurrency,
+  offered,
 }: AmountInput): IResult<{ amount: number; original: OriginalAmount | undefined }> {
   if (original === undefined) {
     if (amount === undefined || !Number.isInteger(amount) || amount < 1 || amount > MAX_EXPENSE_AMOUNT) {
@@ -328,7 +331,7 @@ function amountOf({
     return Result.ok({ amount, original: undefined });
   }
   if (amount !== undefined || groupCurrency === undefined) return Result.fail(new InvalidAmountException());
-  const paid = OriginalAmount.create(original, groupCurrency);
+  const paid = OriginalAmount.create(original, groupCurrency, offered ?? { kind: 'none' });
   if (paid.isFailure()) return paid;
   const inGroupCurrency = paid.data.toGroupAmount();
   if (inGroupCurrency < 1 || inGroupCurrency > MAX_EXPENSE_AMOUNT) return Result.fail(new InvalidAmountException());
@@ -339,11 +342,11 @@ const notAllowedToChange = () =>
   new NotAllowedException('Ledger', "Only the payer of an expense or the group's owner may change it");
 
 /** Whether `raw` is a day of the calendar written `YYYY-MM-DD`: `2026-02-30` is not one. */
-function isRealDay(raw: string): boolean {
+export function isRealDay(raw: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
   const day = new Date(`${raw}T00:00:00Z`);
   return !Number.isNaN(day.getTime()) && dayOf(day) === raw;
 }
 
 /** The day of an instant, in UTC, written `YYYY-MM-DD`. */
-const dayOf = (instant: Date): string => instant.toISOString().slice(0, 10);
+export const dayOf = (instant: Date): string => instant.toISOString().slice(0, 10);

@@ -10,6 +10,7 @@ import {
   getGroupBalances,
   getGroupExpenses,
   getMemberStatement,
+  getOfferedRate,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
@@ -43,11 +44,12 @@ const splitBody = {
 
 /**
  * What was paid in another currency, as a body gives it (request 21): its currency, its amount in hundredths and its rate as a
- * string. The shape only: whether the currency is one of Tally's, the amount in range and the rate a decimal are the domain's.
+ * string. The rate may be left out, and the expense then takes the rate offered on its date (request 22). The shape only: whether
+ * the currency is one of Tally's, the amount in range and the rate a decimal are the domain's.
  */
 const originalBody = {
   type: 'object',
-  required: ['currency', 'amount', 'rate'],
+  required: ['currency', 'amount'],
   properties: { currency: { type: 'string' }, amount: { type: 'integer' }, rate: { type: 'string' } },
 };
 
@@ -90,7 +92,7 @@ const editExpenseBody = {
 /** The amount a body gives, as the transport has checked it: `amount`, or `original`, exactly one (request 21). */
 interface AmountBody {
   amount?: number;
-  original?: { currency: string; amount: number; rate: string };
+  original?: { currency: string; amount: number; rate?: string };
 }
 
 /** The body's split, as the use cases take it: the transport has checked that exactly one of the three is given. */
@@ -152,6 +154,26 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.delete<{ Params: { id: string } }>('/expenses/:id', { schema: { tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(deleteExpense), { id: req.params.id }),
+  );
+
+  // The rate offered for a currency to the group's, on a day (request 22): `date` is today when it is left out.
+  fastify.get<{ Params: { id: string; currency: string }; Querystring: { date?: string } }>(
+    '/groups/:id/rates/:currency',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: { date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } },
+        },
+        tags: ['rates'],
+      },
+    },
+    (req, reply) =>
+      answerAtOnce(req, reply, module.useCase(getOfferedRate), {
+        groupId: req.params.id,
+        currency: req.params.currency,
+        date: req.query.date,
+      }),
   );
 
   fastify.get<{ Params: { id: string } }>('/groups/:id/balances', { schema: { tags: ['expenses'] } }, (req, reply) =>

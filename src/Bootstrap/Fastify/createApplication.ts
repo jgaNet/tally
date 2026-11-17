@@ -31,7 +31,9 @@ import { providerWebhookRoutes } from '@Contexts/Settlements/Presentation/provid
  *
  * Configuration is in the environment: `PORT`, `API_PREFIX` (`v1`), `DATABASE_PATH` (`tally.db`),
  * `JOBS_INTERVAL_SECONDS` (60), `REMINDER_PERIOD_SECONDS` (604800, a week), `WEB_ORIGINS` (a comma-separated list), and for payments through the provider (request 13):
- * `PROVIDER_URL`, the base of the provider's API without a trailing slash, and `PROVIDER_WEBHOOK_SECRET`, the secret it signs with.
+ * `PROVIDER_URL`, the base of the provider's API without a trailing slash, and `PROVIDER_WEBHOOK_SECRET`, the secret it signs with;
+ * and for the rate offered for an expense in another currency (request 22): `RATES_URL`, the base of the rates service's API without a
+ * trailing slash, where no value means no rates service.
  *
  * A context is added here: its `LiteModule` registered, its routes under its own prefix with `{ module }`, or at the
  * API's root when it serves more than one resource (docs/adr/0003):

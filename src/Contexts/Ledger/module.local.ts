@@ -10,12 +10,14 @@ import {
   getGroupBalances,
   getGroupExpenses,
   getMemberStatement,
+  getOfferedRate,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { GroupCurrencyOfGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyOfGroups';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
+import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 
@@ -28,18 +30,21 @@ const expenses = new SqliteExpenseRepository(sharedDatabase);
 const groupMembers = new GroupMembersOfGroups(groupsReadModel);
 // The group's currency, for an expense paid in another one (request 21, docs/adr/0020): read over the same Groups read model.
 const groupCurrency = new GroupCurrencyOfGroups(groupsReadModel);
+// The rates offered for an expense in another currency (request 22, docs/adr/0021): the rates service named by RATES_URL, read at each call.
+const offeredRates = new HttpOfferedRates();
 const expenseQueries = new SqliteExpenseQueries(sharedDatabase, settledAmountsOfSettlements, groupMembers);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
   useCases: [
-    recordExpense(expenses, groupMembers, groupCurrency, systemClock),
+    recordExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
     getExpense(expenseQueries, groupMembers),
     getGroupBalances(expenseQueries, groupMembers),
-    editExpense(expenses, groupMembers, groupCurrency, systemClock),
+    editExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
     deleteExpense(expenses, groupMembers),
     getGroupExpenses(expenseQueries, groupMembers),
     getMemberStatement(expenseQueries, groupMembers),
+    getOfferedRate(groupCurrency, offeredRates, systemClock),
   ],
   // An expense recorded is told to the other contexts as the published fact (request 17, docs/adr/0017).
   domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],

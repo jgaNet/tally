@@ -6,10 +6,12 @@ import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpen
 import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
-import { AmountInput, OriginalAmountInput } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
-import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
+import { AmountInput, OfferedRate, OriginalAmountInput } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
+import { dayOf, Expense, isRealDay } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
-import { StatementView } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { RateView, StatementView } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { CURRENCIES, CurrencyCode } from '@SharedKernel/Domain/Currency';
 
 /** What a member asks to record: the group, and the expense as the member gives it, with how it is split. */
 export interface RecordExpenseInput {
@@ -17,6 +19,7 @@ export interface RecordExpenseInput {
   description: string;
   /** The amount in the group's currency, or what was paid in another currency (request 21): exactly one of the two. */
   amount?: number;
+  /** What was paid in another currency, at the rate the payer states or, left out, the rate offered on the date (request 22). */
   original?: OriginalAmountInput;
   date: string;
   split: SplitInput;
@@ -24,17 +27,28 @@ export interface RecordExpenseInput {
 
 /**
  * What the caller gives as the amount: its amount in the group's currency, or what it paid in another currency, which is kept with
- * the group's currency the expense converts to (request 21, docs/adr/0020). The group's currency is asked only for the second.
+ * the group's currency the expense converts to (request 21, docs/adr/0020). The group's currency is asked only for the second, and the
+ * rate offered for it on the expense's date too (request 22, docs/adr/0021): the Expense decides with the offer as with any input. The
+ * offer is asked only for a currency that is one of Tally's, other than the group's, on a real day; any other is refused by the
+ * Expense before the offer is read, so nothing is offered for it.
  */
 async function amountGiven(
   groupCurrency: IGroupCurrency,
+  offeredRates: IOfferedRates,
   callerId: string,
   groupId: string,
+  date: string,
   given: { amount?: number; original?: OriginalAmountInput },
 ): Promise<AmountInput | undefined> {
   if (given.original === undefined) return { amount: given.amount };
   const currency = await groupCurrency.currencyOf(callerId, groupId);
-  return currency === undefined ? undefined : { original: given.original, groupCurrency: currency };
+  if (currency === undefined) return undefined;
+  const from = given.original.currency;
+  const offered: OfferedRate =
+    CURRENCIES.includes(from as CurrencyCode) && from !== currency && isRealDay(date)
+      ? await offeredRates.offeredRate({ from, to: currency, date })
+      : { kind: 'none' };
+  return { original: given.original, groupCurrency: currency, offered };
 }
 
 /**
@@ -44,12 +58,18 @@ async function amountGiven(
  */
 export const recordExpense = command(
   'RecordExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+  (
+    expenses: IExpenseRepository,
+    groupMembers: IGroupMembers,
+    groupCurrency: IGroupCurrency,
+    offeredRates: IOfferedRates,
+    clock: Clock,
+  ) =>
     async ({ groupId, description, amount, original, date, split }: RecordExpenseInput, context) => {
       const paidBy = callerOf(context);
       const members = await groupMembers.membersOf(paidBy, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
-      const money = await amountGiven(groupCurrency, paidBy, groupId, { amount, original });
+      const money = await amountGiven(groupCurrency, offeredRates, paidBy, groupId, date, { amount, original });
       if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
 
       const expense = Expense.register({
@@ -103,7 +123,13 @@ export interface EditExpenseInput {
  */
 export const editExpense = command(
   'EditExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+  (
+    expenses: IExpenseRepository,
+    groupMembers: IGroupMembers,
+    groupCurrency: IGroupCurrency,
+    offeredRates: IOfferedRates,
+    clock: Clock,
+  ) =>
     async ({ id, description, amount, original, date, split, version }: EditExpenseInput, context) => {
       const by = callerOf(context);
       const stored = await expenses.get(id);
@@ -111,7 +137,7 @@ export const editExpense = command(
       const members = await groupMembers.membersOf(by, stored.groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
 
-      const money = await amountGiven(groupCurrency, by, stored.groupId, { amount, original });
+      const money = await amountGiven(groupCurrency, offeredRates, by, stored.groupId, date, { amount, original });
       if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
       const edited = stored.edit({ by, members, version, description, date, split, at: clock(), ...money });
       if (edited.isFailure()) return edited;
@@ -142,6 +168,35 @@ export const deleteExpense = command(
       if (saved.isFailure()) return saved;
       await publishDomainEvents(removed.data, context);
       return Result.ok(undefined);
+    },
+);
+
+/** What a member asks for: the rate offered for a currency to the group's, on a day (`date`, today when left out). */
+export interface GetOfferedRateInput {
+  groupId: string;
+  currency: string;
+  date?: string;
+}
+
+/**
+ * The rate offered for a currency to the group's currency on a day (request 22, docs/adr/0021), for a member of the group only: for
+ * anyone else the group does not exist. It is `404` when no rate is offered, when the currency is the group's or not one of Tally's, and
+ * when the day is not a real one: a rate is never invented here.
+ */
+export const getOfferedRate = query(
+  'GetOfferedRate',
+  (groupCurrency: IGroupCurrency, offeredRates: IOfferedRates, clock: Clock) =>
+    async ({ groupId, currency, date }: GetOfferedRateInput, context) => {
+      const to = await groupCurrency.currencyOf(callerOf(context), groupId);
+      if (to === undefined) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      const day = date ?? dayOf(clock());
+      if (!CURRENCIES.includes(currency as CurrencyCode) || currency === to || !isRealDay(day)) {
+        return Result.fail(new NotFoundException('Ledger', 'There is no such rate'));
+      }
+      const offer = await offeredRates.offeredRate({ from: currency, to, date: day });
+      if (offer.kind !== 'offered') return Result.fail(new NotFoundException('Ledger', 'There is no such rate'));
+      const view: RateView = { currency, date: day, rate: offer.rate };
+      return Result.ok(view);
     },
 );
 

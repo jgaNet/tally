@@ -53,6 +53,16 @@ export interface ExpenseView {
   version: number;
 }
 
+/**
+ * The rate offered for a currency to the group's on a day (request 22, docs/adr/0021): what one unit of `currency` is worth in the
+ * group's currency on `date`, as the rates service gives it, the string. A read model of the offer, never kept.
+ */
+export interface RateView {
+  currency: string;
+  date: string;
+  rate: string;
+}
+
 /** What a member is owed (positive) or owes (negative) in a group, whole units: a read model (docs/adr/0005). */
 export interface BalanceView {
   memberId: string;

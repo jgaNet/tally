@@ -699,9 +699,18 @@ describe('an expense in another currency (request 21)', () => {
     expect((await record(ada.token, groupId, { ...base, amount: 1000, original })).status).toBe(400);
     expect((await record(ada.token, groupId, { ...base })).status).toBe(400);
     expect((await record(ada.token, groupId, { ...base, original: { ...original, rate: 1.5 } })).status).toBe(400);
-    expect((await record(ada.token, groupId, { ...base, original: { currency: 'CHF', amount: 1000 } })).status).toBe(
-      400,
-    );
+  });
+
+  it('takes an original without its rate as a body of the right shape: the rate offered decides it (request 22)', async () => {
+    const ada = await signedIn('fx-norate-ada@example.com', 'Ada');
+    const groupId = await groupWith(ada, []);
+    const base = { description: 'Rent', date: PAST, splitBetween: [ada.id] };
+
+    // No rates service is configured in this suite, so no rate is offered for the expense to take: refused by name, not as a shape.
+    expect(await record(ada.token, groupId, { ...base, original: { currency: 'CHF', amount: 1000 } })).toMatchObject({
+      status: 422,
+      body: { type: 'NoRateOffered' },
+    });
   });
 
   it('edits an expense whole: in another currency at its rate, or back in the group currency', async () => {

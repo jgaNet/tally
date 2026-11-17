@@ -73,6 +73,35 @@ export class NonPositiveRateException extends Exception {
   }
 }
 
+/**
+ * No rate is offered for the expense's currency to the group's on its date, so the expense cannot be recorded at one: a rate the
+ * payer gives is refused as well, as there is nothing to compare it with (request 22, docs/adr/0021).
+ */
+export class NoRateOfferedException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'NoRateOffered',
+      message:
+        'No rate is offered for the currency on the date of the expense, so it cannot be recorded in the group currency',
+    });
+  }
+}
+
+/**
+ * The rate the payer gives differs from the rate offered for the expense's currency on its date by more than 2 % of the offered one
+ * (request 22, docs/adr/0021).
+ */
+export class RateOutsideBandException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'RateOutsideBand',
+      message: 'A rate differs from the rate offered for its currency on the date of the expense by more than 2 %',
+    });
+  }
+}
+
 /** The date is not a real day of the calendar, or is after today (UTC). */
 export class InvalidDateException extends Exception {
   constructor() {
