@@ -19,7 +19,9 @@ schemaVersion: 1
 language: typescript
 name: TypeScript
 root: .
-contexts: []
+contexts:
+  - Groups
+  - Ledger
 contexts_tree:
   alias: '@Contexts'
   path: src/Contexts

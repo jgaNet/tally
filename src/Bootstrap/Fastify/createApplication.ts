@@ -7,6 +7,8 @@ import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogge
 import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
+import { localGroupsModule } from '@Contexts/Groups/module.local';
+import { localLedgerModule } from '@Contexts/Ledger/module.local';
 
 /**
  * The composition root an application created Lite starts from (ADR 40): `clean-ddd create --profile
@@ -31,9 +33,10 @@ export async function createApplication({
     .split(',')
     .filter(Boolean),
 }: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
-  const app = new FastifyApplication({ logger, apiPrefix, port, webOrigins }).setEventBus(
-    new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }),
-  );
+  const app = new FastifyApplication({ logger, apiPrefix, port, webOrigins })
+    .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
+    .registerModule(localGroupsModule)
+    .registerModule(localLedgerModule);
 
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an

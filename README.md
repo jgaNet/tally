@@ -82,7 +82,15 @@ Every rule has a stable id; `yarn architecture rule <ID>` explains it, `--json` 
 The dependency table, per layer. `own` is the file's own context, `architecture` the building blocks, `kernel` the shared kernel, `others` any other context; anything not listed is refused, and the refusal names the rule. It is rendered here while a context is declared.
 
 <!-- generated from conventions/architecture.yaml (dependencies); edit the YAML, then run the conventions check with --write -->
-
+| A file in… | may import | Rule |
+| --- | --- | --- |
+| Domain | `own.Domain`, `architecture.Domain`, `kernel.Domain` | ARCH-DOMAIN |
+| Application | `own.Domain`, `own.Application`, `architecture.Domain`, `architecture.Application`, `kernel.Domain`, `kernel.Application` | ARCH-APPLICATION |
+| Application specs | `own.Infrastructure`, `architecture.Infrastructure` | ARCH-APPLICATION-SPECS |
+| Infrastructure | `own.Domain`, `own.Application`, `own.Infrastructure`, `architecture.Domain`, `architecture.Application`, `architecture.Infrastructure`, `kernel.Domain`, `kernel.Application`, `others.Domain`, `libraries` | ARCH-INFRASTRUCTURE |
+| Presentation | `own.Domain`, `own.Application`, `own.Presentation`, `architecture.Domain`, `architecture.Application`, `architecture.Presentation`, `kernel.Domain`, `kernel.Application`, `libraries` | ARCH-PRESENTATION |
+| wiring_file | `own.*`, `architecture.*`, `kernel.*`, `others.wiring`, `bootstrap`, `libraries` | ARCH-WIRING |
+| e2e_specs | `bootstrap`, `libraries` | ARCH-E2E |
 <!-- end generated -->
 
 ## The map: concept → file
