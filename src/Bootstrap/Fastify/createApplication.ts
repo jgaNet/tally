@@ -12,7 +12,7 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
-import { localSettlementsModule } from '@Contexts/Settlements/module.local';
+import { localSettlementsModule, providerSignedBy } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
@@ -55,7 +55,7 @@ export async function createApplication({
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
-    .registerRoutes('/', settlementRoutes, { module: localSettlementsModule });
+    .registerRoutes('/', settlementRoutes, { module: localSettlementsModule, providerSignedBy });
 
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an

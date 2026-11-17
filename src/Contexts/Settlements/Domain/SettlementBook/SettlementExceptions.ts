@@ -22,6 +22,17 @@ export class SettlementPayerNotMemberException extends Exception {
   }
 }
 
+/** The payee is a member of the group (request 13: a payment to an account outside it is refused). */
+export class SettlementPayeeNotMemberException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementPayeeNotMember',
+      message: 'The payee must be a member of the group',
+    });
+  }
+}
+
 /** A settlement is between two members: the payer is not the payee. */
 export class SettlementToSelfException extends Exception {
   constructor() {
@@ -51,6 +62,20 @@ export class SettlementMoreThanIsOwedException extends Exception {
       service: 'Settlements',
       type: 'SettlementMoreThanIsOwed',
       message: 'The payee is not owed that much',
+    });
+  }
+}
+
+/**
+ * The provider did not give a payment link within its limit, or answered anything else (request 13): the request is refused and
+ * nothing is kept. Answered as a refusal, never a 5xx (the API's `4xx` only).
+ */
+export class ProviderUnavailableException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'ProviderUnavailable',
+      message: 'The payment provider did not give a payment link',
     });
   }
 }

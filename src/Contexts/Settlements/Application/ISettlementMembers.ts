@@ -9,4 +9,9 @@ export interface ISettlementMembers {
    * one of them; `undefined` when it is not, or the group is not there: to anyone else a group does not exist.
    */
   membersOf(groupId: string, askedBy: string): Promise<string[] | undefined>;
+  /**
+   * The currency of the group, the one a payment through the provider is made in, if `askedBy` is one of its members; `undefined`
+   * when it is not, or the group is not there (as `membersOf`).
+   */
+  currencyOf(groupId: string, askedBy: string): Promise<string | undefined>;
 }

@@ -1,4 +1,6 @@
 import { mkdtempSync } from 'fs';
+import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
+import { AddressInfo } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -12,18 +14,44 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
  * Settlements finds it by that id when a member asks for its suggested settlements, a member who joined later included; to
  * anyone who is not a member the group does not exist.
  */
+
+const SECRET = 'a shared secret for the relationship test';
+
+/** A fake payment provider: `POST /payments` answers `201 { id, payUrl }`, and keeps what it was asked. */
+let provider: Server;
+let asked: { reference: string; amount: number; currency: string }[] = [];
+
+async function startProvider(): Promise<string> {
+  provider = createServer((request: IncomingMessage, response: ServerResponse) => {
+    let body = '';
+    request.on('data', chunk => (body += chunk));
+    request.on('end', () => {
+      asked = [...asked, JSON.parse(body) as { reference: string; amount: number; currency: string }];
+      response.writeHead(201, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ id: `pay_${asked.length}`, payUrl: `https://pay.example/${asked.length}` }));
+    });
+  });
+  await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', () => resolve()));
+  return `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+}
+
 let app: FastifyApplication;
 let http: ReturnType<typeof apiClient>;
 let api: string;
 
 beforeAll(async () => {
+  process.env.PROVIDER_URL = await startProvider();
+  process.env.PROVIDER_WEBHOOK_SECRET = SECRET;
   process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-groups-to-settlements-')), 'tally.sqlite');
   app = await createApplication();
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
 });
-afterAll(() => app.stop());
+afterAll(async () => {
+  await app.stop();
+  await new Promise(resolve => provider.close(resolve));
+});
 
 let accountCount = 0;
 async function signedInPerson(name: string): Promise<{ token: string; id: string }> {
@@ -83,5 +111,51 @@ describe('Groups → Settlements', () => {
       token: ada.token,
     });
     expect(notThere.status).toBe(404);
+  });
+  it('asks the provider for a payment in the group Groups made, by the id it answered, in its currency, and keeps it for a member who joined later', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const linus = await signedInPerson('Linus');
+
+    const created = await http.request('POST', `${api}/groups`, {
+      body: { name: 'Flat', currency: 'CHF' },
+      token: ada.token,
+    });
+    const { id: groupId } = created.body as { id: string };
+    for (const person of [grace, linus]) {
+      const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+        .body as { id: string };
+      await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: person.token });
+    }
+    // Grace owes Ada 30; Linus, who joined last, owes nothing.
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Dinner', amount: 60, date: '2026-03-01', splitBetween: [ada.id, grace.id] },
+      token: ada.token,
+    });
+
+    const asking = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      body: { to: ada.id, amount: 30 },
+      token: grace.token,
+    });
+    expect(asking.status).toBe(201);
+    const { id } = asking.body as { id: string };
+    expect(asked.at(-1)).toEqual({ reference: id, amount: 30, currency: 'CHF' });
+
+    // Settlements finds the settlement by its id, and its group by the id Groups answered.
+    const read = await http.request('GET', `${api}/settlements/${id}`, { token: grace.token });
+    expect(read.body).toMatchObject({ groupId, status: 'pending', method: 'provider' });
+
+    // Linus, who joined last, is a member: he owes nothing, so he may not ask for any. A non-member gets the answer for a group that does not exist.
+    const byLinus = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      body: { to: ada.id, amount: 1 },
+      token: linus.token,
+    });
+    expect(byLinus.body).toMatchObject({ type: 'SettlementMoreThanOwed' });
+    const outsider = await signedInPerson('Outsider');
+    const notAMember = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      body: { to: ada.id, amount: 1 },
+      token: outsider.token,
+    });
+    expect(notAMember.status).toBe(404);
   });
 });

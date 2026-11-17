@@ -1,10 +1,11 @@
-import { Result } from '@Architecture/Domain';
+import { Exception, Id, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
 
 import {
   InvalidSettlementAmountException,
   SettlementMoreThanIsOwedException,
   SettlementMoreThanOwedException,
+  SettlementPayeeNotMemberException,
   SettlementPayerNotMemberException,
   SettlementToSelfException,
 } from './SettlementExceptions';
@@ -16,10 +17,18 @@ export interface RecordCashSettlementCommand {
   amount: number;
 }
 
+/** What a payment through the provider says: the payer (the caller, who pays), the payee, and the amount (request 13). */
+export interface RequestProviderPaymentCommand {
+  payer: string;
+  to: string;
+  amount: number;
+}
+
 /**
- * What the decision is given (ADR 11): the members of the group, in the order they joined, and the balance of every member as
- * the balances read them: what a member owes (negative) or is owed (positive), a member not in the map at 0. The use case read
- * them after it read the book, so a settlement recorded since is counted here.
+ * What the decision is given (ADR 11, ADR 12): the members of the group, in the order they joined, and what each member still owes
+ * or is owed, a member not in the map at 0: the balances the ledger counts, with the payments waiting at the provider counted as paid
+ * (`SettlementBook.stillOwed`). The use case read the book before them, so a settlement recorded since moves the version and is refused
+ * at the save.
  */
 export interface SettlementGiven {
   memberIds: readonly string[];
@@ -33,22 +42,71 @@ export interface NewSettlementValues {
   amount: number;
 }
 
+/** The values of a payment through the provider once allowed: its settlement's id (the provider's reference), who paid whom, how much. */
+export interface NewProviderPaymentValues extends NewSettlementValues {
+  id: string;
+}
+
 /**
- * Recording a settlement in cash (request 12, ADR 11): the payer is a member and not the payee; the amount is a whole number of
- * at least 1; it is no more than what the payer owes (the opposite of their balance) and no more than what the payee is owed
- * (their balance), both at the balances given. Otherwise it is refused and nothing changes. Answers the settlement's values; the
- * use case records it in the book with `SettlementBook.recordCash`.
+ * The rules every settlement is held to, in cash or through the provider (request 12, request 13, ADR 11, ADR 12): the payer and the
+ * payee are members of the group and not the same one; the amount is a whole number from 1; it is no more than what the payer owes (the
+ * opposite of their balance) and no more than what the payee is owed (their balance), both at the balances given. Answers the first
+ * refusal, or none.
+ */
+function refuseSettlement(
+  { memberIds, balances }: SettlementGiven,
+  { from, to, amount }: NewSettlementValues,
+): Exception | undefined {
+  if (!memberIds.includes(from)) return new SettlementPayerNotMemberException();
+  if (!memberIds.includes(to)) return new SettlementPayeeNotMemberException();
+  if (from === to) return new SettlementToSelfException();
+  if (!Number.isInteger(amount) || amount < 1) return new InvalidSettlementAmountException();
+  if (amount > -(balances.get(from) ?? 0)) return new SettlementMoreThanOwedException();
+  if (amount > (balances.get(to) ?? 0)) return new SettlementMoreThanIsOwedException();
+  return undefined;
+}
+
+/**
+ * Recording a settlement in cash (request 12, ADR 11): the rules of `refuseSettlement`, the payee being the caller. Otherwise it is
+ * refused and nothing changes. Answers the settlement's values; the use case records it in the book with `SettlementBook.recordCash`.
  */
 export const decideRecordCashSettlement: Decision<
   NewSettlementValues,
   RecordCashSettlementCommand,
   never,
   SettlementGiven
-> = ({ memberIds, balances }, { payee, from, amount }) => {
-  if (!memberIds.includes(from)) return Result.fail(new SettlementPayerNotMemberException());
-  if (from === payee) return Result.fail(new SettlementToSelfException());
-  if (!Number.isInteger(amount) || amount < 1) return Result.fail(new InvalidSettlementAmountException());
-  if (amount > -(balances.get(from) ?? 0)) return Result.fail(new SettlementMoreThanOwedException());
-  if (amount > (balances.get(payee) ?? 0)) return Result.fail(new SettlementMoreThanIsOwedException());
+> = (given, { payee, from, amount }) => {
+  const refusal = refuseSettlement(given, { from, to: payee, amount });
+  if (refusal) return Result.fail(refusal);
   return decided({ from, to: payee, amount });
 };
+
+/**
+ * Asking to pay through the provider (request 13, ADR 12): the rules of `refuseSettlement`, the payer being the caller. The settlement's
+ * id is generated here, once (DOMAIN-IDENTITY): it is the reference the provider is given, so the payment can be found again from the
+ * book when the provider's webhook says how it ended. Answers the values; the use case asks the provider for a link with them, then
+ * records the settlement pending in the book with that link.
+ */
+export const decideRequestProviderPayment: Decision<
+  NewProviderPaymentValues,
+  RequestProviderPaymentCommand,
+  never,
+  SettlementGiven
+> = (given, { payer, to, amount }) => {
+  const refusal = refuseSettlement(given, { from: payer, to, amount });
+  if (refusal) return Result.fail(refusal);
+  return decided({ id: Id.generate().value, from: payer, to, amount });
+};
+
+/** What the provider's webhook says a payment is, once it has ended: paid, failed, or nothing to change (`pending`, or a status not known). */
+export type ProviderOutcome = 'paid' | 'failed';
+
+/**
+ * The outcome a webhook's status settles a pending payment to (request 13): `succeeded` is paid, `failed` is failed; anything else
+ * (`pending`, or a status this does not know) changes nothing and answers `undefined`. Pure: it reads no store and no clock.
+ */
+export function providerOutcomeOf(status: string): ProviderOutcome | undefined {
+  if (status === 'succeeded') return 'paid';
+  if (status === 'failed') return 'failed';
+  return undefined;
+}
