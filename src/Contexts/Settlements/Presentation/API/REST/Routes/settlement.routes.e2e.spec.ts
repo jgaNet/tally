@@ -107,6 +107,33 @@ describe('a group’s suggested settlements', () => {
 });
 
 describe('Groups → Settlements', () => {
+  it('lists in no suggestion a member who has left the group, once they owe nothing, and only the members still in it', async () => {
+    const dan = await accountOf('dan.groups.settlements@example.com', 'Dan');
+    const eli = await accountOf('eli.groups.settlements@example.com', 'Eli');
+    const fred = await accountOf('fred.groups.settlements@example.com', 'Fred');
+    const groupId = await groupWith(dan, [eli, fred]);
+    const bus = await record(groupId, dan.token, {
+      description: 'Bus',
+      amount: 600,
+      date: SPENT,
+      splitBetween: [dan.id, eli.id, fred.id],
+    });
+    expect(bus.status).toBe(201);
+
+    // Eli pays Dan the 200 in cash, so Eli owes nothing and may leave; Fred still owes Dan 200.
+    const paid = await http.request('POST', `/v1/groups/${groupId}/settlements/cash`, {
+      body: { from: eli.id, amount: 200 },
+      token: dan.token,
+    });
+    expect(paid.status).toBe(201);
+    const left = await http.request('POST', `/v1/groups/${groupId}/leave`, { token: eli.token });
+    expect(left.status).toBe(201);
+
+    const answer = await readSuggestion(groupId, fred.token);
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual([{ from: fred.id, to: dan.id, amount: 200 }]);
+  });
+
   it('finds a group made in Groups by the id its creation answered, and orders the members as Groups has them', async () => {
     const ann = await accountOf('ann.groups.settlements@example.com', 'Ann');
     const bob = await accountOf('bob.groups.settlements@example.com', 'Bob');
@@ -147,6 +174,29 @@ describe('Groups → Settlements', () => {
 });
 
 describe('Ledger → Settlements', () => {
+  it('counts a settlement paid in cash in the balance it suggests from: what is paid is no longer owed', async () => {
+    const ann = await accountOf('ann.ledger.paid.settlements@example.com', 'Ann');
+    const bob = await accountOf('bob.ledger.paid.settlements@example.com', 'Bob');
+    const groupId = await groupWith(ann, [bob]);
+    const taxi = await record(groupId, ann.token, {
+      description: 'Taxi',
+      amount: 1000,
+      date: SPENT,
+      splitBetween: [ann.id, bob.id],
+    });
+    expect(taxi.status).toBe(201);
+
+    const paid = await http.request('POST', `/v1/groups/${groupId}/settlements/cash`, {
+      body: { from: bob.id, amount: 500 },
+      token: ann.token,
+    });
+    expect(paid.status).toBe(201);
+
+    const answer = await readSuggestion(groupId, bob.token);
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual([]);
+  });
+
   it('counts an expense made through the API, and the expense read by the id that request answered is the one the suggestion counts', async () => {
     const ann = await accountOf('ann.ledger.settlements@example.com', 'Ann');
     const bob = await accountOf('bob.ledger.settlements@example.com', 'Bob');

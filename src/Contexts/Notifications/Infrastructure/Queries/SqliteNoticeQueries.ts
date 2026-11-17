@@ -16,19 +16,15 @@ export class SqliteNoticeQueries implements INoticeQueries {
       )
       .all(recipient) as {
       id: string;
-      kind: 'expense';
+      kind: 'expense' | 'reminder';
       group_id: string;
-      expense_id: string;
+      expense_id: string | null;
       amount: number;
       at: string;
     }[];
-    return rows.map(row => ({
-      id: row.id,
-      kind: row.kind,
-      groupId: row.group_id,
-      expenseId: row.expense_id,
-      amount: row.amount,
-      at: row.at,
-    }));
+    return rows.map(row => {
+      const view: NoticeView = { id: row.id, kind: row.kind, groupId: row.group_id, amount: row.amount, at: row.at };
+      return row.expense_id === null ? view : { ...view, expenseId: row.expense_id };
+    });
   }
 }

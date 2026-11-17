@@ -18,7 +18,7 @@ import { statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/s
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes';
-import { localNotificationsModule } from '@Contexts/Notifications/module.local';
+import { localNotificationsModule, remindLingeringDebts } from '@Contexts/Notifications/module.local';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/API/REST/Routes/notice.routes';
 
 /**
@@ -37,12 +37,14 @@ export async function createApplication({
     .split(',')
     .filter(Boolean),
   jobsIntervalSeconds = Number(process.env.JOBS_INTERVAL_SECONDS || 60),
+  reminderPeriodSeconds = Number(process.env.REMINDER_PERIOD_SECONDS || 604800),
 }: {
   logger?: Logger;
   apiPrefix?: string;
   port?: number;
   webOrigins?: string[];
   jobsIntervalSeconds?: number;
+  reminderPeriodSeconds?: number;
 } = {}): Promise<FastifyApplication> {
   const database = applicationDatabase();
   const outbox = new SqliteOutbox(database);
@@ -79,6 +81,10 @@ export async function createApplication({
   // What a previous run made durable and did not publish goes out now (ADR 24), then again on every run of the job.
   await relayOutbox(outbox, app.getEventBus(), app.executionContext('startup'));
   app.schedule(jobsIntervalSeconds * 1000, () => relayOutbox(outbox, app.getEventBus(), app.executionContext('job')));
+  // Who has owed for a period is reminded at the same runs (request 18, ADR 10): a debt that lasts is noticed by the sweep, never by a read.
+  app.schedule(jobsIntervalSeconds * 1000, () =>
+    remindLingeringDebts.run(app.executionContext('job'), reminderPeriodSeconds * 1000),
+  );
 
   return app;
 }

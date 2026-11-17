@@ -3,18 +3,20 @@ import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 import { ExpenseSharePart, INoticeSnapshot, NoticeKind } from '@Contexts/Notifications/Domain/Notice/DTOs';
 import { NoticeIssuedEvent } from '@Contexts/Notifications/Domain/Notice/Events/NoticeEvents';
 import { InvalidNoticeException } from '@Contexts/Notifications/Domain/Notice/NoticeExceptions';
+import { LINGERING_DEBT_OVER } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 
 /**
  * Notice is the aggregate root of one message owed to one person about one fact, made once from the fact (request 17, the
- * storm `notices`). Today a notice is about an expense recorded with its recipient in the split: which group, which
- * expense, and the recipient's share of it. A notice is its recipient's: it is not tied to their membership, and stays
- * theirs after they leave the group. Once issued it does not change.
+ * storm `notices`; request 18, the storm `reminders`). Two kinds: an expense recorded with its recipient in the split (the
+ * group, the expense, and the recipient's share), and a reminder that a debt lasted (the group and what is still owed, more
+ * than 2000, with no expense). A notice is its recipient's: it is not tied to their membership, and stays theirs after they
+ * leave the group. Once issued it does not change.
  */
 export class Notice extends AggregateRoot {
   readonly #recipient: string;
   readonly #kind: NoticeKind;
   readonly #groupId: string;
-  readonly #expenseId: string;
+  readonly #expenseId: string | null;
   readonly #amount: number;
   readonly #at: Date;
 
@@ -23,7 +25,7 @@ export class Notice extends AggregateRoot {
     recipient: string,
     kind: NoticeKind,
     groupId: string,
-    expenseId: string,
+    expenseId: string | null,
     amount: number,
     at: Date,
     version: number,
@@ -85,7 +87,7 @@ export class Notice extends AggregateRoot {
       NoticeIssuedEvent.set({
         noticeId: notice._id.value,
         recipient,
-        kind: notice.#kind,
+        kind: 'expense',
         groupId,
         expenseId,
         amount,
@@ -95,14 +97,50 @@ export class Notice extends AggregateRoot {
     return Result.ok(notice);
   }
 
+  /**
+   * A reminder to `recipient` that they still owe `amount` in the group, more than 2000 (request 18): its id is generated here,
+   * and NoticeIssued is recorded. The decision that a debt lasted is the DebtWatch's; this only makes the notice it asks for.
+   */
+  static remind({
+    recipient,
+    groupId,
+    amount,
+    at,
+  }: {
+    recipient: string;
+    groupId: string;
+    amount: number;
+    at: Date;
+  }): IResult<Notice> {
+    if (!recipient) return Result.fail(new InvalidNoticeException('A notice is for someone'));
+    if (!groupId) return Result.fail(new InvalidNoticeException('A reminder is about a group'));
+    if (!Number.isInteger(amount) || amount <= LINGERING_DEBT_OVER)
+      return Result.fail(new InvalidNoticeException('A reminder is for more than 2000 still owed'));
+
+    const notice = new Notice(Id.generate(), recipient, 'reminder', groupId, null, amount, at, 0);
+    notice.record(
+      NoticeIssuedEvent.set({
+        noticeId: notice._id.value,
+        recipient,
+        kind: 'reminder',
+        groupId,
+        amount,
+        at: at.toISOString(),
+      }),
+    );
+    return Result.ok(notice);
+  }
+
   /** The notice as the store holds it. Records nothing; throws on a notice no rule could have made. */
   static fromSnapshot({ _id, recipient, kind, groupId, expenseId, amount, at, version }: INoticeSnapshot): Notice {
+    const aboutAnExpense = kind === 'expense' && !!expenseId;
+    const aboutADebt =
+      kind === 'reminder' && expenseId === null && Number.isInteger(amount) && amount > LINGERING_DEBT_OVER;
     if (
       !recipient ||
-      kind !== 'expense' ||
       !groupId ||
-      !expenseId ||
-      !Number.isInteger(amount) ||
+      (!aboutAnExpense && !aboutADebt) ||
+      (kind === 'expense' && !Number.isInteger(amount)) ||
       isNaN(at.getTime())
     ) {
       throw new Error(`Corrupted notice ${_id}`);

@@ -1,6 +1,11 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
+import {
+  GroupMembership,
+  GroupView,
+  IGroupQueries,
+  MemberView,
+} from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
 import { createGroupsTables } from '@Contexts/Groups/Infrastructure/Repositories/SqliteGroupRepository';
 import { createAccountsTable } from '@Contexts/Groups/Infrastructure/Repositories/SqliteAccountRepository';
 
@@ -71,6 +76,15 @@ export class SqliteGroupQueries implements IGroupQueries {
         role: row.account_id === row.owner_id ? 'owner' : 'member',
         joinedAt: row.joined_at,
       }));
+    });
+  }
+
+  membersOfEveryGroup(): Promise<GroupMembership[]> {
+    return this.database.exclusive(connection => {
+      const rows = connection
+        .prepare('SELECT group_id, account_id FROM group_members ORDER BY group_id, position')
+        .all() as { group_id: string; account_id: string }[];
+      return rows.map(row => ({ groupId: row.group_id, memberId: row.account_id }));
     });
   }
 

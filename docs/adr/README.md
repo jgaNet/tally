@@ -14,6 +14,7 @@ why, what it costs, and when to revisit it.
 | [7](0007-settlements-reads-balances-and-members-for-the-suggestion.md) | Settlements asks Ledger the balances and Groups the members (the Ledger → Settlements and Groups → Settlements links, carried) |
 | [8](0008-settlement-book-and-ledger-counts-settlements.md) | A settlement is decided in its group’s book, and Ledger counts the settlements paid (the Settlements → Ledger link, carried) |
 | [9](0009-notifications-tells-each-member-of-an-expense.md) | Notifications tells each member of an expense from Ledger’s ExpenseRecorded (the Ledger → Notifications link, carried); a notice made once from the fact |
+| [10](0010-notifications-reminds-a-lingering-debt-from-settlements.md) | Notifications reminds a lingering debt, from a sweep that asks Settlements what is still owed (the Settlements → Notifications link, carried) |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

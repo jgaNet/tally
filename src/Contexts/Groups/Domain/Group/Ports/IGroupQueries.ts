@@ -33,4 +33,15 @@ export interface IGroupQueries {
    * current members; null otherwise, as if the group did not exist (request 9: a former member's statement is read).
    */
   hasBeenMemberOf(askedBy: string, groupId: string, accountId: string): Promise<boolean | null>;
+  /**
+   * The current members of every group, each group's members in the order they joined (ADR 10). It names no caller: it is
+   * read by the background job, which decides for every group, and never answered to a person.
+   */
+  membersOfEveryGroup(): Promise<GroupMembership[]>;
+}
+
+/** A current member of a group, as the background job reads it: the group, and the account. */
+export interface GroupMembership {
+  groupId: string;
+  memberId: string;
 }

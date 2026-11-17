@@ -4,7 +4,10 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 import { INoticeRepository } from '@Contexts/Notifications/Domain/Notice/Ports/INoticeRepository';
 
-/** The table of notices: one row per notice, at most one per expense and recipient (a notice is made once from the fact). */
+/**
+ * The table of notices: one row per notice, at most one per expense and recipient (a notice is made once from the fact). A
+ * reminder has no expense (its `expense_id` is NULL, request 18): the uniqueness of a reminder is its debt watch's, not this one's.
+ */
 export function createNoticeTables(database: SqliteDatabase): void {
   database.connection.exec(`
     CREATE TABLE IF NOT EXISTS notices (
@@ -12,7 +15,7 @@ export function createNoticeTables(database: SqliteDatabase): void {
       recipient TEXT NOT NULL,
       kind TEXT NOT NULL,
       group_id TEXT NOT NULL,
-      expense_id TEXT NOT NULL,
+      expense_id TEXT,
       amount INTEGER NOT NULL,
       at TEXT NOT NULL,
       version INTEGER NOT NULL,
