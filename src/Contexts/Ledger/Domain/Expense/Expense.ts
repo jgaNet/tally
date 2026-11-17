@@ -2,6 +2,7 @@ import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/D
 
 import { Share, Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
+  ExpenseChangedException,
   InvalidExpenseAmountException,
   InvalidExpenseDateException,
   InvalidExpenseDescriptionException,
@@ -18,7 +19,15 @@ export interface ExpenseDraft {
   readonly splitBetween: readonly string[];
 }
 
-/** An expense as the store keeps it: its shares included, in the order they were decided. */
+/** What a member asks to put in an expense's place: the whole of it, the payer and the group staying as they are. */
+export interface EditDraft {
+  readonly description: string;
+  readonly amount: number;
+  readonly date: string;
+  readonly splitBetween: readonly string[];
+}
+
+/** An expense as the store keeps it: its shares included, in the order they were decided, and the version it is at. */
 export interface ExpenseSnapshot {
   readonly id: string;
   readonly groupId: string;
@@ -27,24 +36,27 @@ export interface ExpenseSnapshot {
   readonly date: string;
   readonly paidBy: string;
   readonly shares: readonly Share[];
+  readonly version: number;
 }
 
 /**
  * An expense a member paid for some members of a group, as the ledger keeps it (conventions/domain.yaml, the storm's Expense):
  * its description, its amount in the group's currency, the day it was spent, its payer, and its shares. It is an aggregate
- * root because `RecordExpense` records it and `ExpenseRecorded` announces it (the storm, decided before the code); nothing
- * changes an expense once it is recorded.
+ * root because `RecordExpense` records it and `ExpenseRecorded` announces it (the storm, decided before the code). It is
+ * changed by `EditExpense`, which gives it again whole, from the version its author read, and deleted by `DeleteExpense`
+ * (request 6, the storm's hot spots): the payer stays the one who paid, and the shares are computed again from what an edit
+ * gives. Its version is the one it was loaded at (AggregateRoot); an edit from any other version is refused by this rule.
  */
 export class Expense extends AggregateRoot {
   static readonly MAX_AMOUNT = 100_000_000;
   static readonly MAX_DESCRIPTION_LENGTH = 100;
 
   readonly #groupId: string;
-  readonly #description: string;
-  readonly #amount: number;
-  readonly #date: string;
+  #description: string;
+  #amount: number;
+  #date: string;
   readonly #paidBy: string;
-  readonly #split: Split;
+  #split: Split;
 
   private constructor(
     id: Id,
@@ -54,8 +66,9 @@ export class Expense extends AggregateRoot {
     date: string,
     paidBy: string,
     split: Split,
+    version: number,
   ) {
-    super(id);
+    super(id, version);
     this.#groupId = groupId;
     this.#description = description;
     this.#amount = amount;
@@ -76,18 +89,11 @@ export class Expense extends AggregateRoot {
     members: readonly string[],
     now: Date,
   ): IResult<Expense> {
-    if (!isDescription(description)) return Result.fail(new InvalidExpenseDescriptionException());
-    if (!isAmount(amount)) return Result.fail(new InvalidExpenseAmountException());
-    if (!isSpentBy(date, now)) return Result.fail(new InvalidExpenseDateException());
-    if (!splitBetween.every(memberId => members.includes(memberId))) {
-      return Result.fail(new SplitMemberNotInGroupException());
-    }
-
-    const split = Split.equally({ amount, payerId, memberIds: splitBetween });
+    const split = checkDraft({ description, amount, date, payerId, splitBetween }, members, now);
     if (split.isFailure()) return Result.fail(split.error);
 
     const id = Id.generate();
-    const expense = new Expense(id, groupId, description, amount, date, payerId, split.data);
+    const expense = new Expense(id, groupId, description, amount, date, payerId, split.data, 0);
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: id.value,
@@ -100,6 +106,66 @@ export class Expense extends AggregateRoot {
     return Result.ok(expense);
   }
 
+  /**
+   * An expense the store keeps, as it was last saved: its shares as they were decided, its version as it is stored. Records
+   * nothing; throws on a snapshot that is not an expense the domain keeps.
+   */
+  static fromSnapshot(snapshot: ExpenseSnapshot): Expense {
+    const split = Split.kept({ amount: snapshot.amount, payerId: snapshot.paidBy, shares: snapshot.shares });
+    return new Expense(
+      new Id(snapshot.id),
+      snapshot.groupId,
+      snapshot.description,
+      snapshot.amount,
+      snapshot.date,
+      snapshot.paidBy,
+      split,
+      snapshot.version,
+    );
+  }
+
+  /**
+   * An edit: the expense is given again whole, under the rules of a recording, with the members of its group (`members`) and
+   * the payer it has. It is refused with `ExpenseChanged` when it changed since the version the edit was made from
+   * (`fromVersion`), before anything else is looked at: the author reads it again and decides. The shares are computed again
+   * from what the edit gives. Records `ExpenseEdited`; the time is `now`. Pure.
+   */
+  edit(draft: EditDraft, members: readonly string[], fromVersion: number, now: Date): IResult<void> {
+    if (fromVersion !== this.version) return Result.fail(new ExpenseChangedException());
+
+    const split = checkDraft({ ...draft, payerId: this.#paidBy }, members, now);
+    if (split.isFailure()) return Result.fail(split.error);
+
+    this.#description = draft.description;
+    this.#amount = draft.amount;
+    this.#date = draft.date;
+    this.#split = split.data;
+    this.record(
+      ExpenseEditedEvent.set({
+        expenseId: this._id.value,
+        groupId: this.#groupId,
+        paidBy: this.#paidBy,
+        amount: this.#amount,
+        at: now.toISOString(),
+      }),
+    );
+    return Result.ok(undefined);
+  }
+
+  /**
+   * A deletion: the expense is no longer there for anyone (the store takes its rows, and its balances, out in the same
+   * transaction). Who may delete it is the use case's to say. Records `ExpenseDeleted`; the time is `now`.
+   */
+  delete(now: Date): void {
+    this.record(
+      ExpenseDeletedEvent.set({
+        expenseId: this._id.value,
+        groupId: this.#groupId,
+        at: now.toISOString(),
+      }),
+    );
+  }
+
   toSnapshot(): ExpenseSnapshot {
     return {
       id: this._id.value,
@@ -109,9 +175,28 @@ export class Expense extends AggregateRoot {
       date: this.#date,
       paidBy: this.#paidBy,
       shares: this.#split.shares,
+      version: this.version,
     };
   }
 }
+
+/**
+ * What a recording and an edit both must hold (the storm's split and the rules of request 4): the description, the amount, the
+ * date, and the split the group's members may be in, the payer among them. Returns the split the shares are decided by.
+ */
+const checkDraft = (
+  { description, amount, date, payerId, splitBetween }: Omit<ExpenseDraft, 'groupId'>,
+  members: readonly string[],
+  now: Date,
+): IResult<Split> => {
+  if (!isDescription(description)) return Result.fail(new InvalidExpenseDescriptionException());
+  if (!isAmount(amount)) return Result.fail(new InvalidExpenseAmountException());
+  if (!isSpentBy(date, now)) return Result.fail(new InvalidExpenseDateException());
+  if (!splitBetween.every(memberId => members.includes(memberId))) {
+    return Result.fail(new SplitMemberNotInGroupException());
+  }
+  return Split.equally({ amount, payerId, memberIds: splitBetween });
+};
 
 /** The description is 1 to 100 characters (counted as characters, not bytes), and not only spaces. */
 const isDescription = (raw: string): boolean => {
@@ -131,9 +216,17 @@ const isSpentBy = (raw: string, now: Date): boolean => {
 };
 
 export type ExpenseRecordedPayload = { expenseId: string; groupId: string; paidBy: string; amount: number; at: string };
+export type ExpenseEditedPayload = { expenseId: string; groupId: string; paidBy: string; amount: number; at: string };
+export type ExpenseDeletedPayload = { expenseId: string; groupId: string; at: string };
 
 /**
  * The fact of a recording: which expense, of which group, paid by whom, for how much, and when it was recorded. It is made
  * durable with the expense and published after the commit; nothing subscribes to it yet (the storm lists no policy).
  */
 export class ExpenseRecordedEvent extends DomainEvent<ExpenseRecordedPayload> {}
+
+/** The fact of an edit: the expense as it now stands in its amount and payer, and when it was edited. Published after the commit. */
+export class ExpenseEditedEvent extends DomainEvent<ExpenseEditedPayload> {}
+
+/** The fact of a deletion: which expense, of which group, and when it was deleted. Published after the commit. */
+export class ExpenseDeletedEvent extends DomainEvent<ExpenseDeletedPayload> {}

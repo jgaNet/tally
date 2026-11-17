@@ -3,7 +3,7 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { getGroupBalances } from '@Contexts/Ledger/Application/Balances';
-import { getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
 import { GroupMembersFromGroups, GroupRoster } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseStore';
 
@@ -24,6 +24,8 @@ export function ledgerWiring(database: SqliteDatabase, roster: GroupRoster): Lit
     name: 'Ledger',
     useCases: [
       recordExpense(expenses, groupMembers, systemClock),
+      editExpense(expenses, groupMembers, systemClock),
+      deleteExpense(expenses, groupMembers, systemClock),
       getExpense(expenses, groupMembers),
       getGroupBalances(expenses, groupMembers),
     ],

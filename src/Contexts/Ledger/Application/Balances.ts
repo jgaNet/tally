@@ -16,9 +16,11 @@ export const getGroupBalances = query(
   (expenses: IExpenseStore, groupMembers: IGroupMembers) =>
     async (groupId: string, context): Promise<IResult<MemberBalanceView[]>> => {
       const members = await groupMembers.membersOf(groupId);
-      if (!members || !members.includes(callerOf(context))) return Result.fail(new GroupNotFoundException());
+      if (!members || !members.some(member => member.memberId === callerOf(context))) {
+        return Result.fail(new GroupNotFoundException());
+      }
 
       const counted = new Map((await expenses.balancesOf(groupId)).map(row => [row.memberId, row.balance]));
-      return Result.ok(members.map(memberId => ({ memberId, balance: counted.get(memberId) ?? 0 })));
+      return Result.ok(members.map(({ memberId }) => ({ memberId, balance: counted.get(memberId) ?? 0 })));
     },
 );

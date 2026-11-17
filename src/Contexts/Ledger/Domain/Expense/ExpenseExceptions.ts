@@ -1,4 +1,4 @@
-import { Exception, NotFoundException } from '@Architecture/Domain';
+import { ConflictException, Exception, NotAllowedException, NotFoundException } from '@Architecture/Domain';
 
 const SERVICE = 'Ledger';
 
@@ -61,6 +61,23 @@ export class PayerNotInSplitException extends Exception {
       type: 'PayerNotInSplit',
       message: 'The payer is one of the members the expense is split between',
     });
+  }
+}
+
+/**
+ * The expense changed since the version the edit was made from: `409`. The author reads it again and decides (ADR 8): two
+ * edits from one version, one of them is kept and the other is refused by this name.
+ */
+export class ExpenseChangedException extends ConflictException {
+  constructor() {
+    super(SERVICE, 'ExpenseChanged', 'The expense changed since it was read: read it again and decide');
+  }
+}
+
+/** The caller is neither the expense's payer nor the group's owner: `403` to a signed-in member, who is in the group. */
+export class NotThePayerOrOwnerException extends NotAllowedException {
+  constructor() {
+    super(SERVICE, 'Only the payer of an expense or the owner of its group may change it');
   }
 }
 

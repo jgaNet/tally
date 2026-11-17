@@ -87,3 +87,66 @@ describe('Expense.register', () => {
     expect(Expense.register(draft({ date: '2026-11-18' }), members, now).error?.type).toBe('InvalidExpenseDate');
   });
 });
+
+describe('Expense.edit', () => {
+  const recorded = () => Expense.register(draft(), members, now).data!;
+  /** The expense as the store would have loaded it: at version 1, as a recording stores it. */
+  const loaded = () => Expense.fromSnapshot({ ...recorded().toSnapshot(), version: 1 });
+  const edit = { description: 'Dinner', amount: 900, date: '2026-11-16', splitBetween: ['ann', 'bob'] };
+
+  it('gives the expense again whole, its shares computed again, the payer kept, and records ExpenseEdited', () => {
+    const expense = loaded();
+    expect(expense.edit(edit, members, 1, now).isFailure()).toBe(false);
+    expect(expense.toSnapshot()).toMatchObject({
+      description: 'Dinner',
+      amount: 900,
+      date: '2026-11-16',
+      paidBy: 'ann',
+      shares: [
+        { memberId: 'ann', amount: 450 },
+        { memberId: 'bob', amount: 450 },
+      ],
+    });
+    expect(expense.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseEditedEvent']);
+  });
+
+  it('refuses an edit made from another version than the one the expense is at, before anything else', () => {
+    const refused = loaded().edit({ ...edit, amount: 0 }, members, 2, now);
+    expect(refused.error?.type).toBe('ExpenseChanged');
+  });
+
+  it('applies the rules of a recording to what it gives: a split without the payer is refused and nothing changes', () => {
+    const expense = loaded();
+    expect(expense.edit({ ...edit, splitBetween: ['bob'] }, members, 1, now).error?.type).toBe('PayerNotInSplit');
+    expect(expense.toSnapshot().amount).toBe(1000);
+    expect(expense.pullDomainEvents()).toEqual([]);
+  });
+
+  it('refuses a member of the split who is not a member of the group', () => {
+    expect(loaded().edit({ ...edit, splitBetween: ['ann', 'dana'] }, members, 1, now).error?.type).toBe(
+      'SplitMemberNotInGroup',
+    );
+  });
+});
+
+describe('Expense.delete', () => {
+  it('records ExpenseDeleted', () => {
+    const expense = Expense.fromSnapshot({ ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 1 });
+    expense.delete(now);
+    expect(expense.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseDeletedEvent']);
+  });
+});
+
+describe('Expense.fromSnapshot', () => {
+  it('keeps the shares as stored and the version it is at, and records nothing', () => {
+    const snapshot = { ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 3 };
+    const expense = Expense.fromSnapshot(snapshot);
+    expect(expense.toSnapshot()).toEqual(snapshot);
+    expect(expense.pullDomainEvents()).toEqual([]);
+  });
+
+  it('throws on shares that do not add up to the amount', () => {
+    const snapshot = { ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 1 };
+    expect(() => Expense.fromSnapshot({ ...snapshot, amount: 999 })).toThrow();
+  });
+});

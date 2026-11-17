@@ -99,6 +99,7 @@ describe('Groups → Ledger', () => {
         { memberId: bob.id, amount: 333 },
         { memberId: carol.id, amount: 333 },
       ],
+      version: 1,
     });
   });
 

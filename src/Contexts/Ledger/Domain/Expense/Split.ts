@@ -47,6 +47,24 @@ export class Split extends ValueObject<readonly Share[]> {
     );
   }
 
+  /**
+   * A split as the store keeps it: its shares as they were decided, in their order, never computed again. Records nothing,
+   * and throws on shares the domain never keeps (a member twice, the payer missing, shares that do not add up to the amount).
+   */
+  static kept({ amount, payerId, shares }: { amount: number; payerId: string; shares: readonly Share[] }): Split {
+    const memberIds = shares.map(share => share.memberId);
+    const total = shares.reduce((sum, share) => sum + share.amount, 0);
+    if (
+      memberIds.length === 0 ||
+      new Set(memberIds).size !== memberIds.length ||
+      !memberIds.includes(payerId) ||
+      total !== amount
+    ) {
+      throw new Error(`The shares of an expense of ${amount} paid by ${payerId} are corrupted`);
+    }
+    return new Split(shares.map(share => ({ ...share })));
+  }
+
   /** The shares, in the order the split was given. A copy: the value keeps its own list. */
   get shares(): Share[] {
     return this.value.map(share => ({ ...share }));

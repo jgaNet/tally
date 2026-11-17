@@ -3,7 +3,7 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import { GroupView, IGroupStore } from '@Contexts/Groups/Application/IGroupStore';
 import { Group, GroupMember, GroupSnapshot } from '@Contexts/Groups/Domain/Group/Group';
-import { IGroupRoster } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
+import { IGroupRoster, RosterMember } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
 
 /**
  * The groups' tables (ADR 2, ADR 5). A group's members are rows of `group_members`, in the order they joined (`position`,
@@ -107,11 +107,17 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     return rows.map(toView);
   }
 
-  async membersOf(groupId: string): Promise<string[] | undefined> {
+  async membersOf(groupId: string): Promise<RosterMember[] | undefined> {
     const rows = this.database.read(db =>
-      db.prepare('SELECT account_id FROM group_members WHERE group_id = ? ORDER BY position').all(groupId),
-    ) as unknown as { account_id: string }[];
-    return rows.length > 0 ? rows.map(row => row.account_id) : undefined;
+      db
+        .prepare(
+          `SELECT m.account_id, CASE WHEN m.account_id = g.owner_id THEN 'owner' ELSE 'member' END AS role
+             FROM group_members m JOIN groups g ON g.id = m.group_id
+            WHERE m.group_id = ? ORDER BY m.position`,
+        )
+        .all(groupId),
+    ) as unknown as RosterRow[];
+    return rows.length > 0 ? rows.map(row => ({ memberId: row.account_id, role: row.role })) : undefined;
   }
 
   /** Adds the members that are not stored yet: the ones already there keep the row they were given (`position` is theirs). */
@@ -138,6 +144,11 @@ interface GroupViewRow {
   name: string;
   currency: string;
   owner_id: string;
+}
+
+interface RosterRow {
+  account_id: string;
+  role: 'owner' | 'member';
 }
 
 interface MemberRow {
