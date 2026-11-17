@@ -8,6 +8,7 @@ import {
   recordCashSettlement,
   refundSettlement,
   requestProviderSettlement,
+  settlementsOfGroup,
   suggestedSettlement,
 } from '../settlements';
 
@@ -39,7 +40,7 @@ const REQUEST_PROVIDER_SETTLEMENT_BODY = {
 
 const SETTLEMENT = {
   type: 'object',
-  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at'],
+  required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -50,6 +51,18 @@ const SETTLEMENT = {
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     payUrl: { type: 'string' },
+    history: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        required: ['status', 'at'],
+        properties: {
+          status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+          at: { type: 'string' },
+        },
+      },
+    },
   },
 };
 
@@ -60,6 +73,16 @@ const TRANSFER = {
 };
 
 export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSync, provider: ProviderConfig): void {
+  // Only a current member of the group lists its settlements; to anyone else the group does not exist.
+  server.get<{ Params: { id: string } }>(
+    '/groups/:id/settlements',
+    { schema: { response: { 200: { type: 'array', items: SETTLEMENT } } } },
+    async request => {
+      const caller = requireCaller(db, request);
+      return settlementsOfGroup(db, caller.id, request.params.id);
+    },
+  );
+
   // Only a member of the group reads its suggested settlement; to anyone else the group does not exist.
   server.get<{ Params: { id: string } }>(
     '/groups/:id/settlements/suggested',

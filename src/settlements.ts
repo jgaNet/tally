@@ -79,6 +79,30 @@ export interface Settlement {
   readonly at: string;
   /** The link where the payer pays, through the provider; a settlement in cash has none. */
   readonly payUrl?: string;
+  /** Every status the settlement has had, the earliest first: at least one, the status it has now or had last. */
+  readonly history: readonly StatusChange[];
+}
+
+/** A status a settlement has had, and when Tally learned it. */
+export interface StatusChange {
+  readonly status: Settlement['status'];
+  readonly at: string;
+}
+
+/** The statuses a settlement is recorded with, as the history rows of the file hold them. */
+interface StatusRow {
+  settlement_id: string;
+  status: Settlement['status'];
+  at: string;
+}
+
+/** Records that the settlement `settlementId` had `status`, learned at `at`. Written in the caller's transaction. */
+function recordStatus(db: DatabaseSync, settlementId: string, status: Settlement['status'], at: string): void {
+  db.prepare('INSERT INTO settlement_statuses (settlement_id, status, at) VALUES (?, ?, ?)').run(
+    settlementId,
+    status,
+    at,
+  );
 }
 
 interface SettlementRow {
@@ -97,7 +121,7 @@ interface SettlementRow {
 const SETTLEMENT_COLUMNS =
   's.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.pay_url, s.created_at';
 
-function settlementOf(row: SettlementRow): Settlement {
+function settlementOf(row: SettlementRow, history: readonly StatusChange[]): Settlement {
   const settlement = {
     id: row.id,
     groupId: row.group_id,
@@ -107,8 +131,26 @@ function settlementOf(row: SettlementRow): Settlement {
     method: row.method,
     status: row.status,
     at: row.created_at,
+    history,
   };
   return row.pay_url === null ? settlement : { ...settlement, payUrl: row.pay_url };
+}
+
+/** The history of each settlement of the group, the earliest status first, by settlement id. */
+function historiesOf(db: DatabaseSync, groupId: string): Map<string, StatusChange[]> {
+  const rows = db
+    .prepare(
+      `SELECT settlement_id, status, at FROM settlement_statuses
+       WHERE settlement_id IN (SELECT id FROM settlements WHERE group_id = ?) ORDER BY rowid ASC`,
+    )
+    .all(groupId) as unknown as StatusRow[];
+  const histories = new Map<string, StatusChange[]>();
+  for (const row of rows) {
+    const history = histories.get(row.settlement_id) ?? [];
+    history.push({ status: row.status, at: row.at });
+    histories.set(row.settlement_id, history);
+  }
+  return histories;
 }
 
 /**
@@ -166,9 +208,11 @@ export function recordCashSettlement(
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
     checkSettlement(db, { groupId, payerId, payeeId, amount });
+    const at = new Date().toISOString();
     db.prepare(
       'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, groupId, payerId, payeeId, amount, 'cash', 'paid', new Date().toISOString());
+    ).run(id, groupId, payerId, payeeId, amount, 'cash', 'paid', at);
+    recordStatus(db, id, 'paid', at);
   });
   return id;
 }
@@ -220,20 +264,11 @@ export async function requestProviderSettlement(
   const payment = await requestPayment(provider, { reference: id, amount, currency, payee });
   inTransaction(db, () => {
     decide();
+    const at = new Date().toISOString();
     db.prepare(
       'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(
-      id,
-      groupId,
-      payerId,
-      payeeId,
-      amount,
-      'provider',
-      'pending',
-      payment.id,
-      payment.payUrl,
-      new Date().toISOString(),
-    );
+    ).run(id, groupId, payerId, payeeId, amount, 'provider', 'pending', payment.id, payment.payUrl, at);
+    recordStatus(db, id, 'pending', at);
   });
   return id;
 }
@@ -259,11 +294,21 @@ const PROVIDER_OUTCOMES = new Map<string, { to: Settlement['status']; from: stri
 export function recordProviderOutcome(db: DatabaseSync, input: { paymentId: string; status: string }): void {
   const outcome = PROVIDER_OUTCOMES.get(input.status);
   if (outcome === undefined) return;
-  // The statuses are constants chosen here, never values from a webhook.
-  db.prepare(
-    `UPDATE settlements SET status = ?
-     WHERE method = 'provider' AND provider_payment_id = ? AND status IN (${outcome.from})`,
-  ).run(outcome.to, input.paymentId);
+  // The statuses are constants chosen here, never values from a webhook. What is moved is found and moved in one
+  // transaction, so each settlement that moves is recorded in its history, and one that does not is not.
+  inTransaction(db, () => {
+    const moved = db
+      .prepare(
+        `SELECT id FROM settlements
+         WHERE method = 'provider' AND provider_payment_id = ? AND status IN (${outcome.from})`,
+      )
+      .all(input.paymentId) as unknown as { id: string }[];
+    const at = new Date().toISOString();
+    for (const { id } of moved) {
+      db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(outcome.to, id);
+      recordStatus(db, id, outcome.to, at);
+    }
+  });
 }
 
 /**
@@ -306,7 +351,10 @@ export async function refundSettlement(
     await requestRefund(provider, { paymentId, reference: settlementId });
     // A `refunded` that arrived meanwhile stays: it is `refunded` already, and only a `paid` settlement moves on.
     inTransaction(db, () => {
-      db.prepare(`UPDATE settlements SET status = 'refunding' WHERE id = ? AND status = 'paid'`).run(settlementId);
+      const { changes } = db
+        .prepare(`UPDATE settlements SET status = 'refunding' WHERE id = ? AND status = 'paid'`)
+        .run(settlementId);
+      if (Number(changes) === 1) recordStatus(db, settlementId, 'refunding', new Date().toISOString());
     });
   } finally {
     refundsInFlight.delete(settlementId);
@@ -367,5 +415,34 @@ export function findSettlementOfMember(
        WHERE s.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
     .get(settlementId, accountId) as SettlementRow | undefined;
-  return row && settlementOf(row);
+  if (!row) return undefined;
+  const history = db
+    .prepare('SELECT status, at FROM settlement_statuses WHERE settlement_id = ? ORDER BY rowid ASC')
+    .all(row.id) as unknown as Omit<StatusRow, 'settlement_id'>[];
+  return settlementOf(
+    row,
+    history.map(change => ({ status: change.status, at: change.at })),
+  );
+}
+
+/**
+ * Every settlement of the group, as a current member of the group reads each (see {@link findSettlementOfMember}),
+ * the most recently recorded or asked for first; a settlement of a member who has left is among them. Refused with
+ * `404` when `readerId` is not a current member of the group, as if it did not exist. It reads one consistent state
+ * of the file and changes nothing.
+ */
+export function settlementsOfGroup(db: DatabaseSync, readerId: string, groupId: string): Settlement[] {
+  return inReadSnapshot(db, () => {
+    if (!findGroupOfMember(db, readerId, groupId)) {
+      throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    }
+    const rows = db
+      .prepare(
+        `SELECT ${SETTLEMENT_COLUMNS} FROM settlements s
+         WHERE s.group_id = ? ORDER BY s.created_at DESC, s.rowid DESC`,
+      )
+      .all(groupId) as unknown as SettlementRow[];
+    const histories = historiesOf(db, groupId);
+    return rows.map(row => settlementOf(row, histories.get(row.id) ?? []));
+  });
 }

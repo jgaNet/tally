@@ -270,6 +270,7 @@ describe('paying through the provider', () => {
       status: 'pending',
       at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/),
       payUrl: 'https://pay.example.org/1',
+      history: [{ status: 'pending', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/) }],
     });
     // Ann, the payee, reads it as the group's member; a read changes nothing stored.
     expect((await readSettlement(ann.token, id)).body).toEqual(read.body);

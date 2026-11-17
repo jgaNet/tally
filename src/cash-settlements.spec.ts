@@ -88,6 +88,7 @@ describe('settling up in cash', () => {
       method: 'cash',
       status: 'paid',
       at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/),
+      history: [{ status: 'paid', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/) }],
     });
     expect((await send(app, 'GET', `/settlements/${id}`, { token: ann.token })).body).toEqual(read.body);
   });

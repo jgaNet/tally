@@ -128,6 +128,46 @@ const SETTLEMENTS_TABLE = `
 `;
 
 /**
+ * Every status a settlement has had, one row per change, in the order they were learned (the rows' order). A row is
+ * written in the transaction that changes the settlement, so the history exists exactly when the change does.
+ */
+const SETTLEMENT_STATUSES_TABLE = `
+  CREATE TABLE IF NOT EXISTS settlement_statuses (
+    settlement_id TEXT NOT NULL REFERENCES settlements (id),
+    status        TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+    at            TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS settlement_statuses_by_settlement ON settlement_statuses (settlement_id);
+`;
+
+/**
+ * The statuses a settlement of a file written before its history was kept had, in order, each at the time the
+ * settlement was recorded: the file does not say when they changed. A cash settlement was `paid`. A provider one was
+ * `pending`, and was `paid` before a refund (`refunding`), and it is its status now unless that is `pending`.
+ */
+function statusesBeforeHistory(row: { method: string; status: string }): string[] {
+  if (row.method === 'cash') return [row.status];
+  const statuses = ['pending'];
+  if (row.status === 'refunding') statuses.push('paid');
+  if (row.status !== 'pending') statuses.push(row.status);
+  return statuses;
+}
+
+/** Writes the history of the settlements a file written before it has, from what they are now. */
+function backfillSettlementStatuses(db: DatabaseSync): void {
+  const rows = db.prepare('SELECT id, method, status, created_at FROM settlements ORDER BY rowid').all() as unknown as {
+    id: string;
+    method: string;
+    status: string;
+    created_at: string;
+  }[];
+  const insert = db.prepare('INSERT INTO settlement_statuses (settlement_id, status, at) VALUES (?, ?, ?)');
+  for (const row of rows) {
+    for (const status of statusesBeforeHistory(row)) insert.run(row.id, status, row.created_at);
+  }
+}
+
+/**
  * Adds the columns a file written before them lacks: `CREATE TABLE IF NOT EXISTS` never alters a
  * table that exists. Runs inside the schema's transaction, so only one server does it.
  */
@@ -206,10 +246,17 @@ export function openDatabase(path: string): DatabaseSync {
     // Serialises the schema creation across servers sharing the file.
     db.exec('BEGIN IMMEDIATE');
     try {
+      // A file with no history of its settlements yet (one written before it was kept) has its settlements backfilled.
+      const historyIsNew =
+        db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settlement_statuses'`).get() ===
+        undefined;
       db.exec(SCHEMA);
       db.exec(SETTLEMENTS_TABLE);
       db.exec(NOTICES_TABLE);
       addMissingColumns(db);
+      // After the settlements' rebuilds: a table referencing `settlements` would follow a rename of it.
+      db.exec(SETTLEMENT_STATUSES_TABLE);
+      if (historyIsNew) backfillSettlementStatuses(db);
       // After the columns exist: an index on a column a file written before lacks would fail.
       db.exec('CREATE INDEX IF NOT EXISTS settlements_by_payment ON settlements (provider_payment_id)');
       db.exec('CREATE INDEX IF NOT EXISTS notices_by_recipient ON notices (recipient_id, created_at)');
