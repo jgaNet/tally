@@ -15,8 +15,11 @@ export interface Settlement {
   /** In hundredths of the group's currency. */
   amount: number;
   method: 'cash' | 'provider';
-  /** `pending` only while the provider has not said the payment ended; a cash settlement is `paid`. */
-  status: 'pending' | 'paid' | 'failed';
+  /**
+   * `pending` only while the provider has not said the payment ended; a cash settlement is `paid`.
+   * `refunding` once Tally has asked the provider to refund a paid one, `refunded` once the provider said so.
+   */
+  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
   /** When it was recorded. */
   at: string;
   /** Through the provider only: the link where the payer pays. */
@@ -28,7 +31,7 @@ export interface Settlement {
  * must be a member of `groupId`, or the group is refused as not there. The payer must be a member too,
  * and not the payee. The amount is a whole number, at least 1, and at most what the payer still owes
  * and at most what the payee is still owed. A payment waiting at the provider counts as paid here, so
- * it cannot be paid twice; a failed one does not count at all.
+ * it cannot be paid twice; a failed or a refunded one does not count at all.
  */
 export function checkNewSettlement(
   db: Database,
@@ -95,7 +98,7 @@ interface SettlementRow {
   payee_id: string;
   amount: number;
   method: 'cash' | 'provider';
-  status: 'pending' | 'paid' | 'failed';
+  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
   pay_url: string | null;
   created_at: string;
 }

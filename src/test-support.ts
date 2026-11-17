@@ -83,20 +83,50 @@ export interface FakeProvider {
   requests: ProviderPaymentRequest[];
   /** The payments made so far, `id` being what the provider's webhooks name. */
   payments: { id: string; payUrl: string; reference: string }[];
-  /** How it answers the next requests: `accept`, `refuse` (a `500`), `malformed` or `hang`. */
+  /** How it answers the next requests for a payment: `accept`, `refuse` (a `500`), `malformed` or `hang`. */
   mode: 'accept' | 'refuse' | 'malformed' | 'hang';
+  /** Every request for a refund, in the order received: the provider's payment id and the reference. */
+  refunds: { paymentId: string; reference: string }[];
+  /** How it answers the next requests for a refund, as `mode` does for a payment. */
+  refundMode: 'accept' | 'refuse' | 'malformed' | 'hang';
   close(): Promise<void>;
 }
 
-/** A provider on the loopback interface, answering `POST /payments` as `mode` says. */
+const REFUND_PATH = /^\/payments\/([^/]+)\/refunds$/;
+
+/**
+ * A provider on the loopback interface, answering `POST /payments` as `mode` says, and
+ * `POST /payments/{id}/refunds` as `refundMode` says.
+ */
 export async function startFakeProvider(): Promise<FakeProvider> {
   const requests: ProviderPaymentRequest[] = [];
   const payments: { id: string; payUrl: string; reference: string }[] = [];
-  const provider = { requests, payments, mode: 'accept' } as FakeProvider;
+  const refunds: { paymentId: string; reference: string }[] = [];
+  const provider = { requests, payments, refunds, mode: 'accept', refundMode: 'accept' } as FakeProvider;
   const server = createServer((request, response) => {
     let raw = '';
     request.on('data', chunk => (raw += chunk));
     request.on('end', () => {
+      const refund = REFUND_PATH.exec(request.url ?? '');
+      if (request.method === 'POST' && refund) {
+        const body = JSON.parse(raw) as { reference: string };
+        refunds.push({ paymentId: decodeURIComponent(refund[1]), reference: body.reference });
+        if (provider.refundMode === 'hang') {
+          return;
+        }
+        if (provider.refundMode === 'refuse') {
+          response.writeHead(500).end('{}');
+          return;
+        }
+        if (provider.refundMode === 'malformed') {
+          response.writeHead(201, { 'content-type': 'application/json' }).end(JSON.stringify({ refunded: true }));
+          return;
+        }
+        response
+          .writeHead(201, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ id: `ref-${refunds.length}` }));
+        return;
+      }
       if (request.method !== 'POST' || request.url !== '/payments') {
         response.writeHead(404).end();
         return;

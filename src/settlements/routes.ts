@@ -4,6 +4,7 @@ import type { Database } from '../database';
 import { requireMembership } from '../groups/groups';
 import { Refusal } from '../refusal';
 import { applyProviderStatus, type ProviderConfig, requestProviderSettlement, signatureIsValid } from './provider';
+import { requestRefund } from './refunds';
 import { recordCashSettlement, requireSettlement } from './settlements';
 import { suggestedTransfersOf } from './suggested';
 
@@ -27,7 +28,7 @@ const settlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer' },
     method: { type: 'string', enum: ['cash', 'provider'] },
-    status: { type: 'string', enum: ['pending', 'paid', 'failed'] },
+    status: { type: 'string', enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     payUrl: { type: 'string' },
   },
@@ -101,6 +102,21 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
         request.body.amount,
       );
       return reply.code(201).send({ id });
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/settlements/:id/refund',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      },
+    },
+    async (request, reply) => {
+      const account = requireAccount(db, request);
+      // The caller must be the payee: only the member who was paid may refund the payment.
+      await requestRefund(db, provider, request.params.id, account.id);
+      return reply.code(204).send();
     },
   );
 

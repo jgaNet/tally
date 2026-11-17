@@ -18,23 +18,24 @@ interface BalanceRow {
 /**
  * The balance of every member of `groupId`, the earliest to join first (the same order as the
  * members). A member with nothing recorded and in no split has a balance of 0. Only a settlement that
- * is paid counts: one waiting at the provider, or one the provider failed, does not move a balance.
+ * is paid counts, or one being refunded, which still counts until the provider says it is refunded:
+ * one waiting at the provider, one the provider failed, or one refunded, does not move a balance.
  *
  * It is one statement, so it reads one snapshot of the file: an expense is either wholly in the
  * balances or not at all. Each expense's shares add up to its amount, so the balances always add
  * up to 0. Reading changes nothing.
  */
 export function balancesOf(db: Database, groupId: string): Balance[] {
-  return balancesCounting(db, groupId, `settlements.status = 'paid'`);
+  return balancesCounting(db, groupId, `settlements.status IN ('paid', 'refunding')`);
 }
 
 /**
- * The balances as if every settlement that has not failed were paid: a settlement waiting at the
- * provider counts as paid. What a member still owes, or is still owed, is read from these. Reading
- * changes nothing.
+ * The balances as if every settlement that has not failed or been refunded were paid: a settlement
+ * waiting at the provider counts as paid. What a member still owes, or is still owed, is read from
+ * these. Reading changes nothing.
  */
 export function balancesWithPendingOf(db: Database, groupId: string): Balance[] {
-  return balancesCounting(db, groupId, `settlements.status <> 'failed'`);
+  return balancesCounting(db, groupId, `settlements.status IN ('pending', 'paid', 'refunding')`);
 }
 
 /** `counted` is a condition on `settlements`, written here and never from a request. */

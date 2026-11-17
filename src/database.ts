@@ -141,6 +141,36 @@ const migrations: readonly string[] = [
   CREATE INDEX settlements_by_group ON settlements (group_id);
   CREATE INDEX settlements_by_provider_payment ON settlements (provider_payment_id);
   `,
+  `
+  -- A payment through the provider is refunded in two steps: refunding while the provider has the refund
+  -- in hand, then refunded once it says so. A refunded payment is counted by no balance. Cash is never
+  -- refunded, so only a provider payment can carry these statuses. SQLite cannot widen a CHECK, so the
+  -- table is rebuilt and every row copied, as before.
+  CREATE TABLE settlements_next (
+    id                  TEXT PRIMARY KEY,
+    group_id            TEXT NOT NULL REFERENCES groups (id),
+    payer_id            TEXT NOT NULL REFERENCES accounts (id),
+    payee_id            TEXT NOT NULL REFERENCES accounts (id),
+    amount              INTEGER NOT NULL CHECK (amount >= 1),
+    method              TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+    status              TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+    pay_url             TEXT,
+    provider_payment_id TEXT,
+    created_at          TEXT NOT NULL,
+    CHECK (payer_id <> payee_id),
+    CHECK (method = 'provider' OR status = 'paid'),
+    CHECK (status <> 'pending' OR method = 'provider'),
+    CHECK (method = 'provider' OR pay_url IS NULL)
+  );
+  INSERT INTO settlements_next
+    (id, group_id, payer_id, payee_id, amount, method, status, pay_url, provider_payment_id, created_at)
+    SELECT id, group_id, payer_id, payee_id, amount, method, status, pay_url, provider_payment_id, created_at
+      FROM settlements;
+  DROP TABLE settlements;
+  ALTER TABLE settlements_next RENAME TO settlements;
+  CREATE INDEX settlements_by_group ON settlements (group_id);
+  CREATE INDEX settlements_by_provider_payment ON settlements (provider_payment_id);
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

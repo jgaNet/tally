@@ -151,15 +151,20 @@ export function leaveGroup(db: Database, groupId: string, accountId: string): vo
     if (balance !== 0) {
       throw new Refusal(409, 'BalanceNotZero', 'Your balance in this group must be 0 before you leave it.');
     }
-    // A payment waiting at the provider would still move a balance once it succeeds: it must end first.
+    // A payment waiting at the provider would still move a balance once it succeeds, and a refund waiting
+    // at it once it is refunded: either must end first.
     const waiting = db
       .prepare(
         `SELECT 1 FROM settlements
-          WHERE group_id = ? AND status = 'pending' AND (payer_id = ? OR payee_id = ?)`,
+          WHERE group_id = ? AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?)`,
       )
       .get(groupId, accountId, accountId);
     if (waiting) {
-      throw new Refusal(409, 'PaymentPending', 'A payment through the provider is waiting for you: it must end first.');
+      throw new Refusal(
+        409,
+        'PaymentPending',
+        'A payment or a refund through the provider is waiting for you: it must end first.',
+      );
     }
     db.prepare('DELETE FROM memberships WHERE group_id = ? AND account_id = ?').run(groupId, accountId);
     db.prepare(

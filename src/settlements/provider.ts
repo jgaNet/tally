@@ -119,17 +119,34 @@ export function signatureIsValid(secret: string, body: Buffer, signature: string
 }
 
 /**
- * Applies the provider's word about payment `paymentId`: `succeeded` pays the settlement, `failed` fails
- * it. Only a payment still `pending` changes, once: a payment that has ended stays as it ended, so a
- * redelivered or late webhook changes nothing. `pending`, and a payment Tally does not know, change nothing.
+ * Applies the provider's word about payment `paymentId`. `succeeded` pays a pending settlement, `failed`
+ * fails one, and `refunded` refunds one that is pending, paid or being refunded: a refund may overtake the
+ * success of the same payment, and then the settlement is refunded and never counted. Each word only
+ * changes a payment that has not reached it, so a redelivered or late webhook changes nothing: a payment
+ * that has ended stays as it ended. `pending`, and a payment Tally does not know, change nothing.
  */
 export function applyProviderStatus(db: Database, paymentId: string, status: string): void {
-  const next = status === 'succeeded' ? 'paid' : status === 'failed' ? 'failed' : undefined;
-  if (next === undefined) {
-    return;
+  switch (status) {
+    case 'succeeded':
+      setProviderStatus(db, paymentId, 'paid', ['pending']);
+      return;
+    case 'failed':
+      setProviderStatus(db, paymentId, 'failed', ['pending']);
+      return;
+    case 'refunded':
+      setProviderStatus(db, paymentId, 'refunded', ['pending', 'paid', 'refunding']);
+      return;
+    default:
+      // `pending`, or a word Tally does not know: nothing is changed.
+      return;
   }
+}
+
+/** Sets the provider settlement of `paymentId` to `status`, if it is now one of `from`. */
+function setProviderStatus(db: Database, paymentId: string, status: string, from: readonly string[]): void {
+  // `from` is written here, never from a request: only its placeholders are built from it.
   db.prepare(
     `UPDATE settlements SET status = ?
-      WHERE provider_payment_id = ? AND method = 'provider' AND status = 'pending'`,
-  ).run(next, paymentId);
+      WHERE provider_payment_id = ? AND method = 'provider' AND status IN (${from.map(() => '?').join(', ')})`,
+  ).run(status, paymentId, ...from);
 }
