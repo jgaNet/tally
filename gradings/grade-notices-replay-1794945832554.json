@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-2",
+  "ref": "2a733ea0afc0d9d5120ceae45e0dc0035b3a76f6",
+  "commit": "2a733ea0afc0d9d5120ceae45e0dc0035b3a76f6",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "notices",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 2 passed, 3 total",
+        "failed": [
+          "notices › makes one notice per member and expense, even when the server is killed and started again"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● notices › makes one notice per member and expense, even when the server is killed and started again",
+          "    - Expected  - 3",
+          "    + Received  + 3",
+          "Tests:       1 failed, 2 passed, 3 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 20615,
+  "workers": 1
+}
