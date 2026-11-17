@@ -100,8 +100,8 @@ describe('recording an expense', () => {
     const read = await readExpense((created.body as { id: string }).id, ada.token);
 
     expect((read.body as { shares: unknown }).shares).toEqual([
-      { memberId: bob.id, amount: 3 },
-      { memberId: ada.id, amount: 4 },
+      { memberId: bob.id, amount: 4 },
+      { memberId: ada.id, amount: 3 },
     ]);
   });
 
@@ -417,7 +417,7 @@ describe('splitting an expense unequally (request 7)', () => {
     const cy = await signedIn('shares-cy@example.com', 'Cy');
     const groupId = await groupWith(ada, [bob, cy]);
 
-    // A couple takes two shares: Bob takes two of four, Ada (the payer) and Cy one each; the 1 left over goes to Ada.
+    // A couple takes two shares: Bob takes two of four, Ada (the payer) and Cy one each; the 1 left over goes to Bob, listed first.
     const created = await record(ada.token, groupId, {
       description: 'Cottage',
       amount: 1001,
@@ -434,14 +434,14 @@ describe('splitting an expense unequally (request 7)', () => {
     expect(read.body).toMatchObject({
       splitKind: 'shares',
       shares: [
-        { memberId: bob.id, amount: 500 },
-        { memberId: ada.id, amount: 251 },
+        { memberId: bob.id, amount: 501 },
+        { memberId: ada.id, amount: 250 },
         { memberId: cy.id, amount: 250 },
       ],
     });
   });
 
-  it('gives the remainder of a split by shares to the payer, as an equal split does', async () => {
+  it('gives the remainder of a split by shares to the member listed first, whoever paid, as an equal split does', async () => {
     const ada = await signedIn('rem-ada@example.com', 'Ada');
     const bob = await signedIn('rem-bob@example.com', 'Bob');
     const groupId = await groupWith(ada, [bob]);
@@ -459,8 +459,8 @@ describe('splitting an expense unequally (request 7)', () => {
     expect(read.body).toMatchObject({
       splitKind: 'shares',
       shares: [
-        { memberId: ada.id, amount: 667 },
-        { memberId: bob.id, amount: 334 },
+        { memberId: ada.id, amount: 668 },
+        { memberId: bob.id, amount: 333 },
       ],
     });
   });

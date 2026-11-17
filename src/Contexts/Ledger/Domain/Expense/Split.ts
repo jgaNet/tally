@@ -29,8 +29,9 @@ export type SplitInput =
 /**
  * How an expense's amount is shared between the members it concerns (the storm, hot spot 3). Each member's share is the
  * amount times their weight over the total of the weights, rounded down (an equal split weighs every member 1, a split by
- * shares weighs them by their shares); what is left over, less than the total of the weights, goes whole to the payer.
- * The shares add up to the amount exactly, and they are kept in the order the split was given. The arithmetic is exact
+ * shares weighs them by their shares); what is left over, less than the total of the weights, goes whole to the member listed
+ * first in the split, whoever paid (request 10). The shares add up to the amount exactly, and they are kept in the order the
+ * split was given. The arithmetic is exact
  * (BigInt), so no amount or number of shares rounds on the way.
  *
  * `of()` refuses a split a member is listed twice in, one with someone who is not a current member, one without its
@@ -75,7 +76,6 @@ export class Split {
           weighted(
             'equal',
             amount,
-            payerId,
             input.between.map(memberId => ({ memberId, weight: 1n })),
           ),
         );
@@ -102,7 +102,6 @@ export class Split {
           weighted(
             'shares',
             amount,
-            payerId,
             input.shares.map(({ memberId, shares }) => ({ memberId, weight: BigInt(shares) })),
           ),
         );
@@ -144,22 +143,17 @@ function listedMembers(input: SplitInput): string[] {
 
 /**
  * Each member's share is the amount times their weight over the total of the weights, rounded down; the remainder goes whole
- * to the payer. The amount is at most MAX_EXPENSE_AMOUNT, checked before the split is made, and the weights are whole and
- * positive, so every share is whole and the remainder is less than the number of members or of shares.
+ * to the member listed first (request 10). The amount is at most MAX_EXPENSE_AMOUNT, checked before the split is made, and the
+ * weights are whole and positive, so every share is whole and the remainder is less than the number of members or of shares.
+ * Expenses recorded before request 10 keep the shares they were given: they are never computed again.
  */
-function weighted(
-  kind: SplitKind,
-  amount: number,
-  payerId: string,
-  parts: Array<{ memberId: string; weight: bigint }>,
-): Split {
+function weighted(kind: SplitKind, amount: number, parts: Array<{ memberId: string; weight: bigint }>): Split {
   const totalWeight = parts.reduce((sum, part) => sum + part.weight, 0n);
   const shares = parts.map(({ memberId, weight }) => ({
     memberId,
     amount: Number((BigInt(amount) * weight) / totalWeight),
   }));
   const remainder = amount - shares.reduce((sum, share) => sum + share.amount, 0);
-  const payer = shares.find(share => share.memberId === payerId);
-  if (payer) payer.amount += remainder;
+  shares[0].amount += remainder;
   return Split.fromSnapshot({ kind, shares });
 }

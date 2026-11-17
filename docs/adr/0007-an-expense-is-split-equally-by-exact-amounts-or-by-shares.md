@@ -6,8 +6,8 @@ Request 7 lets a member split an expense unequally: a couple takes two shares of
 storm (`conventions/storms/unequal-splits.yaml`) decided three things: one command per action, not one per kind of split
 (`RecordExpense` and `EditExpense` take a split of one of three kinds); the transport refuses a body that says none of the
 three, or more than one, as the wrong shape (`400`), while the domain refuses what the split says (amounts that do not add
-up, shares below 1) by name; and a split by shares rounds each share down and gives the remainder whole to the payer, as an
-equal split does.
+up, shares below 1) by name; and a split by shares rounds each share down and gives the remainder whole to the member listed first, as an
+equal split does (ADR 0010; this request first gave it to the payer).
 
 Building it showed two things the storm did not say.
 
@@ -26,8 +26,8 @@ Building it showed two things the storm did not say.
   add up to the expense's amount, exactly (`SplitDoesNotAddUp`). The shares kind refuses a member with less than 1 share
   (`InvalidShares`).
 - **The weights, one rule.** An equal split is a split whose members each weigh 1; a split by shares weighs them by their
-  shares. The share is `amount × weight ÷ total of the weights`, rounded down, and the remainder goes whole to the payer. So
-  `1000` by shares of 1, 1 and 1 is the equal split, and `1001` by shares of 2 and 1, the payer listed second, is `667` and `334`.
+  shares. The share is `amount × weight ÷ total of the weights`, rounded down, and the remainder goes whole to the member listed first (ADR 0010). So
+  `1000` by shares of 1, 1 and 1 is the equal split, and `1001` by shares of 2 and 1, the payer listed second, is `668` and `333`.
 - **The kind is kept with the expense, and the facts carry it.** The expense's table has a column `split_kind`, and
   `ExpenseRecorded` and `ExpenseEdited` carry `splitKind`, so a fact says how the expense was split. The read says it as
   `splitKind`. The shares are kept as the amounts each member owes, as before; the kind is what says how they were made.

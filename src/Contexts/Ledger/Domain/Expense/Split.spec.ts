@@ -5,7 +5,7 @@ describe('Split.of, equally', () => {
   const equal = (amount: number, between: string[], payerId: string) =>
     Split.of({ input: { kind: 'equal', between }, amount, payerId, members });
 
-  it('divides the amount by the number of members, the remainder whole to the payer', () => {
+  it('divides the amount by the number of members, the remainder whole to the first member listed', () => {
     const split = equal(1000, ['ada', 'bob', 'cy'], 'ada');
 
     expect(split.isSuccess()).toBe(true);
@@ -24,12 +24,20 @@ describe('Split.of, equally', () => {
     ]);
   });
 
-  it('gives the payer the whole remainder, which is less than the number of members', () => {
+  it('gives the first member listed the whole remainder, which is less than the number of members, whoever paid', () => {
     expect(equal(7, ['ada', 'bob', 'cy', 'dee'], 'bob').data?.shares).toEqual([
-      { memberId: 'ada', amount: 1 },
-      { memberId: 'bob', amount: 4 },
+      { memberId: 'ada', amount: 4 },
+      { memberId: 'bob', amount: 1 },
       { memberId: 'cy', amount: 1 },
       { memberId: 'dee', amount: 1 },
+    ]);
+  });
+
+  it('gives 1000 between three members, the payer listed second, 334 to the first member and 333 to the others', () => {
+    expect(equal(1000, ['bob', 'ada', 'cy'], 'ada').data?.shares).toEqual([
+      { memberId: 'bob', amount: 334 },
+      { memberId: 'ada', amount: 333 },
+      { memberId: 'cy', amount: 333 },
     ]);
   });
 
@@ -164,7 +172,7 @@ describe('Split.of, by shares', () => {
     ]);
   });
 
-  it('gives 1001 by shares of 2 and 1, the payer listed second, 667 and 334', () => {
+  it('gives 1001 by shares of 2 and 1, the payer listed second, the remainder to the first member: 668 and 333', () => {
     const split = byShares(
       1001,
       [
@@ -175,12 +183,12 @@ describe('Split.of, by shares', () => {
     );
 
     expect(split.data?.shares).toEqual([
-      { memberId: 'bob', amount: 667 },
-      { memberId: 'ada', amount: 334 },
+      { memberId: 'bob', amount: 668 },
+      { memberId: 'ada', amount: 333 },
     ]);
   });
 
-  it('gives the payer the remainder whichever member it is, and the shares add up to the amount', () => {
+  it('gives the remainder to the first member listed, whichever member paid, and the shares add up to the amount', () => {
     for (const amount of [1, 7, 99, 1000, 99_999_999, 100_000_000]) {
       const split = byShares(
         amount,
