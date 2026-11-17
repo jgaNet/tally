@@ -19,3 +19,16 @@ export class MemberJoinedEvent extends DomainEvent<{ groupId: string; accountId:
  * members when it decides (feature 9, ADR 7).
  */
 export class MemberLeftEvent extends DomainEvent<{ groupId: string; accountId: string; leftAt: Date }> {}
+
+/**
+ * A member left a group with a balance, which passed to the owner in the same step (request 20). Recorded by `Group.leave()`
+ * beside `MemberLeft` and published after its save; nothing reacts to it yet, so it is not an integration event. Ledger counts it
+ * when it reads the balances, through `GroupMembers` (ADR 16): the member's balance moves to the owner, and the member's is 0 after.
+ */
+export class BalancePassedEvent extends DomainEvent<{
+  groupId: string;
+  from: string;
+  to: string;
+  amount: number;
+  at: Date;
+}> {}

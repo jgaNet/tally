@@ -4,7 +4,9 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
+import { settlementsReadModel } from '@Contexts/Settlements/module.local';
 import { BalancesOfLedger } from '@Contexts/Groups/Infrastructure/BalancesOfLedger';
+import { WaitingPaymentsOfSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsOfSettlements';
 import { GroupsDatabase } from '@Contexts/Groups/Infrastructure/GroupsDatabase';
 import { SqliteAccounts } from '@Contexts/Groups/Infrastructure/SqliteAccounts';
 import { SqliteGroups } from '@Contexts/Groups/Infrastructure/SqliteGroups';
@@ -45,6 +47,11 @@ export const localGroupsModule = new LiteModule({
     acceptInvitation(invitations, groups, systemClock),
     getInvitation(invitations),
     getGroupMembers(groups),
-    leaveGroup(groups, new BalancesOfLedger(() => ledgerBalancesReadModel), systemClock),
+    leaveGroup(
+      groups,
+      new BalancesOfLedger(() => ledgerBalancesReadModel),
+      new WaitingPaymentsOfSettlements(() => settlementsReadModel),
+      systemClock,
+    ),
   ],
 });

@@ -14,6 +14,13 @@ export interface MemberView {
   joinedAt: string;
 }
 
+/** A balance that passed to the owner when a member left (request 20): from the member who left, to the owner, the amount. */
+export interface PassView {
+  from: string;
+  to: string;
+  amount: number;
+}
+
 /** The read side of the groups. Every read is made for a member: a group the caller is not in does not exist for them. */
 export interface IGroupQueries {
   /** The group, if `memberId` is one of its members. */
@@ -27,4 +34,9 @@ export interface IGroupQueries {
    * what a job reads (the reminders of request 18, through Settlements), never what a screen shows.
    */
   currentMembers(): Promise<{ groupId: string; memberIds: string[] }[]>;
+  /**
+   * The balances that passed to owners when members left the group, in the order they passed (request 20). Asked by no member: Ledger
+   * reads it when it reads the balances, through its own `GroupMembers` port, so that a former member's balance is counted with the owner's.
+   */
+  passesOf(groupId: string): Promise<PassView[]>;
 }

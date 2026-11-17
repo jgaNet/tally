@@ -55,8 +55,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
   async insert(expense: Expense): Promise<void> {
     const { id, groupId, description, amount, date, paidBy, splitKind, shares, version } = expense.toSnapshot();
     const connection = this.database.connection;
-    connection.exec('BEGIN IMMEDIATE');
-    try {
+    await this.database.file.transaction(() => {
       connection
         .prepare(
           'INSERT INTO ledger_expenses (id, group_id, description, amount, date, paid_by, version, split_kind, recorded_seq) ' +
@@ -65,18 +64,13 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
         .run(id, groupId, description, amount, date, paidBy, version + 1, splitKind);
       this.#insertShares(id, shares);
       this.#moveBalances(groupId, paidBy, amount, shares, 1);
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
   async save(expense: Expense): Promise<void> {
     const { id, groupId, description, amount, date, paidBy, splitKind, shares, version } = expense.toSnapshot();
     const connection = this.database.connection;
-    connection.exec('BEGIN IMMEDIATE');
-    try {
+    await this.database.file.transaction(() => {
       const stored = this.#storedAt(id, version);
       if (!stored) throw new ConcurrencyConflictException('Ledger', 'The expense changed since it was read');
       // The balances the stored expense counted are taken back, and the edited expense's counted, in this transaction.
@@ -89,29 +83,24 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
       this.#insertShares(id, shares);
       this.#moveBalances(groupId, paidBy, amount, shares, 1);
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
+    });
+  }
+
+  inTransaction<T>(work: () => Promise<T>): Promise<T> {
+    return this.database.file.transaction(work);
   }
 
   async remove(expense: Expense): Promise<void> {
     const { id, groupId, paidBy, amount, shares, version } = expense.toSnapshot();
     const connection = this.database.connection;
-    connection.exec('BEGIN IMMEDIATE');
-    try {
+    await this.database.file.transaction(() => {
       if (!this.#storedAt(id, version))
         throw new ConcurrencyConflictException('Ledger', 'The expense changed since it was read');
       // The shares go first: they refer to the expense, and the database enforces that reference.
       connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
       connection.prepare('DELETE FROM ledger_expenses WHERE id = ?').run(id);
       this.#moveBalances(groupId, paidBy, amount, shares, -1);
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
   async expenseOf(id: string): Promise<ExpenseView | undefined> {

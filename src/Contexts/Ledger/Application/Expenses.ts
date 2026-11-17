@@ -46,21 +46,23 @@ export const recordExpense = command(
   'RecordExpense',
   (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
     async ({ groupId, description, amount, date, split }: RecordExpenseInput, context) => {
-      const payer = callerOf(context);
-      const members = await groupMembers.membersOf(groupId, payer);
-      if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
+      return expenses.inTransaction(async () => {
+        const payer = callerOf(context);
+        const members = await groupMembers.membersOf(groupId, payer);
+        if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
 
-      const decision = decideRecordExpense(
-        { memberIds: memberIdsOf(members) },
-        { description, amount, date, split, payer },
-        clock(),
-      );
-      if (decision.isFailure()) return decision;
+        const decision = decideRecordExpense(
+          { memberIds: memberIdsOf(members) },
+          { description, amount, date, split, payer },
+          clock(),
+        );
+        if (decision.isFailure()) return decision;
 
-      const expense = Expense.register({ groupId, ...decision.data.state });
-      await expenses.insert(expense);
-      await publishDomainEvents(expense, context);
-      return Result.ok(expense._id.value);
+        const expense = Expense.register({ groupId, ...decision.data.state });
+        await expenses.insert(expense);
+        await publishDomainEvents(expense, context);
+        return Result.ok(expense._id.value);
+      });
     },
 );
 
@@ -74,24 +76,26 @@ export const editExpense = command(
   'EditExpense',
   (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
     async ({ id, description, amount, date, split, version }: EditExpenseInput, context) => {
-      const by = callerOf(context);
-      const expense = await expenses.get(id);
-      if (!expense) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
-      const stored = expense.toSnapshot();
-      const members = await groupMembers.membersOf(stored.groupId, by);
-      if (!members) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
+      return expenses.inTransaction(async () => {
+        const by = callerOf(context);
+        const expense = await expenses.get(id);
+        if (!expense) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
+        const stored = expense.toSnapshot();
+        const members = await groupMembers.membersOf(stored.groupId, by);
+        if (!members) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
 
-      const decision = decideEditExpense(
-        { expense: stored, memberIds: memberIdsOf(members), ownerId: ownerIdOf(members) },
-        { by, description, amount, date, split, version },
-        clock(),
-      );
-      if (decision.isFailure()) return decision;
+        const decision = decideEditExpense(
+          { expense: stored, memberIds: memberIdsOf(members), ownerId: ownerIdOf(members) },
+          { by, description, amount, date, split, version },
+          clock(),
+        );
+        if (decision.isFailure()) return decision;
 
-      expense.revise(decision.data.state);
-      await expenses.save(expense);
-      await publishDomainEvents(expense, context);
-      return Result.ok(undefined);
+        expense.revise(decision.data.state);
+        await expenses.save(expense);
+        await publishDomainEvents(expense, context);
+        return Result.ok(undefined);
+      });
     },
 );
 
@@ -103,24 +107,26 @@ export const deleteExpense = command(
   'DeleteExpense',
   (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
     async ({ id }: { id: string }, context) => {
-      const by = callerOf(context);
-      const expense = await expenses.get(id);
-      if (!expense) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
-      const stored: ExpenseSnapshot = expense.toSnapshot();
-      const members = await groupMembers.membersOf(stored.groupId, by);
-      if (!members) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
+      return expenses.inTransaction(async () => {
+        const by = callerOf(context);
+        const expense = await expenses.get(id);
+        if (!expense) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
+        const stored: ExpenseSnapshot = expense.toSnapshot();
+        const members = await groupMembers.membersOf(stored.groupId, by);
+        if (!members) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
 
-      const decision = decideDeleteExpense(
-        { expense: stored, memberIds: memberIdsOf(members), ownerId: ownerIdOf(members) },
-        { by },
-        clock(),
-      );
-      if (decision.isFailure()) return decision;
+        const decision = decideDeleteExpense(
+          { expense: stored, memberIds: memberIdsOf(members), ownerId: ownerIdOf(members) },
+          { by },
+          clock(),
+        );
+        if (decision.isFailure()) return decision;
 
-      expense.delete();
-      await expenses.remove(expense);
-      await publishDomainEvents(expense, context);
-      return Result.ok(undefined);
+        expense.delete();
+        await expenses.remove(expense);
+        await publishDomainEvents(expense, context);
+        return Result.ok(undefined);
+      });
     },
 );
 

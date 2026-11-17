@@ -29,8 +29,7 @@ export class SqlitePayoutAccounts implements IPayoutAccounts {
 
   async save(account: PayoutAccount): Promise<void> {
     const connection = this.database.connection;
-    connection.exec('BEGIN IMMEDIATE');
-    try {
+    await this.database.file.transaction(() => {
       const stored = connection
         .prepare('SELECT version FROM payout_accounts WHERE owner_id = ?')
         .get(account.ownerId) as { version: number } | undefined;
@@ -47,10 +46,6 @@ export class SqlitePayoutAccounts implements IPayoutAccounts {
           .prepare('INSERT INTO payout_accounts (id, owner_id, account_id, version) VALUES (?, ?, ?, ?)')
           .run(account.payoutAccountId, account.ownerId, account.accountId, account.version + 1);
       }
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 }

@@ -12,10 +12,23 @@ export interface MemberOfGroup {
  * by an adapter over Groups' read model (`GroupMembersOfGroups`, in the wiring of this context). It answers each member's
  * role too, so that Ledger knows who the group's owner is (feature 6).
  */
+/** A balance that passed from a member who left the group to its owner, when it left (request 20). */
+export interface BalancePass {
+  from: string;
+  to: string;
+  amount: number;
+}
+
 export interface IGroupMembers {
   /**
    * The members of the group, in the order they joined, with their roles, if `askedBy` is one of them; `undefined` when it
    * is not, or the group is not there: to anyone else a group does not exist.
    */
   membersOf(groupId: string, askedBy: string): Promise<MemberOfGroup[] | undefined>;
+  /**
+   * The balances that passed to owners when members left the group, in the order they passed (request 20): Ledger counts each in the
+   * balances it reports, from the member to the owner, so that the balances still add up to 0 and a member who left and joins again
+   * starts at 0. Asked by no member: it is what the balances are read with.
+   */
+  passesOf(groupId: string): Promise<BalancePass[]>;
 }

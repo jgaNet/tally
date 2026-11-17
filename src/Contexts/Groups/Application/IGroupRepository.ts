@@ -14,4 +14,9 @@ export interface IGroupRepository {
    * since are inserted, those who left are removed (feature 9).
    */
   save(group: Group): Promise<void>;
+  /**
+   * Runs `work` in one transaction on the groups' file: what it reads is read and written as one state, so no other writer comes between
+   * its read and its write (ADR 17). A save inside it joins it.
+   */
+  inTransaction<T>(work: () => Promise<T>): Promise<T>;
 }

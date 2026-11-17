@@ -19,4 +19,9 @@ export interface ISettlementBooks {
    * no longer at the stored version with a `ConcurrencyConflictException`: the caller re-reads and decides again (CONC-OPTIMISTIC).
    */
   save(book: SettlementBook): Promise<void>;
+  /**
+   * Runs `work` in one transaction on the settlements' file: the book and the balances it is decided on are read and written as one state,
+   * so no expense or settlement is recorded between the read and the write (ADR 17). A save inside it joins it.
+   */
+  inTransaction<T>(work: () => Promise<T>): Promise<T>;
 }

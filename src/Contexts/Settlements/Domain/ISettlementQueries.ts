@@ -44,4 +44,9 @@ export interface ISettlementQueries {
   settledOf(groupId: string): Promise<SettledTransfer[]>;
   /** Every payment waiting at the provider in the group, in no order: what is still owed counts them as paid (ADR 12). */
   pendingOf(groupId: string): Promise<PendingTransfer[]>;
+  /**
+   * Whether a payment through the provider of the member, as payer or payee, is waiting, pending or being refunded in the group: a member
+   * with one cannot leave the group (request 20, ADR 16).
+   */
+  hasWaitingPayment(groupId: string, memberId: string): Promise<boolean>;
 }

@@ -85,10 +85,13 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
     return row ? this.bookOf(row.group_id) : undefined;
   }
 
+  inTransaction<T>(work: () => Promise<T>): Promise<T> {
+    return this.database.file.transaction(work);
+  }
+
   async save(book: SettlementBook): Promise<void> {
     const connection = this.database.connection;
-    connection.exec('BEGIN IMMEDIATE');
-    try {
+    await this.database.file.transaction(() => {
       const stored = connection.prepare('SELECT version FROM settlement_books WHERE group_id = ?').get(book.groupId) as
         { version: number } | undefined;
       // A book never stored is at version 0; any other is at the version it was stored at.
@@ -132,11 +135,7 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
         update.run(status, id);
         history.run(id, status, at);
       }
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
   async settlementOf(id: string): Promise<SettlementView | undefined> {
@@ -174,6 +173,17 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
       .prepare(`SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND status IN ${COUNTED_STATUSES}`)
       .all(groupId) as { payer: string; payee: string; amount: number }[];
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
+  }
+
+  async hasWaitingPayment(groupId: string, memberId: string): Promise<boolean> {
+    const row = this.database.connection
+      .prepare(
+        `SELECT 1 AS waiting FROM settlements
+          WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding') AND (payer = ? OR payee = ?)
+          LIMIT 1`,
+      )
+      .get(groupId, memberId, memberId);
+    return row !== undefined;
   }
 
   async pendingOf(groupId: string): Promise<PendingTransfer[]> {

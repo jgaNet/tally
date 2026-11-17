@@ -15,49 +15,54 @@ function groupOf(owner: string, member: string): Group {
   return group;
 }
 
-describe('decideLeaveGroup (request 9)', () => {
-  it('lets a member leave once their balance is 0', () => {
-    expect(decideLeaveGroup({ ownerId: 'owner', balance: 0 }, { by: 'member' }, new Date()).isFailure()).toBe(false);
+describe('decideLeaveGroup (request 20)', () => {
+  it('lets a member leave whatever their balance, and answers the balance that passes to the owner', () => {
+    for (const balance of [0, 300, -300]) {
+      const decision = decideLeaveGroup({ ownerId: 'owner', balance, waiting: false }, { by: 'member' }, new Date());
+      expect(decision.isFailure()).toBe(false);
+      expect(decision.data?.state.balancePassed).toBe(balance);
+    }
   });
 
   it('refuses the owner, whatever their balance', () => {
-    const decision = decideLeaveGroup({ ownerId: 'owner', balance: 0 }, { by: 'owner' }, new Date());
+    const decision = decideLeaveGroup({ ownerId: 'owner', balance: 0, waiting: false }, { by: 'owner' }, new Date());
     expect(decision.error?.type).toBe('OwnerCannotLeave');
   });
 
-  it('refuses a member whose balance is not 0, owed or owing', () => {
-    expect(decideLeaveGroup({ ownerId: 'owner', balance: 300 }, { by: 'member' }, new Date()).error?.type).toBe(
-      'BalanceNotZero',
-    );
-    expect(decideLeaveGroup({ ownerId: 'owner', balance: -1 }, { by: 'member' }, new Date()).error?.type).toBe(
-      'BalanceNotZero',
-    );
+  it('refuses a member while a payment of theirs through the provider waits', () => {
+    const decision = decideLeaveGroup({ ownerId: 'owner', balance: 0, waiting: true }, { by: 'member' }, new Date());
+    expect(decision.error?.type).toBe('PaymentWaiting');
   });
 });
 
-describe('Group.leave (request 9)', () => {
-  it('takes the member out and records MemberLeft, the owner staying first', () => {
+describe('Group.leave (request 20)', () => {
+  it('takes the member out, records MemberLeft and BalancePassed to the owner, the owner staying first', () => {
     const group = groupOf('owner', 'member');
 
-    const left = group.leave('member', new Date('2020-02-01T10:00:00Z'));
+    const left = group.leave('member', new Date('2020-02-01T10:00:00Z'), -300);
 
     expect(left.isFailure()).toBe(false);
     expect(group.hasMember('member')).toBe(false);
     expect(group.members.map(member => member.accountId)).toEqual(['owner']);
     const events = group.pullDomainEvents();
-    expect(events.map(event => event.constructor.name)).toContain('MemberLeftEvent');
+    expect(events.map(event => event.constructor.name)).toEqual(
+      expect.arrayContaining(['MemberLeftEvent', 'BalancePassedEvent']),
+    );
+    expect(group.newPasses).toEqual([
+      { from: 'member', to: 'owner', amount: -300, at: new Date('2020-02-01T10:00:00Z') },
+    ]);
   });
 
   it('refuses the owner, and an account that is not a member', () => {
     const group = groupOf('owner', 'member');
-    expect(group.leave('owner', new Date()).error?.type).toBe('OwnerCannotLeave');
-    expect(group.leave('stranger', new Date()).error?.type).toBe('NotFound');
+    expect(group.leave('owner', new Date(), 0).error?.type).toBe('OwnerCannotLeave');
+    expect(group.leave('stranger', new Date(), 0).error?.type).toBe('NotFound');
   });
 
   it('lets a member who left join again, last', () => {
     const group = groupOf('owner', 'member');
     group.join('other', new Date('2020-01-03T10:00:00Z'));
-    group.leave('member', new Date('2020-02-01T10:00:00Z'));
+    group.leave('member', new Date('2020-02-01T10:00:00Z'), 0);
 
     group.join('member', new Date('2020-03-01T10:00:00Z'));
 

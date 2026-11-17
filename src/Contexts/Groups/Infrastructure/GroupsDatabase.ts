@@ -1,4 +1,7 @@
+import { randomBytes } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+
+import { SqliteFile } from '@Architecture/Infrastructure/DataSources/SqliteFile';
 
 /**
  * The SQLite file the Groups context keeps its accounts, its groups, its invitations and its signing key in, opened on first
@@ -6,53 +9,75 @@ import { DatabaseSync } from 'node:sqlite';
  * writes, and a busy timeout lets a write wait its turn instead of failing.
  */
 export class GroupsDatabase {
-  #connection?: DatabaseSync;
+  #ready = false;
+  #file?: SqliteFile;
 
   constructor(private readonly pathOf: () => string) {}
 
-  get connection(): DatabaseSync {
-    if (!this.#connection) {
-      const connection = new DatabaseSync(this.pathOf());
-      connection.exec(`
-        PRAGMA busy_timeout = 5000;
-        PRAGMA journal_mode = WAL;
-        CREATE TABLE IF NOT EXISTS accounts (
-          id TEXT PRIMARY KEY,
-          email TEXT NOT NULL UNIQUE,
-          name TEXT NOT NULL,
-          password_hash TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS expense_groups (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          currency TEXT NOT NULL,
-          owner_id TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          version INTEGER NOT NULL DEFAULT 1
-        );
-        CREATE TABLE IF NOT EXISTS expense_group_members (
-          group_id TEXT NOT NULL REFERENCES expense_groups (id),
-          account_id TEXT NOT NULL,
-          joined_at TEXT NOT NULL DEFAULT '',
-          PRIMARY KEY (group_id, account_id)
-        );
-        CREATE INDEX IF NOT EXISTS expense_group_members_by_account ON expense_group_members (account_id);
-        CREATE TABLE IF NOT EXISTS invitations (
-          id TEXT PRIMARY KEY,
-          group_id TEXT NOT NULL REFERENCES expense_groups (id),
-          invited_by TEXT NOT NULL,
-          created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS settings (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL
-        );
-      `);
-      migrate(connection);
-      this.#connection = connection;
-    }
-    return this.#connection;
+  /** The file the groups are in, the one file of the process at that path (ADR 17): its writes are transactions. */
+  get file(): SqliteFile {
+    this.#file ??= SqliteFile.of(this.pathOf());
+    return this.#file;
   }
+
+  get connection(): DatabaseSync {
+    const connection = this.file.connection;
+    if (!this.#ready) {
+      this.#ready = this.file.schema(setUp);
+    }
+    return connection;
+  }
+}
+
+/** The tables of the groups, made once, and what a file written by an earlier feature needs (idempotent). */
+function setUp(connection: DatabaseSync): void {
+  connection.exec(`
+    CREATE TABLE IF NOT EXISTS accounts (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS expense_groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS expense_group_members (
+      group_id TEXT NOT NULL REFERENCES expense_groups (id),
+      account_id TEXT NOT NULL,
+      joined_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (group_id, account_id)
+    );
+    CREATE INDEX IF NOT EXISTS expense_group_members_by_account ON expense_group_members (account_id);
+    CREATE TABLE IF NOT EXISTS expense_group_passes (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_id TEXT NOT NULL REFERENCES expense_groups (id),
+      from_account TEXT NOT NULL,
+      to_account TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      passed_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS expense_group_passes_by_group ON expense_group_passes (group_id);
+    CREATE TABLE IF NOT EXISTS invitations (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL REFERENCES expense_groups (id),
+      invited_by TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+  // The signing key of the access tokens, generated once by the first server that sets the file up, and the same for every server after.
+  connection
+    .prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('token_key', ?)")
+    .run(randomBytes(32).toString('base64url'));
+  migrate(connection);
 }
 
 /**

@@ -33,7 +33,7 @@ const groupMembers = new GroupMembersOfGroups(() => groupsMembersReadModel);
 /** What the group's settlements paid, read from Settlements' read model at a request, never when the modules are built (ADR 7, ADR 11). */
 const settledAmounts = new SettledAmountsOfSettlements(() => settlementsReadModel);
 /** The balances as every reader sees them: the expenses', plus the settlements (request 12). */
-const balancesCountingSettlements = new BalancesCountingSettlements(expenses, settledAmounts);
+const balancesCountingSettlements = new BalancesCountingSettlements(expenses, settledAmounts, groupMembers);
 
 /**
  * The balances, the read model of the balances, which Groups asks through its own `MemberBalances` port before a member leaves

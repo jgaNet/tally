@@ -1,5 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 
+import { SqliteFile } from '@Architecture/Infrastructure/DataSources/SqliteFile';
+
 /** The columns request 13 added to the settlements table, which a database made by request 12 does not have yet. */
 const PROVIDER_COLUMNS = ['provider_payment_id', 'pay_url'];
 
@@ -9,16 +11,22 @@ const PROVIDER_COLUMNS = ['provider_payment_id', 'pay_url'];
  * lets them read while one writes, and a busy timeout lets a write wait its turn.
  */
 export class SettlementsDatabase {
-  #connection?: DatabaseSync;
+  #ready = false;
+  #file?: SqliteFile;
 
   constructor(private readonly pathOf: () => string) {}
 
+  /** The file the context's rows are in: the one file of the process at that path (ADR 17), whose writes are transactions. */
+  get file(): SqliteFile {
+    this.#file ??= SqliteFile.of(this.pathOf());
+    return this.#file;
+  }
+
   get connection(): DatabaseSync {
-    if (!this.#connection) {
-      const connection = new DatabaseSync(this.pathOf());
-      connection.exec(`
-        PRAGMA busy_timeout = 5000;
-        PRAGMA journal_mode = WAL;
+    const connection = this.file.connection;
+    if (!this.#ready) {
+      this.#ready = this.file.schema(connection => {
+        connection.exec(`
         CREATE TABLE IF NOT EXISTS settlement_books (
           id TEXT PRIMARY KEY,
           group_id TEXT NOT NULL UNIQUE,
@@ -51,25 +59,25 @@ export class SettlementsDatabase {
           version INTEGER NOT NULL
         );
       `);
-      // A database request 12 made has the table without the provider's columns: they are added, once, before anything reads them.
-      const columns = (connection.prepare('PRAGMA table_info(settlements)').all() as { name: string }[]).map(
-        column => column.name,
-      );
-      for (const column of PROVIDER_COLUMNS) {
-        if (!columns.includes(column)) connection.exec(`ALTER TABLE settlements ADD COLUMN ${column} TEXT`);
-      }
-      connection.exec(
-        'CREATE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id)',
-      );
-      // A settlement stored before its history was kept has no line of it: it gets the one it was recorded with, the only status Tally
-      // knows the time of (cash is recorded paid; through the provider, pending). Its later statuses are not known, and are not made up.
-      connection.exec(`
+        // A database request 12 made has the table without the provider's columns: they are added, once, before anything reads them.
+        const columns = (connection.prepare('PRAGMA table_info(settlements)').all() as { name: string }[]).map(
+          column => column.name,
+        );
+        for (const column of PROVIDER_COLUMNS) {
+          if (!columns.includes(column)) connection.exec(`ALTER TABLE settlements ADD COLUMN ${column} TEXT`);
+        }
+        connection.exec(
+          'CREATE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id)',
+        );
+        // A settlement stored before its history was kept has no line of it: it gets the one it was recorded with, the only status Tally
+        // knows the time of (cash is recorded paid; through the provider, pending). Its later statuses are not known, and are not made up.
+        connection.exec(`
         INSERT INTO settlement_history (settlement_id, status, at)
         SELECT id, CASE WHEN method = 'cash' THEN 'paid' ELSE 'pending' END, at FROM settlements
         WHERE id NOT IN (SELECT settlement_id FROM settlement_history);
       `);
-      this.#connection = connection;
+      });
     }
-    return this.#connection;
+    return connection;
   }
 }

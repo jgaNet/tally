@@ -1,7 +1,7 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { Group, GroupSnapshot } from '@Contexts/Groups/Domain/Group/Group';
 import { IGroupRepository } from '@Contexts/Groups/Application/IGroupRepository';
-import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/IGroupQueries';
+import { GroupView, IGroupQueries, MemberView, PassView } from '@Contexts/Groups/Domain/IGroupQueries';
 
 import { GroupsDatabase } from './GroupsDatabase';
 
@@ -33,20 +33,18 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
 
   async insert(group: Group): Promise<void> {
     const { id, name, currency, ownerId, createdAt, members } = group.toSnapshot();
-    const connection = this.database.connection;
-    connection.exec('BEGIN IMMEDIATE');
-    try {
-      connection
+    await this.database.file.transaction(() => {
+      this.database.connection
         .prepare(
           'INSERT INTO expense_groups (id, name, currency, owner_id, created_at, version) VALUES (?, ?, ?, ?, ?, ?)',
         )
         .run(id, name, currency, ownerId, createdAt, group.version + 1);
       this.insertMembers(id, members);
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
+    });
+  }
+
+  inTransaction<T>(work: () => Promise<T>): Promise<T> {
+    return this.database.file.transaction(work);
   }
 
   async get(id: string): Promise<Group | undefined> {
@@ -77,9 +75,8 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
 
   async save(group: Group): Promise<void> {
     const { id, members } = group.toSnapshot();
-    const connection = this.database.connection;
-    connection.exec('BEGIN IMMEDIATE');
-    try {
+    await this.database.file.transaction(() => {
+      const connection = this.database.connection;
       const updated = connection
         .prepare('UPDATE expense_groups SET version = ? WHERE id = ? AND version = ?')
         .run(group.version + 1, id, group.version);
@@ -95,11 +92,18 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
         )
         .run(id, ...kept);
       this.insertMembers(id, members);
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
+      const pass = connection.prepare(
+        'INSERT INTO expense_group_passes (group_id, from_account, to_account, amount, passed_at) VALUES (?, ?, ?, ?, ?)',
+      );
+      for (const { from, to, amount, at } of group.newPasses) pass.run(id, from, to, amount, at.toISOString());
+    });
+  }
+
+  async passesOf(groupId: string): Promise<PassView[]> {
+    const rows = this.database.connection
+      .prepare('SELECT from_account, to_account, amount FROM expense_group_passes WHERE group_id = ? ORDER BY seq')
+      .all(groupId) as { from_account: string; to_account: string; amount: number }[];
+    return rows.map(row => ({ from: row.from_account, to: row.to_account, amount: row.amount }));
   }
 
   async groupOf(id: string, memberId: string): Promise<GroupView | undefined> {

@@ -59,22 +59,24 @@ export const recordCashSettlement = command(
   'RecordCashSettlement',
   (books: ISettlementBooks, groupBalances: IGroupBalances, members: ISettlementMembers, clock: Clock) =>
     async ({ groupId, from, amount }: RecordCashSettlementInput, context) => {
-      const payee = callerOf(context);
-      const memberIds = await members.membersOf(groupId, payee);
-      if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No group is found'));
+      return books.inTransaction(async () => {
+        const payee = callerOf(context);
+        const memberIds = await members.membersOf(groupId, payee);
+        if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No group is found'));
 
-      // The book is read before the balances: a settlement recorded after this read moves the version, so the save refuses this
-      // decision and the retry reads the balances again; a settlement recorded before it is in the balances read below.
-      const book = await books.bookOf(groupId);
-      const balances = book.stillOwed(await groupBalances.balancesOf(groupId));
-      const now = clock();
-      const decision = decideRecordCashSettlement({ memberIds, balances }, { payee, from, amount }, now);
-      if (decision.isFailure()) return decision;
+        // The book is read before the balances: a settlement recorded after this read moves the version, so the save refuses this
+        // decision and the retry reads the balances again; a settlement recorded before it is in the balances read below.
+        const book = await books.bookOf(groupId);
+        const balances = book.stillOwed(await groupBalances.balancesOf(groupId));
+        const now = clock();
+        const decision = decideRecordCashSettlement({ memberIds, balances }, { payee, from, amount }, now);
+        if (decision.isFailure()) return decision;
 
-      const settlementId = book.recordCash({ ...decision.data.state, at: now });
-      await books.save(book);
-      await publishDomainEvents(book, context);
-      return Result.ok(settlementId);
+        const settlementId = book.recordCash({ ...decision.data.state, at: now });
+        await books.save(book);
+        await publishDomainEvents(book, context);
+        return Result.ok(settlementId);
+      });
     },
 );
 
@@ -105,29 +107,35 @@ export const payThroughProvider = command(
     clock: Clock,
   ) =>
     async ({ groupId, to, amount }: PayThroughProviderInput, context) => {
-      const payer = callerOf(context);
-      const memberIds = await members.membersOf(groupId, payer);
-      if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No group is found'));
-      const currency = await members.currencyOf(groupId, payer);
-      if (currency === undefined) return Result.fail(new NotFoundException('Settlements', 'No group is found'));
+      return books.inTransaction(async () => {
+        const payer = callerOf(context);
+        const memberIds = await members.membersOf(groupId, payer);
+        if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No group is found'));
+        const currency = await members.currencyOf(groupId, payer);
+        if (currency === undefined) return Result.fail(new NotFoundException('Settlements', 'No group is found'));
 
-      // As the cash settlement: the book is read before the balances, so a decision made on a state another request changed is refused at save.
-      const book = await books.bookOf(groupId);
-      const balances = book.stillOwed(await groupBalances.balancesOf(groupId));
-      const payeeAccount = (await payoutAccounts.ofOwner(to))?.accountId;
-      const now = clock();
-      const decision = decideRequestProviderPayment({ memberIds, balances, payeeAccount }, { payer, to, amount }, now);
-      if (decision.isFailure()) return decision;
+        // As the cash settlement: the book is read before the balances, so a decision made on a state another request changed is refused at save.
+        const book = await books.bookOf(groupId);
+        const balances = book.stillOwed(await groupBalances.balancesOf(groupId));
+        const payeeAccount = (await payoutAccounts.ofOwner(to))?.accountId;
+        const now = clock();
+        const decision = decideRequestProviderPayment(
+          { memberIds, balances, payeeAccount },
+          { payer, to, amount },
+          now,
+        );
+        if (decision.isFailure()) return decision;
 
-      const { payeeAccount: payee, ...payment } = decision.data.state;
-      const link = await provider.paymentLinkFor({ reference: payment.id, amount: payment.amount, currency, payee });
-      if (!link) return Result.fail(new ProviderUnavailableException());
+        const { payeeAccount: payee, ...payment } = decision.data.state;
+        const link = await provider.paymentLinkFor({ reference: payment.id, amount: payment.amount, currency, payee });
+        if (!link) return Result.fail(new ProviderUnavailableException());
 
-      // The book records the payment with the link in hand; the save refuses it if the book moved since it was read.
-      book.requestPayment({ ...payment, at: now, providerPaymentId: link.id, payUrl: link.payUrl });
-      await books.save(book);
-      await publishDomainEvents(book, context);
-      return Result.ok(payment.id);
+        // The book records the payment with the link in hand; the save refuses it if the book moved since it was read.
+        book.requestPayment({ ...payment, at: now, providerPaymentId: link.id, payUrl: link.payUrl });
+        await books.save(book);
+        await publishDomainEvents(book, context);
+        return Result.ok(payment.id);
+      });
     },
 );
 
@@ -185,31 +193,33 @@ export const refundSettlement = command(
     clock: Clock,
   ) =>
     async ({ id }: RefundSettlementInput, context) => {
-      const payee = callerOf(context);
-      const now = clock();
-      // The book is read before the settlement and the members: as the other decisions, a change after this read moves the version.
-      const book = await books.bookOfSettlement(id);
-      if (!book) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
-      const settlement = await settlements.settlementOf(id);
-      if (!settlement) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
-      const memberIds = await members.membersOf(book.groupId, payee);
-      if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+      return books.inTransaction(async () => {
+        const payee = callerOf(context);
+        const now = clock();
+        // The book is read before the settlement and the members: as the other decisions, a change after this read moves the version.
+        const book = await books.bookOfSettlement(id);
+        if (!book) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+        const settlement = await settlements.settlementOf(id);
+        if (!settlement) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+        const memberIds = await members.membersOf(book.groupId, payee);
+        if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
 
-      const decision = decideRefundSettlement({ memberIds, settlement }, { caller: payee }, now);
-      if (decision.isFailure()) return decision;
+        const decision = decideRefundSettlement({ memberIds, settlement }, { caller: payee }, now);
+        if (decision.isFailure()) return decision;
 
-      // A paid settlement is held by the book, with the provider's id for it: a settlement the book does not hold is not one it can refund.
-      const paymentId = book.providerPaymentOf(id);
-      if (paymentId === undefined) throw new Error(`The paid settlement ${id} is not held by its book`);
-      // The provider is asked outside the write; a refusal keeps nothing.
-      if (!(await provider.refundPayment({ paymentId, reference: id }))) {
-        return Result.fail(new ProviderRefundUnavailableException());
-      }
+        // A paid settlement is held by the book, with the provider's id for it: a settlement the book does not hold is not one it can refund.
+        const paymentId = book.providerPaymentOf(id);
+        if (paymentId === undefined) throw new Error(`The paid settlement ${id} is not held by its book`);
+        // The provider is asked outside the write; a refusal keeps nothing.
+        if (!(await provider.refundPayment({ paymentId, reference: id }))) {
+          return Result.fail(new ProviderRefundUnavailableException());
+        }
 
-      book.requestRefund(id, now);
-      await books.save(book);
-      await publishDomainEvents(book, context);
-      return Result.ok(undefined);
+        book.requestRefund(id, now);
+        await books.save(book);
+        await publishDomainEvents(book, context);
+        return Result.ok(undefined);
+      });
     },
 );
 

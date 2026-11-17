@@ -12,9 +12,11 @@ export class SqliteInvitations implements IInvitationRepository, IInvitationQuer
 
   async insert(invitation: Invitation): Promise<void> {
     const { id, groupId, invitedBy, createdAt } = invitation.toSnapshot();
-    this.database.connection
-      .prepare('INSERT INTO invitations (id, group_id, invited_by, created_at) VALUES (?, ?, ?, ?)')
-      .run(id, groupId, invitedBy, createdAt);
+    await this.database.file.transaction(() => {
+      this.database.connection
+        .prepare('INSERT INTO invitations (id, group_id, invited_by, created_at) VALUES (?, ?, ?, ?)')
+        .run(id, groupId, invitedBy, createdAt);
+    });
   }
 
   async get(id: string): Promise<Invitation | undefined> {

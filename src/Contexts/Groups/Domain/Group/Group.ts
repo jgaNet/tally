@@ -1,6 +1,6 @@
 import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
-import { GroupCreatedEvent, MemberJoinedEvent, MemberLeftEvent } from './GroupEvents';
+import { BalancePassedEvent, GroupCreatedEvent, MemberJoinedEvent, MemberLeftEvent } from './GroupEvents';
 import { Currency, CurrencyCode } from './Currency';
 import { AlreadyMemberException, OwnerCannotLeaveException } from './GroupExceptions';
 import { GroupName } from './GroupName';
@@ -22,6 +22,14 @@ export interface GroupSnapshot {
   version: number;
 }
 
+/** A balance that passed from a member who left to the owner, when it left (request 20): what the member's balance was, and the owner. */
+export interface GroupPass {
+  from: string;
+  to: string;
+  amount: number;
+  at: Date;
+}
+
 /** A member of a group: the account, and when it joined. The owner is the first, joined when the group was created. */
 export interface GroupMember {
   readonly accountId: string;
@@ -40,6 +48,7 @@ export class Group extends AggregateRoot {
   readonly #ownerId: string;
   readonly #createdAt: Date;
   readonly #members: GroupMember[];
+  readonly #passes: GroupPass[] = [];
 
   private constructor(
     id: Id,
@@ -118,17 +127,33 @@ export class Group extends AggregateRoot {
   }
 
   /**
-   * A member leaves the group at `at`: it is no longer among its members, and the group is not among its groups. Refused for
-   * the owner, who stays, and for an account that is not a member. Recorded as `MemberLeft`; whether its balance is 0 is the
-   * decision's to say (`decideLeaveGroup`), before this is called.
+   * A member leaves the group at `at`, its balance of `balancePassed` passing to the owner in the same step (request 20): it is no
+   * longer among its members, and the group is not among its groups. Recorded as `MemberLeft` and `BalancePassed`. Refused for the
+   * owner, who stays, and for an account that is not a member; whether the leaving may be is the decision's to say
+   * (`decideLeaveGroup`), before this is called.
    */
-  leave(accountId: string, at: Date): IResult<void> {
+  leave(accountId: string, at: Date, balancePassed: number): IResult<void> {
     if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
     const index = this.#members.findIndex(member => member.accountId === accountId);
     if (index === -1) return Result.fail(new NotFoundException('Groups', 'No group is found'));
     this.#members.splice(index, 1);
+    this.#passes.push({ from: accountId, to: this.#ownerId, amount: balancePassed, at });
     this.record(MemberLeftEvent.set({ groupId: this._id.value, accountId, leftAt: at }));
+    this.record(
+      BalancePassedEvent.set({
+        groupId: this._id.value,
+        from: accountId,
+        to: this.#ownerId,
+        amount: balancePassed,
+        at,
+      }),
+    );
     return Result.ok(undefined);
+  }
+
+  /** The balances that passed to the owner by leaving, made since the group was read: what the repository stores with the group. */
+  get newPasses(): readonly GroupPass[] {
+    return [...this.#passes];
   }
 
   hasMember(accountId: string): boolean {

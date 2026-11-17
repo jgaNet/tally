@@ -23,9 +23,11 @@ export class SqliteAccounts implements IAccountRepository, IAccountQueries {
   async insert(account: Account): Promise<boolean> {
     const { id, email, name, passwordHash } = account.toSnapshot();
     try {
-      this.database.connection
-        .prepare('INSERT INTO accounts (id, email, name, password_hash) VALUES (?, ?, ?, ?)')
-        .run(id, email, name, passwordHash);
+      await this.database.file.transaction(() => {
+        this.database.connection
+          .prepare('INSERT INTO accounts (id, email, name, password_hash) VALUES (?, ?, ?, ?)')
+          .run(id, email, name, passwordHash);
+      });
       return true;
     } catch (error) {
       // The unique index on the email refused it: another account took the email, possibly on another server.

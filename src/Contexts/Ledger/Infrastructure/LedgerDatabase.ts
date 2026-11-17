@@ -1,21 +1,29 @@
 import { DatabaseSync } from 'node:sqlite';
 
+import { SqliteFile } from '@Architecture/Infrastructure/DataSources/SqliteFile';
+
 /**
  * The SQLite file the Ledger context keeps its expenses in, opened on first use at the path `pathOf` gives then. It is
  * the application's database file, under tables of its own (ADR 5), and several servers may open it: WAL lets them read
  * while one writes, and a busy timeout lets a write wait its turn.
  */
 export class LedgerDatabase {
-  #connection?: DatabaseSync;
+  #ready = false;
+  #file?: SqliteFile;
 
   constructor(private readonly pathOf: () => string) {}
 
+  /** The file the context's rows are in: the one file of the process at that path (ADR 17), whose writes are transactions. */
+  get file(): SqliteFile {
+    this.#file ??= SqliteFile.of(this.pathOf());
+    return this.#file;
+  }
+
   get connection(): DatabaseSync {
-    if (!this.#connection) {
-      const connection = new DatabaseSync(this.pathOf());
-      connection.exec(`
-        PRAGMA busy_timeout = 5000;
-        PRAGMA journal_mode = WAL;
+    const connection = this.file.connection;
+    if (!this.#ready) {
+      this.#ready = this.file.schema(connection => {
+        connection.exec(`
         CREATE TABLE IF NOT EXISTS ledger_expenses (
           id TEXT PRIMARY KEY,
           group_id TEXT NOT NULL,
@@ -35,10 +43,10 @@ export class LedgerDatabase {
           PRIMARY KEY (expense_id, position)
         );
       `);
-      this.#migrate(connection);
-      this.#connection = connection;
+        this.#migrate(connection);
+      });
     }
-    return this.#connection;
+    return connection;
   }
 
   /**
@@ -54,33 +62,31 @@ export class LedgerDatabase {
    *   transaction as the expenses that move it. When a file had expenses before it existed, it is filled from them.
    */
   #migrate(connection: DatabaseSync): void {
-    connection.exec('BEGIN IMMEDIATE');
-    try {
-      const hasVersion = connection
-        .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'version'")
-        .get();
-      if (!hasVersion) {
-        connection.exec('ALTER TABLE ledger_expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
-      }
-      const hasSplitKind = connection
-        .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'split_kind'")
-        .get();
-      if (!hasSplitKind) {
-        connection.exec("ALTER TABLE ledger_expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
-      }
-      const hasRecordedSeq = connection
-        .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'recorded_seq'")
-        .get();
-      if (!hasRecordedSeq) {
-        connection.exec('ALTER TABLE ledger_expenses ADD COLUMN recorded_seq INTEGER NOT NULL DEFAULT 0');
-        // Every expense a file holds was recorded before this column existed, in the order its rows were written.
-        connection.exec('UPDATE ledger_expenses SET recorded_seq = rowid');
-      }
-      const hasBalances = connection
-        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_balances'")
-        .get();
-      if (!hasBalances) {
-        connection.exec(`
+    const hasVersion = connection
+      .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'version'")
+      .get();
+    if (!hasVersion) {
+      connection.exec('ALTER TABLE ledger_expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1');
+    }
+    const hasSplitKind = connection
+      .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'split_kind'")
+      .get();
+    if (!hasSplitKind) {
+      connection.exec("ALTER TABLE ledger_expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
+    }
+    const hasRecordedSeq = connection
+      .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'recorded_seq'")
+      .get();
+    if (!hasRecordedSeq) {
+      connection.exec('ALTER TABLE ledger_expenses ADD COLUMN recorded_seq INTEGER NOT NULL DEFAULT 0');
+      // Every expense a file holds was recorded before this column existed, in the order its rows were written.
+      connection.exec('UPDATE ledger_expenses SET recorded_seq = rowid');
+    }
+    const hasBalances = connection
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_balances'")
+      .get();
+    if (!hasBalances) {
+      connection.exec(`
           CREATE TABLE ledger_balances (
             group_id TEXT NOT NULL,
             member_id TEXT NOT NULL,
@@ -95,11 +101,6 @@ export class LedgerDatabase {
                 FROM ledger_expense_shares s JOIN ledger_expenses e ON e.id = s.expense_id
             ) GROUP BY group_id, member_id;
         `);
-      }
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
     }
   }
 }

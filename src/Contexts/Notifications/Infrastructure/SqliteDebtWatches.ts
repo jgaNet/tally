@@ -42,8 +42,7 @@ export class SqliteDebtWatches implements IDebtWatches {
   async save(watch: DebtWatch, reminder?: Notice): Promise<void> {
     const connection = this.database.connection;
     const { id, groupId, memberId, notedSince, remindedAt } = watch.toSnapshot();
-    connection.exec('BEGIN IMMEDIATE');
-    try {
+    await this.database.file.transaction(() => {
       const stored = connection
         .prepare('SELECT version FROM notifications_debt_watches WHERE group_id = ? AND member_id = ?')
         .get(groupId, memberId) as { version: number } | undefined;
@@ -72,10 +71,6 @@ export class SqliteDebtWatches implements IDebtWatches {
           reminder,
         );
       }
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 }

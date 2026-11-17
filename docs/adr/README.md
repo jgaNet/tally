@@ -20,6 +20,8 @@ why, what it costs, and when to revisit it.
 | [13](0013-a-refund-is-a-status-of-the-settlement-the-book-holds-its-live-payments.md) | A refund is a status of the settlement, and the SettlementBook holds the payments that are still live |
 | [14](0014-notices-from-an-integration-event-of-ledger.md) | Notices come from ExpenseRecorded, Tally's first integration event, through the outbox |
 | [15](0015-reminders-from-a-sweep-over-what-settlements-says-is-owed.md) | Reminders come from a sweep of the background job over what Settlements says is still owed |
+| [16](0016-leaving-passes-the-balance-to-the-owner.md) | Leaving a group passes the member's balance to the owner, and Settlements answers whether a payment waits |
+| [17](0017-the-writes-of-one-file-are-transactions-that-take-turns.md) | The writes of one database file are transactions that take turns, on one connection per process |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

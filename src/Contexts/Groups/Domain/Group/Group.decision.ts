@@ -2,7 +2,7 @@ import { Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
 
 import { Currency } from './Currency';
-import { BalanceNotZeroException, OwnerCannotLeaveException } from './GroupExceptions';
+import { OwnerCannotLeaveException, PaymentWaitingException } from './GroupExceptions';
 import { GroupName } from './GroupName';
 
 /** What a creation says: the name and the currency as typed. */
@@ -35,22 +35,32 @@ export interface LeaveGroupCommand {
   by: string;
 }
 
-/** What a leaving is given: the group's owner, and the caller's balance in the group, read from Ledger (MemberBalances). */
+/**
+ * What a leaving is given: the group's owner, the caller's balance in the group (read from Ledger, MemberBalances), and whether a
+ * payment of the caller's through the provider is waiting, pending or being refunded (read from Settlements, WaitingPayments).
+ */
 export interface LeavingGroup {
   ownerId: string;
   balance: number;
+  waiting: boolean;
+}
+
+/** What a leaving answers: the balance that passes to the owner in the same step (request 20). */
+export interface LeftGroupValues {
+  balancePassed: number;
 }
 
 /**
- * A member leaves a group, as the storm decided it (request 9): the owner never does, and a member does only once their
- * balance in the group is 0, so that the group's balances still add up to 0 (the balance is read from Ledger before this
- * decides). It answers no state: the use case takes the member out with `Group.leave`, which records `MemberLeft`.
+ * A member leaves a group, as request 20 has it: the owner never does; a member may whatever their balance, which passes to the
+ * owner (the answer's `balancePassed`, so the group's balances still add up to 0); and a member does not while a payment of theirs
+ * through the provider waits, since a payment that lands after they left would change a former member's balance. It answers the
+ * balance to pass: the use case takes the member out with `Group.leave`, which records `MemberLeft` and `BalancePassed`.
  */
-export const decideLeaveGroup: Decision<undefined, LeaveGroupCommand, never, LeavingGroup> = (
-  { ownerId, balance },
+export const decideLeaveGroup: Decision<LeftGroupValues, LeaveGroupCommand, never, LeavingGroup> = (
+  { ownerId, balance, waiting },
   { by },
 ) => {
   if (by === ownerId) return Result.fail(new OwnerCannotLeaveException());
-  if (balance !== 0) return Result.fail(new BalanceNotZeroException());
-  return decided(undefined);
+  if (waiting) return Result.fail(new PaymentWaitingException());
+  return decided({ balancePassed: balance });
 };

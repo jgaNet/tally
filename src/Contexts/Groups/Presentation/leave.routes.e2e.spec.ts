@@ -75,7 +75,7 @@ describe('leaving a group', () => {
     expect((await membersOf(groupId, owner.token)).body).toHaveLength(2);
   });
 
-  it('refuses a member whose balance is not 0, and lets them leave once it is', async () => {
+  it('lets a member leave whatever their balance, which passes to the owner in the same step', async () => {
     const owner = await signedInPerson('Owner');
     const grace = await signedInPerson('Grace');
     const groupId = await groupWith(owner, [grace]);
@@ -85,16 +85,11 @@ describe('leaving a group', () => {
       owner.token,
     );
 
-    const refused = await leave(groupId, grace.token);
-    expect((refused.body as { type: string }).type).toBe('BalanceNotZero');
-
-    // Grace pays 100 split with the owner: she paid 100 and owes 50, so her balance goes from -50 to 0, the owner's from 50 to 0.
-    await record(
-      groupId,
-      { description: 'Settle', amount: 100, date: '2020-01-16', splitBetween: [grace.id, owner.id] },
-      grace.token,
-    );
+    // Grace owes 50 (her balance is -50), the owner is owed 50: when Grace leaves, the 50 she owes passes to the owner.
     expect((await leave(groupId, grace.token)).status).toBe(204);
+
+    const balances = (await balancesOf(groupId, owner.token)).body as { memberId: string; balance: number }[];
+    expect(balances).toEqual([{ memberId: owner.id, balance: 0 }]);
   });
 
   it('takes the member out: the group is gone for them, and they are not among its members', async () => {
@@ -172,8 +167,73 @@ describe('leaving a group', () => {
   });
 });
 
+describe('a leave and an expense at the same moment (request 20)', () => {
+  it('counts the expense in what passes or refuses it, and the balances add up to 0 either way', async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const owner = await signedInPerson('Owner');
+      const grace = await signedInPerson('Grace');
+      const linus = await signedInPerson('Linus');
+      const groupId = await groupWith(owner, [grace, linus]);
+
+      const [left, expense] = await Promise.all([
+        leave(groupId, grace.token),
+        record(
+          groupId,
+          { description: 'Taxi', amount: 90, date: '2020-01-15', splitBetween: [owner.id, grace.id, linus.id] },
+          owner.token,
+        ),
+      ]);
+
+      expect(left.status).toBe(204);
+      const balances = (await balancesOf(groupId, owner.token)).body as { memberId: string; balance: number }[];
+      expect(balances.map(balance => balance.memberId)).toEqual([owner.id, linus.id]);
+      expect(balances.reduce((sum, balance) => sum + balance.balance, 0)).toBe(0);
+      if (expense.status < 300) {
+        // Recorded before the leave: Grace's 30 of the split passed to the owner, who paid 90 and is owed 60 less that 30.
+        expect(balances).toEqual([
+          { memberId: owner.id, balance: 30 },
+          { memberId: linus.id, balance: -30 },
+        ]);
+      } else {
+        // Recorded after the leave: refused, because Grace was no longer a member; nothing was owed, so nothing passed.
+        expect(expense.status).toBe(400);
+        expect(balances).toEqual([
+          { memberId: owner.id, balance: 0 },
+          { memberId: linus.id, balance: 0 },
+        ]);
+      }
+    }
+  });
+});
+
+describe('Groups → Ledger', () => {
+  it('finds, through Ledger, the group made through Groups by the id its creation answered, and passes a leaving member balance to the owner', async () => {
+    const owner = await signedInPerson('Owner');
+    const grace = await signedInPerson('Grace');
+    const created = await http.request('POST', `${api}/groups`, {
+      body: { name: 'Flat', currency: 'EUR' },
+      token: owner.token,
+    });
+    const { id: groupId } = created.body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: owner.token }))
+      .body as { id: string };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+    await record(
+      groupId,
+      { description: 'Taxi', amount: 80, date: '2020-01-15', splitBetween: [owner.id, grace.id] },
+      owner.token,
+    );
+
+    const before = (await balancesOf(groupId, owner.token)).body as { memberId: string; balance: number }[];
+    expect(before.find(balance => balance.memberId === grace.id)?.balance).toBe(-40);
+
+    expect((await leave(groupId, grace.token)).status).toBe(204);
+    expect((await balancesOf(groupId, owner.token)).body).toEqual([{ memberId: owner.id, balance: 0 }]);
+  });
+});
+
 describe('Ledger → Groups', () => {
-  it('reads, from Ledger, the balance an expense recorded in it gives a member, and refuses that member to leave until it is 0', async () => {
+  it('reads, from Ledger, the balance an expense recorded in it gives a member, and passes it to the owner when the member leaves', async () => {
     const owner = await signedInPerson('Owner');
     const grace = await signedInPerson('Grace');
     const groupId = await groupWith(owner, [grace]);
@@ -185,10 +245,14 @@ describe('Ledger → Groups', () => {
       )
     ).body as { id: string };
     expect(expenseId).toEqual(expect.any(String));
+    const before = (await balancesOf(groupId, owner.token)).body as { memberId: string; balance: number }[];
+    expect(before.find(balance => balance.memberId === grace.id)?.balance).toBe(-40);
 
-    const refused = await leave(groupId, grace.token);
-    expect((refused.body as { type: string }).type).toBe('BalanceNotZero');
+    expect((await leave(groupId, grace.token)).status).toBe(204);
+
+    const after = (await balancesOf(groupId, owner.token)).body as { memberId: string; balance: number }[];
+    expect(after).toEqual([{ memberId: owner.id, balance: 0 }]);
     const members = (await membersOf(groupId, owner.token)).body as { memberId: string }[];
-    expect(members.map(member => member.memberId)).toEqual([owner.id, grace.id]);
+    expect(members.map(member => member.memberId)).toEqual([owner.id]);
   });
 });

@@ -23,19 +23,14 @@ export class SqliteNotices implements INoticeStore {
   async insert(notices: Notice[]): Promise<void> {
     if (notices.length === 0) return;
     const connection = this.database.connection;
-    connection.exec('BEGIN IMMEDIATE');
-    try {
+    await this.database.file.transaction(() => {
       const statement = connection.prepare(
         'INSERT INTO notifications_notices (id, member_id, kind, group_id, expense_id, amount, at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       );
       for (const notice of notices) {
         insertNotice(statement, notice);
       }
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
+    });
   }
 
   async noticesOf(memberId: string): Promise<NoticeView[]> {
