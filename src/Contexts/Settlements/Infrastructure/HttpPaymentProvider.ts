@@ -1,4 +1,4 @@
-import { IPaymentProvider, PaymentRequest } from '@Contexts/Settlements/Application/IPaymentProvider';
+import { IPaymentProvider, PaymentRequest, RefundRequest } from '@Contexts/Settlements/Application/IPaymentProvider';
 import { ProviderPayment } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
 /** How long the provider has to answer a payment request, in milliseconds: past it, the request is refused (request 13). */
@@ -25,6 +25,27 @@ export class HttpPaymentProvider implements IPaymentProvider {
       return linkOf(await response.json());
     } catch {
       return undefined;
+    }
+  }
+
+  /**
+   * `POST {PROVIDER_URL}/payments/{paymentId}/refunds` with `{ reference }`, answered `201 { id }` (request 15): accepted. Any other answer,
+   * no answer within the timeout, a body without the refund's id, or no base URL, is not accepted. It never throws.
+   */
+  async refundPayment({ paymentId, reference }: RefundRequest): Promise<boolean> {
+    if (!this.baseUrl) return false;
+    try {
+      const response = await fetch(`${this.baseUrl}/payments/${encodeURIComponent(paymentId)}/refunds`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reference }),
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+      });
+      if (response.status !== 201) return false;
+      const answer = (await response.json()) as { id?: unknown } | null;
+      return typeof answer?.id === 'string' && answer.id !== '';
+    } catch {
+      return false;
     }
   }
 }

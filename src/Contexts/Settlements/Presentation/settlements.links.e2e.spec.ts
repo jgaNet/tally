@@ -123,6 +123,31 @@ describe('Groups → Settlements (SettlementMembers)', () => {
     });
     expect(outsider.status).toBe(404);
   });
+
+  it('a refund is asked in the group Groups made, for a settlement found by the id its recording answered, and not for a stranger', async () => {
+    const groupId = await groupWithBob();
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Snacks', amount: 1000, date: PAST_DAY, splitBetween: [ann.id, bob.id] },
+    });
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      token: ann.token,
+      body: { from: bob.id, amount: 500 },
+    });
+    expect(recorded.status).toBe(201);
+    const settlementId = (recorded.body as { id: string }).id;
+
+    // Eve is not in this group: the same 404 as for a settlement that does not exist, from Settlements' roster of its members.
+    const outsider = await http.request('POST', `${api}/settlements/${settlementId}/refund`, { token: eve.token });
+    expect(outsider.status).toBe(404);
+
+    // Bob is a member and the payer, not the payee: refused as not allowed; and the cash settlement is not refunded through Tally.
+    const byPayer = await http.request('POST', `${api}/settlements/${settlementId}/refund`, { token: bob.token });
+    expect(byPayer.status).toBe(403);
+    const inCash = await http.request('POST', `${api}/settlements/${settlementId}/refund`, { token: ann.token });
+    expect(inCash.status).toBe(422);
+    expect(inCash.body).toEqual({ type: 'SettlementNotRefundable', message: expect.any(String) });
+  });
 });
 
 describe('Ledger → Settlements (GroupBalances)', () => {
@@ -166,6 +191,29 @@ describe('Ledger → Settlements (GroupBalances)', () => {
     });
     expect(more.status).toBe(422);
     expect(more.body).toMatchObject({ type: 'MoreThanPayerOwes' });
+
+    const found = await http.request('GET', `${api}/expenses/${expenseId}`, { token: ann.token });
+    expect((found.body as { id: string }).id).toBe(expenseId);
+  });
+
+  it('a refund is refused in Settlements for a settlement decided against the balance of an expense Ledger made, and that expense is found by its id', async () => {
+    const groupId = await groupWithBob();
+    const expense = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Parking', amount: 1000, date: PAST_DAY, splitBetween: [ann.id, bob.id] },
+    });
+    const expenseId = (expense.body as { id: string }).id;
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      token: ann.token,
+      body: { from: bob.id, amount: 500 },
+    });
+    const settlementId = (recorded.body as { id: string }).id;
+
+    // The settlement is decided in Settlements against Ledger's balance, and it is a cash one: its refund is refused for that, and nothing
+    // of the expense changes.
+    const refused = await http.request('POST', `${api}/settlements/${settlementId}/refund`, { token: ann.token });
+    expect(refused.status).toBe(422);
+    expect(refused.body).toEqual({ type: 'SettlementNotRefundable', message: expect.any(String) });
 
     const found = await http.request('GET', `${api}/expenses/${expenseId}`, { token: ann.token });
     expect((found.body as { id: string }).id).toBe(expenseId);

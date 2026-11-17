@@ -8,6 +8,7 @@ import {
   payThroughProvider,
   receivePaymentWebhook,
   recordCashSettlement,
+  refundSettlement,
 } from '@Contexts/Settlements/Application/Settlements';
 import { ISettlementRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
 import { BalanceRoster, BalancesFromLedger } from '@Contexts/Settlements/Infrastructure/BalancesFromLedger';
@@ -63,6 +64,7 @@ export function settlementsWiring(
       recordCashSettlement(store, members, counted, systemClock),
       payThroughProvider(store, members, counted, new HttpPaymentProvider(payments.providerUrl), systemClock),
       receivePaymentWebhook(store, members, counted, new HmacWebhookSignature(payments.webhookSecret)),
+      refundSettlement(store, members, counted, new HttpPaymentProvider(payments.providerUrl)),
       getSettlement(store, members),
     ],
   });

@@ -8,6 +8,7 @@ import {
   payThroughProvider,
   receivePaymentWebhook,
   recordCashSettlement,
+  refundSettlement,
 } from '@Contexts/Settlements/Application/Settlements';
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
 
@@ -31,7 +32,7 @@ type RawBodyRequest = FastifyRequest & { rawBody?: string };
 /**
  * The settlements' routes: the suggested settlements (request 11, the API's fragment 11), a cash settlement recorded by its payee and
  * read back by a member of its group (request 12, fragment 12), and a payment through the provider with the provider's signed webhook
- * (request 13, fragment 13). Each answers its use case at once. A body whose shape is wrong (a missing field, or a value of the wrong
+ * (request 13, fragment 13), and a refund of one by its payee (request 15, fragment 15). Each answers its use case at once. A body whose shape is wrong (a missing field, or a value of the wrong
  * type) is `400` before the use case runs. A caller who is not a member of the group gets the group's `404`, and a settlement of a group
  * they are not in does not exist for them. The webhook is the one route anyone may call: its JSON body is kept as it was sent, so that
  * its signature is checked over those very bytes.
@@ -120,6 +121,10 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
         status: req.body.status,
       });
     },
+  );
+
+  fastify.post<{ Params: { id: string } }>('/settlements/:id/refund', (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(refundSettlement), req.params.id),
   );
 
   fastify.get<{ Params: { id: string } }>('/settlements/:id', (req, reply) =>

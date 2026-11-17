@@ -21,7 +21,8 @@ export interface SettlementView {
  * counts as paid for what is still owed; `save` keeps a decided settlement or its new status, and stores the book at its version + 1,
  * only while the book is still at the version it was read at, and refuses it with a ConcurrencyConflictException otherwise
  * (CONC-OPTIMISTIC); `viewOf` reads a settlement as it was saved, or `undefined` when there is none; `settlementOfPayment` reads the
- * settlement the provider's payment id names, or `undefined` when no settlement does.
+ * settlement the provider's payment id names, or `undefined` when no settlement does; `settlementOf` reads the settlement by its own id,
+ * as the domain keeps it (with the provider's payment), for a refund.
  */
 export interface ISettlementStore {
   versionOf(groupId: string): Promise<number>;
@@ -29,4 +30,6 @@ export interface ISettlementStore {
   save(book: SettlementBook, settlement: Settlement): Promise<void>;
   viewOf(settlementId: string): Promise<SettlementView | undefined>;
   settlementOfPayment(paymentId: string): Promise<Settlement | undefined>;
+  /** The settlement as the domain keeps it, with its provider's payment, or `undefined` when there is none (request 15). */
+  settlementOf(settlementId: string): Promise<Settlement | undefined>;
 }

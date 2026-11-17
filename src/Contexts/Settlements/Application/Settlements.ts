@@ -107,7 +107,8 @@ export interface PaymentWebhookInput {
  * The provider tells Tally a payment ended (request 13, the storm's `ReceivePaymentWebhook`). Anyone may send it: the signature is the
  * proof, checked over the body as sent before anything is decided, and a missing or wrong one is refused with a `401` and changes
  * nothing. A signed webhook is acknowledged whatever it says: about a payment that succeeded, the settlement is paid and counted by the
- * balances; about one that failed, it is failed and no longer waiting. A payment Tally does not know, a verdict that is still pending,
+ * balances; about one that failed, it is failed and no longer waiting; about one that was refunded, it is refunded and no longer counted
+ * (request 15). A payment Tally does not know, a verdict that is still pending,
  * and a payment that already ended change nothing. The book of the settlement's group is saved with the change, at its version
  * (CONC-OPTIMISTIC), so a webhook that arrives twice or out of order is decided once.
  */
@@ -130,6 +131,37 @@ export const receivePaymentWebhook = command(
       return Result.ok(undefined);
     },
   { caller: 'anyone' },
+);
+
+/**
+ * The payee of a settlement paid through the provider refunds it, whole (request 15, the storm's `RefundSettlement`). The caller must be a
+ * member of the settlement's group, else the settlement's `404`; the payee only (`403` to any other member); the settlement must be a
+ * payment through the provider that is `paid` (`422`); and its payer and payee must still be members of the group (`422`). The book of the
+ * group is opened as it stands, and the provider is asked for the refund with the payment's id and the settlement's id as the reference,
+ * only once those rules hold. A provider that does not accept the refund refuses it (`422`) and nothing changes. Otherwise the settlement is
+ * `refunding`: still counted as paid until the provider's webhook says it is refunded. Answers nothing (`204`).
+ */
+export const refundSettlement = command(
+  'RefundSettlement',
+  (store: ISettlementStore, members: ISettlementMembers, balances: IGroupBalances, provider: IPaymentProvider) =>
+    async (settlementId: string, context): Promise<IResult<void>> => {
+      const payeeId = callerOf(context);
+      const settlement = await store.settlementOf(settlementId);
+      if (!settlement) return Result.fail(new SettlementNotFoundException());
+      const book = await openBook(store, members, balances, settlement.groupId);
+      if (!book || !book.hasMember(payeeId)) return Result.fail(new SettlementNotFoundException());
+
+      const proposed = book.proposeRefund(settlement, payeeId);
+      if (proposed.isFailure()) return Result.fail(proposed.error);
+      const accepted = await provider.refundPayment({ paymentId: proposed.data.id, reference: settlement.id });
+
+      const recorded = book.recordRefund(settlement, accepted);
+      if (recorded.isFailure()) return Result.fail(recorded.error);
+
+      await store.save(book, recorded.data);
+      await publishDomainEvents(book, context);
+      return Result.ok(undefined);
+    },
 );
 
 /**

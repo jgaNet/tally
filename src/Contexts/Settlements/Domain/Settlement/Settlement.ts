@@ -2,10 +2,11 @@
 export type SettlementMethod = 'cash' | 'provider';
 
 /**
- * Where a settlement stands: a provider's payment is `pending` until the provider says it ended, once: `paid` or `failed`. A cash
- * settlement is `paid` from the moment it is recorded.
+ * Where a settlement stands: a provider's payment is `pending` until the provider says it ended: `paid` or `failed`, and a paid one
+ * may be refunded: `refunding` once Tally has asked the provider, `refunded` once the provider says so (request 15). A cash
+ * settlement is `paid` from the moment it is recorded. A payment moves forward only, and ends at `failed` or `refunded`.
  */
-export type SettlementStatus = 'pending' | 'paid' | 'failed';
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
 
 /** The provider's payment a settlement through the provider is: the id the provider answered, and the link the payer pays at. */
 export interface ProviderPayment {

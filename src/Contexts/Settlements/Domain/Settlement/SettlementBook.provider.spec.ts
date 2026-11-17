@@ -163,7 +163,7 @@ describe("the provider's verdict on a pending payment", () => {
     const aggregate = book();
 
     expect(aggregate.receive(pending, 'pending')).toBeUndefined();
-    expect(aggregate.receive(pending, 'refunded')).toBeUndefined();
+    expect(aggregate.receive(pending, 'voided')).toBeUndefined();
     expect(aggregate.receive({ ...pending, status: 'paid' }, 'failed')).toBeUndefined();
     expect(aggregate.receive({ ...pending, status: 'failed' }, 'succeeded')).toBeUndefined();
     expect(aggregate.pullDomainEvents()).toEqual([]);

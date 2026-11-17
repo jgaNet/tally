@@ -9,7 +9,8 @@ import { Settlement, SettlementMethod, SettlementStatus } from '@Contexts/Settle
  * The settlements' tables (features 12 and 13, ADR 10). `settlement_books` is the version each group's book is at: one row per group
  * with a settlement, written with the first one and bumped with each change after it, only while the book is still at the version it
  * was read at. `settlements` is one row per settlement, in cash or through the provider (`method`), kept as it was decided, and its
- * `status` (`pending` while the provider has not said, `paid`, `failed`) is the one thing that changes after it is decided; a
+ * `status` (`pending` while the provider has not said, `paid`, `failed`, and for a refund `refunding` and `refunded`) is the one thing that
+ * changes after it is decided; a
  * provider's payment keeps the provider's id (`payment_id`, the webhook names it) and the link the payer pays at (`pay_url`). The
  * balances read the paid ones through `SqliteSettlementRoster`, so a settlement is counted once it is paid. The group is a group of
  * Groups: the foreign key only names its id, as Ledger's does.
@@ -26,7 +27,7 @@ export const settlementsTablesSchema = [
      payee_id TEXT NOT NULL,
      amount INTEGER NOT NULL,
      method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
-     status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
+     status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
      recorded_at TEXT NOT NULL,
      payment_id TEXT UNIQUE,
      pay_url TEXT,
@@ -77,7 +78,8 @@ const toView = (settlement: Settlement): SettlementView => ({
 /**
  * The settlements in SQLite. `save` checks the group's book is still at the version it was read at, and stores the next one with the
  * settlement (or its new status), in the command's transaction; it refuses a book another writer moved on with a
- * ConcurrencyConflictException (CONC-OPTIMISTIC). `versionOf`, `waitingOf`, `settlementOfPayment` and `viewOf` read the committed data.
+ * ConcurrencyConflictException (CONC-OPTIMISTIC). `versionOf`, `waitingOf`, `settlementOfPayment`, `settlementOf` and `viewOf` read the
+ * committed data.
  */
 export class SqliteSettlementStore implements ISettlementStore {
   constructor(private readonly database: SqliteDatabase) {}
@@ -124,6 +126,12 @@ export class SqliteSettlementStore implements ISettlementStore {
     const row = this.database.read(db => db.prepare('SELECT * FROM settlements WHERE id = ?').get(settlementId)) as
       SettlementRow | undefined;
     return row ? toView(toSettlement(row)) : undefined;
+  }
+
+  async settlementOf(settlementId: string): Promise<Settlement | undefined> {
+    const row = this.database.read(db => db.prepare('SELECT * FROM settlements WHERE id = ?').get(settlementId)) as
+      SettlementRow | undefined;
+    return row ? toSettlement(row) : undefined;
   }
 
   async settlementOfPayment(paymentId: string): Promise<Settlement | undefined> {

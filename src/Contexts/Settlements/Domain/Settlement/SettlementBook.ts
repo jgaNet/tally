@@ -8,6 +8,10 @@ import {
   PayeeIsPayerException,
   PayerNotInGroupException,
   ProviderUnavailableException,
+  RefundNotPayeeException,
+  RefundPartyLeftException,
+  RefundUnavailableException,
+  SettlementNotRefundableException,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 import { ProviderPayment, Settlement } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 import { MemberBalance } from '@Contexts/Settlements/Domain/Settlement/SuggestedSettlements';
@@ -59,6 +63,12 @@ export class SettlementPaidEvent extends DomainEvent<PaymentEndedPayload> {}
 
 /** A payment the provider said failed: never counted, and no longer waiting. */
 export class SettlementFailedEvent extends DomainEvent<PaymentEndedPayload> {}
+
+/** Tally asked the provider to refund a paid settlement: it is `refunding`, and still counted as paid until the provider says so (request 15). */
+export class RefundRequestedEvent extends DomainEvent<PaymentEndedPayload> {}
+
+/** The provider said a payment is refunded: from now on the balances no longer count it, as if it had never been paid (request 15). */
+export class SettlementRefundedEvent extends DomainEvent<PaymentEndedPayload> {}
 
 /** What a group's book is opened with: the group, the version it was read at, its members in join order, and their balances. */
 export interface SettlementBookSnapshot {
@@ -215,12 +225,13 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /**
-   * The provider's verdict on a payment of this book (request 13): a pending payment that `succeeded` is paid, one that `failed` is
-   * failed, and anything else (a verdict that is still `pending`, one the provider has not named, or a payment that already ended)
-   * changes nothing and answers `undefined`. A payment ends once. Returns the settlement as it now stands when it changed.
+   * The provider's verdict on a payment of this book (requests 13, 14 and 15). A payment moves forward only, and ends once: a `refunded`
+   * verdict takes a payment that is pending (the refund overtook the success), paid or refunding to `refunded`, and a `refunded` already
+   * had, or a payment that failed, changes nothing. A pending payment takes `succeeded` to paid, or `failed` to failed. Any other verdict
+   * (one the provider has not named, or one still pending) changes nothing and answers `undefined`. Returns the settlement as it now stands
+   * when it changed.
    */
   receive(settlement: Settlement, verdict: string): Settlement | undefined {
-    if (settlement.status !== 'pending') return undefined;
     const ended: PaymentEndedPayload = {
       settlementId: settlement.id,
       groupId: settlement.groupId,
@@ -228,6 +239,13 @@ export class SettlementBook extends AggregateRoot {
       to: settlement.to,
       amount: settlement.amount,
     };
+    if (verdict === 'refunded') {
+      if (settlement.status !== 'pending' && settlement.status !== 'paid' && settlement.status !== 'refunding')
+        return undefined;
+      this.record(SettlementRefundedEvent.set(ended));
+      return { ...settlement, status: 'refunded' };
+    }
+    if (settlement.status !== 'pending') return undefined;
     if (verdict === 'succeeded') {
       this.record(SettlementPaidEvent.set(ended));
       return { ...settlement, status: 'paid' };
@@ -237,6 +255,41 @@ export class SettlementBook extends AggregateRoot {
       return { ...settlement, status: 'failed' };
     }
     return undefined;
+  }
+
+  /**
+   * The first step of a refund (request 15): only the payee of a settlement paid through the provider may refund it, and only while it is
+   * `paid`, and only while both its payer and its payee are members of the group (so that the balances still add up to 0). Nothing is
+   * recorded: the provider is asked for the refund only once these hold, and `recordRefund` keeps its answer. Answers the provider's
+   * payment, whose id the provider is asked by.
+   */
+  proposeRefund(settlement: Settlement, payeeId: string): IResult<ProviderPayment> {
+    if (settlement.to !== payeeId) return Result.fail(new RefundNotPayeeException());
+    if (settlement.method !== 'provider' || settlement.status !== 'paid' || !settlement.payment) {
+      return Result.fail(new SettlementNotRefundableException());
+    }
+    if (!this.hasMember(settlement.from) || !this.hasMember(settlement.to))
+      return Result.fail(new RefundPartyLeftException());
+    return Result.ok(settlement.payment);
+  }
+
+  /**
+   * The second step of a refund, with the provider's answer: a refund the provider did not accept is refused and nothing changes, and the
+   * settlement stays paid. Otherwise the settlement is `refunding`: the money has not gone back yet, so the balances still count it, and
+   * RefundRequested is recorded. The book is the one `proposeRefund` read, and the store refuses the save if another writer moved it since.
+   */
+  recordRefund(settlement: Settlement, accepted: boolean): IResult<Settlement> {
+    if (!accepted) return Result.fail(new RefundUnavailableException());
+    this.record(
+      RefundRequestedEvent.set({
+        settlementId: settlement.id,
+        groupId: settlement.groupId,
+        from: settlement.from,
+        to: settlement.to,
+        amount: settlement.amount,
+      }),
+    );
+    return Result.ok({ ...settlement, status: 'refunding' });
   }
 
   /**

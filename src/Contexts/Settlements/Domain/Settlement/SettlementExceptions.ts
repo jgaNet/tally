@@ -1,4 +1,4 @@
-import { Exception, NotFoundException, UnauthenticatedException } from '@Architecture/Domain';
+import { Exception, NotAllowedException, NotFoundException, UnauthenticatedException } from '@Architecture/Domain';
 
 const SERVICE = 'Settlements';
 
@@ -84,5 +84,54 @@ export class MoreThanPayerOwesException extends Exception {
 export class MoreThanPayeeIsOwedException extends Exception {
   constructor() {
     super({ service: SERVICE, type: 'MoreThanPayeeIsOwed', message: 'The settlement is more than the payee is owed' });
+  }
+}
+
+/** Only the payee of a settlement may refund it: `403` to a signed-in member who is not the payee (request 15). */
+export class RefundNotPayeeException extends NotAllowedException {
+  constructor() {
+    super(SERVICE, 'Only the payee of a settlement may refund it');
+  }
+}
+
+/**
+ * The settlement cannot be refunded as it stands: it is a cash settlement, or a payment through the provider that is not `paid` (still
+ * pending, failed, refunding or refunded): `422`, nothing changes (request 15).
+ */
+export class SettlementNotRefundableException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'SettlementNotRefundable',
+      message: 'Only a settlement paid through the provider, and not refunded yet, can be refunded',
+    });
+  }
+}
+
+/**
+ * The payer or the payee of the settlement is no longer a member of the group: `422`, nothing changes, so that the balances of the
+ * group still add up to 0 (request 15, as an expense that concerns a former member is not changed: request 9).
+ */
+export class RefundPartyLeftException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'RefundPartyLeft',
+      message: 'A settlement whose payer or payee has left the group cannot be refunded',
+    });
+  }
+}
+
+/**
+ * The provider did not accept the refund: it answered anything but `201 { id }`, did not answer within 5 seconds, or none is
+ * configured. Nothing changes; the settlement stays paid (request 15).
+ */
+export class RefundUnavailableException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'RefundUnavailable',
+      message: 'The payment provider did not accept the refund: nothing changed, try again later',
+    });
   }
 }
