@@ -10,6 +10,7 @@ why, what it costs, and when to revisit it.
 | [3](0003-ledger-asks-groups-for-the-members.md) | Ledger asks Groups who is a member, through a read model Groups exports |
 | [4](0004-leaving-a-group.md) | Leaving a group: Groups asks Ledger a member's balance, and a former member keeps its rows |
 | [5](0005-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
+| [6](0006-suggested-settlements-carries-the-two-planned-links.md) | Suggested settlements: Settlements carries the two links ADR 5 planned |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

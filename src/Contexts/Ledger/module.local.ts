@@ -23,6 +23,7 @@ import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpe
 import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/SqliteBalanceQueries';
 import { GroupsMembers } from '@Contexts/Ledger/Infrastructure/GroupsMembers';
 import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/SqliteStatementQueries';
+import { IGroupBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupBalanceSums';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3): the expenses of each group, recorded with their equal
@@ -36,6 +37,12 @@ const database = SqliteDatabase.shared();
  * it reads inside the asking command's transaction. The composition root hands it to Groups' module.
  */
 export const memberBalanceSumsInCommand: IMemberBalanceSums = new SqliteMemberBalanceSums(database);
+
+/**
+ * The balances of each group as Settlements reads them (GroupBalances, ADR 5), exported for a query: outside any
+ * transaction. The composition root's Settlements wiring takes it; this wiring does not import Settlements.
+ */
+export const groupBalanceSums: IGroupBalanceSums = new SqliteBalanceQueries(database);
 
 export const localLedgerModule = new Module({
   name: 'Ledger',

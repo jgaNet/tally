@@ -12,6 +12,7 @@ import { LedgerMemberBalances } from '@Contexts/Groups/Infrastructure/LedgerMemb
 import { accountRoutes, groupRoutes, invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
 import { localLedgerModule, memberBalanceSumsInCommand } from '@Contexts/Ledger/module.local';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
+import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
@@ -55,6 +56,7 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', settlementRoutes, { settlementsModule: localSettlementsModule })
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule });
 
   await app.startModules();
