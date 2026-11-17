@@ -17,7 +17,7 @@ const command = (overrides: Partial<RecordExpenseCommand> = {}): RecordExpenseCo
 });
 
 describe('the equal split', () => {
-  it('gives each member the amount divided by their number, rounded down, the remainder to the payer', () => {
+  it('gives each member the amount divided by their number, rounded down, the remainder to the first member listed', () => {
     const split = Split.create({
       amount: amountOf(1000),
       request: { kind: 'equal', memberIds: [ada, grace, linus] },
@@ -37,8 +37,8 @@ describe('the equal split', () => {
       payer: ada,
     });
     expect(split.data?.shares).toEqual([
-      { memberId: grace, amount: 3 },
-      { memberId: ada, amount: 4 },
+      { memberId: grace, amount: 4 },
+      { memberId: ada, amount: 3 },
       { memberId: linus, amount: 3 },
     ]);
     expect(split.data?.shares.reduce((sum, share) => sum + share.amount, 0)).toBe(10);

@@ -90,8 +90,9 @@ describe('a split by exact amounts (request 7)', () => {
 });
 
 describe('a split by shares (request 7)', () => {
-  it('gives each member the amount times their shares over the total of the shares, rounded down, the remainder to the payer', () => {
-    // 1001 by shares of 2 and 1, the payer (ada, 1 share) listed second: 667 and 334 (the remainder goes to the payer).
+  it('gives each member the amount times their shares over the total of the shares, rounded down, the remainder to the first member listed', () => {
+    // 1001 by shares of 2 and 1, the payer (ada, 1 share) listed second: 667 + 333 = 1000, the remainder 1 goes to grace,
+    // the member listed first, whoever paid (request 10).
     const split = splitOf(1001, {
       kind: 'shares',
       shares: [
@@ -101,8 +102,8 @@ describe('a split by shares (request 7)', () => {
     });
     expect(split.kind).toBe('shares');
     expect(split.shares).toEqual([
-      { memberId: grace, amount: 667 },
-      { memberId: ada, amount: 334 },
+      { memberId: grace, amount: 668 },
+      { memberId: ada, amount: 333 },
     ]);
   });
 
@@ -157,7 +158,65 @@ describe('a split by shares (request 7)', () => {
   });
 });
 
+describe('the remainder goes to the first member listed (request 10)', () => {
+  it("gives the equal split's remainder to the first member listed, whoever paid", () => {
+    // 1000 among three, the payer (grace) listed second: the first member gets 334; the payer and the third get 333.
+    const split = splitOf(1000, { kind: 'equal', memberIds: [ada, grace, linus] }, grace);
+    expect(split.shares).toEqual([
+      { memberId: ada, amount: 334 },
+      { memberId: grace, amount: 333 },
+      { memberId: linus, amount: 333 },
+    ]);
+  });
+
+  it('leaves the split by exact amounts unchanged: it has no remainder', () => {
+    const split = splitOf(
+      1000,
+      {
+        kind: 'exact',
+        amounts: [
+          { memberId: grace, amount: 333 },
+          { memberId: ada, amount: 333 },
+          { memberId: linus, amount: 334 },
+        ],
+      },
+      ada,
+    );
+    expect(split.shares.map(share => share.amount)).toEqual([333, 333, 334]);
+  });
+});
+
 describe('restoring a stored split', () => {
+  it('restores an equal split made under the old rule, the remainder to the payer, without computing it again', () => {
+    // Recorded before request 10: 1000 among ada (first), grace (payer) and linus: the payer has the 334.
+    const stored = [
+      { memberId: ada, amount: 333 },
+      { memberId: grace, amount: 334 },
+      { memberId: linus, amount: 333 },
+    ];
+    expect(Split.restore({ amount: 1000, payer: grace, kind: 'equal', shares: stored })?.shares).toEqual(stored);
+    // And one made under the new rule, the remainder to the first member listed:
+    const current = [
+      { memberId: ada, amount: 334 },
+      { memberId: grace, amount: 333 },
+      { memberId: linus, amount: 333 },
+    ];
+    expect(Split.restore({ amount: 1000, payer: grace, kind: 'equal', shares: current })?.shares).toEqual(current);
+    // An equal split whose remainder sits with neither is refused.
+    expect(
+      Split.restore({
+        amount: 1000,
+        payer: grace,
+        kind: 'equal',
+        shares: [
+          { memberId: ada, amount: 333 },
+          { memberId: grace, amount: 333 },
+          { memberId: linus, amount: 334 },
+        ],
+      }),
+    ).toBeUndefined();
+  });
+
   it('restores each kind as it was made, and refuses amounts no split of that kind could have given', () => {
     const shares = [
       { memberId: grace, amount: 667 },

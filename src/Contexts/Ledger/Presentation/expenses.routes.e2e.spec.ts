@@ -59,7 +59,7 @@ const getExpense = (id: string, token?: string) => http.request('GET', `${api}/e
 const tomorrow = '2999-12-31';
 
 describe('recording an expense', () => {
-  it('answers the new expense, and reads it back split equally, the remainder to the payer', async () => {
+  it('answers the new expense, and reads it back split equally, the remainder to the first member listed', async () => {
     const ada = await signedInPerson('Ada');
     const grace = await signedInPerson('Grace');
     const linus = await signedInPerson('Linus');
@@ -110,8 +110,8 @@ describe('recording an expense', () => {
     expect(body).toMatchObject({
       description: 'Taxi',
       shares: [
-        { memberId: grace.id, amount: 3 },
-        { memberId: ada.id, amount: 4 },
+        { memberId: grace.id, amount: 4 },
+        { memberId: ada.id, amount: 3 },
         { memberId: linus.id, amount: 3 },
       ],
     });
@@ -249,7 +249,7 @@ describe('splitting an expense by exact amounts or by shares (request 7)', () =>
     });
   });
 
-  it('records an expense by shares, the remainder to the payer, and reads it back as shares', async () => {
+  it('records an expense by shares, the remainder to the first member listed, and reads it back as shares', async () => {
     const ada = await signedInPerson('Ada');
     const grace = await signedInPerson('Grace');
     const groupId = await groupWith(ada, [grace]);
@@ -274,8 +274,8 @@ describe('splitting an expense by exact amounts or by shares (request 7)', () =>
     expect(body).toMatchObject({
       splitKind: 'shares',
       shares: [
-        { memberId: grace.id, amount: 667 },
-        { memberId: ada.id, amount: 334 },
+        { memberId: grace.id, amount: 668 },
+        { memberId: ada.id, amount: 333 },
       ],
     });
   });

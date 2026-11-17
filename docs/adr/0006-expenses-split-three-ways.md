@@ -7,7 +7,8 @@ adds two more ways, decided with the product's owner in `conventions/storms/uneq
 member with the amount of their share, the amounts adding up to the expense's) and by shares (each member with a whole
 number of shares, the amount divided among them in proportion). Its three hot spots are decided there: one command per
 recording and per edit, taking a split of one of three kinds, with the facts carrying the kind; the body's shape refused
-by the transport (400), and the values refused by the split by name; the remainder of a split by shares whole to the payer.
+by the transport (400), and the values refused by the split by name; the remainder of a split by shares whole to the payer
+(changed by ADR 8: to the first member listed).
 
 No context or relationship is added: Ledger still asks Groups for the members (ADR 5), and no integration event carries a
 split.

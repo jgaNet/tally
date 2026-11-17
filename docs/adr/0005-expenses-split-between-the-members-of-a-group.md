@@ -25,8 +25,9 @@ feature is the first code that does, so the declaration is changed here.
 - **One aggregate per expense** (`Expense`). It holds its description, amount, date, payer and split, and the split keeps
   that its shares add up to the amount. The balances are not an aggregate: they come in feature 5.
 - **The shares are computed in `Split`**, once, when the expense is created: each share is the amount divided by the
-  number of members, rounded down, and the remainder goes whole to the payer. They are stored with the expense in the
-  order of the split and are not computed again at a read.
+  number of members, rounded down, and the remainder goes whole to the payer (changed by ADR 8: from now on, to the first
+  member listed; earlier expenses keep the shares they were given). They are stored with the expense in the order of the
+  split and are not computed again at a read.
 - **The decision is pure** (`decideRecordExpense`). It takes the group's members as its given state, checks the
   description, amount, date (a real day, not after today in UTC, from the one clock), that every member of the split is
   a member of the group, and then the split itself (each listed once, the payer among them). Refusals are failed
