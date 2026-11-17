@@ -44,3 +44,9 @@ export class ConcurrencyConflictException extends Exception {
     });
   }
 }
+
+/**
+ * A rule refused because what it needs to be free is already taken: a second account on the same email. The
+ * kind a transport answers `409` to, as it answers a concurrency conflict; the rule's own `type` names it.
+ */
+export class ConflictException extends Exception {}

@@ -1,6 +1,17 @@
-import { CommandEvent, Event } from '@Architecture/Domain';
+import {
+  CommandEvent,
+  ConcurrencyConflictException,
+  ConflictException,
+  Event,
+  Exception,
+  NotAllowedException,
+  NotFoundException,
+  UnknownException,
+} from '@Architecture/Domain';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { Module } from '@Architecture/Application/Module';
+import { awaitOperation } from '@Architecture/Application/AwaitOperation';
+import { OperationStatus } from '@Architecture/Application/Operation';
 
 /**
  * Who reaches a command is the transport's to say, at once (API-CALLER-AT-TRANSPORT, ADR 39).
@@ -39,6 +50,67 @@ export function acceptCommand(
   const operation = context.eventBus.publish(command, context);
   reply.code(202);
   return { operationId: operation.id };
+}
+
+/**
+ * A command whose answer the client is given in one exchange, when the outcome is decided in time (a
+ * sign-up answers the new thing's id at once). The command is published as `acceptCommand()` publishes
+ * it, and the answer waits for its outcome for at most `timeoutMs`:
+ *
+ * - `201 { id }` when the handler succeeded: the id it returned;
+ * - the refusal's status with `{ type, message }` when it refused: the rule's exception, named by its
+ *   kind (`409` for a conflict, `404` for a thing not there, `403`/`401` for a caller refused, else `400`);
+ * - `202 { operationId }` when the deadline passed first: the outcome is then read at the operation, as
+ *   `acceptCommand()` answers it. Nothing is cancelled; the handler finishes and the Tracker records it.
+ *
+ * A command nobody may ask for by anonymous means is refused with `401` before anything is published,
+ * as `acceptCommand()` refuses it (API-CALLER-AT-TRANSPORT).
+ *
+ *   async signUp(req, reply) {
+ *     return acceptCommandAtOnce(req, reply, this.#groupsModule, SignUpCommandEvent.set(req.body));
+ *   }
+ */
+export async function acceptCommandAtOnce(
+  req: { executionContext: ExecutionContext },
+  reply: { code(statusCode: number): unknown },
+  module: Module,
+  command: Event<unknown>,
+  { timeoutMs }: { timeoutMs?: number } = {},
+): Promise<unknown> {
+  const context = req.executionContext;
+
+  if (!signedIn(context) && !anyoneMayAsk(module, command)) {
+    reply.code(401);
+    return { message: AUTHENTICATION_REQUIRED };
+  }
+
+  const operation = await awaitOperation(context.eventBus.publish(command, context), { timeoutMs });
+
+  if (operation.status === OperationStatus.SUCCESS && operation.result?.isSuccess()) {
+    reply.code(201);
+    return { id: operation.result.data };
+  }
+  if (operation.status === OperationStatus.ERROR && operation.result?.isFailure()) {
+    const error: unknown = operation.result.error;
+    reply.code(refusalStatusOf(error, context));
+    return Exception.isException(error)
+      ? { type: error.type, message: error.message }
+      : { type: 'UnknownException', message: INTERNAL_ERROR };
+  }
+  reply.code(202);
+  return { operationId: operation.id };
+}
+
+/** The body of a `500`: a programming error is logged where it happens, never told to the client. */
+const INTERNAL_ERROR = 'Internal error';
+
+/** The status of a refusal a command answers at once, by the kind of the rule's exception. */
+function refusalStatusOf(error: unknown, context: ExecutionContext): number {
+  if (error instanceof NotAllowedException) return notAllowedStatus(context);
+  if (error instanceof NotFoundException) return 404;
+  if (error instanceof ConcurrencyConflictException || error instanceof ConflictException) return 409;
+  if (error instanceof UnknownException || !Exception.isException(error)) return 500;
+  return 400;
 }
 
 /**

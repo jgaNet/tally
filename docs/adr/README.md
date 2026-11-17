@@ -6,6 +6,7 @@ why, what it costs, and when to revisit it.
 | # | Decision |
 |---|---|
 | [1](0001-groups-and-ledger-and-how-they-relate.md) | Groups and Ledger, and how they relate |
+| [2](0002-accounts-on-one-sqlite-file.md) | Accounts in Groups, and the application’s state in one SQLite file |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

@@ -28,7 +28,7 @@ class StarterChecked extends DomainEvent<{ at: string }> {}
 describe('the application a project starts from', () => {
   it('serves the Tracker under the prefix, to an anonymous caller, with the trace of the request', async () => {
     const traceId = '11111111-1111-4111-8111-111111111111';
-    const answer = await http.get(`${api}/tracker/operations/00000000-0000-4000-8000-000000000000`, {
+    const answer = await http.get(`${api}/operations/00000000-0000-4000-8000-000000000000`, {
       headers: { 'x-trace-id': traceId },
     });
 
@@ -39,18 +39,16 @@ describe('the application a project starts from', () => {
     expect(answer.headers.get('x-trace-id')).toBe(traceId);
   });
 
-  it('lists operations for an administrator only', async () => {
-    expect((await http.get(`${api}/tracker/operations`)).status).toBe(401);
-  });
-
   it('answers an operation nobody started to whoever holds its id, as the contract records it', async () => {
     const operation = app
       .getEventBus()
       .publish(StarterChecked.set({ at: new Date().toISOString() }), app.executionContext('starter-trace'));
 
-    const answer = await http.get(`${api}/tracker/operations/${operation.id}`);
+    const answer = await http.get(`${api}/operations/${operation.id}`);
 
+    // The client reads the operation as the contract gives it: its status, and nothing of the trace.
     expect(answer.status).toBe(200);
-    expect(answer.body).toMatchObject({ id: operation.id, name: 'StarterChecked', traceId: 'starter-trace' });
+    expect(answer.body).toMatchObject({ status: expect.any(String) });
+    expect(answer.body).not.toHaveProperty('traceId');
   });
 });

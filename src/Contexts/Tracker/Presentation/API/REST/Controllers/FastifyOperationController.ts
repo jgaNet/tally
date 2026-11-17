@@ -4,20 +4,14 @@ import { Exception, NotAllowedException, NotFoundException } from '@Architecture
 import { ExecutionContext, Module } from '@Architecture/Application';
 import { notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
-import { GetOperationQueryHandler, GetOperationsQueryHandler } from '@Contexts/Tracker/Application/Queries';
+import { GetOperationQueryHandler } from '@Contexts/Tracker/Application/Queries';
 
-/** Read-only: the Tracker has no commands. Same shape as FastifyNoteController. */
+/** Read-only: the Tracker has no commands. Same shape as FastifyAccountController. */
 export class FastifyOperationController {
   #module: Module;
 
   constructor({ module }: { module: Module }) {
     this.#module = module;
-  }
-
-  async getOperations(req: FastifyRequest<{ Querystring: { traceId?: string } }>, reply: FastifyReply) {
-    const result = await this.#module.getQuery(GetOperationsQueryHandler).handle(req.query, req.executionContext);
-
-    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }
 
   async getOperation(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

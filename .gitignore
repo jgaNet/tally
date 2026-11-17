@@ -2,3 +2,7 @@ node_modules
 dist
 coverage
 *.tsbuildinfo
+
+# The application state, when run from the repository (DATABASE_PATH names another file in production)
+tally.db
+tally.db-*

@@ -11,7 +11,7 @@ import Fastify, {
 import fastifyCors from '@fastify/cors';
 
 import { Role } from '@SharedKernel/Domain';
-import { Application, ExecutionContext, Logger } from '@Architecture/Application';
+import { Application, ExecutionContext, Logger, UnitOfWork } from '@Architecture/Application';
 import { formatOf } from '@Architecture/Presentation/Format';
 import { InMemoryUnitOfWork } from '@Architecture/Infrastructure/UnitOfWork/InMemoryUnitOfWork';
 
@@ -30,6 +30,11 @@ export interface FastifyApplicationOptions {
    * Without one, every caller is anonymous.
    */
   authenticate?(request: FastifyRequest): Promise<void>;
+  /**
+   * The unit of work each request (and each job) gets: the application's own store, in its file. Without one,
+   * the in-memory unit of work, which persists nothing.
+   */
+  unitOfWork?: () => UnitOfWork;
 }
 
 /**
@@ -43,13 +48,24 @@ export class FastifyApplication extends Application {
   readonly logger: Logger;
   readonly apiPrefix: string;
   readonly port: number;
+  readonly #createUnitOfWork: () => UnitOfWork;
+  readonly #jobs: NodeJS.Timeout[] = [];
 
-  constructor({ logger, apiPrefix, port = 0, webOrigins = [], authenticate }: FastifyApplicationOptions) {
+  constructor({
+    logger,
+    apiPrefix,
+    port = 0,
+    webOrigins = [],
+    authenticate,
+    unitOfWork = () => new InMemoryUnitOfWork(),
+  }: FastifyApplicationOptions) {
     super();
     this.logger = logger;
     this.apiPrefix = apiPrefix;
     this.port = port;
-    this.fastify = Fastify({ logger: false });
+    this.#createUnitOfWork = unitOfWork;
+    // A field of the wrong type is refused as it is (400, API-BODY-SHAPE), never coerced into the type asked for.
+    this.fastify = Fastify({ logger: false, ajv: { customOptions: { coerceTypes: false } } });
 
     // Anonymous until the authentication says otherwise; without one, anonymous throughout.
     this.fastify.addHook('onRequest', async request => {
@@ -137,7 +153,7 @@ export class FastifyApplication extends Application {
       traceId,
       auth,
       eventBus: this.getEventBus(),
-      unitOfWork: new InMemoryUnitOfWork(),
+      unitOfWork: this.#createUnitOfWork(),
       logger: this.logger,
     });
   }
@@ -147,7 +163,21 @@ export class FastifyApplication extends Application {
     this.logger.info(`Listening on ${this.address}`);
   }
 
+  /**
+   * A background job: `job` runs every `intervalMs` for as long as the application runs, and a failure of one
+   * run is logged, not fatal; the next run tries again. The timer does not keep the process alive.
+   */
+  schedule(intervalMs: number, job: () => Promise<unknown>): void {
+    const timer = setInterval(() => {
+      job().catch(error => this.logger.error('A background job failed', error));
+    }, intervalMs);
+    timer.unref();
+    this.#jobs.push(timer);
+  }
+
   async stop(): Promise<void> {
+    this.#jobs.forEach(clearInterval);
+    this.#jobs.length = 0;
     await this.fastify.close();
   }
 

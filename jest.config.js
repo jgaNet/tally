@@ -17,6 +17,7 @@ export default {
   resetModules: true,
   restoreMocks: true,
   testEnvironment: 'node',
+  setupFiles: ['<rootDir>/jest.setup.js'],
   extensionsToTreatAsEsm: ['.ts'],
   transform: {
     '^.+\\.ts$': ['ts-jest', { useESM: true, tsconfig: './tsconfig.test.json' }],

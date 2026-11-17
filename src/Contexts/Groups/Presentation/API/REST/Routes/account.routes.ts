@@ -1,0 +1,34 @@
+import { FastifyInstance } from 'fastify';
+
+import { Module } from '@Architecture/Application';
+
+import { FastifyAccountController } from '@Contexts/Groups/Presentation/API/REST/Controllers/FastifyAccountController';
+import {
+  AccountResSchema,
+  SignInReqBodySchema,
+  SignInResSchema,
+  SignUpReqBodySchema,
+  SignUpResSchema,
+} from '@Contexts/Groups/Presentation/API/REST/Routes/account.routes.schema';
+import { SignUpPayload } from '@Contexts/Groups/Application/Commands';
+
+export const accountRoutes = function (fastify: FastifyInstance, { module }: { module: Module }, done: () => void) {
+  const controller = new FastifyAccountController({ module });
+  const tags = ['accounts'];
+
+  fastify.post<{ Body: SignUpPayload }>(
+    '/',
+    { schema: { tags, body: SignUpReqBodySchema, response: SignUpResSchema } },
+    controller.signUp.bind(controller),
+  );
+
+  fastify.post<{ Body: { email: string; password: string } }>(
+    '/login',
+    { schema: { tags, body: SignInReqBodySchema, response: SignInResSchema } },
+    controller.signIn.bind(controller),
+  );
+
+  fastify.get('/me', { schema: { tags, response: AccountResSchema } }, controller.getMyAccount.bind(controller));
+
+  done();
+};
