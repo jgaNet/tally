@@ -12,6 +12,8 @@ import {
   getMemberStatement,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
+import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
+import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
@@ -36,4 +38,6 @@ export const localLedgerModule = new LiteModule({
     getGroupExpenses(expenseQueries, groupMembers),
     getMemberStatement(expenseQueries, groupMembers),
   ],
+  // An expense recorded is told to the other contexts as the published fact (request 17, docs/adr/0017).
+  domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
 });

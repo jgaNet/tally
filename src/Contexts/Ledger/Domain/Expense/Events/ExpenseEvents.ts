@@ -1,10 +1,11 @@
 import { DomainEvent } from '@Architecture/Domain';
 
-import { SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { ShareSnapshot, SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
 
 /**
  * An expense was recorded by a member of the group, who paid it. Recorded by `Expense.register()`, once the expense is
- * stored (docs/adr/0004). No integration event carries it: no other context reacts to it yet.
+ * stored (docs/adr/0004). It carries the shares, which `ExpenseRecordedHandler` tells Notifications as the integration event
+ * `ExpenseRecorded` (docs/adr/0017).
  */
 export class ExpenseRecordedEvent extends DomainEvent<{
   expenseId: string;
@@ -12,6 +13,7 @@ export class ExpenseRecordedEvent extends DomainEvent<{
   amount: number;
   paidBy: string;
   splitKind: SplitKind;
+  shares: ShareSnapshot[];
 }> {}
 
 /**

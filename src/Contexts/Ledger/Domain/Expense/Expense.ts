@@ -86,7 +86,14 @@ export class Expense extends AggregateRoot {
     const id = Id.generate();
     const expense = new Expense(id, groupId, checked.data.description, amount, date, paidBy, checked.data.split, 0);
     expense.record(
-      ExpenseRecordedEvent.set({ expenseId: id.value, groupId, amount, paidBy, splitKind: checked.data.split.kind }),
+      ExpenseRecordedEvent.set({
+        expenseId: id.value,
+        groupId,
+        amount,
+        paidBy,
+        splitKind: checked.data.split.kind,
+        shares: checked.data.split.shares,
+      }),
     );
     return Result.ok(expense);
   }

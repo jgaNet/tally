@@ -18,6 +18,7 @@ import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
+import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
 import { providerWebhookRoutes } from '@Contexts/Settlements/Presentation/providerWebhooks.routes';
 
@@ -69,6 +70,7 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { module: localSettlementsModule })
     .registerRoutes('/', providerWebhookRoutes, { module: localSettlementsModule })
+    .registerRoutes('/', noticeRoutes, { module: localNotificationsModule })
     .registerRoutes('/', operationRoutes, {});
 
   await app.startModules();

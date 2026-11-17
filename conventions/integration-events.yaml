@@ -11,4 +11,13 @@
 #   or retyped is a new version, and the gate refuses the change in place.
 # - A payload maps each field, by its public name (lowerCamel), to its type: `string`, `number`, `boolean`,
 #   `object`, `array` or `any`, with `?` when the field may be absent.
-events: {}
+events:
+  ExpenseRecorded:
+    publisher: Ledger
+    versions:
+      - version: 1
+        payload:
+          expenseId: string
+          groupId: string
+          paidBy: string
+          shares: array
