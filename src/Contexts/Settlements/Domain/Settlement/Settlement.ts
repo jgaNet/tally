@@ -1,18 +1,36 @@
+/** How a settlement is paid: in cash, recorded by its payee (request 12), or through the payment provider (request 13). */
+export type SettlementMethod = 'cash' | 'provider';
+
 /**
- * A settlement, as the domain records it (request 12, conventions/domain.yaml): one transfer in cash from a payer to a payee of a
- * group, whole in the group's currency's hundredths, at least 1, and recorded when it was decided. It is a value: once recorded,
- * it is kept as it is, and what it does to the balances is read from it (ADR 10), never written back.
+ * Where a settlement stands: a provider's payment is `pending` until the provider says it ended, once: `paid` or `failed`. A cash
+ * settlement is `paid` from the moment it is recorded.
+ */
+export type SettlementStatus = 'pending' | 'paid' | 'failed';
+
+/** The provider's payment a settlement through the provider is: the id the provider answered, and the link the payer pays at. */
+export interface ProviderPayment {
+  readonly id: string;
+  readonly payUrl: string;
+}
+
+/**
+ * A settlement, as the domain records it (requests 12 and 13, conventions/domain.yaml): one transfer from a payer to a payee of a
+ * group, whole in the group's currency's hundredths, at least 1, and decided when it was recorded. It is kept as it was decided,
+ * except its status, which moves once from `pending` to `paid` or `failed` when the provider says so (ADR 10, feature 13). What it
+ * does to the balances is read from it, never written back.
  */
 export interface Settlement {
   readonly id: string;
   readonly groupId: string;
   /** The payer: the member who paid the money. */
   readonly from: string;
-  /** The payee: the member who received it, and who recorded it. */
+  /** The payee: the member who received it, and who recorded it (in cash), or who is to receive it (through the provider). */
   readonly to: string;
   readonly amount: number;
-  readonly method: 'cash';
-  readonly status: 'paid';
-  /** When it was recorded, as an ISO 8601 instant. */
+  readonly method: SettlementMethod;
+  readonly status: SettlementStatus;
+  /** When it was decided, as an ISO 8601 instant. */
   readonly at: string;
+  /** Present on a settlement through the provider only. */
+  readonly payment?: ProviderPayment;
 }

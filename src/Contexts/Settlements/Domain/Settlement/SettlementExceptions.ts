@@ -1,6 +1,30 @@
-import { Exception, NotFoundException } from '@Architecture/Domain';
+import { Exception, NotFoundException, UnauthenticatedException } from '@Architecture/Domain';
 
 const SERVICE = 'Settlements';
+
+/**
+ * The payment provider did not give a payment link: it answered anything but `201 { id, payUrl }`, or did not answer within 5
+ * seconds, or none is configured. Nothing is kept: `422`, the request is refused (request 13).
+ */
+export class ProviderUnavailableException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'ProviderUnavailable',
+      message: 'The payment provider did not give a payment link: nothing was kept, try again later',
+    });
+  }
+}
+
+/**
+ * The provider's webhook carries no signature, or one that is not the provider's over its body: refused with `401`, and nothing
+ * changes (request 13, the caller's proof of who sent it).
+ */
+export class SignatureNotValidException extends UnauthenticatedException {
+  constructor() {
+    super(SERVICE, 'SignatureNotValid', 'The webhook is not signed by the payment provider');
+  }
+}
 
 /** The group is not there for the caller: the same `404` for a group that does not exist and one the caller is not in (request 11). */
 export class GroupNotFoundException extends NotFoundException {

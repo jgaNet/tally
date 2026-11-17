@@ -1,5 +1,5 @@
-import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
-import { Settlement } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { SettlementBook, WaitingPayment } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
+import { Settlement, SettlementMethod, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
 /** What a screen shows of one settlement: a read model, never the aggregate (QUERY-READ-MODELS). */
 export interface SettlementView {
@@ -8,19 +8,25 @@ export interface SettlementView {
   readonly from: string;
   readonly to: string;
   readonly amount: number;
-  readonly method: 'cash';
-  readonly status: 'paid';
+  readonly method: SettlementMethod;
+  readonly status: SettlementStatus;
   readonly at: string;
+  /** The link the payer pays at: a settlement through the provider only. */
+  readonly payUrl?: string;
 }
 
 /**
  * The store of settlements, the port the use cases write and read through (ADR 10). `versionOf` is the version a group's book is
- * at, 0 when no settlement has been recorded in it; `save` keeps a recorded settlement and stores the book at its version + 1, only
- * while the book is still at the version it was read at, and refuses it with a ConcurrencyConflictException otherwise (CONC-OPTIMISTIC);
- * `viewOf` reads a settlement as it was saved, or `undefined` when there is none.
+ * at, 0 when no settlement has been decided in it; `waitingOf` is the payments of the group waiting at the provider, which the book
+ * counts as paid for what is still owed; `save` keeps a decided settlement or its new status, and stores the book at its version + 1,
+ * only while the book is still at the version it was read at, and refuses it with a ConcurrencyConflictException otherwise
+ * (CONC-OPTIMISTIC); `viewOf` reads a settlement as it was saved, or `undefined` when there is none; `settlementOfPayment` reads the
+ * settlement the provider's payment id names, or `undefined` when no settlement does.
  */
 export interface ISettlementStore {
   versionOf(groupId: string): Promise<number>;
+  waitingOf(groupId: string): Promise<WaitingPayment[]>;
   save(book: SettlementBook, settlement: Settlement): Promise<void>;
   viewOf(settlementId: string): Promise<SettlementView | undefined>;
+  settlementOfPayment(paymentId: string): Promise<Settlement | undefined>;
 }

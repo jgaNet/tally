@@ -48,6 +48,8 @@ export async function createApplication({
   webOrigins = String(process.env.WEB_ORIGINS || '')
     .split(',')
     .filter(Boolean),
+  providerUrl = process.env.PROVIDER_URL || undefined,
+  providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || undefined,
 }: {
   logger?: Logger;
   apiPrefix?: string;
@@ -55,6 +57,10 @@ export async function createApplication({
   /** The file the application keeps what it knows in (DATABASE_PATH); every server may share it (ADR 2). */
   databasePath?: string;
   webOrigins?: string[];
+  /** The base of the payment provider's API, without a trailing slash (PROVIDER_URL); without it, paying through it is refused. */
+  providerUrl?: string;
+  /** The secret the provider signs its webhooks with, shared with Tally (PROVIDER_WEBHOOK_SECRET). */
+  providerWebhookSecret?: string;
 } = {}): Promise<FastifyApplication> {
   const database = SqliteDatabase.open(databasePath, [...groupsSchema, ...ledgerSchema, ...settlementsSchema]);
   // What the settlements moved is read by Ledger through a port it owns, over Settlements' read model (ADR 10): every balance counts a
@@ -68,7 +74,11 @@ export async function createApplication({
   );
   const ledger = ledgerWiring(database, groups.roster, settledAmounts);
   // The suggested settlements read the members of a group from Groups' roster and its balances from Ledger's read model (ADR 9).
-  const settlements = settlementsWiring(database, groups.roster, ledgerBalanceRoster(database, settledAmounts));
+  // Paying through the provider (request 13) is asked of PROVIDER_URL, and its webhooks are checked with PROVIDER_WEBHOOK_SECRET.
+  const settlements = settlementsWiring(database, groups.roster, ledgerBalanceRoster(database, settledAmounts), {
+    providerUrl,
+    webhookSecret: providerWebhookSecret,
+  });
 
   const app = new FastifyApplication({
     logger,

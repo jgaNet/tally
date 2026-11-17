@@ -24,7 +24,8 @@ const PAST_DAY = '2020-01-15';
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-settlement-links-'));
-  app = await createApplication({ databasePath: join(directory, 'tally.sqlite'), logger: silent });
+  // No payment provider here: paying through one is refused for want of a link, and nothing is kept (request 13).
+  app = await createApplication({ databasePath: join(directory, 'tally.sqlite'), logger: silent, providerUrl: '' });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
@@ -98,6 +99,30 @@ describe('Groups → Settlements (SettlementMembers)', () => {
     });
     expect(outsider.status).toBe(404);
   });
+
+  it('a payment through the provider is asked in the group Groups made, found by the id its creation answered, and not for a stranger', async () => {
+    const groupId = await groupWithBob();
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Lunch', amount: 1000, date: PAST_DAY, splitBetween: [ann.id, bob.id] },
+    });
+
+    // No provider is configured in this application: Settlements finds the group and its members and checks the rules, then refuses
+    // the payment for want of a link, and keeps nothing.
+    const asked = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      token: bob.token,
+      body: { to: ann.id, amount: 500 },
+    });
+    expect(asked.status).toBe(422);
+    expect(asked.body).toEqual({ type: 'ProviderUnavailable', message: expect.any(String) });
+
+    // Eve is not in this group: the same 404 as for a group that does not exist.
+    const outsider = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      token: eve.token,
+      body: { to: ann.id, amount: 100 },
+    });
+    expect(outsider.status).toBe(404);
+  });
 });
 
 describe('Ledger → Settlements (GroupBalances)', () => {
@@ -121,6 +146,26 @@ describe('Ledger → Settlements (GroupBalances)', () => {
       body: { from: bob.id, amount: 500 },
     });
     expect(exact.status).toBe(201);
+
+    const found = await http.request('GET', `${api}/expenses/${expenseId}`, { token: ann.token });
+    expect((found.body as { id: string }).id).toBe(expenseId);
+  });
+
+  it('a payment through the provider is refused by the balance Ledger made, before any provider is asked, and finds that expense by its id', async () => {
+    const groupId = await groupWithBob();
+    const expense = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Museum', amount: 1000, date: PAST_DAY, splitBetween: [ann.id, bob.id] },
+    });
+    const expenseId = (expense.body as { id: string }).id;
+
+    // Bob owes 500 because of that expense: 501 is more than he owes, and the provider is not asked for it.
+    const more = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      token: bob.token,
+      body: { to: ann.id, amount: 501 },
+    });
+    expect(more.status).toBe(422);
+    expect(more.body).toMatchObject({ type: 'MoreThanPayerOwes' });
 
     const found = await http.request('GET', `${api}/expenses/${expenseId}`, { token: ann.token });
     expect((found.body as { id: string }).id).toBe(expenseId);

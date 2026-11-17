@@ -5,8 +5,8 @@ import { ISettlementMembers } from '@Contexts/Settlements/Application/ISettlemen
 export type GroupRoster = IGroupRoster;
 
 /**
- * The members of a group, in the order they joined, answered over Groups' roster (ADR 9): Settlements' port `ISettlementMembers`
- * is built on the roster Groups' read model gives, so no domain imports Groups.
+ * The members of a group, in the order they joined, and its currency, answered over Groups' roster (ADR 9): Settlements' port
+ * `ISettlementMembers` is built on the roster Groups' read model gives, so no domain imports Groups.
  */
 export class MembersFromGroups implements ISettlementMembers {
   constructor(private readonly roster: GroupRoster) {}
@@ -14,5 +14,9 @@ export class MembersFromGroups implements ISettlementMembers {
   async membersOf(groupId: string): Promise<readonly string[] | undefined> {
     const members = await this.roster.membersOf(groupId);
     return members?.map(({ memberId }) => memberId);
+  }
+
+  async currencyOf(groupId: string): Promise<string | undefined> {
+    return this.roster.currencyOf(groupId);
   }
 }

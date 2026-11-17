@@ -1,0 +1,171 @@
+import { describe, expect, it } from '@jest/globals';
+
+import {
+  GroupNotFoundException,
+  MoreThanPayerOwesException,
+  ProviderUnavailableException,
+} from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
+import {
+  PaymentRequestedEvent,
+  SettlementBook,
+  SettlementFailedEvent,
+  SettlementPaidEvent,
+} from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
+import { Settlement } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+
+const NOW = new Date('2026-03-01T10:00:00.000Z');
+
+/** Ann is owed 1000 by Bob; Cy owes 500 and Dan 500 (the balances add up to 0). Members in the order they joined. */
+const book = (waiting: { from: string; to: string; amount: number }[] = []) =>
+  SettlementBook.open({
+    groupId: 'group-1',
+    version: 0,
+    members: ['ann', 'bob', 'cy', 'dan'],
+    balances: [
+      { memberId: 'ann', balance: 1000 },
+      { memberId: 'bob', balance: -1000 },
+      { memberId: 'cy', balance: -500 },
+      { memberId: 'dan', balance: -500 },
+    ],
+    waiting,
+  });
+
+/** A pending settlement through the provider, as the book keeps it once the provider has given its link. */
+const pending: Settlement = {
+  id: 'settlement-1',
+  groupId: 'group-1',
+  from: 'bob',
+  to: 'ann',
+  amount: 400,
+  method: 'provider',
+  status: 'pending',
+  at: '2026-03-01T10:00:00.000Z',
+  payment: { id: 'pay-1', payUrl: 'https://pay.example/pay-1' },
+};
+
+describe('a payment through the provider, decided by the book in two steps', () => {
+  it('proposes a settlement with its identity only, and records nothing until the provider has given a link', () => {
+    const aggregate = book();
+
+    const proposed = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, NOW);
+
+    expect(proposed.isFailure()).toBe(false);
+    expect(proposed.data).toEqual({
+      id: expect.any(String),
+      from: 'bob',
+      to: 'ann',
+      amount: 400,
+      at: NOW.toISOString(),
+    });
+    expect(aggregate.pullDomainEvents()).toEqual([]);
+  });
+
+  it('refuses a proposal by the rules of a cash settlement, before the provider is asked', () => {
+    expect(book().proposePayment({ from: 'bob', to: 'zed', amount: 400 }, NOW).error).toBeInstanceOf(
+      GroupNotFoundException,
+    );
+    expect(book().proposePayment({ from: 'bob', to: 'ann', amount: 1001 }, NOW).error).toBeInstanceOf(
+      MoreThanPayerOwesException,
+    );
+  });
+
+  it('keeps the payment pending with the link, and records PaymentRequested', () => {
+    const aggregate = book();
+    const proposal = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, NOW).data!;
+
+    const recorded = aggregate.recordPayment(proposal, { id: 'pay-1', payUrl: 'https://pay.example/pay-1' });
+
+    expect(recorded.data).toEqual({
+      id: proposal.id,
+      groupId: 'group-1',
+      from: 'bob',
+      to: 'ann',
+      amount: 400,
+      method: 'provider',
+      status: 'pending',
+      at: NOW.toISOString(),
+      payment: { id: 'pay-1', payUrl: 'https://pay.example/pay-1' },
+    });
+    const events = aggregate.pullDomainEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toBeInstanceOf(PaymentRequestedEvent);
+    expect(events[0].payload).toEqual({
+      settlementId: proposal.id,
+      groupId: 'group-1',
+      from: 'bob',
+      to: 'ann',
+      amount: 400,
+      at: NOW.toISOString(),
+    });
+  });
+
+  it('is refused, and nothing kept, when the provider gave no link or one without its id or link', () => {
+    const aggregate = book();
+    const proposal = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, NOW).data!;
+
+    expect(aggregate.recordPayment(proposal, undefined).error).toBeInstanceOf(ProviderUnavailableException);
+    expect(aggregate.recordPayment(proposal, { id: '', payUrl: 'https://pay.example/x' }).error).toBeInstanceOf(
+      ProviderUnavailableException,
+    );
+    expect(aggregate.recordPayment(proposal, { id: 'pay-1', payUrl: '' }).error).toBeInstanceOf(
+      ProviderUnavailableException,
+    );
+    expect(aggregate.pullDomainEvents()).toEqual([]);
+  });
+
+  it('counts a payment waiting at the provider as paid for what is still owed, in the rules and the suggestions', () => {
+    const aggregate = book([{ from: 'bob', to: 'ann', amount: 400 }]);
+
+    expect(aggregate.balanceOf('ann')).toBe(600);
+    expect(aggregate.balanceOf('bob')).toBe(-600);
+    expect(aggregate.stillOwed()).toEqual([
+      { memberId: 'ann', balance: 600 },
+      { memberId: 'bob', balance: -600 },
+      { memberId: 'cy', balance: -500 },
+      { memberId: 'dan', balance: -500 },
+    ]);
+    expect(aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 601 }, NOW).error).toBeInstanceOf(
+      MoreThanPayerOwesException,
+    );
+    expect(aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 600 }, NOW).isFailure()).toBe(false);
+  });
+});
+
+describe("the provider's verdict on a pending payment", () => {
+  it('a payment that succeeded is paid, and SettlementPaid is recorded', () => {
+    const aggregate = book();
+
+    const changed = aggregate.receive(pending, 'succeeded');
+
+    expect(changed).toEqual({ ...pending, status: 'paid' });
+    const events = aggregate.pullDomainEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toBeInstanceOf(SettlementPaidEvent);
+    expect(events[0].payload).toEqual({
+      settlementId: 'settlement-1',
+      groupId: 'group-1',
+      from: 'bob',
+      to: 'ann',
+      amount: 400,
+    });
+  });
+
+  it('a payment that failed is failed, and SettlementFailed is recorded', () => {
+    const aggregate = book();
+
+    expect(aggregate.receive(pending, 'failed')).toEqual({ ...pending, status: 'failed' });
+    const events = aggregate.pullDomainEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toBeInstanceOf(SettlementFailedEvent);
+  });
+
+  it('changes nothing for a verdict that is still pending, one not named, or a payment that already ended', () => {
+    const aggregate = book();
+
+    expect(aggregate.receive(pending, 'pending')).toBeUndefined();
+    expect(aggregate.receive(pending, 'refunded')).toBeUndefined();
+    expect(aggregate.receive({ ...pending, status: 'paid' }, 'failed')).toBeUndefined();
+    expect(aggregate.receive({ ...pending, status: 'failed' }, 'succeeded')).toBeUndefined();
+    expect(aggregate.pullDomainEvents()).toEqual([]);
+  });
+});

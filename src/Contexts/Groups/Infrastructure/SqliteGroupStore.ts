@@ -135,6 +135,12 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     return rows.length > 0 ? rows.map(row => ({ memberId: row.account_id, role: row.role })) : undefined;
   }
 
+  async currencyOf(groupId: string): Promise<string | undefined> {
+    const row = this.database.read(db => db.prepare('SELECT currency FROM groups WHERE id = ?').get(groupId)) as
+      { currency: string } | undefined;
+    return row?.currency;
+  }
+
   async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {
     const row = this.database.read(db =>
       db
