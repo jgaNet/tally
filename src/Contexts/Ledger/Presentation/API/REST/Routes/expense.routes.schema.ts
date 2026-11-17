@@ -112,6 +112,13 @@ export const GetExpenseResSchema = {
   404: RefusalSchema,
 } as const;
 
+/** The group's expenses, the latest date first, each as it reads on its own (request 8). */
+export const GetGroupExpensesResSchema = {
+  200: { type: 'array', items: ExpenseSchema },
+  401: RefusalSchema,
+  404: RefusalSchema,
+} as const;
+
 /** Editing an expense takes it whole, and the version its author read: the answer is its id, or the refusal that named the rule. */
 export const EditExpenseReqBodySchema = {
   type: 'object',

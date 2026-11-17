@@ -11,10 +11,16 @@ import {
   RecordExpenseCommandEvent,
   RecordExpenseCommandHandler,
 } from '@Contexts/Ledger/Application/Commands';
-import { GetExpenseQueryHandler, GetGroupBalancesQueryHandler } from '@Contexts/Ledger/Application/Queries';
+import {
+  GetExpenseQueryHandler,
+  GetGroupBalancesQueryHandler,
+  GetGroupExpensesQueryHandler,
+  GetMemberStatementQueryHandler,
+} from '@Contexts/Ledger/Application/Queries';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteExpenseRepository';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteExpenseQueries';
 import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteBalanceQueries';
+import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteStatementQueries';
 import { GroupsMembership } from '@Contexts/Ledger/Infrastructure/Groups/GroupsMembership';
 
 /**
@@ -27,6 +33,7 @@ const database = applicationDatabase();
 const expenses = new SqliteExpenseRepository(database);
 const expenseQueries = new SqliteExpenseQueries(database);
 const balanceQueries = new SqliteBalanceQueries(database);
+const statementQueries = new SqliteStatementQueries(database);
 const groupMembers = new GroupsMembership(groupQueries);
 const clock = systemClock;
 
@@ -49,5 +56,7 @@ export const localLedgerModule = new Module({
   queries: [
     new GetExpenseQueryHandler(expenseQueries, groupMembers),
     new GetGroupBalancesQueryHandler(balanceQueries, groupMembers),
+    new GetGroupExpensesQueryHandler(expenseQueries, groupMembers),
+    new GetMemberStatementQueryHandler(statementQueries, groupMembers),
   ],
 });

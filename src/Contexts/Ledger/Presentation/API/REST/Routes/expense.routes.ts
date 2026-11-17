@@ -12,6 +12,7 @@ import {
   EditExpenseReqBodySchema,
   EditExpenseResSchema,
   GetExpenseResSchema,
+  GetGroupExpensesResSchema,
 } from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes.schema';
 
 export const expenseRoutes = function (fastify: FastifyInstance, { module }: { module: Module }, done: () => void) {
@@ -25,6 +26,12 @@ export const expenseRoutes = function (fastify: FastifyInstance, { module }: { m
     '/groups/:id/expenses',
     { schema: { tags, body: CreateExpenseReqBodySchema, response: CreateExpenseResSchema } },
     controller.recordExpense.bind(controller),
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    '/groups/:id/expenses',
+    { schema: { tags, response: GetGroupExpensesResSchema } },
+    controller.getGroupExpenses.bind(controller),
   );
 
   fastify.get<{ Params: { id: string } }>(

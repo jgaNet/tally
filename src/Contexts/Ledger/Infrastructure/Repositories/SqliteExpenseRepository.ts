@@ -25,7 +25,8 @@ export function createExpensesTables(database: SqliteDatabase): void {
       spent_on TEXT NOT NULL,
       paid_by TEXT NOT NULL,
       split_kind TEXT NOT NULL DEFAULT 'equal',
-      version INTEGER NOT NULL
+      version INTEGER NOT NULL,
+      recorded_seq INTEGER
     );
     CREATE TABLE IF NOT EXISTS expense_shares (
       expense_id TEXT NOT NULL,
@@ -47,6 +48,12 @@ export function createExpensesTables(database: SqliteDatabase): void {
   if (!columns.some(column => column.name === 'split_kind')) {
     connection.exec("ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
   }
+  // The order an expense was first recorded in: a number given at its insert and never changed by an edit (request 8).
+  // An expense recorded before it existed is numbered by its row, which was made in the order of recording.
+  if (!columns.some(column => column.name === 'recorded_seq')) {
+    connection.exec('ALTER TABLE expenses ADD COLUMN recorded_seq INTEGER');
+  }
+  connection.exec('UPDATE expenses SET recorded_seq = rowid WHERE recorded_seq IS NULL');
   if (!hadEntries) {
     connection.exec(`
       INSERT INTO balance_entries (expense_id, group_id, member_id, amount)
@@ -66,6 +73,7 @@ interface ExpenseRow {
   paid_by: string;
   split_kind: SplitKind;
   version: number;
+  recorded_seq: number;
 }
 
 interface ShareRow {
@@ -133,7 +141,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     }
     connection
       .prepare(
-        'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, split_kind, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, split_kind, version, recorded_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM expenses))',
       )
       .run(
         snapshot._id,

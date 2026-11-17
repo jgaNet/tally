@@ -9,7 +9,7 @@ import {
   EditExpenseCommandEvent,
   RecordExpenseCommandEvent,
 } from '@Contexts/Ledger/Application/Commands';
-import { GetExpenseQueryHandler } from '@Contexts/Ledger/Application/Queries';
+import { GetExpenseQueryHandler, GetGroupExpensesQueryHandler } from '@Contexts/Ledger/Application/Queries';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
   CreateExpenseBody,
@@ -60,6 +60,14 @@ export class FastifyExpenseController {
 
   deleteExpense(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     return acceptCommandAtOnce(req, reply, this.#module, DeleteExpenseCommandEvent.set({ expenseId: req.params.id }));
+  }
+
+  async getGroupExpenses(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetGroupExpensesQueryHandler)
+      .handle({ groupId: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }
 
   async getExpense(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

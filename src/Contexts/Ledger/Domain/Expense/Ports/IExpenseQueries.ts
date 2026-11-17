@@ -19,4 +19,9 @@ export interface ExpenseView {
 export interface IExpenseQueries {
   /** The expense with this id, or null when there is none. */
   findExpense(id: string): Promise<ExpenseView | null>;
+  /**
+   * The expenses of a group, each as `findExpense` answers it: the latest date first, then the most recently recorded
+   * first; an edit does not change when an expense was recorded (request 8).
+   */
+  listGroupExpenses(groupId: string): Promise<ExpenseView[]>;
 }
