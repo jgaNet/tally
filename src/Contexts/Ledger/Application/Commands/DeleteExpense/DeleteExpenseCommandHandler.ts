@@ -4,6 +4,7 @@ import { requireSignedIn } from '@SharedKernel/Application/Guards';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { DeleteExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/DeleteExpense/DeleteExpenseCommandEvent';
+import { IAuditTrail } from '@Contexts/Ledger/Application/Ports/IAuditTrail';
 
 /**
  * A member who paid an expense, or the owner of its group, removes it: it is gone from every read, and from every
@@ -15,6 +16,7 @@ export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCom
     private readonly expenses: IExpenseRepository,
     private readonly groupMembers: IGroupMembers,
     private readonly clock: Clock,
+    private readonly audit: IAuditTrail,
   ) {
     super();
   }
@@ -30,6 +32,7 @@ export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCom
     if (role === null) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     const groupArchived = await this.groupMembers.isArchived(expense.groupId);
 
+    const before = expense.toSnapshot();
     const deleted = expense.delete({
       by: caller.data,
       byOwner: role === 'owner',
@@ -41,6 +44,15 @@ export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCom
 
     const saved = await this.expenses.save(deleted.data);
     if (saved.isFailure()) return saved;
+    await this.audit.record({
+      id: `expense-deleted:${before.id}:${before.version}`,
+      groupId: before.groupId,
+      at: now,
+      by: caller.data.value,
+      action: 'expense-deleted',
+      subjectId: before.id,
+      amount: before.amount,
+    });
     await publishDomainEvents(deleted.data, context);
     return Result.ok({ id: deleted.data._id.value });
   }

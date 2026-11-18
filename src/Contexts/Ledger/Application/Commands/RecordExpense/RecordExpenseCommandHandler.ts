@@ -13,6 +13,7 @@ import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurr
 import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
 import { priceExpense } from '@Contexts/Ledger/Application/Commands/priceExpense';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandEvent';
+import { IAuditTrail } from '@Contexts/Ledger/Application/Ports/IAuditTrail';
 
 /**
  * A member records an expense they paid, split between the members it concerns: equally, by exact amounts, or by shares.
@@ -28,6 +29,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     private readonly groupCurrency: IGroupCurrency,
     private readonly offeredRates: IOfferedRates,
     private readonly clock: Clock,
+    private readonly audit: IAuditTrail,
   ) {
     super();
   }
@@ -75,6 +77,16 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
 
     const saved = await this.expenses.save(expense.data);
     if (saved.isFailure()) return saved;
+    const recorded = expense.data.toSnapshot();
+    await this.audit.record({
+      id: `expense-recorded:${recorded.id}:0`,
+      groupId: recorded.groupId,
+      at: now,
+      by: payer.data.value,
+      action: 'expense-recorded',
+      subjectId: recorded.id,
+      amount: recorded.amount,
+    });
     await publishDomainEvents(expense.data, context);
     return Result.ok({ id: expense.data._id.value, rateSource: priced.data.rateSource });
   }

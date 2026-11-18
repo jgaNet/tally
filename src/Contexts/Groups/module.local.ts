@@ -1,3 +1,5 @@
+import { IPassedBalanceEntries } from '@Contexts/Groups/Domain/Group/Ports/IPassedBalanceEntries';
+import { SqlitePassedBalanceEntries } from '@Contexts/Groups/Infrastructure/SqlitePassedBalanceEntries';
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
@@ -57,6 +59,12 @@ export const tokens = new HmacTokens(database);
  */
 export const groupMembership: IGroupMembership = groupQueries;
 export const groupMembershipInCommand: IGroupMembership = new SqliteGroupMembership(database);
+
+/**
+ * The balances that passed to the owner when members left, as Ledger's audit reads them (PassedBalances, request 28),
+ * outside any transaction. Ledger's wiring takes it; this wiring does not import Ledger's.
+ */
+export const passedBalanceEntries: IPassedBalanceEntries = new SqlitePassedBalanceEntries(database);
 
 /** The currency of a group, as another context's command reads it (ADR 8), inside the command's transaction. */
 export const groupCurrencyInCommand: IGroupCurrency = new SqliteGroupCurrency(database);

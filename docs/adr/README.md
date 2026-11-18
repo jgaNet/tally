@@ -25,6 +25,7 @@ why, what it costs, and when to revisit it.
 | [18](0018-split-templates.md) | Split templates: an aggregate in Ledger, and an expense is split by one as if its split had been given |
 | [19](0019-receipts.md) | Receipts: an aggregate in Ledger, kept in an outside store behind a port Ledger owns |
 | [20](0020-archiving-a-group.md) | Archiving a group: Groups decides, every context asks Groups through its port, and the refusal is one shared name |
+| [21](0021-the-audit-of-money-changes.md) | The audit of money changes: each context keeps its own changes, and Ledger reads them through two ports it owns |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

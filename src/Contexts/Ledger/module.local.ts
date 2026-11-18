@@ -6,7 +6,12 @@ import {
   groupMembership,
   groupMembershipInCommand,
 } from '@Contexts/Groups/module.local';
-import { settlementEffects, settlementEffectsInCommand } from '@Contexts/Settlements/module.local';
+import {
+  settlementAuditEntries,
+  settlementEffects,
+  settlementEffectsInCommand,
+} from '@Contexts/Settlements/module.local';
+import { passedBalanceEntries } from '@Contexts/Groups/module.local';
 import { IMemberBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalanceSums';
 import { SqliteMemberBalanceSums } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalanceSums';
 import {
@@ -89,6 +94,11 @@ import { GetReceiptQueryHandler } from '@Contexts/Ledger/Application/Queries/Get
 import { IReceiptStore } from '@Contexts/Ledger/Application/Ports/IReceiptStore';
 import { SqliteReceiptRepository } from '@Contexts/Ledger/Infrastructure/SqliteReceiptRepository';
 import { SqliteReceiptQueries } from '@Contexts/Ledger/Infrastructure/SqliteReceiptQueries';
+import { SqliteAuditTrail } from '@Contexts/Ledger/Infrastructure/SqliteAuditTrail';
+import { SqliteAuditQueries } from '@Contexts/Ledger/Infrastructure/SqliteAuditQueries';
+import { SettlementsSettlementAudit } from '@Contexts/Ledger/Infrastructure/SettlementsSettlementAudit';
+import { GroupsPassedBalances } from '@Contexts/Ledger/Infrastructure/GroupsPassedBalances';
+import { GetGroupAuditQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupAudit/GetGroupAuditQueryHandler';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3, ADR 7): the expenses of each group, recorded with their equal
@@ -109,6 +119,9 @@ const membersInCommand = new GroupsMembers(groupMembershipInCommand);
 
 /** An expense as a receipt's command reads it (request 26): inside the command's transaction, so it reads the connection the transaction holds. */
 const expensesInCommand = new SqliteExpenseQueries(database, true);
+
+/** The changes of money of the expenses, written in the transaction of each change (request 28). */
+const audit = new SqliteAuditTrail(database);
 
 /**
  * Ledger's balance of a member as Groups asks it when a member leaves (MemberBalances, ADR 4), exported for a command:
@@ -170,6 +183,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
             new GroupsGroupCurrency(groupCurrencyInCommand),
             rates,
             clock,
+            audit,
           ),
         ],
       },
@@ -183,6 +197,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
             new GroupsGroupCurrency(groupCurrencyInCommand),
             rates,
             clock,
+            audit,
           ),
         ],
       },
@@ -213,6 +228,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
             new SqliteExpenseRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
+            audit,
           ),
         ],
       },
@@ -313,6 +329,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
             new SqliteExpenseRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
+            audit,
           ),
         ],
       },
@@ -338,6 +355,12 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
       new GetReceiptQueryHandler(
         new SqliteReceiptQueries(database),
         new SqliteExpenseQueries(database),
+        new GroupsMembers(groupMembership),
+      ),
+      new GetGroupAuditQueryHandler(
+        new SqliteAuditQueries(database),
+        new SettlementsSettlementAudit(settlementAuditEntries),
+        new GroupsPassedBalances(passedBalanceEntries),
         new GroupsMembers(groupMembership),
       ),
       new GetOfferedRateQueryHandler(

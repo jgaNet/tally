@@ -12,6 +12,7 @@ import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurr
 import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
 import { priceExpense } from '@Contexts/Ledger/Application/Commands/priceExpense';
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense/EditExpenseCommandEvent';
+import { IAuditTrail } from '@Contexts/Ledger/Application/Ports/IAuditTrail';
 
 /**
  * A member who paid an expense, or the owner of its group, gives it again, whole, from the version they read. The
@@ -28,6 +29,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     private readonly groupCurrency: IGroupCurrency,
     private readonly offeredRates: IOfferedRates,
     private readonly clock: Clock,
+    private readonly audit: IAuditTrail,
   ) {
     super();
   }
@@ -63,6 +65,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     const category = categoryOf(payload.category);
     if (category.isFailure()) return category;
 
+    const before = expense.toSnapshot();
     const edited = expense.edit({
       by: caller.data,
       byOwner: role === 'owner',
@@ -81,6 +84,15 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
 
     const saved = await this.expenses.save(edited.data);
     if (saved.isFailure()) return saved;
+    await this.audit.record({
+      id: `expense-edited:${before.id}:${before.version}`,
+      groupId: before.groupId,
+      at: now,
+      by: caller.data.value,
+      action: 'expense-edited',
+      subjectId: before.id,
+      amount: edited.data.toSnapshot().amount,
+    });
     await publishDomainEvents(edited.data, context);
     return Result.ok({ id: expense._id.value, rateSource: priced.data.rateSource });
   }

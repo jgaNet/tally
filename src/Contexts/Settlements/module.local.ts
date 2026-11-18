@@ -35,6 +35,8 @@ import { SqlitePayoutAccountQueries } from '@Contexts/Settlements/Infrastructure
 import { SettlementsMemberDebts } from '@Contexts/Settlements/Infrastructure/SettlementsMemberDebts';
 import { SqliteMemberPaymentsWaiting } from '@Contexts/Settlements/Infrastructure/SqliteMemberPaymentsWaiting';
 import { IMemberPaymentsWaiting } from '@Contexts/Settlements/Domain/Settlement/Ports/IMemberPaymentsWaiting';
+import { ISettlementAuditEntries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementAuditEntries';
+import { SqliteSettlementAuditEntries } from '@Contexts/Settlements/Infrastructure/SqliteSettlementAuditEntries';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADR 5, ADR 6, ADR 7, ADR 8), kept in the application's SQLite file. Its
@@ -62,6 +64,12 @@ export const settlementEffectsInCommand: ISettlementEffects = new SqliteSettleme
  * asking command's transaction. The composition root hands it to Groups' module; this wiring does not import Groups'.
  */
 export const memberPaymentsWaitingInCommand: IMemberPaymentsWaiting = new SqliteMemberPaymentsWaiting(database);
+
+/**
+ * The changes of money of the settlements, as their history records them, read by Ledger for the group's audit (SettlementAudit,
+ * request 28), outside any transaction. Ledger's wiring takes it; this wiring does not import Ledger's.
+ */
+export const settlementAuditEntries: ISettlementAuditEntries = new SqliteSettlementAuditEntries(database);
 
 /** What the payments waiting at the provider do to each balance, for the suggestions (ADR 8), outside any transaction. */
 const waitingEffects: IWaitingEffects = new SqliteSettlementEffects(database, false, ['pending']);

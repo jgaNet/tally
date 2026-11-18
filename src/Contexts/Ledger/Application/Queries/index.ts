@@ -8,3 +8,4 @@ export * from '@Contexts/Ledger/Application/Queries/GetGroupRecurringExpenses/Ge
 export * from '@Contexts/Ledger/Application/Queries/GetGroupBudgets/GetGroupBudgetsQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetGroupTemplates/GetGroupTemplatesQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetReceipt/GetReceiptQueryHandler';
+export * from '@Contexts/Ledger/Application/Queries/GetGroupAudit/GetGroupAuditQueryHandler';

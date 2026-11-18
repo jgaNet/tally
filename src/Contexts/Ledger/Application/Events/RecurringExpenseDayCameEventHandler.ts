@@ -8,6 +8,7 @@ import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
+import { IAuditTrail } from '@Contexts/Ledger/Application/Ports/IAuditTrail';
 
 /**
  * The expense of a recurring expense's day is recorded (request 23, ADR 16): dated that day, paid by its payer, with its
@@ -19,6 +20,7 @@ export class RecurringExpenseDayCameEventHandler extends EventHandler<RecurringE
     private readonly expenses: IExpenseRepository,
     private readonly groupMembers: IGroupMembers,
     private readonly clock: Clock,
+    private readonly audit: IAuditTrail,
   ) {
     super();
   }
@@ -38,6 +40,7 @@ export class RecurringExpenseDayCameEventHandler extends EventHandler<RecurringE
     const split = Split.fromRequest({ amount: amount.data, payer, request: payload.splitRequest });
     if (split.isFailure()) return split;
 
+    const now = this.clock();
     const expense = Expense.create({
       id: expenseId,
       groupId,
@@ -47,12 +50,21 @@ export class RecurringExpenseDayCameEventHandler extends EventHandler<RecurringE
       date: date.data,
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(groupId),
-      at: this.clock(),
+      at: now,
     });
     if (expense.isFailure()) return expense;
 
     const saved = await this.expenses.save(expense.data);
     if (saved.isFailure()) return saved;
+    await this.audit.record({
+      id: `expense-recorded:${expenseId.value}:0`,
+      groupId: groupId.value,
+      at: now,
+      by: payer.value,
+      action: 'expense-recorded',
+      subjectId: expenseId.value,
+      amount: amount.data.value,
+    });
     await publishDomainEvents(expense.data, context);
     return Result.ok();
   }

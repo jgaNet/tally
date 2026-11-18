@@ -143,6 +143,8 @@ relationships:
       converted into the group's, so Ledger also asks for the group's currency, through a port it owns (GroupCurrency),
       when it decides such an expense: the currency Groups made the group in, read inside the command's transaction
       (ADR 14).
+      The audit (request 28, ADR 21) reads the balances that passed when a member left through the same relationship, a port
+      it owns (PassedBalances), answered over Groups' read side.
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]
@@ -176,6 +178,8 @@ relationships:
       A balance never misses a settlement that is paid: Ledger reads what was settled through a port it owns
       (SettledAmounts), answered over Settlements' read model, when it reads a balance, inside the transaction of a
       command that decides on it (T8, ADR 7).
+      The audit (request 28, ADR 21) reads what each settlement changed, from its history, through a port it owns
+      (SettlementAudit).
   - upstream: Ledger
     downstream: Notifications
     patterns: [published-language, anti-corruption-layer]
