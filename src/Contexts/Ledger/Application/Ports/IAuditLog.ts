@@ -6,4 +6,6 @@ import { AuditEntryReadModel } from '@Contexts/Ledger/Application/ReadModel/Audi
  */
 export interface IAuditLog {
   record(groupId: string, entry: AuditEntryReadModel): Promise<void>;
+  /** The entries of one group are the other group's from now on, when the group is merged into it (request 31). */
+  moveGroup(fromGroupId: string, toGroupId: string): Promise<void>;
 }

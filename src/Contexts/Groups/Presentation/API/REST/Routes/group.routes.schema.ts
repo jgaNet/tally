@@ -38,6 +38,15 @@ const MemberSchema = {
   },
 } as const;
 
+/** The group merged into the group of the path, by its id (request 31). */
+export const MergeGroupsBodySchema = {
+  type: 'object',
+  required: ['from'],
+  properties: {
+    from: { type: 'string' },
+  },
+} as const;
+
 export const CreateGroupBodySchema = {
   type: 'object',
   required: ['name', 'currency'],

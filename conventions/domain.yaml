@@ -193,7 +193,6 @@ relationships:
     downstream: Ledger
     patterns: [published-language, anti-corruption-layer]
     mechanism: integration-event
-    planned: true
     why: >-
       A merge is decided by the Group kept, and the expenses of the group merged are Ledger's to move: Groups says the
       fact in its public words (GroupsMerged) through the outbox, and Ledger moves its own in a reaction of its own,
@@ -202,7 +201,6 @@ relationships:
     downstream: Settlements
     patterns: [published-language, anti-corruption-layer]
     mechanism: integration-event
-    planned: true
     why: >-
       The settlements of the group merged are Settlements' to move, by the same fact (GroupsMerged), in a reaction of
       its own, beside the port Settlements already owns on this pair; the zero sum holds while the two reactions run,

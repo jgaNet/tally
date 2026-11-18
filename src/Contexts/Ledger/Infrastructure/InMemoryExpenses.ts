@@ -35,6 +35,17 @@ export class InMemoryExpenseRepository implements IExpenseRepository {
     return Result.ok();
   }
 
+  async findInGroup(groupId: Id): Promise<Expense[]> {
+    return [...this.store.values()].filter(s => s.groupId === groupId.value).map(s => Expense.fromSnapshot(s));
+  }
+
+  async move(expense: Expense): Promise<IResult> {
+    const snapshot = expense.toSnapshot();
+    if (this.store.get(snapshot.id)?.version !== snapshot.version) return conflict(snapshot.id);
+    this.store.set(snapshot.id, snapshot);
+    return Result.ok();
+  }
+
   async delete(expense: Expense): Promise<IResult> {
     const snapshot = expense.toSnapshot();
     if (this.store.get(snapshot.id)?.version !== snapshot.version) return conflict(snapshot.id);
@@ -66,6 +77,14 @@ export class InMemoryBalances implements IBalanceCounts, IBalanceQueries {
       group.set(memberId.value, (group.get(memberId.value) ?? 0) + sign * change);
     }
     this.store.set(expense.groupId.value, group);
+  }
+
+  async moveGroup(fromGroupId: string, toGroupId: string): Promise<void> {
+    const from = this.store.get(fromGroupId) ?? new Map<string, number>();
+    const to = this.store.get(toGroupId) ?? new Map<string, number>();
+    for (const [memberId, balance] of from) to.set(memberId, (to.get(memberId) ?? 0) + balance);
+    this.store.set(toGroupId, to);
+    this.store.delete(fromGroupId);
   }
 
   async balancesOf(groupId: string): Promise<MemberBalanceReadModel[]> {

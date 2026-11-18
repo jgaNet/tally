@@ -45,6 +45,8 @@ import { PostgresSettlementBookRepository } from '@Contexts/Settlements/Infrastr
 import { PostgresSettlementReadModels } from '@Contexts/Settlements/Infrastructure/PostgresSettlementReadModels';
 import { PostgresSettlementAuditLog } from '@Contexts/Settlements/Infrastructure/PostgresSettlementAuditLog';
 import { ISettlementAuditQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementAuditQueries';
+import { GroupsMergedIntegrationEventHandler } from '@Contexts/Settlements/Application/Events/GroupsMerged/GroupsMergedIntegrationEventHandler';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupsIntegrationEvents';
 
 /**
  * The Settlements context, declared by checkpoint 2's strategic session before request 11 (conventions/domain.yaml, ADR 5),
@@ -113,6 +115,12 @@ export const localSettlementsModule = new Module({
     {
       event: SetPayoutAccountCommandEvent,
       handlers: [new SetPayoutAccountCommandHandler(payoutAccounts, provider)],
+    },
+  ],
+  integrationEvents: [
+    {
+      event: GroupsMergedIntegrationEvent,
+      handlers: [new GroupsMergedIntegrationEventHandler(books)],
     },
   ],
   queries: [

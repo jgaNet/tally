@@ -16,6 +16,7 @@ import {
   RecurringExpenseEndedEvent,
   RecurringExpenseSetUpEvent,
   RecurringExpenseStoppedEvent,
+  RecurringExpenseMovedEvent,
 } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
 
 /** What a recurring expense is, as it is kept between two runs of the sweep. */
@@ -183,6 +184,19 @@ export class RecurringExpense extends AggregateRoot {
   }
 
   /** Stops it: only its payer, or the owner of its group (`byOwner`, read by the handler), may. It is deleted; no expense follows. */
+  /** The recurring expense moves to another group, when its group is merged into it (request 31): everything but its group is kept. */
+  moveTo(groupId: Id): RecurringExpense {
+    const moved = RecurringExpense.fromSnapshot({ ...this.toSnapshot(), groupId: groupId.value });
+    moved.record(
+      RecurringExpenseMovedEvent.set({
+        recurringExpenseId: this._id.value,
+        fromGroupId: this.groupId.value,
+        toGroupId: groupId.value,
+      }),
+    );
+    return moved;
+  }
+
   stop({ by, byOwner, archived }: { by: Id; byOwner: boolean; archived: boolean }): IResult<RecurringExpense> {
     if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!byOwner && by.value !== this.paidBy.value) return Result.fail(new NotThePayerOrTheOwnerOfRecurring());

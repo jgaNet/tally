@@ -110,6 +110,15 @@ export class PostgresSplitTemplateRepository implements ISplitTemplateRepository
     await this.database.run('DELETE FROM split_template_members WHERE template_id = ?', id);
     return Result.ok();
   }
+
+  /** A merged group's split templates go with it (request 31). */
+  async dropGroup(groupId: Id): Promise<void> {
+    await this.database.run(
+      'DELETE FROM split_template_members WHERE template_id IN (SELECT id FROM split_templates WHERE group_id = ?)',
+      groupId.value,
+    );
+    await this.database.run('DELETE FROM split_templates WHERE group_id = ?', groupId.value);
+  }
 }
 
 /** The members of a split as rows, in the order given: a split by shares keeps each member's shares, an equal one keeps none. */

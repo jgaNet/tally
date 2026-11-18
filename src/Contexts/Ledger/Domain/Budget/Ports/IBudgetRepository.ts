@@ -8,4 +8,6 @@ export interface IBudgetRepository {
   findByGroupAndCategory(groupId: Id, category: CategoryName): Promise<Budget | null>;
   /** Stores a new budget, or a changed one at its version + 1; a version it was not read at is a ConcurrencyConflict. */
   save(budget: Budget): Promise<IResult>;
+  /** Drops the budgets of a group, with the months they were passed in: a group merged into another loses its budgets (request 31). */
+  dropGroup(groupId: Id): Promise<void>;
 }

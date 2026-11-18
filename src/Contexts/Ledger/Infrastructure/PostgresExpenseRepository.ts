@@ -130,6 +130,30 @@ export class PostgresExpenseRepository implements IExpenseRepository {
     return Result.ok();
   }
 
+  /** The expenses of a group, read in the transaction of the merge that moves them (request 31). */
+  async findInGroup(groupId: Id): Promise<Expense[]> {
+    const rows = await this.database.all<{ id: string }>('SELECT id FROM expenses WHERE group_id = ?', groupId.value);
+    const expenses: Expense[] = [];
+    for (const row of rows) {
+      const expense = await this.findById(new Id(row.id));
+      if (expense) expenses.push(expense);
+    }
+    return expenses;
+  }
+
+  /** A moved expense keeps its version: only its group changes, and only if it is still at the version it was read at. */
+  async move(expense: Expense): Promise<IResult> {
+    const { id, groupId, version } = expense.toSnapshot();
+    const moved = await this.database.run(
+      'UPDATE expenses SET group_id = ? WHERE id = ? AND version = ?',
+      groupId,
+      id,
+      version,
+    );
+    if (!moved) return Result.fail(new ConcurrencyConflictException('Ledger', 'The expense has changed', { id }));
+    return Result.ok();
+  }
+
   async delete(expense: Expense): Promise<IResult> {
     const { id, version } = expense.toSnapshot();
     const removed = await this.database.run('DELETE FROM expenses WHERE id = ? AND version = ?', id, version);

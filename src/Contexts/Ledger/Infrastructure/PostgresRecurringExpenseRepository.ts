@@ -112,6 +112,35 @@ export class PostgresRecurringExpenseRepository implements IRecurringExpenseRepo
     return changed ? Result.ok() : conflict(id);
   }
 
+  /** The recurring expenses of a group, read in the transaction of the merge that moves them (request 31). */
+  async findInGroup(groupId: Id): Promise<RecurringExpense[]> {
+    const rows = await this.database.all<{ id: string }>(
+      'SELECT id FROM recurring_expenses WHERE group_id = ?',
+      groupId.value,
+    );
+    const found: RecurringExpense[] = [];
+    for (const row of rows) {
+      const recurring = await this.findById(new Id(row.id));
+      if (recurring) found.push(recurring);
+    }
+    return found;
+  }
+
+  /** A moved recurring expense keeps its version: only its group changes (request 31). */
+  async move(recurring: RecurringExpense): Promise<IResult> {
+    const { id, groupId, version } = recurring.toSnapshot();
+    const moved = await this.database.run(
+      'UPDATE recurring_expenses SET group_id = ? WHERE id = ? AND version = ?',
+      groupId,
+      id,
+      version,
+    );
+    if (!moved) {
+      return Result.fail(new ConcurrencyConflictException('Ledger', 'The recurring expense has changed', { id }));
+    }
+    return Result.ok();
+  }
+
   async remove(recurring: RecurringExpense): Promise<IResult> {
     const { id, version } = recurring.toSnapshot();
     const removed = await this.database.run('DELETE FROM recurring_expenses WHERE id = ? AND version = ?', id, version);

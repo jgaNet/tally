@@ -14,4 +14,8 @@ export interface IRecurringExpenseRepository {
   save(recurring: RecurringExpense): Promise<IResult>;
   /** Removes the recurring expense, if it is still at the version it was read at (else a ConcurrencyConflict). */
   remove(recurring: RecurringExpense): Promise<IResult>;
+  /** The recurring expenses of a group, for a merge of the group into another (request 31). */
+  findInGroup(groupId: Id): Promise<RecurringExpense[]>;
+  /** Stores a recurring expense moved to another group, at the version it was read at (request 31). */
+  move(recurring: RecurringExpense): Promise<IResult>;
 }

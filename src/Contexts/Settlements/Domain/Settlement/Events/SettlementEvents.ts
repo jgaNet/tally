@@ -53,3 +53,6 @@ export class SettlementRefundedEvent extends DomainEvent<{
   payee: string;
   amount: number;
 }> {}
+
+/** The book of the group merged into this one (request 31) is taken up: its settlements are this group's from the save on. */
+export class SettlementBookMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string }> {}

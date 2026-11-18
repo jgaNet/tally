@@ -53,4 +53,9 @@ export class PostgresAuditLog implements IAuditLog, IAuditQueries {
       })),
     );
   }
+
+  /** The entries of a merged group are the group kept's from now on (request 31): they are written once, and only their group changes. */
+  async moveGroup(fromGroupId: string, toGroupId: string): Promise<void> {
+    await this.database.run('UPDATE audit_entries SET group_id = ? WHERE group_id = ?', toGroupId, fromGroupId);
+  }
 }

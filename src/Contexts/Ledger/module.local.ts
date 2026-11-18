@@ -87,6 +87,8 @@ import { ExpenseBudgetCheckHandler } from '@Contexts/Ledger/Application/Events/E
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecorded/ExpenseRecordedHandler';
 import { RecurringExpenseDayCameHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCame';
 import { RecurringExpenseSweepJob } from '@Contexts/Ledger/Application/Jobs/RecurringExpenseSweep/RecurringExpenseSweepJob';
+import { GroupsMergedIntegrationEventHandler } from '@Contexts/Ledger/Application/Events/GroupsMerged/GroupsMergedIntegrationEventHandler';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupsIntegrationEvents';
 
 const database = sharedDatabase();
 const expenses = new PostgresExpenseRepository(database);
@@ -167,6 +169,14 @@ export const localLedgerModule = new Module({
     {
       event: RecurringExpenseDayCameEvent,
       handlers: [new RecurringExpenseDayCameHandler(expenses, currencies, systemClock, balances, members, audit)],
+    },
+  ],
+  integrationEvents: [
+    {
+      event: GroupsMergedIntegrationEvent,
+      handlers: [
+        new GroupsMergedIntegrationEventHandler(expenses, recurringExpenses, balances, audit, budgets, splitTemplates),
+      ],
     },
   ],
   commands: [

@@ -19,3 +19,6 @@ export class BalancePassedEvent extends DomainEvent<{
   toAccountId: string;
   amount: number;
 }> {}
+
+/** The owner merged a group into another (request 31): `mergedGroupId` is gone, and its members, expenses, settlements and audit are `groupId`'s. */
+export class GroupsMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string }> {}

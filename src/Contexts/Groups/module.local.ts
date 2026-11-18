@@ -13,6 +13,8 @@ import {
   CreateInvitationCommandHandler,
   LeaveGroupCommandEvent,
   LeaveGroupCommandHandler,
+  MergeGroupsCommandEvent,
+  MergeGroupsCommandHandler,
   SignUpCommandEvent,
   SignUpCommandHandler,
 } from '@Contexts/Groups/Application/Commands';
@@ -40,6 +42,8 @@ import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
 import { IGroupAuditQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupAuditQueries';
 import { PostgresGroupAuditLog } from '@Contexts/Groups/Infrastructure/PostgresGroupAuditLog';
+import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import { GroupsMergedHandler } from '@Contexts/Groups/Application/Events/GroupsMerged/GroupsMergedHandler';
 
 const database = sharedDatabase();
 const accounts = new PostgresAccountRepository(database);
@@ -100,7 +104,12 @@ export const localGroupsModule = new Module({
       event: ArchiveGroupCommandEvent,
       handlers: [new ArchiveGroupCommandHandler(groups, balances, waiting, systemClock)],
     },
+    {
+      event: MergeGroupsCommandEvent,
+      handlers: [new MergeGroupsCommandHandler(groups, waiting, systemClock)],
+    },
   ],
+  domainEvents: [{ event: GroupsMergedEvent, handlers: [new GroupsMergedHandler()] }],
   queries: [
     new GetMyAccountQueryHandler(accountReadModels),
     new LoginQueryHandler(accountReadModels, passwordHasher, tokens, systemClock),

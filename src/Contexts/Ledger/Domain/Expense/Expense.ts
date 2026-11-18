@@ -15,6 +15,7 @@ import {
   ExpenseDeletedEvent,
   ExpenseEditedEvent,
   ExpenseRecordedEvent,
+  ExpenseMovedEvent,
 } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { MoneyInput, OriginalAmount } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
@@ -278,6 +279,18 @@ export class Expense extends AggregateRoot {
    * their share, however it was split. The changes add up to 0 exactly, since the shares add up to the amount: this is the zero
    * sum, by construction.
    */
+  /**
+   * The expense moves to another group, when its group is merged into it (request 31): it keeps its payer, its shares, its version and
+   * its category, and says so as ExpenseMoved. The aggregate it returns is the one the move is saved as.
+   */
+  moveTo(groupId: Id): Expense {
+    const moved = Expense.fromSnapshot({ ...this.toSnapshot(), groupId: groupId.value });
+    moved.record(
+      ExpenseMovedEvent.set({ expenseId: this._id.value, fromGroupId: this.groupId.value, toGroupId: groupId.value }),
+    );
+    return moved;
+  }
+
   balanceChanges(): { memberId: Id; change: number }[] {
     const changes = new Map<string, { memberId: Id; change: number }>();
     const add = (memberId: Id, change: number) => {

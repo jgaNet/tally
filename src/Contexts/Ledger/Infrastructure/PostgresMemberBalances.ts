@@ -117,4 +117,19 @@ export class PostgresMemberBalances implements IBalanceCounts, IBalanceQueries, 
       release();
     }
   }
+
+  /**
+   * The balances counted in one group are counted in the other (request 31): each member's row adds to the other group's, and the
+   * merged group's rows are gone. The sums stay 0 in both groups, since they were 0 in the one. Runs in the reaction's transaction.
+   */
+  async moveGroup(fromGroupId: string, toGroupId: string): Promise<void> {
+    await this.database.run(
+      `INSERT INTO member_balances (group_id, member_id, balance)
+       SELECT ?, member_id, balance FROM member_balances WHERE group_id = ?
+       ON CONFLICT (group_id, member_id) DO UPDATE SET balance = member_balances.balance + excluded.balance`,
+      toGroupId,
+      fromGroupId,
+    );
+    await this.database.run('DELETE FROM member_balances WHERE group_id = ?', fromGroupId);
+  }
 }

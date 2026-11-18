@@ -80,4 +80,13 @@ export class PostgresBudgetRepository implements IBudgetRepository {
     }
     return Result.ok();
   }
+
+  /** A merged group's budgets go with it, with the months they were passed in (request 31). */
+  async dropGroup(groupId: Id): Promise<void> {
+    await this.database.run(
+      'DELETE FROM budget_passed_months WHERE budget_id IN (SELECT id FROM budgets WHERE group_id = ?)',
+      groupId.value,
+    );
+    await this.database.run('DELETE FROM budgets WHERE group_id = ?', groupId.value);
+  }
 }

@@ -70,3 +70,31 @@ export class PaymentWaitingAtProvider extends GroupException {
     );
   }
 }
+
+/** Only the owner of both groups may merge one into the other (request 31). */
+export class OnlyTheOwnerMayMerge extends GroupException {
+  constructor() {
+    super('OnlyTheOwnerMayMerge', 'Only the owner of both groups may merge one into the other');
+  }
+}
+
+/** A group is not merged into itself. */
+export class MergeIntoItself extends GroupException {
+  constructor() {
+    super('MergeIntoItself', 'A group cannot be merged into itself');
+  }
+}
+
+/** Two groups are merged only when they are in the same currency. */
+export class CurrenciesDiffer extends GroupException {
+  constructor() {
+    super('CurrenciesDiffer', 'Two groups are merged only when they are in the same currency');
+  }
+}
+
+/** A group is not merged while a payment in it is waiting at the provider (pending or being refunded). */
+export class MergeWaitsForPayment extends GroupException {
+  constructor() {
+    super('MergeWaitsForPayment', 'A group cannot be merged while a payment in it is waiting at the provider');
+  }
+}

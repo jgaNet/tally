@@ -11,4 +11,10 @@ export interface IGroupRepository {
    * command's transaction.
    */
   save(group: Group): Promise<IResult>;
+  /**
+   * Stores the group kept (as `save` does) and removes the group merged in the same write (request 31): its row, its members,
+   * its invitations and its passages go, and its audit entries are kept under the group kept. It fails with a
+   * ConcurrencyConflictException when either group is no longer at the version it was read at.
+   */
+  saveMerged(kept: Group, merged: Group): Promise<IResult>;
 }

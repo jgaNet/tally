@@ -1,4 +1,5 @@
 import { GroupArchived } from '@SharedKernel/Domain';
+import { SettlementBookMergedEvent } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
 import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
 import {
@@ -115,6 +116,24 @@ export class SettlementBook extends AggregateRoot {
   /** The book of a group that has no settlement yet: it is opened by its first settlement, at version 0. */
   static open(groupId: Id): SettlementBook {
     return new SettlementBook(Id.generate(), groupId, 0, []);
+  }
+
+  /** The group whose book was merged into this one (request 31), or null: its settlements are this book's once it is saved. */
+  private mergedFrom: Id | null = null;
+
+  get absorbedFrom(): Id | null {
+    return this.mergedFrom;
+  }
+
+  /**
+   * The book of the group merged into this group's (request 31) is taken up: its settlements and their audit are this group's when the book
+   * is saved, and the merged book is gone with them. Recorded as SettlementBookMerged, once.
+   */
+  absorb(mergedGroupId: Id): IResult {
+    if (this.mergedFrom) return Result.fail(new NotFoundException('Settlements', 'The book was merged already'));
+    this.mergedFrom = mergedGroupId;
+    this.record(SettlementBookMergedEvent.set({ groupId: this.groupId.value, mergedGroupId: mergedGroupId.value }));
+    return Result.ok();
   }
 
   /** The book as it is kept, at the version it was read at, with the group's settlements; it records nothing. */

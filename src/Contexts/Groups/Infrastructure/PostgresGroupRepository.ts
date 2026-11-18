@@ -117,13 +117,15 @@ export class PostgresGroupRepository implements IGroupRepository {
         member.joinedAt,
       );
     }
-    // A member who left keeps its row, with the time it left.
+    // A member who left keeps its row, with the time it left; a former member of a merged group gets its row here (request 31).
     for (const member of departed) {
       await this.database.run(
-        'UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?',
-        member.leftAt,
+        `INSERT INTO group_members (group_id, account_id, position, joined_at, left_at) VALUES (?, ?, 0, ?, ?)
+         ON CONFLICT (group_id, account_id) DO UPDATE SET left_at = excluded.left_at`,
         id,
         member.accountId,
+        member.joinedAt,
+        member.leftAt,
       );
     }
     // A passage is kept as it was made, at its place in the order they passed: one written once is never written again.
@@ -138,6 +140,36 @@ export class PostgresGroupRepository implements IGroupRepository {
         passage.amount,
       );
     }
+    return Result.ok();
+  }
+
+  /**
+   * The group kept and the group merged are written in one transaction (request 31): the kept group as `save` writes it, then the merged
+   * group's row is removed at its version, with its members and invitations; its passages are the kept group's now, and its audit entries
+   * are kept under the kept group's id.
+   */
+  async saveMerged(kept: Group, merged: Group): Promise<IResult> {
+    const mergedSnapshot = merged.toSnapshot();
+    const saved = await this.save(kept);
+    if (saved.isFailure()) return saved;
+    const removed = await this.database.run(
+      'DELETE FROM groups WHERE id = ? AND version = ?',
+      mergedSnapshot.id,
+      mergedSnapshot.version,
+    );
+    if (!removed) {
+      return Result.fail(
+        new ConcurrencyConflictException('Groups', 'The group has changed', { id: mergedSnapshot.id }),
+      );
+    }
+    await this.database.run('DELETE FROM group_members WHERE group_id = ?', mergedSnapshot.id);
+    await this.database.run('DELETE FROM invitations WHERE group_id = ?', mergedSnapshot.id);
+    await this.database.run('DELETE FROM balance_passages WHERE group_id = ?', mergedSnapshot.id);
+    await this.database.run(
+      'UPDATE group_audit_entries SET group_id = ? WHERE group_id = ?',
+      kept.toSnapshot().id,
+      mergedSnapshot.id,
+    );
     return Result.ok();
   }
 }

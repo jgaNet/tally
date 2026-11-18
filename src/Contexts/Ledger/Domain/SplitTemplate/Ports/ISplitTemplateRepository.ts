@@ -14,4 +14,6 @@ export interface ISplitTemplateRepository {
   save(template: SplitTemplate): Promise<IResult>;
   /** Removes the template, if it is still at the version it was read at (else a ConcurrencyConflict). */
   remove(template: SplitTemplate): Promise<IResult>;
+  /** Drops the split templates of a group: a group merged into another loses its templates (request 31). */
+  dropGroup(groupId: Id): Promise<void>;
 }

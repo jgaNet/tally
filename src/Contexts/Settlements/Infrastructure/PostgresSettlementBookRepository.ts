@@ -93,6 +93,17 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
       );
       if (!changed) return conflict(book.groupId.value);
     }
+    // A merged group's book is this one now (request 31): its settlements and their audit entries are kept under this group, and its book is gone.
+    if (book.absorbedFrom) {
+      const from = book.absorbedFrom.value;
+      await this.database.run('UPDATE settlements SET group_id = ? WHERE group_id = ?', book.groupId.value, from);
+      await this.database.run(
+        'UPDATE settlement_audit_entries SET group_id = ? WHERE group_id = ?',
+        book.groupId.value,
+        from,
+      );
+      await this.database.run('DELETE FROM settlement_books WHERE group_id = ?', from);
+    }
     for (const settlement of book.created) {
       await this.database.run(
         `INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url)

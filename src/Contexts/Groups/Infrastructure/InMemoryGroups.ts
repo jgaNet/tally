@@ -34,6 +34,20 @@ export class InMemoryGroupRepository implements IGroupRepository {
     this.store.set(snapshot.id, { ...snapshot, version: snapshot.version + 1 });
     return Result.ok();
   }
+
+  async saveMerged(kept: Group, merged: Group): Promise<IResult> {
+    const mergedSnapshot = merged.toSnapshot();
+    const current = this.store.get(mergedSnapshot.id);
+    if (!current || current.version !== mergedSnapshot.version) {
+      return Result.fail(
+        new ConcurrencyConflictException('Groups', 'The group has changed', { id: mergedSnapshot.id }),
+      );
+    }
+    const saved = await this.save(kept);
+    if (saved.isFailure()) return saved;
+    this.store.delete(mergedSnapshot.id);
+    return Result.ok();
+  }
 }
 
 export class InMemoryGroupReadModels implements IGroupQueries {

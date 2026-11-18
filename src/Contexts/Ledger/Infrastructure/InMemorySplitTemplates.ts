@@ -27,6 +27,12 @@ export class InMemorySplitTemplates implements ISplitTemplateRepository {
     return Result.ok();
   }
 
+  async dropGroup(groupId: Id): Promise<void> {
+    for (const [key, template] of this.templates) {
+      if (template.groupId.value === groupId.value) this.templates.delete(key);
+    }
+  }
+
   async remove(template: SplitTemplate): Promise<IResult> {
     this.templates.delete(template._id.value);
     return Result.ok();

@@ -10,3 +10,5 @@ export { LeaveGroupCommandEvent } from '@Contexts/Groups/Application/Commands/Le
 export { LeaveGroupCommandHandler } from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandHandler';
 export { ArchiveGroupCommandEvent } from '@Contexts/Groups/Application/Commands/ArchiveGroup/ArchiveGroupCommandEvent';
 export { ArchiveGroupCommandHandler } from '@Contexts/Groups/Application/Commands/ArchiveGroup/ArchiveGroupCommandHandler';
+export { MergeGroupsCommandEvent } from '@Contexts/Groups/Application/Commands/MergeGroups/MergeGroupsCommandEvent';
+export { MergeGroupsCommandHandler } from '@Contexts/Groups/Application/Commands/MergeGroups/MergeGroupsCommandHandler';

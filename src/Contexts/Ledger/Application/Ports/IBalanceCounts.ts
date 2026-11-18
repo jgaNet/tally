@@ -9,4 +9,6 @@ export interface IBalanceCounts {
   count(expense: Expense): Promise<void>;
   /** Takes an expense out of the balances again: the expense was edited, or deleted, and its counted shares are forgotten. */
   uncount(expense: Expense): Promise<void>;
+  /** The balances counted in one group are counted in another, which keeps them: a merge of groups (request 31). */
+  moveGroup(fromGroupId: string, toGroupId: string): Promise<void>;
 }

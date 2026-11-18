@@ -6,6 +6,7 @@ import {
   BalancePassedEvent,
   GroupArchivedEvent,
   GroupCreatedEvent,
+  GroupsMergedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
 } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
@@ -15,8 +16,12 @@ import {
   AlreadyAMember,
   ArchiveWaitsForPayment,
   BalancesNotSettled,
+  CurrenciesDiffer,
+  MergeIntoItself,
+  MergeWaitsForPayment,
   NotAMember,
   OnlyTheOwnerMayArchive,
+  OnlyTheOwnerMayMerge,
   OwnerCannotLeave,
   PaymentWaitingAtProvider,
 } from '@Contexts/Groups/Domain/Group/GroupExceptions';
@@ -228,6 +233,43 @@ export class Group extends AggregateRoot {
 
     this.archivedAt = now;
     this.record(GroupArchivedEvent.set({ groupId: this._id.value, archivedBy: accountId.value }));
+    return Result.ok();
+  }
+
+  /**
+   * The owner of this group and of `merged`, the owner's other group, merges it into this one, at `now` (request 31). Refused
+   * unless the caller owns both, they are not one group, they are in the same currency, neither is archived (GroupArchived), and no
+   * payment in the merged group waits at the provider (`paymentWaiting`). Every member of the merged group who is not one here joins
+   * at `now`, after this group's members, in the order they joined the merged one; a former member of the merged group is a former
+   * member here, and the passages made in it are this group's from now on. The merged group itself is removed by the handler's write.
+   */
+  absorb({
+    accountId,
+    merged,
+    paymentWaiting,
+    now,
+  }: {
+    accountId: Id;
+    merged: Group;
+    paymentWaiting: boolean;
+    now: Date;
+  }): IResult {
+    if (this.isArchived() || merged.isArchived()) return Result.fail(new GroupArchived('Groups'));
+    if (this._id.value === merged._id.value) return Result.fail(new MergeIntoItself());
+    if (accountId.value !== this.ownerId.value || accountId.value !== merged.ownerId.value) {
+      return Result.fail(new OnlyTheOwnerMayMerge());
+    }
+    if (this.currency.value !== merged.currency.value) return Result.fail(new CurrenciesDiffer());
+    if (paymentWaiting) return Result.fail(new MergeWaitsForPayment());
+
+    for (const member of merged.members) {
+      if (!this.isMember(member.accountId)) this.join({ accountId: member.accountId, now });
+    }
+    for (const departed of merged.departed) {
+      if (!this.hasBeenMember(departed.accountId)) this.departed.push(departed);
+    }
+    this.passages.push(...merged.passages);
+    this.record(GroupsMergedEvent.set({ groupId: this._id.value, mergedGroupId: merged._id.value }));
     return Result.ok();
   }
 

@@ -32,3 +32,10 @@ export class RecurringExpenseDayCameEvent extends DomainEvent<{
 
 /** A recurring expense ended, because its payer or a member of its split is no longer in the group: no expense is recorded for it. */
 export class RecurringExpenseEndedEvent extends DomainEvent<{ recurringExpenseId: string; groupId: string }> {}
+
+/** A recurring expense moved to another group, when its group was merged into one (request 31). */
+export class RecurringExpenseMovedEvent extends DomainEvent<{
+  recurringExpenseId: string;
+  fromGroupId: string;
+  toGroupId: string;
+}> {}

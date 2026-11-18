@@ -27,6 +27,7 @@ why, what it costs, and when to revisit it.
 | [20](0020-a-members-statement-lists-the-settlements-the-balances-count-and-is-read-as-csv.md) | A member's statement lists the settlements the balances count, and is read as CSV through a query of its own |
 | [21](0021-the-application-keeps-its-state-in-postgresql-and-moves-its-sqlite-file-into-it-once.md) | The application keeps its state in PostgreSQL, and moves what its SQLite file held into it once |
 | [22](0022-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
+| [23](0023-a-merged-group-is-removed-in-the-write-that-keeps-the-other-and-a-move-keeps-its-version.md) | A merged group is removed in the write that keeps the other, and a move keeps the version it was read at |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

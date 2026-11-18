@@ -11,6 +11,7 @@ import {
   GetInvitationResSchema,
   GetMyGroupsResSchema,
   LaterCommandResSchema,
+  MergeGroupsBodySchema,
 } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes.schema';
 
 export const groupRoutes = function (
@@ -69,6 +70,19 @@ export const groupRoutes = function (
     '/groups/:id/archive',
     { schema: { tags: ['groups'], response: LaterCommandResSchema } },
     controller.archiveGroup.bind(controller),
+  );
+
+  // Merging is answered later: the owner merges one of their groups into this one, once both are theirs and in one currency (request 31).
+  fastify.post(
+    '/groups/:id/merge',
+    {
+      schema: {
+        tags: ['groups'],
+        body: MergeGroupsBodySchema,
+        response: LaterCommandResSchema,
+      },
+    },
+    controller.mergeGroups.bind(controller),
   );
 
   // Leaving is answered later, as joining is: once the member's balance in the group is 0 (request 9).

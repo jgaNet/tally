@@ -12,4 +12,8 @@ export interface IExpenseRepository {
   save(expense: Expense): Promise<IResult>;
   /** Removes the expense and its shares, if it is still at the version it was read at (else a ConcurrencyConflict). */
   delete(expense: Expense): Promise<IResult>;
+  /** The expenses of a group, as they are kept, for a merge of the group into another (request 31). */
+  findInGroup(groupId: Id): Promise<Expense[]>;
+  /** Stores an expense moved to another group, at the version it was read at: a move is not a change, so the version stays (request 31). */
+  move(expense: Expense): Promise<IResult>;
 }
