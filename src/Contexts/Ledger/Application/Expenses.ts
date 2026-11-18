@@ -7,6 +7,7 @@ import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expens
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 import { IBalanceQueries } from '@Contexts/Ledger/Domain/IBalanceQueries';
+import { auditEntryOf } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
 import { InvalidRateDateException } from '@Contexts/Ledger/Domain/Expense/RateExceptions';
 import { NOT_ASKED, RateOffer } from '@Contexts/Ledger/Domain/Expense/Rate';
 import {
@@ -19,6 +20,7 @@ import { IGroupCurrency } from './IGroupCurrency';
 import { IGroupMembers, MemberOfGroup } from './IGroupMembers';
 import { IOfferedRates, OfferedRateView } from './IOfferedRates';
 import { BalanceView, ExpenseView, IExpenseQueries, StatementView } from './IExpenseQueries';
+import { IAuditEntries } from './IAuditEntries';
 import { IExpenseRepository } from './IExpenseRepository';
 import { ISplitTemplateRepository } from './ISplitTemplateRepository';
 
@@ -68,6 +70,7 @@ export const recordExpense = command(
     groupCurrency: IGroupCurrency,
     offeredRates: IOfferedRates,
     templates: ISplitTemplateRepository,
+    audit: IAuditEntries,
     clock: Clock,
   ) =>
     async ({ groupId, description, date, category, ...rest }: RecordExpenseInput, context) => {
@@ -96,6 +99,18 @@ export const recordExpense = command(
 
         const expense = Expense.register({ groupId, ...decision.data.state });
         await expenses.insert(expense);
+        await audit.add(
+          groupId,
+          auditEntryOf(
+            {
+              by: payer,
+              action: 'expense-recorded',
+              subjectId: expense._id.value,
+              amount: expense.toSnapshot().amount,
+            },
+            clock(),
+          ),
+        );
         await publishDomainEvents(expense, context);
         return Result.ok(expense._id.value);
       });
@@ -116,6 +131,7 @@ export const editExpense = command(
     groupCurrency: IGroupCurrency,
     offeredRates: IOfferedRates,
     templates: ISplitTemplateRepository,
+    audit: IAuditEntries,
     clock: Clock,
   ) =>
     async ({ id, description, date, version, category, ...rest }: EditExpenseInput, context) => {
@@ -149,6 +165,10 @@ export const editExpense = command(
 
         expense.revise(decision.data.state);
         await expenses.save(expense);
+        await audit.add(
+          stored.groupId,
+          auditEntryOf({ by, action: 'expense-edited', subjectId: id, amount: expense.toSnapshot().amount }, clock()),
+        );
         await publishDomainEvents(expense, context);
         return Result.ok(undefined);
       });
@@ -161,7 +181,7 @@ export const editExpense = command(
  */
 export const deleteExpense = command(
   'DeleteExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
+  (expenses: IExpenseRepository, groupMembers: IGroupMembers, audit: IAuditEntries, clock: Clock) =>
     async ({ id }: { id: string }, context) => {
       return expenses.inTransaction(async () => {
         const by = callerOf(context);
@@ -185,6 +205,10 @@ export const deleteExpense = command(
 
         expense.delete();
         await expenses.remove(expense);
+        await audit.add(
+          stored.groupId,
+          auditEntryOf({ by, action: 'expense-deleted', subjectId: id, amount: stored.amount }, clock()),
+        );
         await publishDomainEvents(expense, context);
         return Result.ok(undefined);
       });

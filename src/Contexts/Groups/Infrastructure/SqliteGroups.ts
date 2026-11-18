@@ -117,9 +117,17 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
 
   async passesOf(groupId: string): Promise<PassView[]> {
     const rows = this.database.connection
-      .prepare('SELECT from_account, to_account, amount FROM expense_group_passes WHERE group_id = ? ORDER BY seq')
-      .all(groupId) as { from_account: string; to_account: string; amount: number }[];
-    return rows.map(row => ({ from: row.from_account, to: row.to_account, amount: row.amount }));
+      .prepare(
+        'SELECT seq, from_account, to_account, amount, passed_at FROM expense_group_passes WHERE group_id = ? ORDER BY seq',
+      )
+      .all(groupId) as { seq: number; from_account: string; to_account: string; amount: number; passed_at: string }[];
+    return rows.map(row => ({
+      id: `pass-${row.seq}`,
+      from: row.from_account,
+      to: row.to_account,
+      amount: row.amount,
+      at: row.passed_at,
+    }));
   }
 
   async groupOf(id: string, memberId: string): Promise<GroupView | undefined> {

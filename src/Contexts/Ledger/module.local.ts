@@ -1,6 +1,7 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { groupsMembersReadModel } from '@Contexts/Groups/module.local';
+import { getGroupAudit } from '@Contexts/Ledger/Application/Audit';
 import {
   deleteExpense,
   editExpense,
@@ -45,6 +46,9 @@ import { LedgerDatabase } from '@Contexts/Ledger/Infrastructure/LedgerDatabase';
 import { OfferedRatesOverHttp } from '@Contexts/Ledger/Infrastructure/OfferedRatesOverHttp';
 import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
 import { SqliteExpenses } from '@Contexts/Ledger/Infrastructure/SqliteExpenses';
+import { SqliteAuditEntries } from '@Contexts/Ledger/Infrastructure/SqliteAuditEntries';
+import { SettlementAuditOfSettlements } from '@Contexts/Ledger/Infrastructure/SettlementAuditOfSettlements';
+import { PassedBalancesOfGroups } from '@Contexts/Ledger/Infrastructure/PassedBalancesOfGroups';
 import { settlementsReadModel } from '@Contexts/Settlements/module.local';
 
 /**
@@ -65,6 +69,8 @@ const budgets = new SqliteBudgets(database);
 const splitTemplates = new SqliteSplitTemplates(database);
 /** The receipt of an expense (request 26), in the same file as the expense it is for. */
 const receipts = new SqliteReceipts(database);
+/** The audit entries of Ledger's own changes (request 28), in the same file as the expenses they record, written in their transactions. */
+const audit = new SqliteAuditEntries(database);
 /**
  * The receipts store (request 26), read at `RECEIPTS_URL` when a request attaches a file. Unset, the server keeps no receipt: a receipt is then refused.
  */
@@ -79,6 +85,10 @@ const groupCurrency = new GroupCurrencyOfGroups(() => groupsMembersReadModel);
 const offeredRates = new OfferedRatesOverHttp(() => process.env.RATES_URL);
 /** What the group's settlements paid, read from Settlements' read model at a request, never when the modules are built (ADR 7, ADR 11). */
 const settledAmounts = new SettledAmountsOfSettlements(() => settlementsReadModel);
+/** The settlements' audit entries (request 28), read from Settlements' read model at a request (ADR 7, ADR 25). */
+const settlementAudit = new SettlementAuditOfSettlements(() => settlementsReadModel);
+/** The balances that passed when members left (request 28), read from Groups' read model at a request (ADR 7, ADR 25). */
+const passedBalances = new PassedBalancesOfGroups(() => groupsMembersReadModel);
 /** The balances as every reader sees them: the expenses', plus the settlements (request 12). */
 const balancesCountingSettlements = new BalancesCountingSettlements(expenses, settledAmounts, groupMembers);
 
@@ -99,16 +109,19 @@ export const localLedgerModule = new LiteModule({
     },
     { event: ExpenseEditedEvent, handlers: [new ExpenseBudgetHandler(budgets, expenses, groupMembers, systemClock)] },
     { event: BudgetPassedEvent, handlers: [new BudgetPassedHandler()] },
-    { event: RecurringExpenseDayCameEvent, handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers)] },
+    {
+      event: RecurringExpenseDayCameEvent,
+      handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers, audit, systemClock)],
+    },
   ],
   useCases: [
-    recordExpense(expenses, groupMembers, groupCurrency, offeredRates, splitTemplates, systemClock),
+    recordExpense(expenses, groupMembers, groupCurrency, offeredRates, splitTemplates, audit, systemClock),
     getExpense(expenses, groupMembers),
     getGroupBalances(balancesCountingSettlements, groupMembers),
     getGroupExpenses(expenses, groupMembers),
     getMemberStatement(expenses, groupMembers),
-    editExpense(expenses, groupMembers, groupCurrency, offeredRates, splitTemplates, systemClock),
-    deleteExpense(expenses, groupMembers, systemClock),
+    editExpense(expenses, groupMembers, groupCurrency, offeredRates, splitTemplates, audit, systemClock),
+    deleteExpense(expenses, groupMembers, audit, systemClock),
     getOfferedRate(groupCurrency, groupMembers, offeredRates, systemClock),
     setUpRecurringExpense(recurringExpenses, groupMembers, systemClock),
     stopRecurringExpense(recurringExpenses, groupMembers, systemClock),
@@ -124,5 +137,6 @@ export const localLedgerModule = new LiteModule({
     getGroupTemplates(splitTemplates, groupMembers),
     attachReceipt(expenses, groupMembers, receipts, receiptStore, systemClock),
     getReceipt(expenses, groupMembers, receipts),
+    getGroupAudit(groupMembers, audit, settlementAudit, passedBalances),
   ],
 });

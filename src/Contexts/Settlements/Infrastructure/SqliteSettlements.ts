@@ -3,6 +3,7 @@ import { ISettlementBooks } from '@Contexts/Settlements/Application/ISettlementB
 import {
   ISettlementQueries,
   SettledTransfer,
+  SettlementAuditLine,
   SettlementHistoryLine,
   SettlementView,
 } from '@Contexts/Settlements/Domain/ISettlementQueries';
@@ -31,6 +32,15 @@ type SettlementRow = {
 };
 type HistoryRow = { status: SettlementHistoryLine['status']; at: string };
 type HistoryOfGroupRow = HistoryRow & { settlement_id: string };
+type AuditRow = {
+  id: string;
+  payer: string;
+  payee: string;
+  amount: number;
+  method: SettlementMethod;
+  status: SettlementHistoryLine['status'];
+  at: string;
+};
 type LiveRow = {
   id: string;
   payer: string;
@@ -184,6 +194,39 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
       )
       .get(groupId, memberId, memberId);
     return row !== undefined;
+  }
+
+  async auditOf(groupId: string): Promise<SettlementAuditLine[]> {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT s.id, s.payer, s.payee, s.amount, s.method, h.status, h.at
+           FROM settlement_history h JOIN settlements s ON s.id = h.settlement_id
+          WHERE s.group_id = ?
+            AND (h.status = 'paid'
+                 OR (h.status = 'refunded' AND EXISTS (
+                       SELECT 1 FROM settlement_history p WHERE p.settlement_id = h.settlement_id AND p.status = 'paid')))
+          ORDER BY h.seq`,
+      )
+      .all(groupId) as AuditRow[];
+    return rows.map(row =>
+      row.status === 'paid'
+        ? {
+            id: `${row.id}:paid`,
+            at: row.at,
+            by: row.method === 'cash' ? row.payee : row.payer,
+            action: 'settlement-paid',
+            subjectId: row.id,
+            amount: row.amount,
+          }
+        : {
+            id: `${row.id}:refunded`,
+            at: row.at,
+            by: row.payee,
+            action: 'settlement-refunded',
+            subjectId: row.id,
+            amount: row.amount,
+          },
+    );
   }
 
   async pendingOf(groupId: string): Promise<PendingTransfer[]> {

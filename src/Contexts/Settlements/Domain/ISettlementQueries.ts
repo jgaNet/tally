@@ -24,6 +24,19 @@ export interface SettlementView {
   history: SettlementHistoryLine[];
 }
 
+/**
+ * A change of money a settlement made, as the group's audit reads it (request 28): a settlement paid (by its payer when it went through the
+ * provider, by its payee when it was recorded in cash), or refunded (by its payee). `subjectId` is the settlement.
+ */
+export interface SettlementAuditLine {
+  id: string;
+  at: string;
+  by: string;
+  action: 'settlement-paid' | 'settlement-refunded';
+  subjectId: string;
+  amount: number;
+}
+
 /** A settled transfer of a group, as Ledger counts it: what the payer paid the payee. */
 export type SettledTransfer = PendingTransfer;
 
@@ -42,6 +55,12 @@ export interface ISettlementQueries {
    * statement, so it is one state of the group's counted settlements.
    */
   settledOf(groupId: string): Promise<SettledTransfer[]>;
+  /**
+   * The changes of money the group's settlements made (request 28), in the order they were made: each time a settlement became paid, and
+   * each time one that had been paid became refunded. Read from the statuses they had, which are written with the change that moved them, so
+   * a settlement that was never paid (one refunded while pending) has no entry of its refund.
+   */
+  auditOf(groupId: string): Promise<SettlementAuditLine[]>;
   /** Every payment waiting at the provider in the group, in no order: what is still owed counts them as paid (ADR 12). */
   pendingOf(groupId: string): Promise<PendingTransfer[]>;
   /**

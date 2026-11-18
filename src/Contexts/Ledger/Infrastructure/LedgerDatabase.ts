@@ -92,6 +92,17 @@ export class LedgerDatabase {
           url TEXT NOT NULL,
           version INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS ledger_audit_entries (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT,
+          id TEXT NOT NULL UNIQUE,
+          group_id TEXT NOT NULL,
+          at TEXT NOT NULL,
+          by_account TEXT NOT NULL,
+          action TEXT NOT NULL,
+          subject_id TEXT NOT NULL,
+          amount INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ledger_audit_by_group ON ledger_audit_entries (group_id);
         CREATE TABLE IF NOT EXISTS ledger_recurring_shares (
           recurring_id TEXT NOT NULL REFERENCES ledger_recurring_expenses (id),
           position INTEGER NOT NULL,

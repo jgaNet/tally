@@ -85,6 +85,8 @@ contexts:
         meaning: what an expense was paid in another currency, with the rate its payer stated; its amount in the group's currency is the original times the rate, rounded.
       - term: Receipt
         meaning: a JPEG or a PNG of at most 2 MB kept for an expense in an outside store, attached by its payer or the group's owner in place of the one it had; the expense keeps its version.
+      - term: Audit entry
+        meaning: one change of money in a group, who made it, when, what, and how much, written with the change and never changed; a member reads them oldest first.
   - id: Settlements
     purpose: >-
       Settling up between members: the settlements of each group decided in one book, in cash or through the payment
@@ -119,7 +121,8 @@ relationships:
       which role, and who has ever been one. Ledger asks in its own words, through a port it owns (GroupMembers), when
       it decides, so that a member who has just joined can be in a split at once (T3). Since request 21 it also asks the
       group's currency, through a port beside it (GroupCurrency): an expense paid in another currency is counted in the
-      group's, and the currency is fixed at creation, so the answer never changes (ADR 18).
+      group's, and the currency is fixed at creation, so the answer never changes (ADR 18). Since request 28 it also reads the balances
+      that passed when a member left, for the audit, through a port beside it (PassedBalances, ADR 25).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]
@@ -161,7 +164,8 @@ relationships:
     why: >-
       A balance never misses a settlement that is paid: Ledger reads what was settled through a port it owns
       (SettledAmounts), answered over Settlements' read model, when it reads a balance (T8). Carried since feature 12
-      (ADR 11), which counts a cash settlement in every balance a read makes.
+      (ADR 11), which counts a cash settlement in every balance a read makes. Since request 28 Ledger also reads the settlements
+      that were paid and refunded, for the audit, through a port beside it (SettlementAudit, ADR 25).
   - upstream: Ledger
     downstream: Notifications
     patterns: [published-language, anti-corruption-layer]

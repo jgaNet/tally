@@ -16,11 +16,16 @@ export interface MemberView {
   joinedAt: string;
 }
 
-/** A balance that passed to the owner when a member left (request 20): from the member who left, to the owner, the amount. */
+/**
+ * A balance that passed to the owner when a member left (request 20): from the member who left, to the owner, the amount, and when it
+ * passed. `id` names the pass for good (the order it was made in, within the group), as the audit names it (request 28).
+ */
 export interface PassView {
+  id: string;
   from: string;
   to: string;
   amount: number;
+  at: string;
 }
 
 /** The read side of the groups. Every read is made for a member: a group the caller is not in does not exist for them. */

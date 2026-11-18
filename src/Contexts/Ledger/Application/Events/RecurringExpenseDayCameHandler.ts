@@ -1,4 +1,5 @@
 import { IResult, Result } from '@Architecture/Domain';
+import { Clock } from '@Architecture/Application';
 import { EventHandler } from '@Architecture/Application/EventHandler';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
@@ -8,8 +9,10 @@ import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
 import { memberIdsOfSplit, Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpenseEvents';
+import { auditEntryOf } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
 
 import { IExpenseRepository } from '@Contexts/Ledger/Application/IExpenseRepository';
+import { IAuditEntries } from '@Contexts/Ledger/Application/IAuditEntries';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 
 /**
@@ -22,6 +25,8 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
   constructor(
     private readonly expenses: IExpenseRepository,
     private readonly groupMembers: IGroupMembers,
+    private readonly audit: IAuditEntries,
+    private readonly clock: Clock,
   ) {
     super();
   }
@@ -57,6 +62,14 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
       category,
     });
     await this.expenses.insert(expense);
+    // The day's expense is a change of money its payer made (request 28), in the same transaction as the expense it records.
+    await this.audit.add(
+      groupId,
+      auditEntryOf(
+        { by: paidBy, action: 'expense-recorded', subjectId: expense._id.value, amount: expense.toSnapshot().amount },
+        this.clock(),
+      ),
+    );
     await publishDomainEvents(expense, context);
     return Result.ok(undefined);
   }
