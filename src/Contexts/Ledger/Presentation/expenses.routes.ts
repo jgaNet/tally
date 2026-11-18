@@ -15,12 +15,19 @@ import {
   RecordExpenseInput,
 } from '@Contexts/Ledger/Application/Expenses';
 import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
+import { attachReceipt, getReceipt } from '@Contexts/Ledger/Application/Receipts';
 
 import { hasSplitOrTemplateShape, isObject, splitChoiceOf } from './splitBody';
 
 const SHAPE_REFUSAL =
   "The body must have description (a string), date (a string), category (a string, when given), exactly one of amount (a whole number) or original ({ currency, amount (a whole number), rate (a string, when given) }), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares }), or template (a string, the id of one of the group's templates) in their place";
 const EDIT_SHAPE_REFUSAL = `${SHAPE_REFUSAL}, and version (a whole number)`;
+
+/**
+ * The transport's ceiling for a receipt's file (request 26): far above the 2 MB the receipt is allowed, so that a larger file is refused by the domain
+ * with the rule's own answer, and only a body no memory should hold is refused by the transport.
+ */
+const RECEIPT_TRANSPORT_CEILING_BYTES = 16 * 1024 * 1024;
 
 /**
  * The amount a body gives, by shape (request 21, request 22): exactly one of `amount`, a whole number in the group's currency, or `original`,
@@ -77,6 +84,15 @@ const hasEditShape = (body: unknown): boolean =>
 
 /** The expenses' routes, under `/v1` (every route is under the API's prefix, the group's included). */
 export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fastify, { module }, done) => {
+  // A receipt's file is the body as it was sent, its bytes unparsed (request 26); its type is read from them by the domain.
+  if (!fastify.hasContentTypeParser('application/octet-stream')) {
+    fastify.addContentTypeParser(
+      'application/octet-stream',
+      { parseAs: 'buffer', bodyLimit: RECEIPT_TRANSPORT_CEILING_BYTES },
+      (_request, body, next) => next(null, body),
+    );
+  }
+
   fastify.post(
     '/groups/:id/expenses',
     {
@@ -136,6 +152,16 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.delete('/expenses/:id', { schema: { tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(deleteExpense), { id: (req.params as { id: string }).id }),
+  );
+
+  fastify.put('/expenses/:id/receipt', { schema: { tags: ['receipts'] } }, (req, reply) => {
+    const { id } = req.params as { id: string };
+    const bytes: Uint8Array = Buffer.isBuffer(req.body) ? req.body : new Uint8Array(0);
+    return answerAtOnce(req, reply, module.useCase(attachReceipt), { id, bytes });
+  });
+
+  fastify.get('/expenses/:id/receipt', { schema: { tags: ['receipts'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getReceipt), { id: (req.params as { id: string }).id }),
   );
 
   fastify.get('/groups/:id/expenses', { schema: { tags: ['expenses'] } }, (req, reply) =>

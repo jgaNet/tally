@@ -84,6 +84,14 @@ export class LedgerDatabase {
           shares INTEGER,
           PRIMARY KEY (template_id, position)
         );
+        CREATE TABLE IF NOT EXISTS ledger_receipts (
+          id TEXT PRIMARY KEY,
+          expense_id TEXT NOT NULL UNIQUE,
+          type TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          url TEXT NOT NULL,
+          version INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS ledger_recurring_shares (
           recurring_id TEXT NOT NULL REFERENCES ledger_recurring_expenses (id),
           position INTEGER NOT NULL,

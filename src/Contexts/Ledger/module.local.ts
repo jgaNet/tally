@@ -34,6 +34,9 @@ import {
 } from '@Contexts/Ledger/Application/RecurringExpenses';
 import { SqliteBudgets } from '@Contexts/Ledger/Infrastructure/SqliteBudgets';
 import { SqliteSplitTemplates } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplates';
+import { SqliteReceipts } from '@Contexts/Ledger/Infrastructure/SqliteReceipts';
+import { ReceiptStoreOverHttp } from '@Contexts/Ledger/Infrastructure/ReceiptStoreOverHttp';
+import { attachReceipt, getReceipt } from '@Contexts/Ledger/Application/Receipts';
 import { SqliteRecurringExpenses } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenses';
 import { BalancesCountingSettlements } from '@Contexts/Ledger/Infrastructure/BalancesCountingSettlements';
 import { GroupCurrencyOfGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyOfGroups';
@@ -60,6 +63,12 @@ const recurringExpenses = new SqliteRecurringExpenses(database);
 const budgets = new SqliteBudgets(database);
 /** The split templates (request 25), in the same file as the expenses an expense split by one of them is recorded in. */
 const splitTemplates = new SqliteSplitTemplates(database);
+/** The receipt of an expense (request 26), in the same file as the expense it is for. */
+const receipts = new SqliteReceipts(database);
+/**
+ * The receipts store (request 26), read at `RECEIPTS_URL` when a request attaches a file. Unset, the server keeps no receipt: a receipt is then refused.
+ */
+const receiptStore = new ReceiptStoreOverHttp(() => process.env.RECEIPTS_URL);
 const groupMembers = new GroupMembersOfGroups(() => groupsMembersReadModel);
 /** The currency of a group, which an expense paid in another currency is counted against (request 21, ADR 18), read at a request too. */
 const groupCurrency = new GroupCurrencyOfGroups(() => groupsMembersReadModel);
@@ -113,5 +122,7 @@ export const localLedgerModule = new LiteModule({
     replaceTemplate(splitTemplates, groupMembers, systemClock),
     removeTemplate(splitTemplates, groupMembers, systemClock),
     getGroupTemplates(splitTemplates, groupMembers),
+    attachReceipt(expenses, groupMembers, receipts, receiptStore, systemClock),
+    getReceipt(expenses, groupMembers, receipts),
   ],
 });

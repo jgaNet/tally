@@ -23,6 +23,9 @@ let api: string;
  */
 let rates: Server;
 let ratesOrigin: string;
+/** A fake receipts store (request 26): it keeps any file and answers `201 { id, url }`, so an attached receipt is kept. */
+let receipts: Server;
+let receiptsOrigin: string;
 
 beforeAll(async () => {
   rates = createServer((request: IncomingMessage, response: ServerResponse) => {
@@ -35,6 +38,16 @@ beforeAll(async () => {
   });
   await new Promise<void>(resolve => rates.listen(0, '127.0.0.1', () => resolve()));
   ratesOrigin = `http://127.0.0.1:${(rates.address() as AddressInfo).port}`;
+  receipts = createServer((request: IncomingMessage, response: ServerResponse) => {
+    request.resume();
+    request.on('end', () => {
+      response.writeHead(201, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ id: 'file-1', url: `${receiptsOrigin}/files/file-1` }));
+    });
+  });
+  await new Promise<void>(resolve => receipts.listen(0, '127.0.0.1', () => resolve()));
+  receiptsOrigin = `http://127.0.0.1:${(receipts.address() as AddressInfo).port}`;
+  process.env.RECEIPTS_URL = receiptsOrigin;
   // `RATES_URL` is unset for the other tests of this file: a server without a rates service takes the payer's rate (request 21).
   process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-groups-to-ledger-')), 'tally.sqlite');
   app = await createApplication();
@@ -44,6 +57,8 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await app.stop();
+  receipts.closeAllConnections();
+  await new Promise(resolve => receipts.close(resolve));
   await new Promise(resolve => rates.close(resolve));
 });
 
@@ -403,5 +418,41 @@ describe('Groups → Ledger', () => {
     });
     expect(afterLeaving.status).toBe(400);
     expect((afterLeaving.body as { type: string }).type).toBe('SplitMemberNotInGroup');
+  });
+
+  it('reads, from Groups, who may attach a receipt to an expense in a group made in Groups: its payer and its owner, and no other member', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const hugo = await signedInPerson('Hugo');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    for (const person of [grace, hugo]) {
+      const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+        .body as { id: string };
+      await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: person.token });
+    }
+    // Grace paid the expense: she may attach a receipt to it; Ada, the owner Groups made, may too; Hugo, neither, is refused.
+    const { id: expenseId } = (
+      await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+        body: { description: 'Groceries', date: '2026-11-10', amount: 8700, splitBetween: [ada.id, grace.id, hugo.id] },
+        token: grace.token,
+      })
+    ).body as { id: string };
+    const attach = (token: string) =>
+      http.request('PUT', `${api}/expenses/${expenseId}/receipt`, {
+        body: Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]),
+        headers: { 'content-type': 'application/octet-stream' },
+        token,
+      });
+
+    expect((await attach(hugo.token)).status).toBe(403);
+    expect((await attach(ada.token)).status).toBe(204);
+    expect((await attach(grace.token)).status).toBe(204);
+    expect((await http.request('GET', `${api}/expenses/${expenseId}/receipt`, { token: hugo.token })).body).toEqual({
+      type: 'image/jpeg',
+      size: 6,
+      url: `${receiptsOrigin}/files/file-1`,
+    });
   });
 });

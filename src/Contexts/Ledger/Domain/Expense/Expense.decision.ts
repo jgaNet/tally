@@ -147,11 +147,14 @@ export const decideDeleteExpense: Decision<undefined, DeleteExpenseCommand, neve
 };
 
 /** Whether the expense's payer or a member of its split is no longer a member of the group (request 9). */
-const concernsFormerMember = (expense: ExpenseSnapshot, memberIds: readonly string[]): boolean =>
+export const concernsFormerMember = (
+  expense: Pick<ExpenseSnapshot, 'paidBy' | 'shares'>,
+  memberIds: readonly string[],
+): boolean =>
   [expense.paidBy, ...expense.shares.map(share => share.memberId)].some(member => !memberIds.includes(member));
 
 /** The payer, and the group's owner, may change an expense; no one else. */
-const mayChange = (payer: string, ownerId: string, by: string): boolean => by === payer || by === ownerId;
+export const mayChange = (payer: string, ownerId: string, by: string): boolean => by === payer || by === ownerId;
 
 /** The amount as an edit or a recording says it, without what else it says. */
 const givenAmountOf = (command: GivenAmount): GivenAmount =>
