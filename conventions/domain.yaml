@@ -83,6 +83,8 @@ contexts:
         meaning: what one member of a split owes of an expense, whole, the shares adding up to the amount exactly.
       - term: Balance
         meaning: what a member owes, or is owed, in a group, read from the expenses' shares and payers.
+      - term: RecurringExpense
+        meaning: an expense a member pays every month, from a start day of 1 to 28, recorded on each of its days by the background sweep; it ends when its payer or a member of its split has left the group.
   - id: Tracker
     purpose: >-
       What became of each command: every operation the bus dispatches is recorded with its outcome, so that a

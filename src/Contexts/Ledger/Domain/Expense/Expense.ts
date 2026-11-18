@@ -63,6 +63,7 @@ export class Expense extends AggregateRoot {
    * the application's clock, read by the handler: the day is checked against it, never a default.
    */
   static create({
+    id,
     groupId,
     paidBy,
     description,
@@ -74,6 +75,8 @@ export class Expense extends AggregateRoot {
     offer,
     now,
   }: {
+    /** The id the expense is born with: given when a recurring expense's day already named it (ADR 14); otherwise generated. */
+    id?: Id;
     groupId: Id;
     paidBy: Id;
     description: string;
@@ -100,7 +103,18 @@ export class Expense extends AggregateRoot {
     if (decided.isFailure()) return decided;
 
     const { description: text, amount: value, original, spentOn, splitKind, shares } = decided.data;
-    const expense = new Expense(Id.generate(), groupId, text, value, spentOn, paidBy, splitKind, shares, original, 0);
+    const expense = new Expense(
+      id ?? Id.generate(),
+      groupId,
+      text,
+      value,
+      spentOn,
+      paidBy,
+      splitKind,
+      shares,
+      original,
+      0,
+    );
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: expense._id.value,

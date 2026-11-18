@@ -60,4 +60,30 @@ export function createLedgerTables(database: SqliteDatabase): void {
     balance INTEGER NOT NULL,
     PRIMARY KEY (group_id, member_id)
   )`);
+  // The recurring expenses (request 23): what each is, kept as it was set up; `next_on` is the next day it records, and it is
+  // the day the sweep asks for. `set_up_seq` is the order they were set up in, the earliest first.
+  database.exec(`CREATE TABLE IF NOT EXISTS recurring_expenses (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    paid_by TEXT NOT NULL,
+    description TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    starts_on TEXT NOT NULL,
+    next_on TEXT NOT NULL,
+    split_kind TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    set_up_seq INTEGER NOT NULL DEFAULT 0
+  )`);
+  database.exec('CREATE INDEX IF NOT EXISTS recurring_expenses_by_group ON recurring_expenses (group_id)');
+  database.exec('CREATE INDEX IF NOT EXISTS recurring_expenses_by_next ON recurring_expenses (next_on)');
+  // The split as it was given: one row per member, in the order given. `amount` is an exact amount, `shares` a member's shares;
+  // both are NULL for an equal split, which names only its members.
+  database.exec(`CREATE TABLE IF NOT EXISTS recurring_expense_splits (
+    recurring_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    member_id TEXT NOT NULL,
+    amount INTEGER,
+    shares INTEGER,
+    PRIMARY KEY (recurring_id, position)
+  )`);
 }

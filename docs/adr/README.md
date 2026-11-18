@@ -18,6 +18,7 @@ why, what it costs, and when to revisit it.
 | [11](0011-a-member-leaves-whatever-their-balance-and-the-balance-passes-to-the-owner.md) | A member leaves whatever their balance, and the balance passes to the owner in the same step |
 | [12](0012-an-expense-in-another-currency-is-converted-once-and-kept-as-given.md) | An expense in another currency is converted once, in exact arithmetic, and kept as given; the group's currency is read through an owned port |
 | [13](0013-an-offered-rate-is-a-port-the-expense-takes-or-checks-within-two-percent.md) | An offered rate is a port the expense takes or checks within 2 %, and its source is kept |
+| [14](0014-a-recurring-expense-is-an-aggregate-of-ledger-and-its-day-names-its-expense.md) | A recurring expense is an aggregate of Ledger, and its day names the expense it records |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

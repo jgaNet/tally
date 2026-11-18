@@ -60,7 +60,7 @@ const ExactlyOneMoney = {
  * The three ways to split, as a body gives them: exactly one of them (request 7). Each is listed by shape only; whether a
  * value is allowed (the amounts add up, a share is at least 1, a member listed once) is the expense's to decide, behind the 202.
  */
-const SplitBodyProperties = {
+export const SplitBodyProperties = {
   splitBetween: { type: 'array', items: { type: 'string' } },
   splitExactly: {
     type: 'array',
@@ -81,7 +81,7 @@ const SplitBodyProperties = {
 } as const;
 
 /** Exactly one of the three split fields: none, or two or more, is a body of the wrong shape (400). */
-const ExactlyOneSplit = {
+export const ExactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 } as const;
 

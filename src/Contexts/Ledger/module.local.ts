@@ -14,11 +14,21 @@ import {
 } from '@Contexts/Ledger/Application/Commands/DeleteExpense';
 import { EditExpenseCommandEvent, EditExpenseCommandHandler } from '@Contexts/Ledger/Application/Commands/EditExpense';
 import {
+  SetUpRecurringExpenseCommandEvent,
+  SetUpRecurringExpenseCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/SetUpRecurringExpense';
+import {
+  StopRecurringExpenseCommandEvent,
+  StopRecurringExpenseCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/StopRecurringExpense';
+import {
   GetExpenseQueryHandler,
   GetGroupBalancesQueryHandler,
   GetGroupExpensesQueryHandler,
+  GetGroupRecurringExpensesQueryHandler,
   GetMemberStatementQueryHandler,
   GetOfferedRateQueryHandler,
+  GetRecurringExpenseQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
 import { HttpRatesService } from '@Contexts/Ledger/Infrastructure/HttpRatesService';
@@ -27,9 +37,14 @@ import { SqliteExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteE
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { SqliteMemberBalances } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalances';
+import { SqliteRecurringExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseReadModels';
+import { SqliteRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseRepository';
 import { IMemberBalancesQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalancesQueries';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecorded/ExpenseRecordedHandler';
+import { RecurringExpenseDayCameHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCame';
+import { RecurringExpenseSweepJob } from '@Contexts/Ledger/Application/Jobs/RecurringExpenseSweep/RecurringExpenseSweepJob';
 
 const database = sharedDatabase();
 const expenses = new SqliteExpenseRepository(database);
@@ -56,6 +71,14 @@ const offeredRates = new HttpRatesService();
 const settled = new SettledAmountsFromSettlements(() => settlementsSettledAmounts);
 /** The balances: counted into in the transaction of each expense, and read by a member of the group (T4), with what is settled. */
 const balances = new SqliteMemberBalances(database, settled, members);
+/** The recurring expenses (request 23): what each is, kept between the runs of the sweep, and their read models. */
+const recurringExpenses = new SqliteRecurringExpenseRepository(database);
+const recurringReadModels = new SqliteRecurringExpenseReadModels(database);
+/**
+ * The sweep of the recurring expenses (request 23, ADR 14): the process runs it every JOBS_INTERVAL_SECONDS, as the debt sweep (ADR 10),
+ * in a context of its own. It takes the one clock, and the members are read through the port Ledger owns (ADR 3).
+ */
+export const recurringExpenseSweep = new RecurringExpenseSweepJob(recurringExpenses, members, systemClock);
 
 /** A member's balance in a group, read by Groups before the member leaves it (ADR 4): Ledger's read model, exported. */
 export const memberBalances: IMemberBalancesQueries = balances;
@@ -63,7 +86,13 @@ export const memberBalances: IMemberBalancesQueries = balances;
 /** The Ledger context: the expenses of each group, how each is split, and what each member owes or is owed. */
 export const localLedgerModule = new Module({
   name: 'Ledger',
-  domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
+  domainEvents: [
+    { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] },
+    {
+      event: RecurringExpenseDayCameEvent,
+      handlers: [new RecurringExpenseDayCameHandler(expenses, currencies, systemClock, balances)],
+    },
+  ],
   commands: [
     {
       event: RecordExpenseCommandEvent,
@@ -77,6 +106,14 @@ export const localLedgerModule = new Module({
       event: DeleteExpenseCommandEvent,
       handlers: [new DeleteExpenseCommandHandler(expenses, members, balances)],
     },
+    {
+      event: SetUpRecurringExpenseCommandEvent,
+      handlers: [new SetUpRecurringExpenseCommandHandler(recurringExpenses, members, systemClock)],
+    },
+    {
+      event: StopRecurringExpenseCommandEvent,
+      handlers: [new StopRecurringExpenseCommandHandler(recurringExpenses, members)],
+    },
   ],
   queries: [
     new GetExpenseQueryHandler(expenseReadModels, members),
@@ -84,5 +121,7 @@ export const localLedgerModule = new Module({
     new GetGroupExpensesQueryHandler(expenseReadModels, members),
     new GetMemberStatementQueryHandler(expenseReadModels, members),
     new GetOfferedRateQueryHandler(offeredRates, members, currencies, systemClock),
+    new GetRecurringExpenseQueryHandler(recurringReadModels, members),
+    new GetGroupRecurringExpensesQueryHandler(recurringReadModels, members),
   ],
 });
