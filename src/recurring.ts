@@ -14,6 +14,7 @@ import {
   type ShareCount,
   type Split,
 } from './expenses';
+import { CATEGORIES, DEFAULT_CATEGORY, type Category } from './categories';
 import { findGroupOf } from './groups';
 import { isMember } from './members';
 import { Refusal } from './refusal';
@@ -30,16 +31,19 @@ export interface Recurring {
   amount: number;
   startsOn: string;
   next: string;
+  category: Category;
   splitBetween?: string[];
   splitExactly?: ExactShare[];
   splitByShares?: ShareCount[];
 }
 
-/** What a member sets up: the recurring expense's description, amount, first day and split. */
+/** What a member sets up: the recurring expense's description, amount, first day, category and split. */
 export interface NewRecurring {
   description: string;
   amount: number;
   startsOn: string;
+  /** The category of its expenses; `other` when left out. */
+  category?: Category;
   splitBetween?: string[];
   splitExactly?: ExactShare[];
   splitByShares?: ShareCount[];
@@ -54,6 +58,7 @@ interface RecurringRow {
   starts_on: string;
   next_on: string;
   split_kind: 'equal' | 'exact' | 'shares';
+  category: string;
 }
 
 interface RecurringShareRow {
@@ -129,6 +134,7 @@ function recurringOf(db: DatabaseSync, row: RecurringRow): Recurring {
     amount: row.amount,
     startsOn: row.starts_on,
     next: row.next_on,
+    category: row.category as Category,
   };
   if (split.kind === 'equal') recurring.splitBetween = split.members;
   else if (split.kind === 'exact') recurring.splitExactly = split.shares;
@@ -136,7 +142,8 @@ function recurringOf(db: DatabaseSync, row: RecurringRow): Recurring {
   return recurring;
 }
 
-const COLUMNS = 'r.id, r.group_id, r.paid_by, r.description, r.amount, r.starts_on, r.next_on, r.split_kind';
+const COLUMNS =
+  'r.id, r.group_id, r.paid_by, r.description, r.amount, r.starts_on, r.next_on, r.split_kind, r.category';
 
 /**
  * Sets up a recurring expense of the group, the account its payer, and returns its id. It is checked as an expense is:
@@ -153,8 +160,8 @@ export function createRecurring(db: DatabaseSync, accountId: string, groupId: st
     checkSplit(db, groupId, accountId, membersOf(split));
     sharesOf(split, input.amount);
     db.prepare(
-      `INSERT INTO recurring (id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO recurring (id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, category, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       groupId,
@@ -164,6 +171,7 @@ export function createRecurring(db: DatabaseSync, accountId: string, groupId: st
       input.startsOn,
       input.startsOn,
       split.kind,
+      input.category ?? DEFAULT_CATEGORY,
       new Date().toISOString(),
     );
     const insert = db.prepare(
@@ -252,6 +260,7 @@ export function runRecurring(db: DatabaseSync, now: Date = new Date()): void {
           date: day,
           paidBy: row.paid_by,
           splitKind: split.kind,
+          category: row.category as Category,
           shares: sharesOf(split, row.amount),
           at,
         });
@@ -267,7 +276,7 @@ const DAY_PATTERN = '^\\d{4}-\\d{2}-(0[1-9]|1\\d|2[0-8])$';
 
 const recurringSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next'],
+  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next', 'category'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -276,6 +285,7 @@ const recurringSchema = {
     amount: { type: 'integer' },
     startsOn: { type: 'string', pattern: DAY_PATTERN },
     next: { type: 'string', pattern: DAY_PATTERN },
+    category: { enum: [...CATEGORIES] },
     splitBetween: { type: 'array', items: { type: 'string' } },
     splitExactly: {
       type: 'array',
@@ -308,6 +318,7 @@ export function registerRecurringRoutes(app: FastifyInstance, db: DatabaseSync):
             description: { type: 'string' },
             amount: { type: 'integer' },
             startsOn: { type: 'string' },
+            category: { type: 'string', enum: [...CATEGORIES] },
             splitBetween: recurringSchema.properties.splitBetween,
             splitExactly: recurringSchema.properties.splitExactly,
             splitByShares: recurringSchema.properties.splitByShares,

@@ -46,7 +46,7 @@ export function listExpenses(db: DatabaseSync, groupId: string): Expense[] {
   // Every expense has a share: its payer is in its split. Its shares come in the order of their split.
   const rows = db
     .prepare(
-      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.version,
+      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.category, e.version,
          e.original_currency, e.original_amount, e.original_rate,
          s.account_id AS share_member, s.amount AS share_amount
        FROM expenses e JOIN expense_shares s ON s.expense_id = e.id

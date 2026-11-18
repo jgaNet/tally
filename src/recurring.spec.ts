@@ -70,6 +70,7 @@ describe('recurring expenses', () => {
         amount: 1001,
         startsOn,
         next: startsOn,
+        category: 'other',
         splitBetween: [adaId, graceId],
       },
     });

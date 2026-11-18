@@ -30,6 +30,16 @@ async function startServerProcess(databasePath: string): Promise<{ app: Reachabl
   };
 }
 
+/**
+ * Takes the categories and budgets out of a file, as a file from before them has none: the migrations that add them run
+ * again when the file is set back to an older version.
+ */
+function dropCategories(before: DatabaseSync): void {
+  before.exec('DROP TABLE budget_passings');
+  before.exec('DROP TABLE budgets');
+  before.exec('ALTER TABLE expenses DROP COLUMN category');
+}
+
 describe('the database', () => {
   let database: ReturnType<typeof temporaryDatabase>;
   const apps: Application[] = [];
@@ -96,6 +106,7 @@ describe('the database', () => {
   it('takes reminders on a file at version 13, and keeps the notices it had in order', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
@@ -132,7 +143,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
       expect(db.prepare('SELECT id FROM notices ORDER BY rowid').all()).toEqual([{ id: 'n1' }, { id: 'n2' }]);
       db.prepare(
         "INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('r', 'a', 'reminder', 'g', NULL, 2500, '2026-11-09T00:00:00.000Z')",
@@ -147,7 +158,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
     } finally {
       db.close();
     }
@@ -156,6 +167,7 @@ describe('the database', () => {
   it('adds the notices to a file at version 12, with none in it, and refuses a second one per member', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec('DROP TABLE debt_notes');
@@ -174,7 +186,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
       expect(db.prepare('SELECT COUNT(*) AS count FROM notices').get()).toEqual({ count: 0 });
       expect(() =>
         db.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
@@ -204,6 +216,7 @@ describe('the database', () => {
 
     // The file as the schema was before splits could be unequal: no column for the kind of split, version 5.
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec('DROP TABLE payment_decisions');
@@ -248,6 +261,7 @@ describe('the database', () => {
 
     // The file as the schema was before a membership could end: no column for it, version 6.
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec('DROP TABLE payment_decisions');
@@ -296,6 +310,7 @@ describe('the database', () => {
 
     // The file as the schema was before settlements: no table for them, version 7.
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec('DROP TABLE payment_decisions');
@@ -332,6 +347,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     // The file as the schema was before provider settlements: the settlements table of version 8, one cash row.
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
@@ -369,7 +385,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -389,6 +405,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     // The file as the schema was at version 10: a provider settlement paid, and the decision kept for its payment.
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
@@ -434,7 +451,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
       expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
         { id: 's', status: 'paid', provider_id: 'pay_9' },
       ]);
@@ -462,6 +479,7 @@ describe('the database', () => {
   it('takes payout accounts on a file at version 11, and keeps the accounts it had', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
@@ -484,7 +502,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
       expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
       db.exec(
         "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
@@ -511,6 +529,7 @@ describe('the database', () => {
   it('dates the settlements of a file at version 14 by when they were recorded, and their decisions by the migration', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
       before.exec(`
@@ -536,7 +555,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
       const history = (id: string) =>
         db.prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq').all(id);
       expect(history('cash')).toEqual([{ status: 'paid', at: '2026-11-02T00:00:00.000Z' }]);
@@ -589,6 +608,7 @@ describe('the database', () => {
 
     // The file as it was before an expense could be paid in another currency: no columns for it, one version less.
     const before = new DatabaseSync(database.path);
+    dropCategories(before);
     try {
       const current = Number((before.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
       before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
@@ -596,7 +616,7 @@ describe('the database', () => {
       before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
       before.exec('DROP TABLE recurring_shares');
       before.exec('DROP TABLE recurring');
-      before.exec(`PRAGMA user_version = ${current - 2}`);
+      before.exec(`PRAGMA user_version = ${current - 5}`);
     } finally {
       before.close();
     }
@@ -605,5 +625,46 @@ describe('the database', () => {
     const body = (await call(second, 'GET', `/expenses/${expenseId}`, { token })).body;
     expect(body).toMatchObject({ amount: 1000, splitKind: 'equal' });
     expect(body).not.toHaveProperty('original');
+  });
+
+  it('reads the expenses and recurring expenses of a file recorded before categories as other, and keeps its notices', async () => {
+    const first = await start();
+    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
+    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
+    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
+      .id;
+    const expenseId = (
+      await call(first, 'POST', `/groups/${groupId}/expenses`, {
+        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
+        token,
+      })
+    ).body.id;
+    const recurringId = (
+      await call(first, 'POST', `/groups/${groupId}/recurring`, {
+        body: { description: 'Rent', amount: 500, startsOn: '2026-11-01', splitBetween: [adaId] },
+        token,
+      })
+    ).body.id;
+    await first.stop();
+    apps.pop();
+
+    // The file as it was before categories: no column for them and no budgets, one version less than the migrations ask.
+    const before = new DatabaseSync(database.path);
+    try {
+      dropCategories(before);
+      before.exec('ALTER TABLE recurring DROP COLUMN category');
+      before.exec('PRAGMA user_version = 18');
+    } finally {
+      before.close();
+    }
+
+    const second = await start();
+    expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({
+      category: 'other',
+    });
+    expect((await call(second, 'GET', `/recurring/${recurringId}`, { token })).body).toMatchObject({
+      category: 'other',
+    });
+    expect((await call(second, 'GET', `/groups/${groupId}/budgets`, { token })).body).toEqual([]);
   });
 });

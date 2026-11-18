@@ -263,6 +263,7 @@ describe('expenses', () => {
             { memberId: linusId, amount: 333 },
           ],
           splitKind: 'equal',
+          category: 'other',
           version: 1,
         },
       });
@@ -351,6 +352,7 @@ describe('expenses', () => {
           { memberId: graceId, amount: 450 },
         ],
         splitKind: 'equal',
+        category: 'other',
         version: 2,
       });
     });

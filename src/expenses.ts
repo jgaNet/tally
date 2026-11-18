@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
+import { writeBudgetPassing } from './budgets';
+import { CATEGORIES, DEFAULT_CATEGORY, type Category } from './categories';
 import { inTransaction } from './database';
 import { isRealDay, todayUtc } from './days';
 import { CURRENCIES, findGroupOf } from './groups';
@@ -42,6 +44,7 @@ export interface Expense {
   paidBy: string;
   shares: Share[];
   splitKind: SplitKind;
+  category: Category;
   /** 1 when the expense is recorded, one more at each edit. */
   version: number;
   /** What was paid in another currency than the group's, as it was given. Absent for an expense in the group's currency. */
@@ -78,6 +81,8 @@ export interface NewExpense {
   amount?: number;
   original?: GivenOriginal;
   date: string;
+  /** The expense's category; `other` when left out. */
+  category?: Category;
   splitBetween?: string[];
   splitExactly?: ExactShare[];
   splitByShares?: ShareCount[];
@@ -97,6 +102,7 @@ export interface ExpenseRow {
   date: string;
   paid_by: string;
   split_kind: SplitKind;
+  category: string;
   version: number;
   original_currency: string | null;
   original_amount: number | null;
@@ -114,6 +120,7 @@ export function expenseOf(row: ExpenseRow, shares: Share[]): Expense {
     paidBy: row.paid_by,
     shares,
     splitKind: row.split_kind,
+    category: row.category as Category,
     version: row.version,
   };
   if (row.original_currency !== null && row.original_amount !== null && row.original_rate !== null) {
@@ -406,16 +413,20 @@ export interface RecordedExpense {
   date: string;
   paidBy: string;
   splitKind: SplitKind;
+  category: Category;
   shares: readonly Share[];
   /** The moment it is recorded, which dates its notices. */
   at: string;
   original?: Original;
 }
 
-/** Writes an expense, its shares and the notices of its members. It is called inside a write transaction. */
+/**
+ * Writes an expense, its shares, the notices of its members, and the budget notices its recording passes. It is called
+ * inside a write transaction.
+ */
 export function recordExpense(db: DatabaseSync, expense: RecordedExpense): void {
   db.prepare(
-    'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, created_at, original_currency, original_amount, original_rate) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)',
+    'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, category, version, created_at, original_currency, original_amount, original_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)',
   ).run(
     expense.id,
     expense.groupId,
@@ -424,6 +435,7 @@ export function recordExpense(db: DatabaseSync, expense: RecordedExpense): void 
     expense.date,
     expense.paidBy,
     expense.splitKind,
+    expense.category,
     expense.at,
     expense.original?.currency ?? null,
     expense.original?.amount ?? null,
@@ -431,6 +443,7 @@ export function recordExpense(db: DatabaseSync, expense: RecordedExpense): void 
   );
   writeShares(db, expense.id, expense.shares);
   writeExpenseNotices(db, expense, expense.shares);
+  writeBudgetPassing(db, expense.groupId, expense.category, expense.date, expense.at);
 }
 
 /**
@@ -466,6 +479,7 @@ export async function createExpense(
       date: input.date,
       paidBy: accountId,
       splitKind: split.kind,
+      category: input.category ?? DEFAULT_CATEGORY,
       shares,
       at: recordedAt,
       original,
@@ -478,7 +492,7 @@ export async function createExpense(
 export function findExpenseOf(db: DatabaseSync, accountId: string, expenseId: string): Expense | undefined {
   const row = db
     .prepare(
-      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.version,
+      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.category, e.version,
          e.original_currency, e.original_amount, e.original_rate
        FROM expenses e JOIN group_members m ON m.group_id = e.group_id
        WHERE e.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
@@ -560,13 +574,15 @@ export async function editExpense(
     const split = splitOf(edit);
     checkSplit(db, expense.groupId, expense.paidBy, membersOf(split));
     const shares = sharesOf(split, amount);
+    const category = edit.category ?? DEFAULT_CATEGORY;
     db.prepare(
-      'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, original_currency = ?, original_amount = ?, original_rate = ?, version = version + 1 WHERE id = ? AND version = ?',
+      'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, category = ?, original_currency = ?, original_amount = ?, original_rate = ?, version = version + 1 WHERE id = ? AND version = ?',
     ).run(
       description,
       amount,
       edit.date,
       split.kind,
+      category,
       original?.currency ?? null,
       original?.amount ?? null,
       original?.rate ?? null,
@@ -575,6 +591,7 @@ export async function editExpense(
     );
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     writeShares(db, expenseId, shares);
+    writeBudgetPassing(db, expense.groupId, category, edit.date, new Date().toISOString());
   });
 }
 
@@ -602,7 +619,7 @@ const idSchema = {
 /** An expense as it is read, by its id or in a group's list. */
 export const expenseSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares', 'splitKind', 'version'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares', 'splitKind', 'category', 'version'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -620,6 +637,7 @@ export const expenseSchema = {
       },
     },
     splitKind: { enum: ['equal', 'exact', 'shares'] },
+    category: { enum: [...CATEGORIES] },
     version: { type: 'integer', minimum: 1 },
     original: {
       type: 'object',
@@ -676,6 +694,9 @@ const exactlyOneAmount = {
   oneOf: [{ required: ['amount'] }, { required: ['original'] }],
 };
 
+/** An expense's category, when given: one of the categories, `other` when left out. */
+const categoryProperty = { category: { type: 'string', enum: [...CATEGORIES] } };
+
 export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync, rates: RatesConfig): void {
   app.post<{ Params: { id: string }; Body: NewExpense }>(
     '/groups/:id/expenses',
@@ -688,6 +709,7 @@ export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync, ra
             description: { type: 'string' },
             ...amountProperties,
             date: { type: 'string' },
+            ...categoryProperty,
             ...splitProperties,
           },
           allOf: [exactlyOneSplit, exactlyOneAmount],
@@ -720,6 +742,7 @@ export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync, ra
             description: { type: 'string' },
             ...amountProperties,
             date: { type: 'string' },
+            ...categoryProperty,
             version: { type: 'integer', minimum: 1 },
             ...splitProperties,
           },

@@ -135,6 +135,7 @@ describe('history', () => {
           { memberId: linusId, amount: 333 },
         ],
         splitKind: 'equal',
+        category: 'other',
         version: 1,
       });
     });
