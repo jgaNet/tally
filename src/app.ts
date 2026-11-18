@@ -67,7 +67,8 @@ function secondsFrom(value: string | undefined, fallback: number): number {
  * without it, attaching a receipt is refused. The store has `receiptsTimeoutMs` (5000 by default) to answer.
  *
  * The administrators are the accounts whose email is one of `adminEmails` (`ADMIN_EMAILS`, a list separated by commas,
- * whatever its case). They decide the settlements contested by their payees (see `routes/admin.ts`).
+ * whatever its case). They decide the settlements contested by their payees, and suspend and reinstate accounts (see
+ * `routes/admin.ts` and `suspensions.ts`).
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',

@@ -6,6 +6,7 @@ import type { Database, Querier } from './database';
 import { assertNotArchived, findGroup, findGroupOfMember, membersOfGroup } from './groups';
 import { type ProviderConfig, requestPayment, requestRefund } from './provider';
 import { payoutAccountOf } from './payout-accounts';
+import { assertNotSuspended } from './suspensions';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
 
@@ -202,7 +203,8 @@ async function checkSettlement(
  * balance) or more than the payee is owed (their balance), on the balances as they stand, a settlement
  * waiting at the provider counted as paid. The balances are read and the settlement written in one
  * transaction, so two settlements recorded at once are each decided on the balances the other left: when
- * both would pay more than is owed, one is refused.
+ * both would pay more than is owed, one is refused. A payee who is suspended is refused with `403` as
+ * `AccountIsSuspended`, before anything is written.
  */
 export async function recordCashSettlement(
   db: Database,
@@ -216,6 +218,7 @@ export async function recordCashSettlement(
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
     assertNotArchived(group);
+    await assertNotSuspended(tx, payeeId);
     await checkSettlement(tx, { groupId, payerId, payeeId, amount });
     const at = new Date().toISOString();
     await tx
@@ -241,7 +244,8 @@ export async function recordCashSettlement(
  * `payout-accounts.ts`) is refused with `409` as `PayoutAccountRequired`, before the provider is asked: the
  * payment is made to the payee's payout account, as it is at this moment. Refused with `424` when paying through
  * the provider is not configured, or when the provider does not answer a payment in time (see
- * {@link requestPayment}); then nothing is kept.
+ * {@link requestPayment}); then nothing is kept. Refused with `403` as `AccountIsSuspended` when the payer is suspended,
+ * before the provider is asked.
  *
  * The provider is asked outside any transaction, so that no write is held while it answers; the rules are
  * checked again in the transaction that keeps the settlement, so two requests at once cannot both pay more
@@ -258,6 +262,7 @@ export async function requestProviderSettlement(
     const group = await findGroupOfMember(querier, payerId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     assertNotArchived(group);
+    await assertNotSuspended(querier, payerId);
     if (!(await membersOfGroup(querier, groupId)).some(member => member.memberId === payeeId)) {
       throw new Refusal(422, 'PayeeNotInGroup', 'The payee must be a member of the group.');
     }

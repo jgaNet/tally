@@ -6,6 +6,7 @@ import { adminLogOf } from '../admin-log';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
 import { contestedSettlements, decideContest } from '../settlements';
+import { reinstateAccount, suspendAccount } from '../suspensions';
 import { SETTLEMENT } from './settlements';
 
 interface DecisionBody {
@@ -26,7 +27,7 @@ const ADMIN_LOG_ENTRY = {
     id: { type: 'string' },
     at: { type: 'string' },
     by: { type: 'string' },
-    action: { enum: ['decided-paid', 'decided-annulled'] },
+    action: { enum: ['decided-paid', 'decided-annulled', 'suspended', 'reinstated'] },
     subjectId: { type: 'string' },
   },
 };
@@ -48,7 +49,7 @@ async function administratorReading(
   return caller;
 }
 
-/** The caller, who must be an administrator to decide a contest: anyone else is refused with `403`. */
+/** The caller, who must be an administrator to decide a contest or to suspend or reinstate an account: anyone else is refused with `403`. */
 async function administratorDeciding(
   db: Database,
   request: FastifyRequest,
@@ -56,7 +57,7 @@ async function administratorDeciding(
 ): Promise<Account> {
   const caller = await requireCaller(db, request);
   if (!isAdministrator(administrators, caller)) {
-    throw new Refusal(403, 'NotAnAdministrator', 'Only an administrator decides a contested settlement.');
+    throw new Refusal(403, 'NotAnAdministrator', 'Only an administrator decides a contest or suspends an account.');
   }
   return caller;
 }
@@ -82,6 +83,21 @@ export function registerAdminRoutes(server: FastifyInstance, db: Database, admin
       return reply.code(204).send();
     },
   );
+
+  // The administrator suspends an account: it cannot record what a suspended account cannot (see `suspensions.ts`). An
+  // account already suspended is left as it is.
+  server.put<{ Params: { id: string } }>('/admin/accounts/:id/suspension', async (request, reply) => {
+    const caller = await administratorDeciding(db, request, administrators);
+    await suspendAccount(db, { accountId: request.params.id, administratorId: caller.id });
+    return reply.code(204).send();
+  });
+
+  // The administrator reinstates a suspended account. One not suspended is left as it is.
+  server.delete<{ Params: { id: string } }>('/admin/accounts/:id/suspension', async (request, reply) => {
+    const caller = await administratorDeciding(db, request, administrators);
+    await reinstateAccount(db, { accountId: request.params.id, administratorId: caller.id });
+    return reply.code(204).send();
+  });
 
   // The administrators' log, the oldest first.
   server.get(

@@ -11,6 +11,7 @@ import { Refusal } from './refusal';
 import { characters } from './text';
 import { inReadSnapshot, inTransaction } from './transactions';
 import { splitOfTemplate } from './templates';
+import { assertNotSuspended } from './suspensions';
 
 /** A description has 1 to this many characters. */
 const MAX_DESCRIPTION_LENGTH = 100;
@@ -503,7 +504,8 @@ async function rateOfferFor(
  * {@link rateOfferFor}); a rate given is checked against it. It is recorded at version 1.
  *
  * The rate is asked outside any transaction, so that no write is held while it answers; the rules are checked again
- * in the transaction that keeps the expense, so a member who left in between is refused as before.
+ * in the transaction that keeps the expense, so a member who left in between is refused as before. A payer who is
+ * suspended (see `suspensions.ts`) is refused with `403` as `AccountIsSuspended`, before anything is written.
  */
 export async function recordExpense(db: Database, rates: RatesConfig, input: RecordExpenseInput): Promise<string> {
   const { groupId, payerId, date } = input;
@@ -513,6 +515,7 @@ export async function recordExpense(db: Database, rates: RatesConfig, input: Rec
     throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
   }
   assertNotArchived(asked);
+  await assertNotSuspended(db, payerId);
   const offer = await rateOfferFor(rates, asked.currency, input.amount, date);
   await inTransaction(db, async tx => {
     const group = await findGroupOfMember(tx, payerId, groupId);
@@ -520,6 +523,7 @@ export async function recordExpense(db: Database, rates: RatesConfig, input: Rec
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
     assertNotArchived(group);
+    await assertNotSuspended(tx, payerId);
     const checked = await checkExpenseFields(tx, groupId, group.currency, payerId, input, offer);
     await insertExpense(tx, { id, groupId, payerId, date, checked, at: new Date().toISOString() });
   });

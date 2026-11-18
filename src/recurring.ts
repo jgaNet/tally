@@ -3,6 +3,7 @@ import { checkExpenseFields, insertExpense, type SplitInput } from './expenses';
 import { isCalendarDay } from './days';
 import type { Database, Querier } from './database';
 import { assertNotArchived, findGroupOfMember, membersOfGroup } from './groups';
+import { assertNotSuspended, isSuspended } from './suspensions';
 import type { Category } from './categories';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
@@ -103,7 +104,8 @@ function daysBetween(from: string, to: string): number {
 /**
  * Sets up a recurring expense paid by the caller, and answers its id. Refused with `404` when the payer is not a
  * member of the group, otherwise with `422` when the description, amount or split breaks the rules of an expense,
- * or when `startsOn` is not a real day, is more than 365 days from today, or has a day of the month beyond 28.
+ * or when `startsOn` is not a real day, is more than 365 days from today, or has a day of the month beyond 28. Refused
+ * with `403` as `AccountIsSuspended` when the payer is suspended.
  */
 export async function setUpRecurring(db: Database, input: SetUpRecurringInput): Promise<string> {
   const { groupId, payerId, startsOn, today } = input;
@@ -112,6 +114,7 @@ export async function setUpRecurring(db: Database, input: SetUpRecurringInput): 
     const group = await findGroupOfMember(tx, payerId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     assertNotArchived(group);
+    await assertNotSuspended(tx, payerId);
     const checked = await checkExpenseFields(
       tx,
       groupId,
@@ -226,7 +229,9 @@ export async function stopRecurring(db: Database, input: { recurringId: string; 
  * passed) and has no expense yet has its expense recorded, in order, and the next day moves on, all in one write
  * transaction, so each day has one expense whatever servers share the database. On a day when its payer or a member of
  * its split is no longer a member of the group, nothing is recorded and the recurring expense ends. A recurring expense
- * of an archived group records nothing, and is left as it is. Answers how many expenses it recorded.
+ * of an archived group records nothing, and is left as it is. A recurring expense whose payer is suspended records nothing
+ * and is left as it is, its days waiting until the payer is reinstated: the run after that records every day that has come.
+ * Answers how many expenses it recorded.
  */
 export async function recordRecurring(db: Database, now: Date): Promise<number> {
   const at = now.toISOString();
@@ -241,6 +246,7 @@ export async function recordRecurring(db: Database, now: Date): Promise<number> 
       )
       .all<RecurringRow>(today);
     for (const row of rows) {
+      if (await isSuspended(tx, row.paid_by)) continue;
       const split = splitOf(row.split_kind, await partsOf(tx, row.id));
       const members = new Set((await membersOfGroup(tx, row.group_id)).map(member => member.memberId));
       const splitMembers = split.kind === 'equal' ? split.memberIds : split.parts.map(part => part.memberId);

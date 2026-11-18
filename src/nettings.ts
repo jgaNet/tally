@@ -5,6 +5,7 @@ import type { Database, Querier } from './database';
 import { CURRENCIES } from './groups';
 import { Refusal } from './refusal';
 import { recordStatus } from './settlements';
+import { assertNotSuspended } from './suspensions';
 import { inReadSnapshot, inTransaction } from './transactions';
 
 /**
@@ -79,6 +80,7 @@ async function sharedGroupsOf(db: Querier, by: string, other: string, currency: 
  *
  * The balances are read and the settlements written in one transaction, so two nettings, or a netting and another
  * settlement, asked at the same moment are each decided on what the other left: no settlement pays more than is owed.
+ * The member who asks, when suspended, is refused with `403` as `AccountIsSuspended`, before anything is written.
  */
 export async function netBetween(db: Database, input: { by: string; with: string; currency: string }): Promise<string> {
   const { by, with: other, currency } = input;
@@ -88,6 +90,7 @@ export async function netBetween(db: Database, input: { by: string; with: string
   }
   const id = randomUUID();
   await inTransaction(db, async tx => {
+    await assertNotSuspended(tx, by);
     const byPays: { groupId: string; payable: number }[] = [];
     const otherPays: { groupId: string; payable: number }[] = [];
     for (const groupId of await sharedGroupsOf(tx, by, other, currency)) {

@@ -1,17 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import type { Database, Querier } from './database';
 
-/** The decisions an administrator makes about a contested settlement (see {@link recordAdminLog}). */
-export const ADMIN_ACTIONS = ['decided-paid', 'decided-annulled'] as const;
+/**
+ * The decisions an administrator makes about a contested settlement, and the suspensions and reinstatements of an account
+ * (see {@link recordAdminLog}).
+ */
+export const ADMIN_ACTIONS = ['decided-paid', 'decided-annulled', 'suspended', 'reinstated'] as const;
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];
 
-/** One decision of an administrator. `at` is an ISO 8601 instant; `by` is the administrator's account id. */
+/** One change an administrator makes. `at` is an ISO 8601 instant; `by` is the administrator's account id. */
 export interface AdminLogEntry {
   readonly id: string;
   readonly at: string;
   readonly by: string;
   readonly action: AdminAction;
-  /** The settlement the decision is about. */
+  /** The settlement a decision is about, or the account a suspension or reinstatement is about. */
   readonly subjectId: string;
 }
 
