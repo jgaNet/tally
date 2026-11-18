@@ -76,7 +76,9 @@ CREATE TABLE groups (
   currency TEXT NOT NULL,
   owner_id TEXT NOT NULL REFERENCES accounts (id),
   created_at TEXT NOT NULL,
-  archived_at TEXT
+  archived_at TEXT,
+  -- The group this one was merged into, once it was: a merged group no longer exists, its row is kept for the notices that name it.
+  merged_into TEXT REFERENCES groups (id)
 );
 
 CREATE TABLE group_members (

@@ -46,12 +46,17 @@ function toGroup(row: GroupRow): Group {
 
 /**
  * Refuses a change to the group once it is archived: an archived group is read only, so every write that would
- * change something in it is refused with `GroupArchived`, and changes nothing. Called by each such write, after
- * its check that the account is a member, and again inside its write transaction, so an archive that lands
- * meanwhile is not written over.
+ * change something in it is refused with `GroupArchived`, and changes nothing. A group merged into another no longer
+ * exists: a change to it is refused with `NotFound`, as for any group that is not there. Called by each such write,
+ * after its check that the account is a member, and again inside its write transaction, so an archive or a merge
+ * that lands meanwhile is not written over.
  */
 export async function refuseIfArchived(db: Queryable, groupId: string): Promise<void> {
-  const row = await db.get<{ archived_at: string | null }>('SELECT archived_at FROM groups WHERE id = ?', [groupId]);
+  const row = await db.get<{ archived_at: string | null; merged_into: string | null }>(
+    'SELECT archived_at, merged_into FROM groups WHERE id = ?',
+    [groupId],
+  );
+  if (row?.merged_into) throw new Refusal(404, 'NotFound', 'There is no such group.');
   if (row?.archived_at) {
     throw new Refusal(409, 'GroupArchived', 'The group is archived: it is read only.');
   }

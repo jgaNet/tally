@@ -11,6 +11,7 @@ import { registerGroupRoutes } from './groups';
 import { registerHistoryRoutes } from './history';
 import { registerInvitationRoutes } from './invitations';
 import { registerLeaveRoutes } from './leaving';
+import { registerMergeRoutes } from './merge';
 import { registerNoticeRoutes } from './notices';
 import { registerOperationRoutes } from './operations';
 import { registerPayoutAccountRoutes } from './payout-accounts';
@@ -105,6 +106,7 @@ export async function createApplication({
       registerPayoutAccountRoutes(instance, db, provider);
       registerGroupRoutes(instance, db);
       registerArchiveRoutes(instance, db);
+      registerMergeRoutes(instance, db);
       registerInvitationRoutes(instance, db);
       registerLeaveRoutes(instance, db);
       registerExpenseRoutes(instance, db, rates);

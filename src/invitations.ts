@@ -26,16 +26,19 @@ interface InvitationRow {
  * invite; for anyone else the group does not exist.
  */
 export async function createInvitation(db: Database, accountId: string, groupId: string): Promise<string> {
-  if (!(await findGroupOf(db, accountId, groupId))) throw new Refusal(404, 'NotFound', 'There is no such group.');
-  await refuseIfArchived(db, groupId);
   // 256 random bits, URL-safe: the id is the only secret that lets someone join.
   const id = newToken();
-  await db.run('INSERT INTO invitations (id, group_id, created_by, created_at) VALUES (?, ?, ?, ?)', [
-    id,
-    groupId,
-    accountId,
-    new Date().toISOString(),
-  ]);
+  // The check and the write are one write transaction, so an invitation is never made to a group merged meanwhile.
+  await db.transaction(async tx => {
+    if (!(await findGroupOf(tx, accountId, groupId))) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    await refuseIfArchived(tx, groupId);
+    await tx.run('INSERT INTO invitations (id, group_id, created_by, created_at) VALUES (?, ?, ?, ?)', [
+      id,
+      groupId,
+      accountId,
+      new Date().toISOString(),
+    ]);
+  });
   return id;
 }
 

@@ -150,3 +150,48 @@ export function registerBalanceRoutes(app: FastifyInstance, db: Database): void 
     },
   );
 }
+
+/**
+ * The values of the memberships of the group, the members who have left included: each one's value, its raw balance less
+ * its offset, as the balances count it, and whether the membership is active. A read changes nothing.
+ */
+export async function membershipValues(
+  db: Queryable,
+  groupId: string,
+): Promise<Map<string, { active: boolean; value: number }>> {
+  const values = new Map<string, { active: boolean; value: number }>();
+  for (const row of await membershipsOf(db, groupId, "('paid', 'refunding')")) {
+    values.set(row.member_id, { active: row.active === 1, value: row.raw - row.balance_offset });
+  }
+  return values;
+}
+
+/**
+ * Sets the values of the memberships of the group, the ones of the members who left included, by setting their offsets:
+ * `values` gives each member other than the owner. The owner's value is what makes the values add up to 0, as the
+ * balances of the group always do; so the owner's balance is what the others' values leave. Called in the write
+ * transaction that changes the memberships of the group, once the rows it holds are the ones it will keep.
+ */
+export async function setMembershipValues(
+  db: Queryable,
+  groupId: string,
+  ownerId: string,
+  values: ReadonlyMap<string, number>,
+): Promise<void> {
+  const rows = await membershipsOf(db, groupId, "('paid', 'refunding')");
+  let others = 0;
+  for (const row of rows) {
+    if (row.member_id === ownerId) continue;
+    const value = values.get(row.member_id);
+    if (value === undefined) throw new Error(`No value is given for the member ${row.member_id} of ${groupId}.`);
+    others += value;
+  }
+  for (const row of rows) {
+    const value = row.member_id === ownerId ? -others : (values.get(row.member_id) as number);
+    await db.run('UPDATE group_members SET balance_offset = ? WHERE group_id = ? AND account_id = ?', [
+      row.raw - value,
+      groupId,
+      row.member_id,
+    ]);
+  }
+}

@@ -112,35 +112,39 @@ function checkCategory(category: string): asserts category is Category {
 
 /** Sets the monthly budget of the category, replacing any budget it had. Only the owner of the group may. */
 export async function setBudget(
-  db: Queryable,
+  db: Database,
   accountId: string,
   groupId: string,
   category: string,
   amount: number,
 ): Promise<void> {
-  await ownedGroup(db, accountId, groupId);
-  checkCategory(category);
-  if (amount < 1 || amount > BUDGET_MAX) {
-    throw new Refusal(
-      422,
-      'InvalidAmount',
-      `The budget must be from 1 to ${BUDGET_MAX}, in hundredths of the currency.`,
-    );
-  }
   // Setting a budget notes nothing: a month is noted when an expense of it is recorded or edited.
-  await db.run(
-    `INSERT INTO budgets (group_id, category, amount) VALUES (?, ?, ?)
-     ON CONFLICT (group_id, category) DO UPDATE SET amount = excluded.amount`,
-    [groupId, category, amount],
-  );
+  await db.transaction(async tx => {
+    await ownedGroup(tx, accountId, groupId);
+    checkCategory(category);
+    if (amount < 1 || amount > BUDGET_MAX) {
+      throw new Refusal(
+        422,
+        'InvalidAmount',
+        `The budget must be from 1 to ${BUDGET_MAX}, in hundredths of the currency.`,
+      );
+    }
+    await tx.run(
+      `INSERT INTO budgets (group_id, category, amount) VALUES (?, ?, ?)
+       ON CONFLICT (group_id, category) DO UPDATE SET amount = excluded.amount`,
+      [groupId, category, amount],
+    );
+  });
 }
 
 /** Removes the budget of the category. Only the owner of the group may. */
-export async function removeBudget(db: Queryable, accountId: string, groupId: string, category: string): Promise<void> {
-  await ownedGroup(db, accountId, groupId);
-  checkCategory(category);
-  const removed = await db.run('DELETE FROM budgets WHERE group_id = ? AND category = ?', [groupId, category]);
-  if (removed.changes === 0) throw new Refusal(404, 'NotFound', 'There is no such budget.');
+export async function removeBudget(db: Database, accountId: string, groupId: string, category: string): Promise<void> {
+  await db.transaction(async tx => {
+    await ownedGroup(tx, accountId, groupId);
+    checkCategory(category);
+    const removed = await tx.run('DELETE FROM budgets WHERE group_id = ? AND category = ?', [groupId, category]);
+    if (removed.changes === 0) throw new Refusal(404, 'NotFound', 'There is no such budget.');
+  });
 }
 
 const budgetSchema = {

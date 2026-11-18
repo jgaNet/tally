@@ -6,7 +6,7 @@ import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
 /** Whether a payment or a refund through the provider waits in the group, whoever it is for. */
-async function hasProviderWaiting(db: Queryable, groupId: string): Promise<boolean> {
+export async function hasProviderWaiting(db: Queryable, groupId: string): Promise<boolean> {
   const row = await db.get(
     "SELECT 1 FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')",
     [groupId],
