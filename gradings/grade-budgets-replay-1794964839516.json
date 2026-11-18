@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-1",
+  "ref": "eb18d6395d2433eaf8c1e1fe557eec7d3b11017b",
+  "commit": "eb18d6395d2433eaf8c1e1fe557eec7d3b11017b",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "budgets",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 4 passed, 5 total",
+        "failed": [
+          "budgets › lets the owner alone set or remove a budget, for a category Tally has and an amount allowed"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● budgets › lets the owner alone set or remove a budget, for a category Tally has and an amount allowed",
+          "    Expected: 401",
+          "    Received: 400",
+          "Tests:       1 failed, 4 passed, 5 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 23199,
+  "workers": 1
+}
