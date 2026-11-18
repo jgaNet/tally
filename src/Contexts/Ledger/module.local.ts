@@ -24,6 +24,7 @@ import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/Queries/Sq
 import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteBalanceQueries';
 import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteStatementQueries';
 import { GroupsMembership } from '@Contexts/Ledger/Infrastructure/Groups/GroupsMembership';
+import { GroupsCurrency } from '@Contexts/Ledger/Infrastructure/Groups/GroupsCurrency';
 import { SettlementsSettledAmounts } from '@Contexts/Ledger/Infrastructure/Settlements/SettlementsSettledAmounts';
 import { settlementQueries } from '@Contexts/Settlements/module.local';
 
@@ -38,6 +39,7 @@ const database = applicationDatabase();
 const expenses = new SqliteExpenseRepository(database);
 const expenseQueries = new SqliteExpenseQueries(database);
 const groupMembers = new GroupsMembership(groupQueries);
+const groupCurrency = new GroupsCurrency(groupQueries);
 const balanceQueries = new SqliteBalanceQueries(
   database,
   new SettlementsSettledAmounts(settlementQueries),
@@ -51,11 +53,11 @@ export const localLedgerModule = new Module({
   commands: [
     {
       event: RecordExpenseCommandEvent,
-      handlers: [new RecordExpenseCommandHandler(groupMembers, expenses, clock)],
+      handlers: [new RecordExpenseCommandHandler(groupMembers, groupCurrency, expenses, clock)],
     },
     {
       event: EditExpenseCommandEvent,
-      handlers: [new EditExpenseCommandHandler(groupMembers, expenses, clock)],
+      handlers: [new EditExpenseCommandHandler(groupMembers, groupCurrency, expenses, clock)],
     },
     {
       event: DeleteExpenseCommandEvent,

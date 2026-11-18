@@ -16,6 +16,16 @@ const ExpenseSchema = {
     paidBy: { type: 'string' },
     splitKind: { enum: ['equal', 'exact', 'shares'] },
     version: { type: 'integer', minimum: 1 },
+    // Only an expense in another currency has it (request 21): what was paid, and the rate it was paid at.
+    original: {
+      type: 'object',
+      required: ['currency', 'amount', 'rate'],
+      properties: {
+        currency: { type: 'string' },
+        amount: { type: 'integer' },
+        rate: { type: 'string' },
+      },
+    },
     shares: {
       type: 'array',
       minItems: 1,
@@ -41,9 +51,21 @@ export interface SplitBody {
   splitByShares?: { memberId: string; shares: number }[];
 }
 
-export interface CreateExpenseBody extends SplitBody {
-  description: string;
+/** What was paid in another currency, as the body gives it: the values are the domain's to refuse, not the transport's. */
+export interface OriginalBody {
+  currency: string;
   amount: number;
+  rate: string;
+}
+
+/** The amount, as the body gives it: in the group's currency, or what was paid in another currency (exactly one). */
+export interface AmountBody {
+  amount?: number;
+  original?: OriginalBody;
+}
+
+export interface CreateExpenseBody extends SplitBody, AmountBody {
+  description: string;
   date: string;
 }
 
@@ -76,16 +98,33 @@ const ExactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 } as const;
 
+/** The amount, in the group's currency or in another one: exactly one of the two, as the split is (request 21). */
+const AmountProperties = {
+  amount: { type: 'integer' },
+  original: {
+    type: 'object',
+    required: ['currency', 'amount', 'rate'],
+    properties: {
+      currency: { type: 'string' },
+      amount: { type: 'integer' },
+      rate: { type: 'string' },
+    },
+  },
+} as const;
+const ExactlyOneAmount = {
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
+} as const;
+
 export const CreateExpenseReqBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date'],
+  required: ['description', 'date'],
   properties: {
     description: { type: 'string' },
-    amount: { type: 'integer' },
     date: { type: 'string' },
+    ...AmountProperties,
     ...SplitProperties,
   },
-  ...ExactlyOneSplit,
+  allOf: [ExactlyOneSplit, ExactlyOneAmount],
 } as const;
 
 /** Recording an expense answers its id at once, or the refusal that named the rule it broke. */
@@ -122,15 +161,15 @@ export const GetGroupExpensesResSchema = {
 /** Editing an expense takes it whole, and the version its author read: the answer is its id, or the refusal that named the rule. */
 export const EditExpenseReqBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date', 'version'],
+  required: ['description', 'date', 'version'],
   properties: {
     description: { type: 'string' },
-    amount: { type: 'integer' },
     date: { type: 'string' },
     version: { type: 'integer' },
+    ...AmountProperties,
     ...SplitProperties,
   },
-  ...ExactlyOneSplit,
+  allOf: [ExactlyOneSplit, ExactlyOneAmount],
 } as const;
 
 const CommandResSchema = (success: object) => ({

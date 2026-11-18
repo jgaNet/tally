@@ -3,12 +3,14 @@ import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Applicati
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
+import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense/EditExpenseCommandEvent';
 
 /**
  * Editing an expense: a signed-in member who is its payer or the group's owner gives it again, whole, from the version
- * they read. To anyone who is not a member of its group the expense does not exist. The edit is decided on the expense
+ * they read. To anyone who is not a member of its group the expense does not exist; the group's currency is asked of
+ * Groups beside its members, as recording asks it. The edit is decided on the expense
  * as it is stored when this runs: when another edit got there first, the store refuses this one with a conflict and the
  * command runs again from a fresh read, where the version refuses it by name. The edited expense is saved and what it
  * recorded is published with the save, in one transaction. Its answer is the expense's id.
@@ -16,6 +18,7 @@ import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/E
 export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommandEvent> {
   constructor(
     private groupMembers: IGroupMembers,
+    private groupCurrency: IGroupCurrency,
     private expenses: IExpenseRepository,
     private clock: Clock,
   ) {
@@ -27,18 +30,21 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (caller.isFailure()) return Result.fail(caller.error);
     const editor = caller.data.value;
 
-    const { expenseId, description, amount, date, split, version } = event.payload;
+    const { expenseId, description, money, date, split, version } = event.payload;
     const expense = await this.expenses.findById(expenseId);
     if (!expense) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     const members = await this.groupMembers.membersOf(expense.groupId, editor);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
+    const currency = await this.groupCurrency.currencyOf(expense.groupId, editor);
+    if (!currency) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
 
     const edited = expense.edit({
       editedBy: editor,
       members,
+      groupCurrency: currency,
       version,
       description,
-      amount,
+      money,
       date,
       split,
       today: this.clock(),

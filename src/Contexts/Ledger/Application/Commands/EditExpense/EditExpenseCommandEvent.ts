@@ -1,5 +1,6 @@
 import { CommandEvent } from '@Architecture/Domain';
 
+import { ExpenseMoney } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /**
@@ -9,7 +10,8 @@ import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 export interface EditExpensePayload {
   expenseId: string;
   description: string;
-  amount: number;
+  /** The amount in the group's currency, or what was paid in another currency at its rate (request 21). */
+  money: ExpenseMoney;
   date: string;
   /** How the expense is split, as the edit gives it: equally, by exact amounts, or by shares. */
   split: SplitRequest;

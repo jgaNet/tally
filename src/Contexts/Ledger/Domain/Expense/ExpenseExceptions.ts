@@ -120,3 +120,36 @@ export class ExpenseOfFormerMemberException extends ConflictException {
     });
   }
 }
+
+/** The original currency is not one of Tally's, or is the group's own currency (request 21). */
+export class InvalidOriginalCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidOriginalCurrency',
+      message: 'The original currency is one of EUR, USD, GBP, CHF, CAD or AUD, other than the group’s',
+    });
+  }
+}
+
+/** The original amount is not a whole number of hundredths from 1 to 100 000 000. */
+export class InvalidOriginalAmountException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidOriginalAmount',
+      message: 'The original amount is a whole number from 1 to 100000000, in the hundredths of its currency',
+    });
+  }
+}
+
+/** The rate is not a decimal string greater than 0, with at most 6 digits after the point. */
+export class InvalidRateException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidRate',
+      message: 'The rate is a number greater than 0, with at most 6 digits after the point',
+    });
+  }
+}

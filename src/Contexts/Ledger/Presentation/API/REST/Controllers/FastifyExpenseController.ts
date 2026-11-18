@@ -10,8 +10,10 @@ import {
   RecordExpenseCommandEvent,
 } from '@Contexts/Ledger/Application/Commands';
 import { GetExpenseQueryHandler, GetGroupExpensesQueryHandler } from '@Contexts/Ledger/Application/Queries';
+import { ExpenseMoney } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
+  AmountBody,
   CreateExpenseBody,
   EditExpenseBody,
   SplitBody,
@@ -26,7 +28,7 @@ export class FastifyExpenseController {
   }
 
   recordExpense(req: FastifyRequest<{ Params: { id: string }; Body: CreateExpenseBody }>, reply: FastifyReply) {
-    const { description, amount, date } = req.body;
+    const { description, date } = req.body;
     return acceptCommandAtOnce(
       req,
       reply,
@@ -34,7 +36,7 @@ export class FastifyExpenseController {
       RecordExpenseCommandEvent.set({
         groupId: req.params.id,
         description,
-        amount,
+        money: moneyOf(req.body),
         date,
         split: splitOf(req.body),
       }),
@@ -42,7 +44,7 @@ export class FastifyExpenseController {
   }
 
   editExpense(req: FastifyRequest<{ Params: { id: string }; Body: EditExpenseBody }>, reply: FastifyReply) {
-    const { description, amount, date, version } = req.body;
+    const { description, date, version } = req.body;
     return acceptCommandAtOnce(
       req,
       reply,
@@ -50,7 +52,7 @@ export class FastifyExpenseController {
       EditExpenseCommandEvent.set({
         expenseId: req.params.id,
         description,
-        amount,
+        money: moneyOf(req.body),
         date,
         version,
         split: splitOf(req.body),
@@ -86,6 +88,14 @@ export class FastifyExpenseController {
     return { type: error.type, message: error.message };
   }
 }
+
+/**
+ * The amount the body gives: what was paid in another currency when the body has `original`, the amount in the group's
+ * currency otherwise. The transport has let exactly one of the two through, so the one given is the money; the values
+ * of either are the domain's to refuse (request 21).
+ */
+const moneyOf = (body: AmountBody): ExpenseMoney =>
+  body.original ? { original: body.original } : { amount: body.amount ?? 0 };
 
 /**
  * The split the body gives. The transport has let exactly one of the three through (the schema answers 400 to any other

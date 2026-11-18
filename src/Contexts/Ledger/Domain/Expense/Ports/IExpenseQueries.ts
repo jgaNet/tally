@@ -13,6 +13,8 @@ export interface ExpenseView {
   splitKind: SplitKind;
   /** 1 when it is recorded, and one more at each edit. */
   version: number;
+  /** What was paid in another currency, at its rate, when the expense is in one (request 21); absent otherwise. */
+  original?: { currency: string; amount: number; rate: string };
 }
 
 /** The read side of expenses: a read model, never an aggregate (QUERY-READ-MODELS). Membership is not asked here. */

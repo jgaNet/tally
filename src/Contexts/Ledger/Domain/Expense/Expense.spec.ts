@@ -2,7 +2,14 @@ import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 
 const today = new Date('2026-11-17T12:00:00.000Z');
-const base = { groupId: 'group', description: 'Groceries', amount: 1000, date: '2026-11-16', today };
+const base = {
+  groupId: 'group',
+  description: 'Groceries',
+  money: { amount: 1000 },
+  groupCurrency: 'EUR',
+  date: '2026-11-16',
+  today,
+};
 
 describe('Split.equally', () => {
   it('gives each member the amount divided by their number, rounded down, the remainder to the first member listed', () => {
@@ -122,7 +129,8 @@ describe('Expense.edit and Expense.delete', () => {
       members,
       version: 1,
       description: 'Groceries, again',
-      amount: 1001,
+      money: { amount: 1001 },
+      groupCurrency: 'EUR',
       date: '2026-11-16',
       split: { kind: 'equal', memberIds: ['ben', 'ana', 'cara'] },
       today,
@@ -180,7 +188,7 @@ describe('Expense.create by exact amounts', () => {
   const exact = (amounts: { memberId: string; amount: number }[], amount = 1000) =>
     Expense.create({
       ...base,
-      amount,
+      money: { amount },
       paidBy: 'ana',
       split: { kind: 'exact', amounts },
       members: ['ana', 'ben', 'cara'],
@@ -253,7 +261,7 @@ describe('Expense.create by shares', () => {
   const byShares = (shares: { memberId: string; shares: number }[], amount = 1000, paidBy = 'ana') =>
     Expense.create({
       ...base,
-      amount,
+      money: { amount },
       paidBy,
       split: { kind: 'shares', shares },
       members: ['ana', 'ben', 'cara'],
@@ -342,7 +350,8 @@ describe('Expense.create by shares', () => {
       ],
       version: 1,
       description: 'Groceries',
-      amount: 1000,
+      money: { amount: 1000 },
+      groupCurrency: 'EUR',
       date: '2026-11-16',
       split: {
         kind: 'shares',
@@ -395,7 +404,8 @@ describe('Expense of a former member', () => {
       members: withoutBen,
       version: 1,
       description: 'Groceries, again',
-      amount: 1000,
+      money: { amount: 1000 },
+      groupCurrency: 'EUR',
       date: '2026-11-16',
       split: { kind: 'equal', memberIds: ['ben', 'ana'] },
       today,
@@ -406,7 +416,8 @@ describe('Expense of a former member', () => {
       members: withoutAna,
       version: 1,
       description: 'Groceries, again',
-      amount: 1000,
+      money: { amount: 1000 },
+      groupCurrency: 'EUR',
       date: '2026-11-16',
       split: { kind: 'equal', memberIds: ['ben', 'cara'] },
       today,

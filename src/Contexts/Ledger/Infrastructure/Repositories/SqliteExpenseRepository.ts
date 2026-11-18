@@ -54,6 +54,16 @@ export function createExpensesTables(database: SqliteDatabase): void {
     connection.exec('ALTER TABLE expenses ADD COLUMN recorded_seq INTEGER');
   }
   connection.exec('UPDATE expenses SET recorded_seq = rowid WHERE recorded_seq IS NULL');
+  // What was paid in another currency, and its rate (request 21): NULL for an expense in the group's currency, and for
+  // every expense recorded before these columns existed.
+  for (const [name, type] of [
+    ['original_currency', 'TEXT'],
+    ['original_amount', 'INTEGER'],
+    ['original_rate', 'TEXT'],
+  ]) {
+    if (!columns.some(column => column.name === name))
+      connection.exec(`ALTER TABLE expenses ADD COLUMN ${name} ${type}`);
+  }
   if (!hadEntries) {
     connection.exec(`
       INSERT INTO balance_entries (expense_id, group_id, member_id, amount)
@@ -74,6 +84,9 @@ interface ExpenseRow {
   split_kind: SplitKind;
   version: number;
   recorded_seq: number;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 }
 
 interface ShareRow {
@@ -104,6 +117,10 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       paidBy: row.paid_by,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       splitKind: row.split_kind,
+      original:
+        row.original_currency === null
+          ? null
+          : { currency: row.original_currency, amount: row.original_amount ?? 0, rate: row.original_rate ?? '' },
       version: row.version,
     });
   }
@@ -141,7 +158,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     }
     connection
       .prepare(
-        'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, split_kind, version, recorded_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM expenses))',
+        'INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, split_kind, original_currency, original_amount, original_rate, version, recorded_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM expenses))',
       )
       .run(
         snapshot._id,
@@ -151,6 +168,9 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         snapshot.date,
         snapshot.paidBy,
         snapshot.splitKind,
+        snapshot.original?.currency ?? null,
+        snapshot.original?.amount ?? null,
+        snapshot.original?.rate ?? null,
         snapshot.version + 1,
       );
     this.writeShares(snapshot);
@@ -163,9 +183,20 @@ export class SqliteExpenseRepository implements IExpenseRepository {
 
     const updated = connection
       .prepare(
-        'UPDATE expenses SET description = :description, amount = :amount, spent_on = :date, split_kind = :splitKind, version = :next WHERE id = :id AND version = :version',
+        'UPDATE expenses SET description = :description, amount = :amount, spent_on = :date, split_kind = :splitKind, original_currency = :originalCurrency, original_amount = :originalAmount, original_rate = :originalRate, version = :next WHERE id = :id AND version = :version',
       )
-      .run({ id, description, amount, date, splitKind, version, next: version + 1 });
+      .run({
+        id,
+        description,
+        amount,
+        date,
+        splitKind,
+        originalCurrency: snapshot.original?.currency ?? null,
+        originalAmount: snapshot.original?.amount ?? null,
+        originalRate: snapshot.original?.rate ?? null,
+        version,
+        next: version + 1,
+      });
     if (updated.changes === 0) {
       return Result.fail(new ConcurrencyConflictException('Ledger', 'The expense changed since it was read', { id }));
     }

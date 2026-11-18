@@ -13,6 +13,9 @@ interface ExpenseViewRow {
   paid_by: string;
   split_kind: SplitKind;
   version: number;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 }
 
 /** The read side of expenses over the same file: each expense as recorded, its shares in the order of the split. */
@@ -74,5 +77,15 @@ function toView(row: ExpenseViewRow, shares: ShareRecord[]): ExpenseView {
     shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
     splitKind: row.split_kind,
     version: row.version,
+    // An expense in the group's currency reads without `original`, as the expenses recorded before it do.
+    ...(row.original_currency === null
+      ? {}
+      : {
+          original: {
+            currency: row.original_currency,
+            amount: row.original_amount ?? 0,
+            rate: row.original_rate ?? '',
+          },
+        }),
   };
 }
