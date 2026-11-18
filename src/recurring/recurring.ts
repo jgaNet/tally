@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { type Database, inTransaction } from '../database';
+import type { Category } from '../budgets/categories';
 import { insertExpense, memberIdsOf } from '../expenses/expenses';
 import {
   type SplitInput,
@@ -25,6 +26,8 @@ export interface Recurring {
   next: string;
   /** The split as it was given: exactly one of the three. */
   split: SplitInput;
+  /** The category of each expense it records. */
+  category: Category;
 }
 
 export interface RecurringInput {
@@ -32,6 +35,8 @@ export interface RecurringInput {
   amount: number;
   startsOn: string;
   split: SplitInput;
+  /** As given: one of the categories, or none, which makes its expenses `other`. */
+  category?: string;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -79,9 +84,10 @@ interface RecurringRow {
   split: string;
   starts_on: string;
   next_on: string;
+  category: Category;
 }
 
-const COLUMNS = 'id, group_id, paid_by, description, amount, split, starts_on, next_on';
+const COLUMNS = 'id, group_id, paid_by, description, amount, split, starts_on, next_on, category';
 
 function toRecurring(row: RecurringRow): Recurring {
   return {
@@ -93,6 +99,7 @@ function toRecurring(row: RecurringRow): Recurring {
     startsOn: row.starts_on,
     next: row.next_on,
     split: JSON.parse(row.split) as SplitInput,
+    category: row.category,
   };
 }
 
@@ -107,6 +114,7 @@ export function createRecurring(db: Database, groupId: string, payerId: string, 
         money: { kind: 'group', amount: input.amount },
         date: todayInUtc(),
         split: input.split,
+        category: input.category,
       },
       memberIdsOf(db, groupId),
       payerId,
@@ -115,8 +123,8 @@ export function createRecurring(db: Database, groupId: string, payerId: string, 
     checkStartsOn(input.startsOn);
     const id = randomUUID();
     db.prepare(
-      `INSERT INTO recurring (id, group_id, paid_by, description, amount, split, starts_on, next_on, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO recurring (id, group_id, paid_by, description, amount, split, starts_on, next_on, category, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       groupId,
@@ -126,6 +134,7 @@ export function createRecurring(db: Database, groupId: string, payerId: string, 
       JSON.stringify(checked.split),
       input.startsOn,
       input.startsOn,
+      checked.category,
       new Date().toISOString(),
     );
     return id;
@@ -209,6 +218,7 @@ function recordNextDay(db: Database, id: string, today: string, at: Date): boole
     amount: recurring.amount,
     date: recurring.next,
     split: recurring.split,
+    category: recurring.category,
   };
   insertExpense(db, recurring.groupId, recurring.paidBy, expense, at.toISOString());
   db.prepare('UPDATE recurring SET next_on = ? WHERE id = ? AND next_on = ?').run(

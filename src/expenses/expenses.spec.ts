@@ -348,6 +348,7 @@ describe('expenses', () => {
         paidBy: ada.id,
         version: 1,
         splitKind: 'equal',
+        category: 'other',
         shares: [
           { memberId: grace.id, amount: 334 },
           { memberId: ada.id, amount: 333 },

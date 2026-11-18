@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { requireAccount } from '../auth';
 import type { Database } from '../database';
 import type { SplitInput } from '../expenses/validation';
+import { CATEGORIES } from '../budgets/categories';
 import { requireMembership } from '../groups/groups';
 import { type Recurring, createRecurring, recurringOfGroup, requireRecurring, stopRecurring } from './recurring';
 
@@ -27,7 +28,7 @@ const splitByShares = {
 
 const recurringSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next'],
+  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next', 'category'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -36,6 +37,7 @@ const recurringSchema = {
     amount: { type: 'integer' },
     startsOn: { type: 'string' },
     next: { type: 'string' },
+    category: { type: 'string', enum: [...CATEGORIES] },
     splitBetween: { type: 'array', items: { type: 'string' } },
     splitExactly: {
       type: 'array',
@@ -71,6 +73,7 @@ interface Body {
   description: string;
   amount: number;
   startsOn: string;
+  category?: string;
   splitBetween?: string[];
   splitExactly?: { memberId: string; amount: number }[];
   splitByShares?: { memberId: string; shares: number }[];
@@ -99,6 +102,7 @@ export function registerRecurringRoutes(app: FastifyInstance, db: Database): voi
             description: { type: 'string' },
             amount: { type: 'number' },
             startsOn: { type: 'string' },
+            category: { type: 'string' },
             splitBetween,
             splitExactly,
             splitByShares,
@@ -110,12 +114,13 @@ export function registerRecurringRoutes(app: FastifyInstance, db: Database): voi
     },
     async (request, reply) => {
       const account = requireAccount(db, request);
-      const { description, amount, startsOn } = request.body;
+      const { description, amount, startsOn, category } = request.body;
       const id = createRecurring(db, request.params.id, account.id, {
         description,
         amount,
         startsOn,
         split: splitOf(request.body),
+        category,
       });
       return reply.code(201).send({ id });
     },

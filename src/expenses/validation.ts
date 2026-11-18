@@ -1,3 +1,4 @@
+import { type Category, categoryOf } from '../budgets/categories';
 import { CURRENCIES, type Currency } from '../groups/validation';
 import { millionthsOf } from '../rates/rates';
 import { Refusal } from '../refusal';
@@ -55,6 +56,8 @@ export interface ExpenseInput {
   /** A day of the calendar, written `YYYY-MM-DD`. */
   date: string;
   split: SplitInput;
+  /** As given: one of the categories, or none, which makes the expense `other`. */
+  category?: string;
 }
 
 export interface ValidExpense {
@@ -66,6 +69,7 @@ export interface ValidExpense {
   original?: Original;
   date: string;
   split: SplitInput;
+  category: Category;
 }
 
 const DAY_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
@@ -222,10 +226,12 @@ export function validateExpense(
     );
   }
 
+  const category = input.category === undefined ? 'other' : categoryOf(input.category);
+
   const { amount, original } = validateMoney(input.money, groupCurrency, offer);
 
   const split = validateSplit(input.split, amount, groupMembers, payerId);
-  return { description, amount, original, date: input.date, split };
+  return { description, amount, original, date: input.date, split, category };
 }
 
 /** The members a split names, in the order given. */

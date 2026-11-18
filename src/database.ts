@@ -294,6 +294,53 @@ const migrations: readonly string[] = [
   );
   CREATE INDEX recurring_by_group ON recurring (group_id);
   `,
+  `
+  -- An expense, and a recurring expense, has a category. One recorded or set up before this step is other.
+  ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'
+    CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'));
+  ALTER TABLE recurring ADD COLUMN category TEXT NOT NULL DEFAULT 'other'
+    CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'));
+  -- A group's monthly budget for a category, in hundredths of the group's currency. Setting it again replaces it.
+  CREATE TABLE budgets (
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    category TEXT NOT NULL CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other')),
+    amount   INTEGER NOT NULL CHECK (amount BETWEEN 1 AND 100000000),
+    set_at   TEXT NOT NULL,
+    PRIMARY KEY (group_id, category)
+  );
+  -- A month of a category that has passed its budget, once: the notices for it were made then, and never again.
+  CREATE TABLE budget_passings (
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    category TEXT NOT NULL CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other')),
+    month    TEXT NOT NULL,
+    at       TEXT NOT NULL,
+    PRIMARY KEY (group_id, category, month)
+  );
+  -- A budget notice names its group, category, month and budget, and its amount is what the month spends. It names
+  -- no expense. SQLite cannot widen a CHECK, so the table is rebuilt and every row copied; the rows before this step
+  -- are expense or reminder notices, which keep their columns and have the new ones null.
+  CREATE TABLE notices_next (
+    id         TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind       TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    expense_id TEXT,
+    category   TEXT CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other')),
+    month      TEXT,
+    budget     INTEGER,
+    amount     INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (expense_id, account_id),
+    CHECK ((kind = 'expense' AND expense_id IS NOT NULL) OR (kind = 'reminder' AND expense_id IS NULL)
+      OR (kind = 'budget' AND expense_id IS NULL AND category IS NOT NULL AND month IS NOT NULL AND budget IS NOT NULL)),
+    CHECK (kind <> 'reminder' OR amount > 2000)
+  );
+  INSERT INTO notices_next (id, account_id, kind, group_id, expense_id, amount, created_at)
+    SELECT id, account_id, kind, group_id, expense_id, amount, created_at FROM notices;
+  DROP TABLE notices;
+  ALTER TABLE notices_next RENAME TO notices;
+  CREATE INDEX notices_by_account ON notices (account_id, created_at);
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

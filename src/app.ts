@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import Fastify, { FastifyError, FastifyInstance } from 'fastify';
 import { registerAccountRoutes } from './accounts/routes';
+import { registerBudgetRoutes } from './budgets/routes';
 import { registerBalanceRoutes } from './balances/routes';
 import { openDatabase } from './database';
 import { registerExpenseRoutes } from './expenses/routes';
@@ -105,6 +106,7 @@ export async function createApplication({
       registerInvitationRoutes(routes, db);
       registerExpenseRoutes(routes, db, rates);
       registerRateRoutes(routes, db, rates);
+      registerBudgetRoutes(routes, db);
       registerRecurringRoutes(routes, db);
       registerBalanceRoutes(routes, db);
       registerNoticeRoutes(routes, db);

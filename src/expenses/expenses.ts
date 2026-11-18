@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { noticeIfPassed } from '../budgets/budgets';
+import type { Category } from '../budgets/categories';
 import { type Database, inTransaction } from '../database';
 import { currencyOfGroup, leftMembersAmong, requireMembership } from '../groups/groups';
 import type { Currency } from '../groups/validation';
@@ -36,6 +38,8 @@ export interface Expense {
   version: number;
   /** How it was split: equally, by exact amounts, or by shares. */
   splitKind: SplitKind;
+  /** What it was for: one of the categories. An expense given none is `other`. */
+  category: Category;
   /** In the order of the split. Present when it was paid in another currency: `amount` is then the group's. */
   original?: Original;
   /** In the order of the split. */
@@ -138,8 +142,8 @@ export function insertExpense(
   const id = randomUUID();
   db.prepare(
     `INSERT INTO expenses (id, group_id, description, amount, date, paid_by, version, split_kind,
-                           original_currency, original_amount, original_rate, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+                           original_currency, original_amount, original_rate, category, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     groupId,
@@ -149,11 +153,13 @@ export function insertExpense(
     payerId,
     expense.split.kind,
     ...originalColumns(expense.original),
+    expense.category,
     at,
   );
   const shares = sharesOf(expense.split, expense.amount);
   writeShares(db, id, shares);
   recordExpenseNotices(db, { id, groupId, paidBy: payerId, shares }, at);
+  noticeIfPassed(db, groupId, expense.category, expense.date, at);
   return id;
 }
 
@@ -192,6 +198,7 @@ interface ExpenseRow {
   original_currency: Currency | null;
   original_amount: number | null;
   original_rate: string | null;
+  category: Category;
 }
 
 interface ShareRow {
@@ -201,7 +208,7 @@ interface ShareRow {
 
 const EXPENSE_COLUMNS = `expenses.id, expenses.group_id, expenses.description, expenses.amount, expenses.date,
               expenses.paid_by, expenses.version, expenses.split_kind, expenses.original_currency,
-              expenses.original_amount, expenses.original_rate`;
+              expenses.original_amount, expenses.original_rate, expenses.category`;
 
 /** The expense from its row and its shares, which are read in the order of the split. */
 function toExpense(row: ExpenseRow, shares: ShareRow[]): Expense {
@@ -214,6 +221,7 @@ function toExpense(row: ExpenseRow, shares: ShareRow[]): Expense {
     paidBy: row.paid_by,
     version: row.version,
     splitKind: row.split_kind,
+    category: row.category,
     // Only an expense paid in another currency has an original; it is read back as it was given.
     ...(row.original_currency === null
       ? {}
@@ -351,7 +359,7 @@ export async function updateExpense(
     const written = db
       .prepare(
         `UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?,
-                original_currency = ?, original_amount = ?, original_rate = ?, version = version + 1
+                original_currency = ?, original_amount = ?, original_rate = ?, category = ?, version = version + 1
           WHERE id = ? AND version = ?`,
       )
       .run(
@@ -360,6 +368,7 @@ export async function updateExpense(
         expense.date,
         expense.split.kind,
         ...originalColumns(expense.original),
+        expense.category,
         expenseId,
         version,
       );
@@ -368,6 +377,7 @@ export async function updateExpense(
     }
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     writeShares(db, expenseId, sharesOf(expense.split, expense.amount));
+    noticeIfPassed(db, current.groupId, expense.category, expense.date, new Date().toISOString());
   });
 }
 

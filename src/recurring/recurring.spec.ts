@@ -78,6 +78,7 @@ describe('recurring expenses', () => {
       amount: 90000,
       startsOn,
       next: startsOn,
+      category: 'other',
       splitByShares: [
         { memberId: ada.id, shares: 1 },
         { memberId: grace.id, shares: 2 },
