@@ -95,6 +95,13 @@ export class PostgresGroupQueries implements IGroupQueries {
     return row?.suspended_at != null;
   }
 
+  async isDeleted(accountId: string): Promise<boolean> {
+    const row = await this.database.get<{ deleted_at: string | null }>('SELECT deleted_at FROM accounts WHERE id = ?', [
+      accountId,
+    ]);
+    return row?.deleted_at != null;
+  }
+
   async membersOfEveryGroup(): Promise<GroupMembership[]> {
     const rows = await this.database.all<{ group_id: string; account_id: string }>(
       'SELECT group_id, account_id FROM group_members ORDER BY group_id COLLATE "C", position',

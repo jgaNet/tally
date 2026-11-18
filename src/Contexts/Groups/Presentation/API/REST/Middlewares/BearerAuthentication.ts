@@ -26,8 +26,11 @@ export function bearerAuthentication(
     const subjectId = await tokens.verify(header.slice(BEARER.length).trim());
     if (!subjectId) return;
 
+    // A token proves an account only while the account exists: a deleted one is nobody (request 35).
+    const account = await accounts.findAccount(subjectId);
+    if (!account) return;
+
     const named = administrators();
-    const account = named.isEmpty ? null : await accounts.findAccount(subjectId);
-    request.auth = { subjectId, role: account && named.includes(account.email) ? Role.ADMIN : Role.USER };
+    request.auth = { subjectId, role: !named.isEmpty && named.includes(account.email) ? Role.ADMIN : Role.USER };
   };
 }

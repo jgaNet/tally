@@ -76,4 +76,6 @@ export interface ISettlementQueries {
   adminLog(): Promise<AdminLogEntry[]>;
   /** Every payment through the provider of the group that has not ended yet (pending, contested, or refunding), in the order they were recorded (request 20). */
   openProviderPaymentsIn(groupId: string): Promise<OpenProviderPayment[]>;
+  /** The payments through the provider, in any group, that this account pays or receives and that have not ended (request 35). */
+  openProviderPaymentsOf(accountId: string): Promise<OpenProviderPayment[]>;
 }

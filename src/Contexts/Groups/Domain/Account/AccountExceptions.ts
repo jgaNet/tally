@@ -24,3 +24,25 @@ export class PasswordTooShortException extends Exception {
     super({ service: 'Groups', type: 'PasswordTooShort', message: 'The password has at least 8 characters' });
   }
 }
+
+/** The account owns a group that has another member: it cannot be deleted until that group is its own alone (request 35). */
+export class OwnsGroupWithMembersException extends ConflictException {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'OwnsGroupWithMembers',
+      message: 'You own a group that has other members: you cannot delete your account while you do',
+    });
+  }
+}
+
+/** A payment through the provider this account pays or receives has not ended: the account cannot be deleted while it waits (request 35). */
+export class DeletionPaymentWaitingException extends ConflictException {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'PaymentWaiting',
+      message: 'You can delete your account once the payments you make or receive through the provider have ended',
+    });
+  }
+}

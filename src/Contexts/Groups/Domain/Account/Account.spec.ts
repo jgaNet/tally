@@ -106,3 +106,50 @@ describe('AccountRegistration', () => {
     expect(decided.isFailure() && decided.error).toBeInstanceOf(PasswordTooShortException);
   });
 });
+
+describe('Account deletion (request 35)', () => {
+  const at = new Date('2026-11-18T10:00:00.000Z');
+
+  it('is refused while it owns a group with another member, or a payment waits, and nothing changes', () => {
+    const account = ana();
+    const before = account.toSnapshot();
+
+    expect(account.delete({ at, ownsGroupWithMembers: true, paymentOpen: false }).isFailure()).toBe(true);
+    expect(account.delete({ at, ownsGroupWithMembers: false, paymentOpen: true }).isFailure()).toBe(true);
+    expect(account.toSnapshot()).toEqual(before);
+    expect(account.isDeleted).toBe(false);
+  });
+
+  it('erases its email and password, names it Deleted account, and keeps its id', () => {
+    const account = ana();
+    const id = account._id.value;
+
+    expect(account.delete({ at, ownsGroupWithMembers: false, paymentOpen: false }).isSuccess()).toBe(true);
+
+    expect(account.toSnapshot()).toMatchObject({
+      _id: id,
+      email: null,
+      name: 'Deleted account',
+      passwordHash: '',
+      deletedAt: at.toISOString(),
+    });
+    expect(account.isDeleted).toBe(true);
+  });
+
+  it('is rebuilt deleted from its snapshot, and is not found a second time', () => {
+    const account = ana();
+    account.delete({ at, ownsGroupWithMembers: false, paymentOpen: false });
+    const rebuilt = Account.fromSnapshot(account.toSnapshot());
+
+    expect(rebuilt.isDeleted).toBe(true);
+    expect(rebuilt.delete({ at, ownsGroupWithMembers: false, paymentOpen: false }).isFailure()).toBe(true);
+  });
+
+  it('is not suspended by an administrator once deleted: the suspension changes nothing', () => {
+    const account = ana();
+    account.delete({ at, ownsGroupWithMembers: false, paymentOpen: false });
+
+    expect(account.suspend(at)).toBe(false);
+    expect(account.isSuspended).toBe(false);
+  });
+});

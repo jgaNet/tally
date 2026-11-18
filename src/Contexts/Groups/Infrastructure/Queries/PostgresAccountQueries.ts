@@ -18,13 +18,16 @@ export class PostgresAccountQueries implements IAccountQueries {
   }
 
   async findAccount(id: string): Promise<AccountView | null> {
-    const row = await this.database.get<AccountView>('SELECT id, email, name FROM accounts WHERE id = ?', [id]);
+    const row = await this.database.get<AccountView>(
+      'SELECT id, email, name FROM accounts WHERE id = ? AND deleted_at IS NULL',
+      [id],
+    );
     return row ? { id: row.id, email: row.email, name: row.name } : null;
   }
 
   async findCredentials(email: Email): Promise<AccountCredentials | null> {
     const row = await this.database.get<{ id: string; password_hash: string }>(
-      'SELECT id, password_hash FROM accounts WHERE email = ?',
+      'SELECT id, password_hash FROM accounts WHERE email = ? AND deleted_at IS NULL',
       [email.value],
     );
     return row ? { id: row.id, passwordHash: row.password_hash } : null;

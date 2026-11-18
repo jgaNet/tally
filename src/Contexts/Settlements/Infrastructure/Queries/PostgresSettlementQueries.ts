@@ -156,6 +156,14 @@ export class PostgresSettlementQueries implements ISettlementQueries {
     return rows.map(row => ({ from: row.payer, to: row.payee }));
   }
 
+  async openProviderPaymentsOf(accountId: string): Promise<OpenProviderPayment[]> {
+    const rows = await this.database.all<{ payer: string; payee: string }>(
+      "SELECT payer, payee FROM settlements WHERE method = 'provider' AND status IN ('pending', 'contested', 'refunding') AND (payer = ? OR payee = ?) ORDER BY recorded_seq",
+      [accountId, accountId],
+    );
+    return rows.map(row => ({ from: row.payer, to: row.payee }));
+  }
+
   async waitingIn(groupId: string): Promise<WaitingSettlement[]> {
     const rows = await this.database.all<{ payer: string; payee: string; amount: number }>(
       "SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'contested') ORDER BY recorded_seq",

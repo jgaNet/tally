@@ -53,4 +53,9 @@ export interface IGroupMembers {
    * found that account a member, and the background job asks it for a recurring expense's payer, never answered to a person.
    */
   isSuspended(accountId: string): Promise<boolean>;
+  /**
+   * Whether the account is deleted (request 35). It names no caller: a handler asks it for each account a new expense or recurring
+   * expense lists, and the background job and the budget policy see the current members without the deleted ones.
+   */
+  isDeleted(accountId: string): Promise<boolean>;
 }

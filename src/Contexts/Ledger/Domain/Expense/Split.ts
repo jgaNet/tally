@@ -130,7 +130,7 @@ export class Split {
 }
 
 /** The members a split lists, in the order given. */
-const membersListedBy = (request: SplitRequest): string[] => {
+export const membersListedBy = (request: SplitRequest): string[] => {
   switch (request.kind) {
     case 'equal':
       return request.memberIds;

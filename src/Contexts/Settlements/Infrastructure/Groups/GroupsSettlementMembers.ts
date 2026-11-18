@@ -30,6 +30,10 @@ export class GroupsSettlementMembers implements ISettlementMembers {
     return this.groups.isSuspended(accountId);
   }
 
+  isDeleted(accountId: string): Promise<boolean> {
+    return this.groups.isDeleted(accountId);
+  }
+
   /**
    * The groups the asker is a member of that `other` is a current member of too, the earliest created first: Groups lists the
    * asker's groups most recent first, so they are reversed. Each group is read as the asker sees it, so a group that is not the

@@ -13,6 +13,11 @@ export interface IGroupRepository {
    * with a ConcurrencyConflictException (CONC-OPTIMISTIC).
    */
   save(group: Group): Promise<IResult>;
+  /**
+   * Whether the account owns a group that has another member, one of any kind, archived or not: the fact an account's deletion
+   * needs about the collection (request 35). It names no caller; the handler asks it for the account that acts.
+   */
+  hasOwnedGroupWithOtherMembers(ownerId: string): Promise<boolean>;
 
   /**
    * Stores the group kept at the version it was read at plus one, and makes the group merged gone in the same transaction: its

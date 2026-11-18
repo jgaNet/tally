@@ -1,7 +1,7 @@
 import { IResult, Result } from '@Architecture/Domain';
 import { Clock, CommandHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
-import { AccountSuspendedException } from '@SharedKernel/Domain';
+import { AccountDeletedException, AccountSuspendedException } from '@SharedKernel/Domain';
 
 import { IGroupBalances } from '@Contexts/Settlements/Domain/Settlement/Ports/IGroupBalances';
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
@@ -36,6 +36,8 @@ export class NetDebtsCommandHandler extends CommandHandler<NetDebtsCommandEvent>
     // A suspended account nets nothing, with anyone (request 34).
     if (await this.settlementMembers.isSuspended(by)) return Result.fail(new AccountSuspendedException());
     const { with: other, currency } = event.payload;
+    // A deleted account is netted with by no one (request 35).
+    if (await this.settlementMembers.isDeleted(other)) return Result.fail(new AccountDeletedException());
 
     const groups: NettingGroup[] = [];
     for (const shared of await this.settlementMembers.groupsSharedBy(by, other)) {

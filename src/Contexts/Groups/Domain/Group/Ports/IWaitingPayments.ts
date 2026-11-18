@@ -11,4 +11,10 @@ export interface IWaitingPayments {
   hasWaitingPaymentOf(groupId: string, memberId: string): Promise<boolean>;
   /** Whether any payment through the provider in the group is still pending or refunding: the group is archived only without one (request 27). */
   hasWaitingPaymentIn(groupId: string): Promise<boolean>;
+  /**
+   * Whether a payment through the provider that this account pays or receives, in any group, has not ended: it is pending,
+   * refunding or contested, until the provider or an administrator says how it ended (request 35). An account with one does not
+   * get deleted.
+   */
+  hasOpenPaymentOf(accountId: string): Promise<boolean>;
 }

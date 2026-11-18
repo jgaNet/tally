@@ -4,7 +4,7 @@ import { Exception, NotAllowedException, NotFoundException } from '@Architecture
 import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommandAtOnce, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
-import { SignUpCommandEvent, SignUpPayload } from '@Contexts/Groups/Application/Commands';
+import { DeleteAccountCommandEvent, SignUpCommandEvent, SignUpPayload } from '@Contexts/Groups/Application/Commands';
 import { GetMyAccountQueryHandler, SignInQueryHandler } from '@Contexts/Groups/Application/Queries';
 
 /** The routes of accounts: a sign-up answered at once, a sign-in and a read answered at once. */
@@ -17,6 +17,10 @@ export class FastifyAccountController {
 
   signUp(req: FastifyRequest<{ Body: SignUpPayload }>, reply: FastifyReply) {
     return acceptCommandAtOnce(req, reply, this.#module, SignUpCommandEvent.set(req.body));
+  }
+
+  deleteMe(req: FastifyRequest, reply: FastifyReply) {
+    return acceptCommandAtOnce(req, reply, this.#module, DeleteAccountCommandEvent.set({}));
   }
 
   async signIn(req: FastifyRequest<{ Body: { email: string; password: string } }>, reply: FastifyReply) {

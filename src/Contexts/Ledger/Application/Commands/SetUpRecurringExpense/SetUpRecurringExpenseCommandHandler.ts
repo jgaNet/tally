@@ -1,6 +1,7 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountDeletedException, AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
+import { membersListedBy } from '@Contexts/Ledger/Domain/Expense/Split';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { RecurringExpense } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
@@ -36,6 +37,10 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
     if (await this.groupMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
     // A suspended account sets up no recurring expense, in any group (request 34).
     if (await this.groupMembers.isSuspended(payer)) return Result.fail(new AccountSuspendedException());
+    // A deleted account is in no new split, in any group, and a recurring expense is no exception (request 35).
+    for (const memberId of membersListedBy(split)) {
+      if (await this.groupMembers.isDeleted(memberId)) return Result.fail(new AccountDeletedException());
+    }
     const currency = await this.groupCurrency.currencyOf(groupId, payer);
     if (!currency) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
 

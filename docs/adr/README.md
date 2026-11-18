@@ -25,6 +25,8 @@ why, what it costs, and when to revisit it.
 | [19](0019-each-context-writes-its-audit-entries-and-ledger-reads-them.md) | Each context writes the audit entries of its own changes of money in their transaction, and Ledger reads them through two ports (no new context, no new relationship) |
 | [20](0020-the-application-keeps-its-state-in-postgresql.md) | The application keeps its state in one PostgreSQL database, and moves a SQLite file into it once, in the setup transaction (no new context, no new relationship) |
 | [21](0021-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
+| [22](0022-groups-suspends-an-account-and-every-context-refuses-by-one-rule.md) | Groups suspends an account, and every context refuses by one rule (no new context, no new relationship) |
+| [23](0023-groups-deletes-an-account-as-a-person-who-is-no-one.md) | Groups deletes an account and keeps its balances, and every context refuses by one rule (no new context, no new relationship) |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

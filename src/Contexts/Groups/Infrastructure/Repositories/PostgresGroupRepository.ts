@@ -171,6 +171,15 @@ export class PostgresGroupRepository implements IGroupRepository {
    * members, its former members and its passed balances, which the group kept now holds; its audit entries are moved to the group
    * kept, in their order (request 31). Both are in the transaction of the merge, so the group merged is gone at once.
    */
+  async hasOwnedGroupWithOtherMembers(ownerId: string): Promise<boolean> {
+    const row = await this.database.get(
+      `SELECT 1 FROM groups g
+       WHERE g.owner_id = ? AND EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.account_id <> ?)`,
+      [ownerId, ownerId],
+    );
+    return row !== undefined;
+  }
+
   async absorb(kept: Group, merged: Group): Promise<IResult> {
     const saved = await this.save(kept);
     if (saved.isFailure()) return saved;

@@ -63,3 +63,16 @@ export const AccountResSchema = {
   401: RefusalSchema,
   404: RefusalSchema,
 } as const;
+
+/** Deleting an account is answered at once with its id, or later with an operation; a refusal is named by its rule (request 35). */
+export const DeleteAccountResSchema = {
+  201: IdSchema,
+  202: {
+    type: 'object',
+    required: ['operationId'],
+    properties: { operationId: { type: 'string' } },
+  },
+  401: RefusalSchema,
+  404: RefusalSchema,
+  409: RefusalSchema,
+} as const;

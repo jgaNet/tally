@@ -20,6 +20,8 @@ export interface ISettlementMembers {
   isArchived(groupId: string): Promise<boolean>;
   /** Whether the account is suspended (request 34): a handler asks it for the account that acts; names no caller. */
   isSuspended(accountId: string): Promise<boolean>;
+  /** Whether the account is deleted (request 35): a handler asks it for the account a payment or a netting is with; names no caller. */
+  isDeleted(accountId: string): Promise<boolean>;
   /**
    * The groups both accounts are current members of, the earliest created first, each with its currency and whether it is archived
    * (request 32). Answered to `askedBy` only: the groups of another account are not read.

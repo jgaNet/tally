@@ -19,9 +19,20 @@ export class GroupsMembership implements IGroupMembers {
     return members ? members.map(member => ({ memberId: member.memberId, role: member.role })) : null;
   }
 
+  /**
+   * The current members of the group that are not deleted (request 35): a deleted account is no longer a member to decide a day, a
+   * budget's notice or a recurring expense's continuation with, though it stays in the group, with its balance.
+   */
   async currentMemberIds(groupId: string): Promise<string[]> {
     const memberships = await this.groups.membersOfEveryGroup();
-    return memberships.filter(membership => membership.groupId === groupId).map(membership => membership.memberId);
+    const current = memberships
+      .filter(membership => membership.groupId === groupId)
+      .map(membership => membership.memberId);
+    const live: string[] = [];
+    for (const memberId of current) {
+      if (!(await this.groups.isDeleted(memberId))) live.push(memberId);
+    }
+    return live;
   }
 
   hasBeenMember(groupId: string, accountId: string, askedBy: string): Promise<boolean | null> {
@@ -34,5 +45,9 @@ export class GroupsMembership implements IGroupMembers {
 
   isSuspended(accountId: string): Promise<boolean> {
     return this.groups.isSuspended(accountId);
+  }
+
+  isDeleted(accountId: string): Promise<boolean> {
+    return this.groups.isDeleted(accountId);
   }
 }

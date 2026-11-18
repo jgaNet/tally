@@ -13,6 +13,10 @@ export class SettlementsWaitingPayments implements IWaitingPayments {
     return open.some(payment => payment.from === memberId || payment.to === memberId);
   }
 
+  async hasOpenPaymentOf(accountId: string): Promise<boolean> {
+    return (await this.settlements.openProviderPaymentsOf(accountId)).length > 0;
+  }
+
   async hasWaitingPaymentIn(groupId: string): Promise<boolean> {
     return (await this.settlements.openProviderPaymentsIn(groupId)).length > 0;
   }

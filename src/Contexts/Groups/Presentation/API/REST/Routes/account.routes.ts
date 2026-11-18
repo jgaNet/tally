@@ -5,6 +5,7 @@ import { Module } from '@Architecture/Application';
 import { FastifyAccountController } from '@Contexts/Groups/Presentation/API/REST/Controllers/FastifyAccountController';
 import {
   AccountResSchema,
+  DeleteAccountResSchema,
   SignInReqBodySchema,
   SignInResSchema,
   SignUpReqBodySchema,
@@ -32,6 +33,12 @@ export const accountRoutes = function (fastify: FastifyInstance, { module }: { m
     '/accounts/me',
     { schema: { tags, response: AccountResSchema } },
     controller.getMyAccount.bind(controller),
+  );
+
+  fastify.delete(
+    '/accounts/me',
+    { schema: { tags, response: DeleteAccountResSchema } },
+    controller.deleteMe.bind(controller),
   );
 
   done();

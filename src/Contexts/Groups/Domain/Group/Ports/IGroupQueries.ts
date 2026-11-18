@@ -47,6 +47,11 @@ export interface IGroupQueries {
    */
   isSuspended(accountId: string): Promise<boolean>;
   /**
+   * Whether the account is deleted (request 35). It names no caller: a handler asks it for the account that acts, once it has
+   * found that account a member, and the background job and the other contexts ask it for a member, never answered to a person.
+   */
+  isDeleted(accountId: string): Promise<boolean>;
+  /**
    * The current members of every group, each group's members in the order they joined (ADR 10). It names no caller: it is
    * read by the background job, which decides for every group, and never answered to a person.
    */

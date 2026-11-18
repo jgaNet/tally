@@ -23,6 +23,8 @@ import {
   SuspendAccountCommandHandler,
   ReinstateAccountCommandEvent,
   ReinstateAccountCommandHandler,
+  DeleteAccountCommandEvent,
+  DeleteAccountCommandHandler,
 } from '@Contexts/Groups/Application/Commands';
 import {
   GetAdministratorsLogQueryHandler,
@@ -113,6 +115,10 @@ export const localGroupsModule = new Module({
     {
       event: ReinstateAccountCommandEvent,
       handlers: [new ReinstateAccountCommandHandler(accounts, administratorsLog, clock)],
+    },
+    {
+      event: DeleteAccountCommandEvent,
+      handlers: [new DeleteAccountCommandHandler(accounts, groups, waitingPayments, clock)],
     },
   ],
   domainEvents: [{ event: GroupsMergedEvent, handlers: [new GroupsMergedHandler()] }],

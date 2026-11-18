@@ -22,6 +22,8 @@ export class SettlementsOutstandingDebtQueries implements IOutstandingDebtQuerie
   async owing(): Promise<OutstandingDebt[]> {
     const membersByGroup = new Map<string, string[]>();
     for (const { groupId, memberId } of await this.groups.membersOfEveryGroup()) {
+      // A deleted account is reminded of nothing (request 35): its balance is kept, its person is no longer told.
+      if (await this.groups.isDeleted(memberId)) continue;
       membersByGroup.set(groupId, [...(membersByGroup.get(groupId) ?? []), memberId]);
     }
 

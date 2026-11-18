@@ -1,5 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountDeletedException, AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -9,6 +9,7 @@ import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurr
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { IOfferedRates, offerForExpense } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
 import { splitOfExpense } from '@Contexts/Ledger/Application/Ports/SplitOfExpense';
+import { membersListedBy } from '@Contexts/Ledger/Domain/Expense/Split';
 import { ISplitTemplateRepository } from '@Contexts/Ledger/Domain/SplitTemplate/Ports/ISplitTemplateRepository';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandEvent';
 
@@ -48,6 +49,10 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
 
     const requested = await splitOfExpense(this.templates, groupId, event.payload);
     if (requested.isFailure()) return Result.fail(requested.error);
+    // A deleted account is in no new split, in any group (request 35).
+    for (const memberId of membersListedBy(requested.data)) {
+      if (await this.groupMembers.isDeleted(memberId)) return Result.fail(new AccountDeletedException());
+    }
 
     const today = this.clock();
     const offer = await offerForExpense(this.offeredRates, money, currency, date, today);

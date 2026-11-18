@@ -16,3 +16,5 @@ export * from '@Contexts/Groups/Application/Commands/SuspendAccount/SuspendAccou
 export * from '@Contexts/Groups/Application/Commands/SuspendAccount/SuspendAccountCommandHandler';
 export * from '@Contexts/Groups/Application/Commands/ReinstateAccount/ReinstateAccountCommandEvent';
 export * from '@Contexts/Groups/Application/Commands/ReinstateAccount/ReinstateAccountCommandHandler';
+export * from '@Contexts/Groups/Application/Commands/DeleteAccount/DeleteAccountCommandEvent';
+export * from '@Contexts/Groups/Application/Commands/DeleteAccount/DeleteAccountCommandHandler';
