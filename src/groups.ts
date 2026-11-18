@@ -8,11 +8,37 @@ import { requireCaller } from './sessions';
 const NAME_MAX = 60;
 
 /**
- * The currencies a group can be in. Each counts in hundredths (cents, pence), so every amount of a
- * group is an integer number of hundredths of its currency. A group keeps its currency for good.
+ * The currencies a group can be in. Each has a minor unit, the smallest amount every amount in it is a whole number of: a
+ * hundredth (cents, pence) for six of them, a whole unit for the yen and the won, a thousandth for the dinars. A group keeps
+ * its currency for good.
  */
-export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
+export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD'] as const;
 export type Currency = (typeof CURRENCIES)[number];
+
+/** The decimal places of each currency's minor unit: 2 for a hundredth, 0 for a whole unit, 3 for a thousandth. */
+const MINOR_UNIT_DIGITS: Record<Currency, number> = {
+  EUR: 2,
+  USD: 2,
+  GBP: 2,
+  CHF: 2,
+  CAD: 2,
+  AUD: 2,
+  JPY: 0,
+  KRW: 0,
+  KWD: 3,
+  BHD: 3,
+};
+
+/** Whether the text is one of Tally's currencies. */
+export function isCurrency(text: string): text is Currency {
+  return (CURRENCIES as readonly string[]).includes(text);
+}
+
+/** The decimal places of the minor unit of a currency of Tally: an amount in it is a whole number of 10 to the minus that. */
+export function minorUnitDigits(currency: string): number {
+  if (!isCurrency(currency)) throw new Error(`${currency} is not a currency of Tally.`);
+  return MINOR_UNIT_DIGITS[currency];
+}
 
 export interface Group {
   id: string;

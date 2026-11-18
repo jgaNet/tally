@@ -5,7 +5,7 @@ import { writeBudgetPassing } from './budgets';
 import { CATEGORIES, DEFAULT_CATEGORY, type Category } from './categories';
 import type { Database, Queryable } from './database';
 import { isRealDay, todayUtc } from './days';
-import { CURRENCIES, findGroupOf, refuseIfArchived } from './groups';
+import { CURRENCIES, findGroupOf, isCurrency, refuseIfArchived, type Currency } from './groups';
 import { isMember } from './members';
 import { isDeleted } from './accounts';
 import { writeExpenseNotices } from './notices';
@@ -16,7 +16,7 @@ import { templateSplitOf } from './templates';
 import { refuseIfSuspended } from './suspensions';
 
 const DESCRIPTION_MAX = 100;
-/** The largest amount, in hundredths of a currency, that an expense or a settlement in another currency may be. */
+/** The largest amount, in the minor unit of a currency, that an expense or a settlement in another currency may be. */
 export const AMOUNT_MAX = 100_000_000;
 
 /** How an expense is split: equally between its members, by exact amounts, or by a number of shares each. */
@@ -56,7 +56,7 @@ export interface Expense {
 }
 
 /**
- * An amount paid in another currency than the group's: `amount` is in hundredths of `currency`, and `rate` is what one
+ * An amount paid in another currency than the group's: `amount` is in the minor unit of `currency`, and `rate` is what one
  * of `currency` is worth in the group's currency, as the payer gave it: a decimal string.
  */
 export interface Original {
@@ -76,7 +76,7 @@ export interface GivenOriginal {
 }
 
 /**
- * What a member records: the amount is in hundredths of the group's currency, like every amount, or `original`, what was
+ * What a member records: the amount is in the minor unit of the group's currency, like every amount, or `original`, what was
  * paid in another currency. Exactly one of the two is given. The split is given exactly one way: `splitBetween` for an
  * equal split, `splitExactly` for amounts, `splitByShares` for shares.
  */
@@ -190,7 +190,7 @@ export function checkDescription(description: string): string {
 
 export function checkAmount(amount: number): void {
   if (amount < 1 || amount > AMOUNT_MAX) {
-    refuse('InvalidAmount', `The amount must be from 1 to ${AMOUNT_MAX}, in hundredths of the currency.`);
+    refuse('InvalidAmount', `The amount must be from 1 to ${AMOUNT_MAX}, in the minor unit of the currency.`);
   }
 }
 
@@ -288,7 +288,7 @@ function rateOf(given: string | undefined, offer: RateOffer, about: string): Con
  */
 function amountOf(
   input: Pick<NewExpense, 'amount' | 'original' | 'date'>,
-  groupCurrency: string,
+  groupCurrency: Currency,
   offer: RateOffer,
 ): { amount: number; original?: Original } {
   const { amount, original } = input;
@@ -300,7 +300,7 @@ function amountOf(
     return { amount };
   }
   if (amount !== undefined) throw wrongShape();
-  if (!(CURRENCIES as readonly string[]).includes(original.currency) || original.currency === groupCurrency) {
+  if (!isCurrency(original.currency) || original.currency === groupCurrency) {
     refuse(
       'InvalidCurrency',
       `The original currency must be one of ${CURRENCIES.join(', ')}, other than the group's currency, ${groupCurrency}.`,
@@ -309,7 +309,7 @@ function amountOf(
   checkAmount(original.amount);
   const about = `${original.currency} to ${groupCurrency} on ${input.date}`;
   const { rate, millionths } = rateOf(original.rate, offer, about);
-  const converted = convertedAmount(original.amount, millionths);
+  const converted = convertedAmount(original.amount, original.currency, groupCurrency, millionths);
   if (converted < 1n || converted > BigInt(AMOUNT_MAX)) {
     refuse('InvalidAmount', `The amount in ${groupCurrency}, as converted, must be from 1 to ${AMOUNT_MAX}.`);
   }

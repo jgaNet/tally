@@ -3,9 +3,15 @@ import type { Database } from './database';
 import { listBalancesIncludingWaiting } from './balances';
 import { isDeleted } from './accounts';
 import { isNoticeOn } from './notice-preferences';
+import { minorUnitDigits } from './groups';
 
-/** A member owing more than this, in hundredths of the group's currency, is noted, and reminded when it lasts. */
-export const REMINDER_THRESHOLD = 2000;
+/**
+ * A member owing more than 20 of the group's currency, in its minor unit, is noted, and reminded when it lasts: more than 2000
+ * hundredths of euros or dollars, more than 20 yen, more than 20 000 fils of dinars.
+ */
+export function reminderThreshold(currency: string): number {
+  return 20 * 10 ** minorUnitDigits(currency);
+}
 
 /** A week, in seconds: how long a debt must last to be reminded, and how long between two reminders. */
 export const DEFAULT_REMINDER_PERIOD_SECONDS = 604_800;
@@ -22,12 +28,13 @@ export async function runReminders(db: Database, periodMs: number, now: Date = n
   const at = now.toISOString();
   await db.transaction(async tx => {
     const owing = new Set<string>();
-    const groups = await tx.all<{ id: string }>('SELECT id FROM groups');
+    const groups = await tx.all<{ id: string; currency: string }>('SELECT id, currency FROM groups');
     const owed = new Map<string, number>();
-    for (const { id: groupId } of groups) {
+    for (const { id: groupId, currency } of groups) {
+      const threshold = reminderThreshold(currency);
       for (const { memberId, balance } of await listBalancesIncludingWaiting(tx, groupId)) {
         // A deleted account is told nothing any more, so its debt is not noted.
-        if (-balance > REMINDER_THRESHOLD && !(await isDeleted(tx, memberId))) {
+        if (-balance > threshold && !(await isDeleted(tx, memberId))) {
           owing.add(`${groupId}\n${memberId}`);
           owed.set(`${groupId}\n${memberId}`, -balance);
         }

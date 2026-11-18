@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from './database';
 import { isRealDay, todayUtc } from './days';
-import { CURRENCIES, findGroupOf } from './groups';
+import { CURRENCIES, findGroupOf, minorUnitDigits } from './groups';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
@@ -29,12 +29,19 @@ export function rateMillionths(rate: string): bigint | undefined {
 }
 
 /**
- * The amount in the group's currency of an amount paid in another, at a rate in millionths: the product, rounded to the
- * nearest whole number, a half rounded up. Everything is in whole numbers, so the rounding is exact.
+ * The amount in `to` of an amount of `original` in `from`, at a rate in millionths of `to` for one unit of `from`. The original is
+ * read in units of its currency (its minor unit's digits place the point), the rate applied, and the result written in the minor
+ * unit of `to`, rounded to the nearest whole number, a half rounded up. Everything is in whole numbers, so the rounding is exact.
  */
-export function convertedAmount(original: number, millionths: bigint): bigint {
-  const product = BigInt(original) * millionths;
-  return (2n * product + MILLIONTHS) / (2n * MILLIONTHS);
+export function convertedAmount(original: number, from: string, to: string, millionths: bigint): bigint {
+  // original * 10^-digits(from) units of `from`, times the rate, times 10^digits(to) minor units of `to`: the power of ten is
+  // taken on the numerator or the denominator, whichever way it points.
+  const shift = minorUnitDigits(to) - minorUnitDigits(from);
+  let numerator = BigInt(original) * millionths;
+  let denominator = MILLIONTHS;
+  if (shift >= 0) numerator *= 10n ** BigInt(shift);
+  else denominator *= 10n ** BigInt(-shift);
+  return (2n * numerator + denominator) / (2n * denominator);
 }
 
 /**

@@ -46,7 +46,7 @@ describe('groups', () => {
       expect((await create({ currency })).status).toBe(201);
     });
 
-    it.each(['JPY', 'eur', '', 'EURO'])('refuses the currency %j, which is not one of the six', async currency => {
+    it.each(['SEK', 'eur', '', 'EURO'])('refuses the currency %j, which is not one of the ten', async currency => {
       const answer = await create({ currency });
       expect(answer).toEqual({ status: 422, body: { type: 'InvalidCurrency', message: expect.any(String) } });
     });

@@ -170,9 +170,9 @@ CREATE TABLE settlements (
     END
   ) STORED,
   -- What the settlement was paid in, when in another currency than its group's: that currency, the amount paid in it, in
-  -- hundredths, and the rate it was converted at, as the rates service offered it (a decimal string). Its amount is the
-  -- amount in the group's currency. All three are null for a settlement in the group's currency.
-  original_currency TEXT CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD')),
+  -- in the minor unit of that currency, and the rate it was converted at, as the rates service offered it (a decimal string).
+  -- Its amount is the amount in the group's currency. All three are null for a settlement in the group's currency.
+  original_currency TEXT CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD')),
   original_amount BIGINT CHECK (original_amount >= 1),
   original_rate TEXT,
   CHECK ((method = 'net') = (netting_id IS NOT NULL)),

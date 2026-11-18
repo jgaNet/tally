@@ -109,7 +109,7 @@ describe('the rates offered', () => {
     it('answers 404, without asking the rates service, for the group’s own currency and for a currency of no Tally', async () => {
       offers('0.95');
       expect((await offered('EUR', `?date=${DAY}`)).status).toBe(404);
-      expect((await offered('JPY', `?date=${DAY}`)).status).toBe(404);
+      expect((await offered('SEK', `?date=${DAY}`)).status).toBe(404);
       expect(rates.requests).toEqual([]);
     });
 

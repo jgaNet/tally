@@ -231,7 +231,7 @@ describe('settling in another currency', () => {
       expect((await settleInCash({ from: graceId, original: { currency: 'EUR', amount: 1000 } })).body).toMatchObject({
         type: 'InvalidCurrency',
       });
-      expect((await settleInCash({ from: graceId, original: { currency: 'JPY', amount: 1000 } })).body).toMatchObject({
+      expect((await settleInCash({ from: graceId, original: { currency: 'SEK', amount: 1000 } })).body).toMatchObject({
         type: 'InvalidCurrency',
       });
       expect(rates.requests).toHaveLength(0);

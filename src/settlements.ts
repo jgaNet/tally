@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { writeAudit } from './audit';
 import { type Balance, listBalancesIncludingWaiting } from './balances';
 import type { Database, Queryable } from './database';
-import { CURRENCIES, findGroupOf, refuseIfArchived } from './groups';
+import { CURRENCIES, findGroupOf, isCurrency, refuseIfArchived } from './groups';
 import { isMember } from './members';
 import { isDeleted } from './accounts';
 import { feeBorneByOf, type FeeBearer, type SettlementFee } from './fee-policy';
@@ -109,7 +109,7 @@ export interface Settlement {
 }
 
 /**
- * What a settlement is paid in, as it is priced when it is asked for: its `amount` in hundredths of the group's currency. When
+ * What a settlement is paid in, as it is priced when it is asked for: its `amount` in the minor unit of the group's currency. When
  * it is paid in another currency, `original` is what is paid, and `millionths` the rate it is converted at, in millionths.
  */
 export interface Pricing {
@@ -129,8 +129,8 @@ export interface NewProviderSettlement extends Pricing {
 }
 
 /**
- * What a member gives for a settlement: its amount in hundredths of the group's currency, or `original`, what is paid in
- * another currency, with its amount in hundredths of that currency. Exactly one of them is given; the rate is never given.
+ * What a member gives for a settlement: its amount in the minor unit of the group's currency, or `original`, what is paid in
+ * another currency, with its amount in the minor unit of that currency. Exactly one of them is given; the rate is never given.
  */
 export interface GivenAmount {
   amount?: number;
@@ -213,7 +213,7 @@ export async function priceOf(
   const group = await findGroupOf(db, accountId, groupId);
   if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
   const { currency, amount } = given.original;
-  if (!(CURRENCIES as readonly string[]).includes(currency) || currency === group.currency) {
+  if (!isCurrency(currency) || currency === group.currency) {
     refuse(
       422,
       'InvalidCurrency',
@@ -221,7 +221,7 @@ export async function priceOf(
     );
   }
   if (!Number.isInteger(amount) || amount < 1 || amount > AMOUNT_MAX) {
-    refuse(422, 'InvalidAmount', `The amount must be from 1 to ${AMOUNT_MAX}, in hundredths of the currency.`);
+    refuse(422, 'InvalidAmount', `The amount must be from 1 to ${AMOUNT_MAX}, in the minor unit of the currency.`);
   }
   const rate = await offeredRate(rates, { from: currency, to: group.currency, date: todayUtc() });
   const millionths = rate === undefined ? undefined : rateMillionths(rate);
@@ -232,7 +232,7 @@ export async function priceOf(
       `There is no rate offered for ${currency} to ${group.currency} today, so the settlement cannot be paid in ${currency}.`,
     );
   }
-  const converted = convertedAmount(amount, millionths);
+  const converted = convertedAmount(amount, currency, group.currency, millionths);
   if (converted < 1n || converted > BigInt(AMOUNT_MAX)) {
     refuse(422, 'InvalidAmount', `The amount in ${group.currency}, as converted, must be from 1 to ${AMOUNT_MAX}.`);
   }
@@ -252,8 +252,12 @@ function wrongAmountShape(): Refusal {
  * converted at the settlement's rate when it is paid in another currency, rounded as an amount is. A fee that is not less than the
  * amount it is taken from, once converted, is no answer from the provider, as one that is not less than the amount is not.
  */
-export function feeInGroupCurrency(pricing: Pricing, fee: number): number {
-  const converted = pricing.millionths === undefined ? fee : Number(convertedAmount(fee, pricing.millionths));
+export function feeInGroupCurrency(pricing: Pricing, fee: number, groupCurrency: string): number {
+  // The fee is in the minor unit of the payment's currency, which is the original's when there is one.
+  const converted =
+    pricing.original === undefined || pricing.millionths === undefined
+      ? fee
+      : Number(convertedAmount(fee, pricing.original.currency, groupCurrency, pricing.millionths));
   if (converted >= pricing.amount) throw providerUnavailable();
   return converted;
 }
@@ -773,7 +777,7 @@ export function registerSettlementRoutes(
         await attachPayment(db, id, {
           id: payment.id,
           payUrl: payment.payUrl,
-          fee: feeInGroupCurrency(pricing, payment.fee),
+          fee: feeInGroupCurrency(pricing, payment.fee, currency),
         });
       } catch (error) {
         await releaseSettlement(db, id);

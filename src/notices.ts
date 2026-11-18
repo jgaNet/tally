@@ -10,7 +10,7 @@ import type { Database } from './database';
 /**
  * A notice: of an expense, to a member it concerns other than its payer, with their share of it; a reminder, with
  * no expense, of what the member still owes; or a budget notice, of a month that passed a category's budget, with the
- * category, the month (`YYYY-MM`), the budget and what the month spends. Amounts are in hundredths.
+ * category, the month (`YYYY-MM`), the budget and what the month spends. Amounts are in the minor unit of the group's currency.
  */
 export interface Notice {
   id: string;

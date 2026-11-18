@@ -8,7 +8,7 @@ import { isNoticeOn } from './notice-preferences';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
-/** A budget's amount is from 1 to this, in hundredths of the group's currency, as an expense's is. */
+/** A budget's amount is from 1 to this, in the minor unit of the group's currency, as an expense's is. */
 const BUDGET_MAX = 100_000_000;
 
 /** A budget of a group for a category, with what the current month spends in it. */
@@ -24,7 +24,7 @@ export function monthOf(day: string): string {
 }
 
 /**
- * What the group's expenses of the category spend in the month, in hundredths of the group's currency: the sum of
+ * What the group's expenses of the category spend in the month, in the minor unit of the group's currency: the sum of
  * their amounts, for the expenses whose date is in that month, in UTC. Expenses that are deleted are not kept, so none is left out.
  */
 export async function spentIn(db: Queryable, groupId: string, category: string, month: string): Promise<number> {
@@ -131,7 +131,7 @@ export async function setBudget(
       throw new Refusal(
         422,
         'InvalidAmount',
-        `The budget must be from 1 to ${BUDGET_MAX}, in hundredths of the currency.`,
+        `The budget must be from 1 to ${BUDGET_MAX}, in the minor unit of the currency.`,
       );
     }
     await tx.run(

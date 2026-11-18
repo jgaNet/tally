@@ -1087,7 +1087,7 @@ describe('expenses', () => {
       expect(await record({ amount: undefined, original: francs({ currency: 'EUR' }) })).toEqual(
         refusal('InvalidCurrency'),
       );
-      expect(await record({ amount: undefined, original: francs({ currency: 'JPY' }) })).toEqual(
+      expect(await record({ amount: undefined, original: francs({ currency: 'SEK' }) })).toEqual(
         refusal('InvalidCurrency'),
       );
     });

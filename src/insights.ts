@@ -3,7 +3,7 @@ import { CATEGORIES, type Category } from './categories';
 import type { Database, Queryable } from './database';
 import { requireCaller } from './sessions';
 
-/** What a person spent in a month, in a currency, in a category: the sum of their shares, in hundredths of the currency. */
+/** What a person spent in a month, in a currency, in a category: the sum of their shares, in the minor unit of the currency. */
 export interface Insight {
   month: string;
   currency: string;

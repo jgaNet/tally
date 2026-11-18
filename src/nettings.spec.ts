@@ -344,7 +344,7 @@ describe('netting what two people owe each other across their groups', () => {
 
     it('refuses a currency that is not one of Tally’s, and changes nothing', async () => {
       await theExample();
-      const answer = await net({ with: bobId, currency: 'JPY' }, annToken);
+      const answer = await net({ with: bobId, currency: 'SEK' }, annToken);
       expect(answer).toEqual({ status: 422, body: { type: 'InvalidCurrency', message: expect.any(String) } });
       expect(await countRows(database.url, 'nettings')).toBe(0);
     });
