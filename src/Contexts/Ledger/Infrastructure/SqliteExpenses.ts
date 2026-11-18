@@ -4,6 +4,7 @@ import { IExpenseRepository } from '@Contexts/Ledger/Application/IExpenseReposit
 import {
   ExpenseView,
   IExpenseQueries,
+  OriginalView,
   StatementEntryView,
   StatementView,
 } from '@Contexts/Ledger/Application/IExpenseQueries';
@@ -15,11 +16,17 @@ type ExpenseRow = {
   group_id: string;
   description: string;
   amount: number;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
   date: string;
   paid_by: string;
   version: number;
   split_kind: 'equal' | 'exact' | 'shares';
 };
+/** The columns of an expense a read selects, in the order `expenseRow` maps them. */
+const EXPENSE_COLUMNS =
+  'id, group_id, description, amount, original_currency, original_amount, original_rate, date, paid_by, version, split_kind';
 type ShareRow = { member_id: string; amount: number };
 type BalanceRow = { member_id: string; balance: number };
 type Share = { memberId: string; amount: number };
@@ -44,6 +51,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       groupId: view.groupId,
       description: view.description,
       amount: view.amount,
+      ...(view.original ? { original: { ...view.original } } : {}),
       date: view.date,
       paidBy: view.paidBy,
       splitKind: view.splitKind,
@@ -53,22 +61,37 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
   }
 
   async insert(expense: Expense): Promise<void> {
-    const { id, groupId, description, amount, date, paidBy, splitKind, shares, version } = expense.toSnapshot();
+    const { id, groupId, description, amount, original, date, paidBy, splitKind, shares, version } =
+      expense.toSnapshot();
     const connection = this.database.connection;
     await this.database.file.transaction(() => {
       connection
         .prepare(
-          'INSERT INTO ledger_expenses (id, group_id, description, amount, date, paid_by, version, split_kind, recorded_seq) ' +
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM ledger_expenses))',
+          'INSERT INTO ledger_expenses (id, group_id, description, amount, original_currency, original_amount, original_rate, ' +
+            'date, paid_by, version, split_kind, recorded_seq) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM ledger_expenses))',
         )
-        .run(id, groupId, description, amount, date, paidBy, version + 1, splitKind);
+        .run(
+          id,
+          groupId,
+          description,
+          amount,
+          original?.currency ?? null,
+          original?.amount ?? null,
+          original?.rate ?? null,
+          date,
+          paidBy,
+          version + 1,
+          splitKind,
+        );
       this.#insertShares(id, shares);
       this.#moveBalances(groupId, paidBy, amount, shares, 1);
     });
   }
 
   async save(expense: Expense): Promise<void> {
-    const { id, groupId, description, amount, date, paidBy, splitKind, shares, version } = expense.toSnapshot();
+    const { id, groupId, description, amount, original, date, paidBy, splitKind, shares, version } =
+      expense.toSnapshot();
     const connection = this.database.connection;
     await this.database.file.transaction(() => {
       const stored = this.#storedAt(id, version);
@@ -77,9 +100,20 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       this.#moveBalances(groupId, stored.paid_by, stored.amount, this.#storedShares(id), -1);
       connection
         .prepare(
-          'UPDATE ledger_expenses SET description = ?, amount = ?, date = ?, split_kind = ?, version = ? WHERE id = ?',
+          'UPDATE ledger_expenses SET description = ?, amount = ?, original_currency = ?, original_amount = ?, ' +
+            'original_rate = ?, date = ?, split_kind = ?, version = ? WHERE id = ?',
         )
-        .run(description, amount, date, splitKind, version + 1, id);
+        .run(
+          description,
+          amount,
+          original?.currency ?? null,
+          original?.amount ?? null,
+          original?.rate ?? null,
+          date,
+          splitKind,
+          version + 1,
+          id,
+        );
       connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
       this.#insertShares(id, shares);
       this.#moveBalances(groupId, paidBy, amount, shares, 1);
@@ -105,26 +139,16 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
 
   async expenseOf(id: string): Promise<ExpenseView | undefined> {
     const connection = this.database.connection;
-    const row = connection
-      .prepare(
-        'SELECT id, group_id, description, amount, date, paid_by, version, split_kind FROM ledger_expenses WHERE id = ?',
-      )
-      .get(id) as ExpenseRow | undefined;
+    const row = connection.prepare(`SELECT ${EXPENSE_COLUMNS} FROM ledger_expenses WHERE id = ?`).get(id) as
+      ExpenseRow | undefined;
     if (!row) return undefined;
     const shares = connection
       .prepare('SELECT member_id, amount FROM ledger_expense_shares WHERE expense_id = ? ORDER BY position')
       .all(id) as ShareRow[];
-    return {
-      id: row.id,
-      groupId: row.group_id,
-      description: row.description,
-      amount: row.amount,
-      date: row.date,
-      paidBy: row.paid_by,
-      splitKind: row.split_kind,
-      shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
-      version: row.version,
-    };
+    return viewOf(
+      row,
+      shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
+    );
   }
 
   async expensesOf(groupId: string): Promise<ExpenseView[]> {
@@ -163,7 +187,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
     const connection = this.database.connection;
     const rows = connection
       .prepare(
-        `SELECT id, group_id, description, amount, date, paid_by, version, split_kind FROM ledger_expenses
+        `SELECT ${EXPENSE_COLUMNS} FROM ledger_expenses
            WHERE group_id = ? ORDER BY date ${direction}, recorded_seq ${direction}`,
       )
       .all(groupId) as ExpenseRow[];
@@ -179,17 +203,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       lines.push({ memberId: row.member_id, amount: row.amount });
       sharesByExpense.set(row.expense_id, lines);
     }
-    return rows.map(row => ({
-      id: row.id,
-      groupId: row.group_id,
-      description: row.description,
-      amount: row.amount,
-      date: row.date,
-      paidBy: row.paid_by,
-      splitKind: row.split_kind,
-      shares: sharesByExpense.get(row.id) ?? [],
-      version: row.version,
-    }));
+    return rows.map(row => viewOf(row, sharesByExpense.get(row.id) ?? []));
   }
 
   async isInvolved(groupId: string, memberId: string): Promise<boolean> {
@@ -240,4 +254,24 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
     move.run(groupId, paidBy, sign * amount);
     shares.forEach(share => move.run(groupId, share.memberId, -sign * share.amount));
   }
+}
+
+/** An expense as a read answers it: its original is there only when it was paid in another currency (request 21). */
+function viewOf(row: ExpenseRow, shares: Share[]): ExpenseView {
+  const original: OriginalView | undefined =
+    row.original_currency === null || row.original_amount === null || row.original_rate === null
+      ? undefined
+      : { currency: row.original_currency, amount: row.original_amount, rate: row.original_rate };
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    description: row.description,
+    amount: row.amount,
+    ...(original ? { original } : {}),
+    date: row.date,
+    paidBy: row.paid_by,
+    splitKind: row.split_kind,
+    shares,
+    version: row.version,
+  };
 }

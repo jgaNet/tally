@@ -1,7 +1,8 @@
 import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { CurrencyCode } from '@SharedKernel/Domain';
 
+import { Currency } from './Currency';
 import { BalancePassedEvent, GroupCreatedEvent, MemberJoinedEvent, MemberLeftEvent } from './GroupEvents';
-import { Currency, CurrencyCode } from './Currency';
 import { AlreadyMemberException, OwnerCannotLeaveException } from './GroupExceptions';
 import { GroupName } from './GroupName';
 

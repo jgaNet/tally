@@ -4,17 +4,20 @@ import { ExpenseAmount } from './ExpenseAmount';
 import { ExpenseDate } from './ExpenseDate';
 import { ExpenseDescription } from './ExpenseDescription';
 import { ExpenseDeletedEvent, ExpenseEditedEvent, ExpenseRecordedEvent } from './ExpenseEvents';
+import { OriginalAmount, OriginalSnapshot } from './OriginalAmount';
 import { Share, Split, SplitKind } from './Split';
 
 /**
- * An expense as it is stored: what it was for, what it cost, when, who paid, each member's share in the order of the split,
- * and the version it was read at (1 when it is recorded, one more at each edit, feature 6).
+ * An expense as it is stored: what it was for, what it cost in the group's currency, when, who paid, each member's share in the
+ * order of the split, and the version it was read at (1 when it is recorded, one more at each edit, feature 6). An expense paid
+ * in another currency also keeps what was paid, as it was given (`original`, request 21); one in the group's currency has none.
  */
 export interface ExpenseSnapshot {
   id: string;
   groupId: string;
   description: string;
   amount: number;
+  original?: OriginalSnapshot;
   date: string;
   paidBy: string;
   splitKind: SplitKind;
@@ -34,6 +37,7 @@ export class Expense extends AggregateRoot {
   readonly #groupId: string;
   #description: ExpenseDescription;
   #amount: ExpenseAmount;
+  #original: OriginalAmount | undefined;
   #date: ExpenseDate;
   #split: Split;
 
@@ -43,6 +47,7 @@ export class Expense extends AggregateRoot {
     groupId: string,
     description: ExpenseDescription,
     amount: ExpenseAmount,
+    original: OriginalAmount | undefined,
     date: ExpenseDate,
     split: Split,
   ) {
@@ -50,6 +55,7 @@ export class Expense extends AggregateRoot {
     this.#groupId = groupId;
     this.#description = description;
     this.#amount = amount;
+    this.#original = original;
     this.#date = date;
     this.#split = split;
   }
@@ -59,16 +65,18 @@ export class Expense extends AggregateRoot {
     groupId,
     description,
     amount,
+    original,
     date,
     split,
   }: {
     groupId: string;
     description: ExpenseDescription;
     amount: ExpenseAmount;
+    original: OriginalAmount | undefined;
     date: ExpenseDate;
     split: Split;
   }): Expense {
-    const expense = new Expense(Id.generate(), 0, groupId, description, amount, date, split);
+    const expense = new Expense(Id.generate(), 0, groupId, description, amount, original, date, split);
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: expense._id.value,
@@ -90,10 +98,13 @@ export class Expense extends AggregateRoot {
     const description = ExpenseDescription.create(snapshot.description);
     const amount = ExpenseAmount.create(snapshot.amount);
     const date = ExpenseDate.restore(snapshot.date);
+    const original = snapshot.original === undefined ? undefined : OriginalAmount.of(snapshot.original);
     const corrupted =
       description.isFailure() ||
       amount.isFailure() ||
       date.isFailure() ||
+      original?.isFailure() ||
+      (original !== undefined && original.isSuccess() && original.data!.groupAmount() !== amount.data!.value) ||
       !Number.isInteger(snapshot.version) ||
       snapshot.version < 1;
     if (corrupted) throw new Error(`The stored expense ${snapshot.id} is corrupted`);
@@ -110,6 +121,7 @@ export class Expense extends AggregateRoot {
       snapshot.groupId,
       description.data!,
       amount.data!,
+      original?.data,
       date.data!,
       split,
     );
@@ -123,17 +135,20 @@ export class Expense extends AggregateRoot {
   revise({
     description,
     amount,
+    original,
     date,
     split,
   }: {
     description: ExpenseDescription;
     amount: ExpenseAmount;
+    original: OriginalAmount | undefined;
     date: ExpenseDate;
     split: Split;
   }): void {
     if (split.payer !== this.#split.payer) throw new Error('An edit never changes the payer of an expense');
     this.#description = description;
     this.#amount = amount;
+    this.#original = original;
     this.#date = date;
     this.#split = split;
     this.record(
@@ -165,6 +180,7 @@ export class Expense extends AggregateRoot {
       groupId: this.#groupId,
       description: this.#description.value,
       amount: this.#amount.value,
+      ...(this.#original ? { original: this.#original.toSnapshot() } : {}),
       date: this.#date.value,
       paidBy: this.#split.payer,
       splitKind: this.#split.kind,

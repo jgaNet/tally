@@ -4,6 +4,7 @@ import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
+import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 import { IBalanceQueries } from '@Contexts/Ledger/Domain/IBalanceQueries';
 import {
   decideRecordExpense,
@@ -11,31 +12,34 @@ import {
   decideDeleteExpense,
 } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 
+import { IGroupCurrency } from './IGroupCurrency';
 import { IGroupMembers, MemberOfGroup } from './IGroupMembers';
 import { BalanceView, ExpenseView, IExpenseQueries, StatementView } from './IExpenseQueries';
 import { IExpenseRepository } from './IExpenseRepository';
 
 /**
  * What a member records: the group, the expense as typed, and how it is split (request 7): between members equally, by
- * exact amounts, or by shares, the members in the order chosen.
+ * exact amounts, or by shares, the members in the order chosen. Its amount is in the group's currency, or paid in another
+ * currency at a rate (request 21).
  */
-export interface RecordExpenseInput {
+export type RecordExpenseInput = {
   groupId: string;
   description: string;
-  amount: number;
   date: string;
   split: SplitRequest;
-}
+} & GivenAmount;
 
-/** What a change to an expense says: which expense, the expense as typed, how it is split, and the version its author read it at. */
-export interface EditExpenseInput {
+/**
+ * What a change to an expense says: which expense, the expense as typed, how it is split, the version its author read it at,
+ * and its amount (in the group's currency, or paid in another, request 21).
+ */
+export type EditExpenseInput = {
   id: string;
   description: string;
-  amount: number;
   date: string;
   split: SplitRequest;
   version: number;
-}
+} & GivenAmount;
 
 /**
  * A member of a group records an expense they paid, split between members of the group, the payer among them, one of the
@@ -44,16 +48,18 @@ export interface EditExpenseInput {
  */
 export const recordExpense = command(
   'RecordExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ groupId, description, amount, date, split }: RecordExpenseInput, context) => {
+  (expenses: IExpenseRepository, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+    async ({ groupId, description, date, split, ...given }: RecordExpenseInput, context) => {
       return expenses.inTransaction(async () => {
         const payer = callerOf(context);
         const members = await groupMembers.membersOf(groupId, payer);
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
+        const currency = await groupCurrency.currencyOf(groupId, payer);
+        if (currency === undefined) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
 
         const decision = decideRecordExpense(
-          { memberIds: memberIdsOf(members) },
-          { description, amount, date, split, payer },
+          { memberIds: memberIdsOf(members), groupCurrency: currency },
+          { description, date, split, payer, ...(given as GivenAmount) },
           clock(),
         );
         if (decision.isFailure()) return decision;
@@ -74,8 +80,8 @@ export const recordExpense = command(
  */
 export const editExpense = command(
   'EditExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ id, description, amount, date, split, version }: EditExpenseInput, context) => {
+  (expenses: IExpenseRepository, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+    async ({ id, description, date, split, version, ...given }: EditExpenseInput, context) => {
       return expenses.inTransaction(async () => {
         const by = callerOf(context);
         const expense = await expenses.get(id);
@@ -83,10 +89,17 @@ export const editExpense = command(
         const stored = expense.toSnapshot();
         const members = await groupMembers.membersOf(stored.groupId, by);
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
+        const currency = await groupCurrency.currencyOf(stored.groupId, by);
+        if (currency === undefined) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
 
         const decision = decideEditExpense(
-          { expense: stored, memberIds: memberIdsOf(members), ownerId: ownerIdOf(members) },
-          { by, description, amount, date, split, version },
+          {
+            expense: stored,
+            memberIds: memberIdsOf(members),
+            ownerId: ownerIdOf(members),
+            groupCurrency: currency,
+          },
+          { by, description, date, split, version, ...(given as GivenAmount) },
           clock(),
         );
         if (decision.isFailure()) return decision;

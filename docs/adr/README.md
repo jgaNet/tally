@@ -22,6 +22,7 @@ why, what it costs, and when to revisit it.
 | [15](0015-reminders-from-a-sweep-over-what-settlements-says-is-owed.md) | Reminders come from a sweep of the background job over what Settlements says is still owed |
 | [16](0016-leaving-passes-the-balance-to-the-owner.md) | Leaving a group passes the member's balance to the owner, and Settlements answers whether a payment waits |
 | [17](0017-the-writes-of-one-file-are-transactions-that-take-turns.md) | The writes of one database file are transactions that take turns, on one connection per process |
+| [18](0018-an-expense-in-another-currency-and-the-group-currency-port.md) | An expense in another currency is counted in the group's currency, through a port Ledger owns; the currencies are the shared kernel's |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

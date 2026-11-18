@@ -13,10 +13,11 @@ import {
   recordExpense,
   RecordExpenseInput,
 } from '@Contexts/Ledger/Application/Expenses';
+import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 
 const SHAPE_REFUSAL =
-  'The body must have description (a string), amount (a whole number), date (a string) and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares })';
+  'The body must have description (a string), date (a string), exactly one of amount (a whole number) or original ({ currency, amount (a whole number), rate (a string) }), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares })';
 const EDIT_SHAPE_REFUSAL = `${SHAPE_REFUSAL}, and version (a whole number)`;
 
 /** The three fields a body may split an expense by (request 7): exactly one of them is given. */
@@ -50,11 +51,38 @@ const splitOf = (body: Record<string, unknown>): SplitRequest => {
   return { kind: 'equal', memberIds: body.splitBetween as string[] };
 };
 
+/**
+ * The amount a body gives, by shape (request 21): exactly one of `amount`, a whole number in the group's currency, or `original`, an
+ * object of a currency (a string), an amount (a whole number) and a rate (a string). Whether the values are allowed is the domain's.
+ */
+const hasAmountShape = (body: Record<string, unknown>): boolean => {
+  const hasAmount = body.amount !== undefined;
+  const hasOriginal = body.original !== undefined;
+  if (hasAmount === hasOriginal) return false;
+  if (hasAmount) return Number.isInteger(body.amount);
+  const original = body.original;
+  return (
+    isObject(original) &&
+    typeof original.currency === 'string' &&
+    Number.isInteger(original.amount) &&
+    typeof original.rate === 'string'
+  );
+};
+
+/** The amount a body gives, as the domain takes it. Only called on a body `hasAmountShape` has accepted. */
+const amountOf = (body: Record<string, unknown>): GivenAmount => {
+  if (body.original !== undefined) {
+    const { currency, amount, rate } = body.original as { currency: string; amount: number; rate: string };
+    return { original: { currency, amount, rate } };
+  }
+  return { amount: body.amount as number };
+};
+
 /** The fields every expense carries in a body: what a recording and an edit both say. */
 const hasExpenseFields = (body: unknown): body is Record<string, unknown> => {
   if (!isObject(body)) return false;
-  const { description, amount, date } = body;
-  return typeof description === 'string' && Number.isInteger(amount) && typeof date === 'string' && hasSplitShape(body);
+  const { description, date } = body;
+  return typeof description === 'string' && typeof date === 'string' && hasAmountShape(body) && hasSplitShape(body);
 };
 
 /**
@@ -89,9 +117,9 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         {
           groupId: id,
           description: body.description as string,
-          amount: body.amount as number,
           date: body.date as string,
           split: splitOf(body),
+          ...amountOf(body),
         } as RecordExpenseInput,
         { created: true },
       );
@@ -117,10 +145,10 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
       return answerAtOnce(req, reply, module.useCase(editExpense), {
         id,
         description: body.description as string,
-        amount: body.amount as number,
         date: body.date as string,
         split: splitOf(body),
         version: body.version as number,
+        ...amountOf(body),
       } as EditExpenseInput);
     },
   );

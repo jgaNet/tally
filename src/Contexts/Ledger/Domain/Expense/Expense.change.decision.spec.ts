@@ -22,17 +22,18 @@ const stored: ExpenseSnapshot = {
   ],
   version: 1,
 };
-const access = { expense: stored, memberIds: [payer, owner, other], ownerId: owner };
+const access = { expense: stored, memberIds: [payer, owner, other], ownerId: owner, groupCurrency: 'EUR' };
 
-const edit = (overrides: Partial<EditExpenseCommand> = {}): EditExpenseCommand => ({
-  by: payer,
-  description: 'Groceries, again',
-  amount: 900,
-  date: '2026-11-15',
-  split: { kind: 'equal', memberIds: [payer, owner] },
-  version: 1,
-  ...overrides,
-});
+const edit = (overrides: Partial<EditExpenseCommand> = {}): EditExpenseCommand =>
+  ({
+    by: payer,
+    description: 'Groceries, again',
+    amount: 900,
+    date: '2026-11-15',
+    split: { kind: 'equal', memberIds: [payer, owner] },
+    version: 1,
+    ...overrides,
+  }) as EditExpenseCommand;
 
 describe('who may edit an expense', () => {
   it('lets its payer edit it, and the group owner, and refuses any other member by name', () => {

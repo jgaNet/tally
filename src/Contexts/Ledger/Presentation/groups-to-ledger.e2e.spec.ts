@@ -228,4 +228,41 @@ describe('Groups → Ledger', () => {
     });
     expect(refused.status).toBe(400);
   });
+  it('reads, from Groups, the currency of the group made in Groups: an expense paid in that currency is refused, and one paid in another is counted in it', async () => {
+    const ada = await signedInPerson('Ada');
+    const created = await http.request('POST', `${api}/groups`, {
+      body: { name: 'Flat', currency: 'EUR' },
+      token: ada.token,
+    });
+    const { id: groupId } = created.body as { id: string };
+
+    const sameCurrency = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: {
+        description: 'Tram',
+        original: { currency: 'EUR', amount: 300, rate: '1' },
+        date: '2020-01-15',
+        splitBetween: [ada.id],
+      },
+      token: ada.token,
+    });
+    expect(sameCurrency.status).toBe(400);
+    expect(sameCurrency.body).toEqual({ type: 'OriginalCurrencyIsGroupCurrency', message: expect.any(String) });
+
+    const otherCurrency = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: {
+        description: 'Tram',
+        original: { currency: 'USD', amount: 1000, rate: '0.9' },
+        date: '2020-01-15',
+        splitBetween: [ada.id],
+      },
+      token: ada.token,
+    });
+    expect(otherCurrency.status).toBe(201);
+    const { id: expenseId } = otherCurrency.body as { id: string };
+    expect((await http.request('GET', `${api}/expenses/${expenseId}`, { token: ada.token })).body).toMatchObject({
+      groupId,
+      amount: 900,
+      original: { currency: 'USD', amount: 1000, rate: '0.9' },
+    });
+  });
 });

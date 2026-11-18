@@ -13,6 +13,7 @@ import {
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/ExpenseEvents';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { BalancesCountingSettlements } from '@Contexts/Ledger/Infrastructure/BalancesCountingSettlements';
+import { GroupCurrencyOfGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyOfGroups';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { LedgerDatabase } from '@Contexts/Ledger/Infrastructure/LedgerDatabase';
 import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
@@ -30,6 +31,8 @@ const database = new LedgerDatabase(
 );
 const expenses = new SqliteExpenses(database);
 const groupMembers = new GroupMembersOfGroups(() => groupsMembersReadModel);
+/** The currency of a group, which an expense paid in another currency is counted against (request 21, ADR 18), read at a request too. */
+const groupCurrency = new GroupCurrencyOfGroups(() => groupsMembersReadModel);
 /** What the group's settlements paid, read from Settlements' read model at a request, never when the modules are built (ADR 7, ADR 11). */
 const settledAmounts = new SettledAmountsOfSettlements(() => settlementsReadModel);
 /** The balances as every reader sees them: the expenses', plus the settlements (request 12). */
@@ -47,12 +50,12 @@ export const localLedgerModule = new LiteModule({
   name: 'Ledger',
   domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
   useCases: [
-    recordExpense(expenses, groupMembers, systemClock),
+    recordExpense(expenses, groupMembers, groupCurrency, systemClock),
     getExpense(expenses, groupMembers),
     getGroupBalances(balancesCountingSettlements, groupMembers),
     getGroupExpenses(expenses, groupMembers),
     getMemberStatement(expenses, groupMembers),
-    editExpense(expenses, groupMembers, systemClock),
+    editExpense(expenses, groupMembers, groupCurrency, systemClock),
     deleteExpense(expenses, groupMembers, systemClock),
   ],
 });

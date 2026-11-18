@@ -4,17 +4,18 @@ import { Split } from './Split';
 const ada = 'ada';
 const grace = 'grace';
 const linus = 'linus';
-const members = { memberIds: [ada, grace, linus] };
+const members = { memberIds: [ada, grace, linus], groupCurrency: 'EUR' };
 const now = new Date('2026-11-17T10:00:00Z');
 
-const command = (overrides: Partial<RecordExpenseCommand> = {}): RecordExpenseCommand => ({
-  description: 'Groceries',
-  amount: 1000,
-  date: '2026-11-16',
-  split: { kind: 'equal', memberIds: [ada, grace, linus] },
-  payer: ada,
-  ...overrides,
-});
+const command = (overrides: Partial<RecordExpenseCommand> = {}): RecordExpenseCommand =>
+  ({
+    description: 'Groceries',
+    amount: 1000,
+    date: '2026-11-16',
+    split: { kind: 'equal', memberIds: [ada, grace, linus] },
+    payer: ada,
+    ...overrides,
+  }) as RecordExpenseCommand;
 
 describe('the equal split', () => {
   it('gives each member the amount divided by their number, rounded down, the remainder to the first member listed', () => {

@@ -6,15 +6,24 @@ export interface ShareView {
   amount: number;
 }
 
+/** What an expense paid in another currency was paid as, as `GetExpense` answers it (request 21): the rate is the string given. */
+export interface OriginalView {
+  currency: string;
+  amount: number;
+  rate: string;
+}
+
 /**
  * What `GetExpense` answers: an expense as it is stored, how it was split (`equal`, `exact` or `shares`, request 7), its
- * shares in the order of the split, and the version it is at (1 when it is recorded, one more at each edit).
+ * shares in the order of the split, and the version it is at (1 when it is recorded, one more at each edit). Its `amount` is
+ * in the group's currency; an expense paid in another currency also has `original`, what was paid (request 21).
  */
 export interface ExpenseView {
   id: string;
   groupId: string;
   description: string;
   amount: number;
+  original?: OriginalView;
   date: string;
   paidBy: string;
   splitKind: 'equal' | 'exact' | 'shares';

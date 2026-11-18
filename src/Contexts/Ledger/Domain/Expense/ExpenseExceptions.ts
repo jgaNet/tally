@@ -126,3 +126,47 @@ export class ExpenseHasFormerMemberException extends Exception {
     });
   }
 }
+
+/** The currency an expense is paid in is one of Tally's currencies (request 21). */
+export class InvalidOriginalCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidOriginalCurrency',
+      message: "The currency must be one of Tally's currencies",
+    });
+  }
+}
+
+/** The currency an expense is paid in is not the group's own: it is paid in the group's currency otherwise (request 21). */
+export class OriginalCurrencyIsGroupCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'OriginalCurrencyIsGroupCurrency',
+      message: "An expense paid in another currency must be in a currency other than the group's",
+    });
+  }
+}
+
+/** The amount paid in another currency is a whole number from 1 to 100 000 000, in that currency's hundredths (request 21). */
+export class InvalidOriginalAmountException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidOriginalAmount',
+      message: 'The amount paid in another currency must be a whole number from 1 to 100000000',
+    });
+  }
+}
+
+/** The rate is a decimal number greater than 0, with at most 6 digits after the point (request 21). */
+export class InvalidExpenseRateException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidExpenseRate',
+      message: 'The rate must be a decimal number greater than 0, with at most 6 digits after the point',
+    });
+  }
+}
