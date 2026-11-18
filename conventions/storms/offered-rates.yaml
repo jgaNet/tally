@@ -5,7 +5,7 @@ feature: offered-rates
 intent: >-
   Tally offers the rate a rates service gives for a currency and a day; an expense in another currency takes it when its rate is left out, and is refused when its own rate is more than 2 % from it.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where is the rates service in the model?

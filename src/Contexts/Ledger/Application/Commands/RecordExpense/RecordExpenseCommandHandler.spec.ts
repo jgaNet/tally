@@ -12,6 +12,7 @@ import {
   InMemoryExpenseStore,
   InMemoryGroupCurrency,
   InMemoryGroupMembers,
+  InMemoryOfferedRates,
 } from '@Contexts/Ledger/Infrastructure/InMemoryExpenses';
 
 const eventBus = { connect: jest.fn(), publish: jest.fn(), subscribe: jest.fn() } as EventBus;
@@ -27,6 +28,7 @@ const setup = () => {
     new InMemoryExpenseRepository(store),
     new InMemoryGroupMembers(new Map([['flat', ['alice', 'bob']]])),
     new InMemoryGroupCurrency(new Map([['flat', 'EUR']])),
+    new InMemoryOfferedRates(),
     () => at,
     new InMemoryBalances(balanceStore),
   );

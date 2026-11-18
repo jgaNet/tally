@@ -18,8 +18,10 @@ import {
   GetGroupBalancesQueryHandler,
   GetGroupExpensesQueryHandler,
   GetMemberStatementQueryHandler,
+  GetOfferedRateQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
+import { HttpRatesService } from '@Contexts/Ledger/Infrastructure/HttpRatesService';
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { SqliteExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteExpenseReadModels';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
@@ -43,6 +45,11 @@ const members = new GroupMembersFromGroups(() => groupMembers);
  */
 const currencies = new GroupCurrencyFromGroups(() => groupMembers);
 /**
+ * The rates an expense in another currency takes or corrects against (request 22), read through the port Ledger owns (ADR 13): a
+ * rates service over its HTTP API, read when it is asked, so a server started without `RATES_URL` offers no rate and takes the payer's.
+ */
+const offeredRates = new HttpRatesService();
+/**
  * What has been settled in the group, read through the port Ledger owns (ADR 7): Settlements' read model, read when it is asked
 (ADR 4), so that a balance counts a settlement as soon as it is recorded.
  */
@@ -60,11 +67,11 @@ export const localLedgerModule = new Module({
   commands: [
     {
       event: RecordExpenseCommandEvent,
-      handlers: [new RecordExpenseCommandHandler(expenses, members, currencies, systemClock, balances)],
+      handlers: [new RecordExpenseCommandHandler(expenses, members, currencies, offeredRates, systemClock, balances)],
     },
     {
       event: EditExpenseCommandEvent,
-      handlers: [new EditExpenseCommandHandler(expenses, members, currencies, systemClock, balances)],
+      handlers: [new EditExpenseCommandHandler(expenses, members, currencies, offeredRates, systemClock, balances)],
     },
     {
       event: DeleteExpenseCommandEvent,
@@ -76,5 +83,6 @@ export const localLedgerModule = new Module({
     new GetGroupBalancesQueryHandler(balances, members),
     new GetGroupExpensesQueryHandler(expenseReadModels, members),
     new GetMemberStatementQueryHandler(expenseReadModels, members),
+    new GetOfferedRateQueryHandler(offeredRates, members, currencies, systemClock),
   ],
 });

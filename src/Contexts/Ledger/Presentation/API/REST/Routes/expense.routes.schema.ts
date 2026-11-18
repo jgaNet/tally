@@ -36,10 +36,20 @@ const ExpenseSchema = {
 } as const;
 
 /**
+ * What was paid, as a body gives it: its rate may be left out, and the expense then takes the rate offered for its day (request 22).
+ * A rate given is a string, as request 21 says.
+ */
+const OriginalBodySchema = {
+  type: 'object',
+  required: ['currency', 'amount'],
+  properties: { currency: { type: 'string' }, amount: { type: 'integer' }, rate: { type: 'string' } },
+} as const;
+
+/**
  * The money of an expense, as a body gives it: an amount in the group's currency, or what was paid in another currency (request
  * 21). Each is listed by shape only; the currency, the amount and the rate are the expense's to decide, behind the 202.
  */
-const MoneyBodyProperties = { amount: { type: 'integer' }, original: OriginalSchema } as const;
+const MoneyBodyProperties = { amount: { type: 'integer' }, original: OriginalBodySchema } as const;
 
 /** Exactly one of the two ways to give the money: neither, or both, is a body of the wrong shape (400). */
 const ExactlyOneMoney = {

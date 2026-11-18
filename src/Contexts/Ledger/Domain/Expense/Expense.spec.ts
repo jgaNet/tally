@@ -24,6 +24,7 @@ const recordExpense = (overrides: Partial<Parameters<typeof Expense.create>[0]> 
     split: equally(['alice', 'bob', 'carl']),
     groupMembers: [alice, bob, carl],
     groupCurrency: 'EUR',
+    offer: null,
     now,
     ...overrides,
   });
@@ -413,6 +414,7 @@ const editing = (overrides: Partial<Parameters<Expense['edit']>[0]> = {}) => ({
   split: equally(['alice', 'bob']),
   groupMembers: [alice, bob, carl],
   groupCurrency: 'EUR' as const,
+  offer: null,
   now,
   ...overrides,
 });

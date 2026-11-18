@@ -7,6 +7,8 @@ import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
+import { IOfferedRates, OfferedRateRequest } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
+import { RateOffer } from '@Contexts/Ledger/Domain/Expense/RateOffer';
 import { GroupRole, IGroupMembers, PassedBalance } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { CurrencyCode } from '@SharedKernel/Domain/Currency';
 
@@ -112,5 +114,22 @@ export class InMemoryGroupCurrency implements IGroupCurrency {
 
   async currencyOf(groupId: string): Promise<CurrencyCode | null> {
     return this.currencies.get(groupId) ?? null;
+  }
+}
+
+/**
+ * The rates service a test gives: a Map from `from/to/day` to the rate it offers, a missing one being no rate. `service` false is a
+ * server started without a rates service: every ask is then `no-service`.
+ */
+export class InMemoryOfferedRates implements IOfferedRates {
+  constructor(
+    private rates: Map<string, string> = new Map(),
+    private service = true,
+  ) {}
+
+  async rateOn({ from, to, date }: OfferedRateRequest): Promise<RateOffer> {
+    if (!this.service) return { kind: 'no-service' };
+    const rate = this.rates.get(`${from}/${to}/${date}`);
+    return rate === undefined ? { kind: 'none' } : { kind: 'offered', rate };
   }
 }

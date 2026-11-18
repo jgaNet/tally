@@ -15,7 +15,12 @@ import { localSettlementsModule, webhookSignatures } from '@Contexts/Settlements
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/API/REST/Routes';
 import { payoutAccountRoutes, settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
-import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
+import {
+  balanceRoutes,
+  expenseRoutes,
+  rateRoutes,
+  statementRoutes,
+} from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
  * The composition root an application starts from (ADR 27): `clean-ddd create` gives it as
@@ -58,6 +63,7 @@ export async function createApplication({
     .registerRoutes('/', groupRoutes, { groupsModule: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', rateRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { settlementsModule: localSettlementsModule, webhookSignatures })
     .registerRoutes('/', payoutAccountRoutes, { settlementsModule: localSettlementsModule })

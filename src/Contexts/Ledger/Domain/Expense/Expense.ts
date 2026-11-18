@@ -16,6 +16,7 @@ import {
 } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { MoneyInput, OriginalAmount } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
+import { RateOffer } from '@Contexts/Ledger/Domain/Expense/RateOffer';
 import { SpentOn } from '@Contexts/Ledger/Domain/Expense/SpentOn';
 import { Share, Split, SplitInput, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
@@ -70,6 +71,7 @@ export class Expense extends AggregateRoot {
     split,
     groupMembers,
     groupCurrency,
+    offer,
     now,
   }: {
     groupId: Id;
@@ -80,9 +82,21 @@ export class Expense extends AggregateRoot {
     split: SplitInput;
     groupMembers: Id[];
     groupCurrency: CurrencyCode;
+    /** The rates service's answer for what was paid, read by the handler when the money is in another currency (request 22). */
+    offer: RateOffer | null;
     now: Date;
   }): IResult<Expense> {
-    const decided = Expense.decide({ paidBy, description, money, date, split, groupMembers, groupCurrency, now });
+    const decided = Expense.decide({
+      paidBy,
+      description,
+      money,
+      date,
+      split,
+      groupMembers,
+      groupCurrency,
+      offer,
+      now,
+    });
     if (decided.isFailure()) return decided;
 
     const { description: text, amount: value, original, spentOn, splitKind, shares } = decided.data;
@@ -117,6 +131,7 @@ export class Expense extends AggregateRoot {
     split,
     groupMembers,
     groupCurrency,
+    offer,
     now,
   }: {
     by: Id;
@@ -128,6 +143,7 @@ export class Expense extends AggregateRoot {
     split: SplitInput;
     groupMembers: Id[];
     groupCurrency: CurrencyCode;
+    offer: RateOffer | null;
     now: Date;
   }): IResult<Expense> {
     if (!this.mayChange(by, byOwner)) return Result.fail(new NotThePayerOrTheOwner());
@@ -142,6 +158,7 @@ export class Expense extends AggregateRoot {
       split,
       groupMembers,
       groupCurrency,
+      offer,
       now,
     });
     if (decided.isFailure()) return decided;
@@ -236,7 +253,12 @@ export class Expense extends AggregateRoot {
       splitKind: this.splitKind,
       shares: this.shares.map(share => ({ memberId: share.memberId.value, amount: share.amount })),
       original: this.original
-        ? { currency: this.original.value.currency, amount: this.original.value.amount, rate: this.original.value.rate }
+        ? {
+            currency: this.original.value.currency,
+            amount: this.original.value.amount,
+            rate: this.original.value.rate,
+            rateSource: this.original.value.rateSource,
+          }
         : null,
       version: this.version,
     };
@@ -266,6 +288,7 @@ export class Expense extends AggregateRoot {
     split,
     groupMembers,
     groupCurrency,
+    offer,
     now,
   }: {
     paidBy: Id;
@@ -275,15 +298,20 @@ export class Expense extends AggregateRoot {
     split: SplitInput;
     groupMembers: Id[];
     groupCurrency: CurrencyCode;
+    offer: RateOffer | null;
     now: Date;
   }): IResult<Decided> {
     const text = Description.create(description);
     if (text.isFailure()) return text;
 
+    // The day is checked before the money, so a bad day is refused as a bad day, whatever the rate.
+    const day = SpentOn.create(date, now.toISOString().slice(0, 10));
+    if (day.isFailure()) return day;
+
     let value: Amount;
     let original: OriginalAmount | null = null;
     if ('original' in money) {
-      const paid = OriginalAmount.create(money.original, groupCurrency);
+      const paid = OriginalAmount.create(money.original, groupCurrency, offer);
       if (paid.isFailure()) return paid;
       original = paid.data;
       const converted = Amount.create(paid.data.groupAmount());
@@ -294,9 +322,6 @@ export class Expense extends AggregateRoot {
       if (amount.isFailure()) return amount;
       value = amount.data;
     }
-
-    const day = SpentOn.create(date, now.toISOString().slice(0, 10));
-    if (day.isFailure()) return day;
     const decidedSplit = Split.decide({ amount: value, payer: paidBy, input: split });
     if (decidedSplit.isFailure()) return decidedSplit;
 

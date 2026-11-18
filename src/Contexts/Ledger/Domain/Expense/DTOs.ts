@@ -1,3 +1,4 @@
+import { RateSource } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** One member's share of an expense, as it is kept. */
@@ -6,11 +7,15 @@ export interface ShareSnapshot {
   amount: number;
 }
 
-/** What was paid in another currency, as it is kept: the currency, the amount in its hundredths and the rate as it was given. */
+/**
+ * What was paid in another currency, as it is kept: the currency, the amount in its hundredths, the rate as it was stated or
+ * offered, and where that rate came from (request 22; the source is not in the API).
+ */
 export interface OriginalSnapshot {
   currency: string;
   amount: number;
   rate: string;
+  rateSource: RateSource;
 }
 
 /**

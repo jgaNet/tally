@@ -39,6 +39,11 @@ export function createLedgerTables(database: SqliteDatabase): void {
     database.exec('ALTER TABLE expenses ADD COLUMN original_amount INTEGER');
     database.exec('ALTER TABLE expenses ADD COLUMN original_rate TEXT');
   }
+  // Where the rate of an expense in another currency came from (request 22): stated by its payer, or taken from the rates service's
+  // offer. NULL is stated, which is the source of every rate kept before offers.
+  if (!columns.some(column => column.name === 'original_rate_source')) {
+    database.exec('ALTER TABLE expenses ADD COLUMN original_rate_source TEXT');
+  }
   database.exec('CREATE INDEX IF NOT EXISTS expenses_by_group ON expenses (group_id)');
   database.exec(`CREATE TABLE IF NOT EXISTS expense_shares (
     expense_id TEXT NOT NULL,

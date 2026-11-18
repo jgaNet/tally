@@ -124,3 +124,17 @@ export class InvalidRate extends LedgerException {
     super('InvalidRate', 'A rate is a number above 0, written as text, with at most 6 digits after the point');
   }
 }
+
+/** An expense in another currency takes the rate the rates service offers for its currency and day, or one within 2 % of it (request 22). */
+export class RateOutsideBand extends LedgerException {
+  constructor() {
+    super('RateOutsideBand', 'A rate differs by more than 2 % from the rate offered for its currency and day');
+  }
+}
+
+/** A rate is taken or checked against an offer, and the rates service offers none for its currency and day (request 22). */
+export class NoRateOffered extends LedgerException {
+  constructor() {
+    super('NoRateOffered', 'No rate is offered for its currency and day, so the expense cannot take or check a rate');
+  }
+}

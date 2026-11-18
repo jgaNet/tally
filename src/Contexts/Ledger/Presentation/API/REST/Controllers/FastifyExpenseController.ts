@@ -17,7 +17,7 @@ type SplitBody =
   | { splitExactly: { memberId: string; amount: number }[] }
   | { splitByShares: { memberId: string; shares: number }[] };
 /** Exactly one of the two ways to give the money: an amount in the group's currency, or what was paid in another (request 21). */
-type MoneyBody = { amount: number } | { original: { currency: string; amount: number; rate: string } };
+type MoneyBody = { amount: number } | { original: { currency: string; amount: number; rate?: string } };
 type RecordExpenseBody = { description: string; date: string } & MoneyBody & SplitBody;
 type EditExpenseBody = RecordExpenseBody & { version: number };
 
