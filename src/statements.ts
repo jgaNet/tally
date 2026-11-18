@@ -60,9 +60,16 @@ interface SettlementRow {
   payer_id: string;
   payee_id: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   counted_at: string;
 }
+
+/** What a settlement's entry says of it, by the method it was made by. */
+const SETTLEMENT_DESCRIPTIONS: Record<SettlementRow['method'], string> = {
+  cash: 'Settlement in cash',
+  provider: 'Settlement through the provider',
+  net: 'Settlement by netting',
+};
 
 /** An entry before its balance is known: what it is, when it is counted, and what it moves. */
 interface CountedEntry {
@@ -144,7 +151,7 @@ export async function statementOfMember(
         // The instant is in UTC, so its day is the UTC day.
         date: row.counted_at.slice(0, 10),
         at: row.counted_at,
-        description: row.method === 'cash' ? 'Settlement in cash' : 'Settlement through the provider',
+        description: SETTLEMENT_DESCRIPTIONS[row.method],
         paid: row.payer_id === memberId ? Number(row.amount) : 0,
         share: row.payee_id === memberId ? Number(row.amount) : 0,
       })),

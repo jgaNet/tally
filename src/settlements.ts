@@ -71,7 +71,7 @@ export interface Settlement {
   /** The member who was paid: the one who recorded a cash settlement, or the one the provider payment is to. */
   readonly to: string;
   readonly amount: number;
-  readonly method: 'cash' | 'provider';
+  readonly method: 'cash' | 'provider' | 'net';
   /**
    * `pending` while the provider has not ended the payment; `failed` when it failed, and it never counts. A `paid`
    * one is `refunding` once its refund is asked of the provider, and `refunded` once the provider says so.
@@ -98,7 +98,7 @@ interface StatusRow {
 }
 
 /** Records that the settlement `settlementId` had `status`, learned at `at`. Written in the caller's transaction. */
-async function recordStatus(
+export async function recordStatus(
   db: Querier,
   settlementId: string,
   status: Settlement['status'],
@@ -115,7 +115,7 @@ interface SettlementRow {
   payer_id: string;
   payee_id: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   status: Settlement['status'];
   provider_payment_id: string | null;
   pay_url: string | null;
@@ -429,7 +429,11 @@ async function refundablePayment(db: Querier, accountId: string, settlementId: s
     throw new Refusal(403, 'NotThePayee', 'Only the member who was paid can refund the settlement.');
   }
   if (row.method !== 'provider' || row.provider_payment_id === null) {
-    throw new Refusal(409, 'NotPaidThroughProvider', 'A settlement in cash is not refunded through Tally.');
+    throw new Refusal(
+      409,
+      'NotPaidThroughProvider',
+      'A settlement in cash or by netting is not refunded through Tally.',
+    );
   }
   if (row.status !== 'paid') {
     throw new Refusal(409, 'SettlementIsNotPaid', 'Only a settlement that is paid can be refunded.');

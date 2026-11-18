@@ -47,7 +47,7 @@ const SETTLEMENT = {
     from: { type: 'string' },
     to: { type: 'string' },
     amount: { type: 'integer' },
-    method: { enum: ['cash', 'provider'] },
+    method: { enum: ['cash', 'provider', 'net'] },
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     payUrl: { type: 'string' },
