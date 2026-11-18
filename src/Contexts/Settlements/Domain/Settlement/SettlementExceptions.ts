@@ -76,3 +76,26 @@ export class SettlementNotRefundableException extends Exception {
     });
   }
 }
+
+/** The settlement cannot be contested: it is not a payment through the provider that is paid, it was contested before, or its payer or payee is no longer a member (request 33). */
+export class SettlementNotContestableException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementNotContestable',
+      message:
+        'Only a payment through the provider that is paid and never contested, between two members of the group, is contested',
+    });
+  }
+}
+
+/** The settlement is not contested, so an administrator has nothing to decide (request 33). */
+export class SettlementNotContestedException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementNotContested',
+      message: 'Only a contested settlement is decided',
+    });
+  }
+}

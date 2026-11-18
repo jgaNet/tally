@@ -13,6 +13,7 @@ import {
   MergeGroupsCommandEvent,
 } from '@Contexts/Groups/Application/Commands';
 import {
+  GetAdministratorsLogQueryHandler,
   GetGroupMembersQueryHandler,
   GetGroupQueryHandler,
   GetMyGroupsQueryHandler,
@@ -40,6 +41,14 @@ export class FastifyGroupController {
 
   async getMyGroups(req: FastifyRequest, reply: FastifyReply) {
     const result = await this.#module.getQuery(GetMyGroupsQueryHandler).handle(undefined, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  async getAdministratorsLog(req: FastifyRequest, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetAdministratorsLogQueryHandler)
+      .handle(undefined, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }

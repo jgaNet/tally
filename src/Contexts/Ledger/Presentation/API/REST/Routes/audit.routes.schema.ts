@@ -18,6 +18,7 @@ const AuditEntrySchema = {
         'expense-deleted',
         'settlement-paid',
         'settlement-refunded',
+        'settlement-contested',
         'balance-passed',
       ],
     },

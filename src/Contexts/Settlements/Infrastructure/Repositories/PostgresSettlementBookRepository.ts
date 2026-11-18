@@ -51,6 +51,14 @@ export function createSettlementTables(database: PostgresDatabase): void {
       amount INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS settlement_audit_by_group ON settlement_audit (group_id);
+    CREATE TABLE IF NOT EXISTS settlement_admin_log (
+      seq BIGSERIAL PRIMARY KEY,
+      id TEXT NOT NULL,
+      at TEXT NOT NULL,
+      by_account TEXT NOT NULL,
+      action TEXT NOT NULL,
+      subject_id TEXT NOT NULL
+    );
   `);
 }
 
@@ -69,7 +77,7 @@ export interface SettlementRow {
 }
 
 /** A settlement row, as the domain's snapshot of it. */
-export function settlementOf(row: SettlementRow): ISettlementSnapshot {
+export function settlementOf(row: SettlementRow, contested = false): ISettlementSnapshot {
   return {
     _id: row.id,
     groupId: row.group_id,
@@ -81,6 +89,7 @@ export function settlementOf(row: SettlementRow): ISettlementSnapshot {
     status: row.status,
     providerPaymentId: row.provider_payment_id,
     payUrl: row.pay_url,
+    contested,
   };
 }
 
@@ -106,11 +115,22 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
       'SELECT * FROM settlements WHERE group_id = ? ORDER BY recorded_seq',
       [groupId],
     );
+    // A settlement is contested once: the status it has now does not say whether it was (request 33).
+    const contested = new Set(
+      (
+        await this.database.all<{ settlement_id: string }>(
+          `SELECT DISTINCT h.settlement_id FROM settlement_history h
+             JOIN settlements s ON s.id = h.settlement_id
+            WHERE s.group_id = ? AND h.status = 'contested'`,
+          [groupId],
+        )
+      ).map(line => line.settlement_id),
+    );
     return SettlementBook.fromSnapshot({
       _id: row.book_id,
       groupId: row.group_id,
       version: row.version,
-      settlements: settlements.map(settlementOf),
+      settlements: settlements.map(settlement => settlementOf(settlement, contested.has(settlement.id))),
     });
   }
 
@@ -165,6 +185,13 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
       await this.database.run(
         'INSERT INTO settlement_audit (id, group_id, at, by_account, action, subject_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [entry.id, entry.groupId, entry.at, entry.by, entry.action, entry.subjectId, entry.amount],
+      );
+    }
+    // The administrators' decisions, in the transaction of the decision: an entry is never changed or removed (request 33).
+    for (const decision of snapshot.decisions) {
+      await this.database.run(
+        'INSERT INTO settlement_admin_log (id, at, by_account, action, subject_id) VALUES (?, ?, ?, ?, ?)',
+        [decision.id, decision.at, decision.by, decision.action, decision.subjectId],
       );
     }
     return Result.ok();

@@ -41,6 +41,7 @@ describe('SettlementBook', () => {
       status: 'paid',
       providerPaymentId: null,
       payUrl: null,
+      contested: false,
     });
     const events = book.pullDomainEvents();
     expect(events).toHaveLength(1);
@@ -149,6 +150,7 @@ describe('SettlementBook, a payment through the provider (request 13)', () => {
       status: 'pending',
       providerPaymentId: 'pay_1',
       payUrl: 'https://provider.example/pay/pay_1',
+      contested: false,
     });
     const events = book.pullDomainEvents();
     expect(events.map(event => event.name)).toEqual(['PaymentRequestedEvent']);
@@ -412,5 +414,105 @@ describe('SettlementBook’s history (request 19)', () => {
       { settlementId, status: 'paid', at: AT.toISOString() },
       { settlementId, status: 'refunding', at: LATER.toISOString() },
     ]);
+  });
+});
+
+const LATER = new Date('2026-11-18T10:00:00.000Z');
+/** A book read from the store holding one payment through the provider, paid: nothing since it was read is a change. */
+function readBookWithPaidPayment(): { book: SettlementBook; settlementId: string } {
+  const { book, settlementId } = bookWithPaidPayment();
+  return { book: reread(book, book.toSnapshot().recorded), settlementId };
+}
+
+const contest = (book: SettlementBook, settlementId: string, overrides: { asker?: string; members?: string[] } = {}) =>
+  book.contest({ settlementId, asker: ANN, members: MEMBERS, ...overrides }, LATER);
+
+describe('SettlementBook, a contested settlement (request 33)', () => {
+  it('moves a paid payment its payee contests to contested, once, recording SettlementContested and its audit entry', () => {
+    const { book, settlementId } = readBookWithPaidPayment();
+
+    const contested = contest(book, settlementId);
+
+    expect(contested.isSuccess() && contested.data.status).toBe('contested');
+    expect(book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementContestedEvent']);
+    expect(book.newAuditEntries).toEqual([
+      expect.objectContaining({ action: 'settlement-contested', by: ANN, subjectId: settlementId, amount: 30 }),
+    ]);
+    expect(book.toSnapshot().history.map(line => line.status)).toContain('contested');
+    expect(contest(book, settlementId).isFailure()).toBe(true);
+  });
+
+  it('refuses a contest by anyone but the payee, of what is not a paid payment through the provider, or of a member who left', () => {
+    const { book, settlementId } = readBookWithPaidPayment();
+    const byPayer = contest(book, settlementId, { asker: BOB });
+    expect(byPayer.isFailure() && byPayer.error.type).toBe('NotAllowed');
+    const left = contest(book, settlementId, { members: [ANN] });
+    expect(left.isFailure() && left.error.type).toBe('SettlementNotContestable');
+    const missing = contest(book, 'nothing');
+    expect(missing.isFailure() && missing.error.type).toBe('NotFound');
+    expect(book.hasChanges()).toBe(false);
+
+    const pending = bookWithPendingPayment();
+    const early = contest(pending.book, pending.settlementId);
+    expect(early.isFailure() && early.error.type).toBe('SettlementNotContestable');
+
+    const cash = SettlementBook.open('group-1');
+    const recorded = recordCash(cash);
+    const cashId = recorded.isSuccess() ? recorded.data._id : '';
+    const inCash = contest(cash, cashId);
+    expect(inCash.isFailure() && inCash.error.type).toBe('SettlementNotContestable');
+  });
+
+  it('decides a contest once: paid again, with an audit entry by the administrator, or annulled, with none, each in the log', () => {
+    const paid = readBookWithPaidPayment();
+    contest(paid.book, paid.settlementId);
+    paid.book.pullDomainEvents();
+    const decided = paid.book.decideContest(
+      { settlementId: paid.settlementId, paid: true, administrator: 'root' },
+      LATER,
+    );
+    expect(decided.isSuccess() && decided.data.status).toBe('paid');
+    expect(paid.book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementPaidEvent']);
+    expect(paid.book.newAuditEntries.map(entry => [entry.action, entry.by])).toEqual([
+      ['settlement-contested', ANN],
+      ['settlement-paid', 'root'],
+    ]);
+    expect(paid.book.toSnapshot().decisions).toEqual([
+      {
+        id: expect.any(String),
+        at: LATER.toISOString(),
+        by: 'root',
+        action: 'decided-paid',
+        subjectId: paid.settlementId,
+      },
+    ]);
+    const again = paid.book.decideContest(
+      { settlementId: paid.settlementId, paid: false, administrator: 'root' },
+      LATER,
+    );
+    expect(again.isFailure() && again.error.type).toBe('SettlementNotContested');
+    expect(contest(paid.book, paid.settlementId).isFailure()).toBe(true);
+
+    const annulled = readBookWithPaidPayment();
+    contest(annulled.book, annulled.settlementId);
+    annulled.book.pullDomainEvents();
+    const result = annulled.book.decideContest(
+      { settlementId: annulled.settlementId, paid: false, administrator: 'root' },
+      LATER,
+    );
+    expect(result.isSuccess() && result.data.status).toBe('annulled');
+    expect(annulled.book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementAnnulledEvent']);
+    expect(annulled.book.newAuditEntries.map(entry => entry.action)).toEqual(['settlement-contested']);
+    expect(annulled.book.toSnapshot().decisions).toEqual([expect.objectContaining({ action: 'decided-annulled' })]);
+  });
+
+  it('counts a contested settlement as waiting for what is still owed, and an annulled one no more', () => {
+    const { book, settlementId } = readBookWithPaidPayment();
+    contest(book, settlementId);
+    // The balances do not count it, so Bob owes 30 again, and Ann is owed 30; it waits, so nothing more is payable.
+    expect(book.payable({ payer: BOB, payee: ANN, balances: BALANCES })).toBe(0);
+
+    book.decideContest({ settlementId, paid: false, administrator: 'root' }, LATER);
+    expect(book.payable({ payer: BOB, payee: ANN, balances: BALANCES })).toBe(30);
   });
 });

@@ -134,3 +134,23 @@ export const MergeGroupResSchema = {
   404: RefusalSchema,
   409: RefusalSchema,
 } as const;
+
+/** The administrators' log, the oldest first: administrators only (request 33). */
+export const GetAdministratorsLogResSchema = {
+  200: {
+    type: 'array',
+    items: {
+      type: 'object',
+      required: ['id', 'at', 'by', 'action', 'subjectId'],
+      properties: {
+        id: { type: 'string' },
+        at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
+        by: { type: 'string' },
+        action: { enum: ['decided-paid', 'decided-annulled'] },
+        subjectId: { type: 'string' },
+      },
+    },
+  },
+  401: RefusalSchema,
+  404: RefusalSchema,
+} as const;

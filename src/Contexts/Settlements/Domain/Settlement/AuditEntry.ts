@@ -1,7 +1,7 @@
 import { Id } from '@Architecture/Domain';
 
 /** The changes of money Settlements writes to the audit (request 28): a settlement the balances start to count, or no longer count. */
-export type SettlementAuditAction = 'settlement-paid' | 'settlement-refunded';
+export type SettlementAuditAction = 'settlement-paid' | 'settlement-refunded' | 'settlement-contested';
 
 /**
  * One entry of a group's audit, for a change of money a settlement made (request 28): who made it (`by`), when (`at`), what

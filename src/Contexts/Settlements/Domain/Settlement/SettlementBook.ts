@@ -2,6 +2,7 @@ import { recordAudit, AuditEntry } from '@Contexts/Settlements/Domain/Settlement
 import { AggregateRoot, IResult, Id, NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
 
 import {
+  AdminLogEntry,
   ISettlementBookSnapshot,
   ISettlementSnapshot,
   ISettlementStatusLine,
@@ -12,6 +13,8 @@ import {
   PayeeHasNoPayoutAccountException,
   ProviderUnavailableException,
   SettlementExceedsBalanceException,
+  SettlementNotContestableException,
+  SettlementNotContestedException,
   SettlementNotRefundableException,
   SettlementPayerNotMemberException,
   SettlementToSelfException,
@@ -19,7 +22,9 @@ import {
 import {
   PaymentRequestedEvent,
   RefundRequestedEvent,
+  SettlementAnnulledEvent,
   SettlementBookMergedEvent,
+  SettlementContestedEvent,
   SettlementFailedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
@@ -50,6 +55,20 @@ export interface RefundRequest {
   settlementId: string;
   asker: string;
   members: string[];
+}
+
+/** A contest asked of the book: the settlement, the member who contests it, and the members of its group as the membership port says them now (request 33). */
+export interface ContestRequest {
+  settlementId: string;
+  asker: string;
+  members: string[];
+}
+
+/** An administrator's decision of a contested settlement: `paid` is whether the money arrived (request 33). */
+export interface ContestDecision {
+  settlementId: string;
+  paid: boolean;
+  administrator: string;
 }
 
 /** A refund decided, before the provider is asked: the settlement and the provider's id of its payment, which the provider is asked to refund. */
@@ -99,6 +118,11 @@ export interface PaymentProposal {
  * refunding settlement still counts, since the money has not gone back; the balances stop counting it when the provider says
  * it is refunded.
  *
+ * A paid settlement through the provider is contested by its payee (`contest()`), once, while both members are in the group: it
+ * is then `contested`, the balances stop counting it and what is still owed goes on counting it, until an administrator decides it
+ * (`decideContest()`): paid again, or annulled, which counts for nothing and no longer waits (request 33). Every decision is an
+ * entry of the administrators' log, and the audit says a settlement contested, and a settlement decided paid.
+ *
  * The book's version is the check (CONC-OPTIMISTIC): a save is refused when another writer saved first, and the command
  * handler re-reads the book and the balances and decides again. The book records what it decides and publishes nothing itself.
  */
@@ -116,6 +140,8 @@ export class SettlementBook extends AggregateRoot {
   readonly #audit: AuditEntry[] = [];
   /** The ids of the settlements of a merged group this book took up since it was read, in the order it took them (request 31). */
   readonly #moved: string[] = [];
+  /** The decisions of administrators made since the book was read, in the order they were made (request 33). */
+  readonly #decisions: AdminLogEntry[] = [];
 
   private constructor(id: Id, groupId: string, version: number, settlements: ISettlementSnapshot[]) {
     super(id, version);
@@ -289,6 +315,81 @@ export class SettlementBook extends AggregateRoot {
     return Result.ok();
   }
 
+  /**
+   * The payee of a paid settlement through the provider says the money did not reach them (request 33): only its payee may, only
+   * once for a settlement, and only while its payer and its payee are members of the group. The settlement is then contested, at
+   * `at`, and records `SettlementContested`; anything else is refused and nothing changes.
+   */
+  contest({ settlementId, asker, members }: ContestRequest, at: Date): IResult<ISettlementSnapshot> {
+    const settlement = this.#settlements.get(settlementId);
+    if (!settlement) return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));
+    if (settlement.to !== asker) {
+      return Result.fail(new NotAllowedException('Settlements', 'Only the payee of a settlement may contest it'));
+    }
+    if (
+      settlement.method !== 'provider' ||
+      settlement.status !== 'paid' ||
+      settlement.contested ||
+      !members.includes(settlement.from) ||
+      !members.includes(settlement.to)
+    ) {
+      return Result.fail(new SettlementNotContestableException());
+    }
+
+    this.#moveStatus(settlement, 'contested', at);
+    settlement.contested = true;
+    this.#audit.push(
+      recordAudit({
+        groupId: this.#groupId,
+        at,
+        by: settlement.to,
+        action: 'settlement-contested',
+        subjectId: settlement._id,
+        amount: settlement.amount,
+      }),
+    );
+    this.record(SettlementContestedEvent.set(this.#factsOf(settlement)));
+    return Result.ok({ ...settlement });
+  }
+
+  /**
+   * An administrator decides a contested settlement, once (request 33): `paid` says the money arrived, and the settlement is paid
+   * again, counted as it was, with the audit entry of a settlement paid made by the administrator; otherwise it is annulled, which
+   * is no entry of the audit, the balances having stopped counting it when it was contested. Either way the decision is an entry
+   * of the administrators' log. A settlement that is not contested is refused and nothing changes.
+   */
+  decideContest({ settlementId, paid, administrator }: ContestDecision, at: Date): IResult<ISettlementSnapshot> {
+    const settlement = this.#settlements.get(settlementId);
+    if (!settlement) return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));
+    if (settlement.status !== 'contested') return Result.fail(new SettlementNotContestedException());
+
+    if (paid) {
+      this.#moveStatus(settlement, 'paid', at);
+      this.#audit.push(
+        recordAudit({
+          groupId: this.#groupId,
+          at,
+          by: administrator,
+          action: 'settlement-paid',
+          subjectId: settlement._id,
+          amount: settlement.amount,
+        }),
+      );
+      this.record(SettlementPaidEvent.set(this.#factsOf(settlement)));
+    } else {
+      this.#moveStatus(settlement, 'annulled', at);
+      this.record(SettlementAnnulledEvent.set(this.#factsOf(settlement)));
+    }
+    this.#decisions.push({
+      id: Id.generate().value,
+      at: at.toISOString(),
+      by: administrator,
+      action: paid ? 'decided-paid' : 'decided-annulled',
+      subjectId: settlement._id,
+    });
+    return Result.ok({ ...settlement });
+  }
+
   /** The audit entries of the changes of money the book made since it was read, in the order it made them (request 28). */
   get newAuditEntries(): readonly AuditEntry[] {
     return this.#audit;
@@ -349,7 +450,7 @@ export class SettlementBook extends AggregateRoot {
 
   /** Whether the book moved since it was read: a settlement decided, a status the provider moved, or settlements of a merged group taken up. */
   hasChanges(): boolean {
-    return this.#recorded.length > 0 || this.#changed.size > 0 || this.#moved.length > 0;
+    return this.#recorded.length > 0 || this.#changed.size > 0 || this.#moved.length > 0 || this.#decisions.length > 0;
   }
 
   /** The book as the store writes it: what was decided or moved since it was read, with the version it was read at. */
@@ -363,6 +464,7 @@ export class SettlementBook extends AggregateRoot {
       changed: [...this.#changed].filter(id => !recordedIds.has(id)).map(id => ({ ...this.#settlements.get(id)! })),
       history: this.#history.map(line => ({ ...line })),
       moved: this.#moved.map(id => ({ ...this.#settlements.get(id)! })),
+      decisions: this.#decisions.map(decision => ({ ...decision })),
     };
   }
 
@@ -412,7 +514,7 @@ export class SettlementBook extends AggregateRoot {
     return settlement;
   }
 
-  /** What `payer` is still to pay through the provider: the payments waiting, which count as paid. */
+  /** What `payer` is still to pay through the provider: the payments waiting (pending, or contested), which count as paid. */
   #waitingFrom(member: string): number {
     return this.#sumPending(settlement => settlement.from === member);
   }
@@ -425,14 +527,20 @@ export class SettlementBook extends AggregateRoot {
   #sumPending(matches: (settlement: ISettlementSnapshot) => boolean): number {
     let total = 0;
     for (const settlement of this.#settlements.values()) {
-      if (settlement.method === 'provider' && settlement.status === 'pending' && matches(settlement)) {
+      if (
+        settlement.method === 'provider' &&
+        (settlement.status === 'pending' || settlement.status === 'contested') &&
+        matches(settlement)
+      ) {
         total += settlement.amount;
       }
     }
     return total;
   }
 
-  private keep(settlement: Omit<ISettlementSnapshot, 'groupId' | 'at'> & { at: Date }): ISettlementSnapshot {
+  private keep(
+    settlement: Omit<ISettlementSnapshot, 'groupId' | 'at' | 'contested'> & { at: Date },
+  ): ISettlementSnapshot {
     const kept: ISettlementSnapshot = {
       _id: settlement._id,
       groupId: this.#groupId,
@@ -444,6 +552,7 @@ export class SettlementBook extends AggregateRoot {
       status: settlement.status,
       providerPaymentId: settlement.providerPaymentId,
       payUrl: settlement.payUrl,
+      contested: false,
     };
     this.#settlements.set(kept._id, kept);
     this.#recorded.push(kept._id);

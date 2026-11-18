@@ -10,3 +10,7 @@ export * from '@Contexts/Settlements/Application/Commands/SetPayoutAccount/SetPa
 export * from '@Contexts/Settlements/Application/Commands/SetPayoutAccount/SetPayoutAccountCommandHandler';
 export * from '@Contexts/Settlements/Application/Commands/NetDebts/NetDebtsCommandEvent';
 export * from '@Contexts/Settlements/Application/Commands/NetDebts/NetDebtsCommandHandler';
+export * from '@Contexts/Settlements/Application/Commands/ContestSettlement/ContestSettlementCommandEvent';
+export * from '@Contexts/Settlements/Application/Commands/ContestSettlement/ContestSettlementCommandHandler';
+export * from '@Contexts/Settlements/Application/Commands/DecideContest/DecideContestCommandEvent';
+export * from '@Contexts/Settlements/Application/Commands/DecideContest/DecideContestCommandHandler';

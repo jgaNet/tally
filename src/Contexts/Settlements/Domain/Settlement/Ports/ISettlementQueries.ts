@@ -1,5 +1,5 @@
 import { AuditEntry } from '@Contexts/Settlements/Domain/Settlement/AuditEntry';
-import { SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import { AdminLogEntry, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 
 /** A settlement as a member reads it: the fields the API answers. `payUrl` is the link of a settlement through the provider only. */
 export interface SettlementView {
@@ -9,7 +9,7 @@ export interface SettlementView {
   to: string;
   amount: number;
   method: 'cash' | 'provider' | 'net';
-  status: 'paid' | 'pending' | 'failed' | 'refunding' | 'refunded';
+  status: SettlementStatus;
   at: string;
   payUrl?: string;
   /** Every status the settlement has had, the earliest first, each with when Tally learned it (request 19). */
@@ -70,6 +70,10 @@ export interface ISettlementQueries {
   countedIn(groupId: string): Promise<CountedSettlement[]>;
   /** Every payment of the group that waits at the provider, in the order they were requested. */
   waitingIn(groupId: string): Promise<WaitingSettlement[]>;
-  /** Every payment through the provider of the group that has not ended yet (pending, or refunding), in the order they were recorded (request 20). */
+  /** The settlements contested now, the earliest contested first (request 33). */
+  contested(): Promise<SettlementView[]>;
+  /** The administrators' log, the oldest first (request 33). */
+  adminLog(): Promise<AdminLogEntry[]>;
+  /** Every payment through the provider of the group that has not ended yet (pending, contested, or refunding), in the order they were recorded (request 20). */
   openProviderPaymentsIn(groupId: string): Promise<OpenProviderPayment[]>;
 }

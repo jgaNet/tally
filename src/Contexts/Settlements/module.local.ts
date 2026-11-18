@@ -7,6 +7,7 @@ import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/Integrat
 import { GroupsMergedIntegrationEventHandler } from '@Contexts/Settlements/Application/Events/GroupsMergedIntegrationEventHandler';
 import { groupQueries } from '@Contexts/Groups/module.local';
 import {
+  GetContestsQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetPayoutAccountQueryHandler,
@@ -14,6 +15,10 @@ import {
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
 import {
+  ContestSettlementCommandEvent,
+  ContestSettlementCommandHandler,
+  DecideContestCommandEvent,
+  DecideContestCommandHandler,
   NetDebtsCommandEvent,
   NetDebtsCommandHandler,
   PayThroughProviderCommandEvent,
@@ -93,6 +98,14 @@ export const localSettlementsModule = new Module({
       handlers: [new RefundSettlementCommandHandler(settlementMembers, books, paymentProvider, clock)],
     },
     {
+      event: ContestSettlementCommandEvent,
+      handlers: [new ContestSettlementCommandHandler(settlementMembers, books, clock)],
+    },
+    {
+      event: DecideContestCommandEvent,
+      handlers: [new DecideContestCommandHandler(books, clock)],
+    },
+    {
       event: NetDebtsCommandEvent,
       handlers: [new NetDebtsCommandHandler(settlementMembers, groupBalances, books, nettings, clock)],
     },
@@ -113,5 +126,6 @@ export const localSettlementsModule = new Module({
     new GetGroupSettlementsQueryHandler(settlementQueries, settlementMembers),
     new GetPayoutAccountQueryHandler(payoutAccountQueries),
     new GetNettingQueryHandler(nettingQueries),
+    new GetContestsQueryHandler(settlementQueries),
   ],
 });

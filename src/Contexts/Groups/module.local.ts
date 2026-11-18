@@ -21,6 +21,7 @@ import {
   SignUpCommandHandler,
 } from '@Contexts/Groups/Application/Commands';
 import {
+  GetAdministratorsLogQueryHandler,
   GetGroupMembersQueryHandler,
   GetGroupQueryHandler,
   GetInvitationQueryHandler,
@@ -37,6 +38,8 @@ import { PostgresInvitationQueries } from '@Contexts/Groups/Infrastructure/Queri
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/Services/ScryptPasswordHasher';
 import { HmacAccessTokens } from '@Contexts/Groups/Infrastructure/Services/HmacAccessTokens';
 import { LedgerBalances } from '@Contexts/Groups/Infrastructure/Ledger/LedgerBalances';
+import { SettlementsAdministratorDecisions } from '@Contexts/Groups/Infrastructure/Settlements/SettlementsAdministratorDecisions';
+import { Administrators } from '@Contexts/Groups/Domain/Account/Administrators';
 import { SettlementsWaitingPayments } from '@Contexts/Groups/Infrastructure/Settlements/SettlementsWaitingPayments';
 import { bearerAuthentication } from '@Contexts/Groups/Presentation/API/REST/Middlewares/BearerAuthentication';
 import { GroupsMergedHandler } from '@Contexts/Groups/Application/Events/GroupsMergedHandler';
@@ -64,8 +67,16 @@ const memberBalances = new LedgerBalances(ledgerBalanceQueries);
 /** Whether a payment of a member waits at the provider, asked when a member leaves: Settlements' read model, passed by the composition root (ADR 11). */
 const waitingPayments = new SettlementsWaitingPayments(settlementReadModel);
 
-/** Who is calling, from the bearer token: the transport's `authenticate`, given by the composition root. */
-export const authenticateAccount = bearerAuthentication(tokens);
+/** The administrators' decisions Settlements wrote, read through the port Groups owns, over Settlements' read model passed by the composition root (request 33). */
+const administratorDecisions = new SettlementsAdministratorDecisions(settlementReadModel);
+
+/**
+ * Who is calling, from the bearer token: the transport's `authenticate`, given by the composition root. The account whose email is
+ * in ADMIN_EMAILS, read where the server is started, is an administrator (request 33).
+ */
+export const authenticateAccount = bearerAuthentication(tokens, accountQueries, () =>
+  Administrators.fromList(process.env.ADMIN_EMAILS),
+);
 
 export const localGroupsModule = new Module({
   name: 'Groups',
@@ -98,5 +109,6 @@ export const localGroupsModule = new Module({
     new GetMyGroupsQueryHandler(groupQueries),
     new GetGroupMembersQueryHandler(groupQueries),
     new GetInvitationQueryHandler(invitationQueries),
+    new GetAdministratorsLogQueryHandler(administratorDecisions),
   ],
 });

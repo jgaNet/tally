@@ -5,6 +5,11 @@ import { Module } from '@Architecture/Application';
 import { FastifySettlementController } from '@Contexts/Settlements/Presentation/API/REST/Controllers/FastifySettlementController';
 import { providerSignatureIsValid } from '@Contexts/Settlements/Presentation/API/REST/Routes/provider-signature';
 import {
+  ContestSettlementResSchema,
+  DecideContestBody,
+  DecideContestReqBodySchema,
+  DecideContestResSchema,
+  GetContestsResSchema,
   GetGroupSettlementsResSchema,
   GetNettingResSchema,
   GetPayoutAccountResSchema,
@@ -107,6 +112,24 @@ export const settlementRoutes = function (
     '/settlements/:id/refund',
     { schema: { tags, response: RefundSettlementResSchema } },
     controller.refundSettlement.bind(controller),
+  );
+
+  fastify.post<{ Params: { id: string } }>(
+    '/settlements/:id/contest',
+    { schema: { tags, response: ContestSettlementResSchema } },
+    controller.contestSettlement.bind(controller),
+  );
+
+  fastify.get(
+    '/admin/contests',
+    { schema: { tags, response: GetContestsResSchema } },
+    controller.getContests.bind(controller),
+  );
+
+  fastify.post<{ Params: { id: string }; Body: DecideContestBody }>(
+    '/admin/settlements/:id/decision',
+    { schema: { tags, body: DecideContestReqBodySchema, response: DecideContestResSchema } },
+    controller.decideContest.bind(controller),
   );
 
   fastify.put<{ Body: SetPayoutAccountBody }>(

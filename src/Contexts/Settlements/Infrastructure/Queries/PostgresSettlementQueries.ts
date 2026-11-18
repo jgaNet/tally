@@ -5,7 +5,7 @@ import {
   createSettlementTables,
   SettlementRow,
 } from '@Contexts/Settlements/Infrastructure/Repositories/PostgresSettlementBookRepository';
-import { SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import { AdminLogEntry, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
   CountedSettlement,
   ISettlementQueries,
@@ -120,9 +120,37 @@ export class PostgresSettlementQueries implements ISettlementQueries {
     }));
   }
 
+  async contested(): Promise<SettlementView[]> {
+    const rows = await this.database.all<SettlementRow>(
+      `SELECT s.* FROM settlements s
+        WHERE s.status = 'contested'
+        ORDER BY (SELECT MAX(h.seq) FROM settlement_history h WHERE h.settlement_id = s.id AND h.status = 'contested')`,
+    );
+    const views: SettlementView[] = [];
+    for (const row of rows) views.push((await this.findById(row.id))!);
+    return views;
+  }
+
+  async adminLog(): Promise<AdminLogEntry[]> {
+    const rows = await this.database.all<{
+      id: string;
+      at: string;
+      by_account: string;
+      action: AdminLogEntry['action'];
+      subject_id: string;
+    }>('SELECT id, at, by_account, action, subject_id FROM settlement_admin_log ORDER BY seq');
+    return rows.map(row => ({
+      id: row.id,
+      at: row.at,
+      by: row.by_account,
+      action: row.action,
+      subjectId: row.subject_id,
+    }));
+  }
+
   async openProviderPaymentsIn(groupId: string): Promise<OpenProviderPayment[]> {
     const rows = await this.database.all<{ payer: string; payee: string }>(
-      "SELECT payer, payee FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding') ORDER BY recorded_seq",
+      "SELECT payer, payee FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'contested', 'refunding') ORDER BY recorded_seq",
       [groupId],
     );
     return rows.map(row => ({ from: row.payer, to: row.payee }));
@@ -130,7 +158,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
 
   async waitingIn(groupId: string): Promise<WaitingSettlement[]> {
     const rows = await this.database.all<{ payer: string; payee: string; amount: number }>(
-      "SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND method = 'provider' AND status = 'pending' ORDER BY recorded_seq",
+      "SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'contested') ORDER BY recorded_seq",
       [groupId],
     );
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));

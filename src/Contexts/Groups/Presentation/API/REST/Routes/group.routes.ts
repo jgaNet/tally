@@ -7,6 +7,7 @@ import {
   CreateGroupReqBodySchema,
   CreateGroupResSchema,
   CreateInvitationResSchema,
+  GetAdministratorsLogResSchema,
   GetGroupMembersResSchema,
   GetGroupResSchema,
   GetMyGroupsResSchema,
@@ -31,6 +32,12 @@ export const groupRoutes = function (fastify: FastifyInstance, { module }: { mod
     '/groups/mine',
     { schema: { tags, response: GetMyGroupsResSchema } },
     controller.getMyGroups.bind(controller),
+  );
+
+  fastify.get(
+    '/admin/log',
+    { schema: { tags, response: GetAdministratorsLogResSchema } },
+    controller.getAdministratorsLog.bind(controller),
   );
 
   fastify.get<{ Params: { id: string } }>(

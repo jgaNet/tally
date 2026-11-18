@@ -42,7 +42,7 @@ const StatusLineSchema = {
   type: 'object',
   required: ['status', 'at'],
   properties: {
-    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
   },
 } as const;
@@ -58,7 +58,7 @@ const SettlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
     method: { enum: ['cash', 'provider', 'net'] },
-    status: { enum: ['paid', 'pending', 'failed', 'refunding', 'refunded'] },
+    status: { enum: ['paid', 'pending', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },
     history: { type: 'array', minItems: 1, items: StatusLineSchema },
@@ -74,6 +74,29 @@ export const RefundSettlementResSchema = {
   403: RefusalSchema,
   404: RefusalSchema,
   409: RefusalSchema,
+} as const;
+
+/** A contest asked at once: the settlement's id (request 33). A refusal is the rule's, named by its type. */
+export const ContestSettlementResSchema = RefundSettlementResSchema;
+
+/** The body of an administrator's decision: `paid` is `true` when the money arrived. Whether the settlement is contested is the domain's to decide (request 33). */
+export interface DecideContestBody {
+  paid: boolean;
+}
+
+export const DecideContestReqBodySchema = {
+  type: 'object',
+  required: ['paid'],
+  properties: { paid: { type: 'boolean' } },
+} as const;
+
+export const DecideContestResSchema = RefundSettlementResSchema;
+
+/** The settlements contested now, the earliest contested first: administrators only (request 33). */
+export const GetContestsResSchema = {
+  200: { type: 'array', items: SettlementSchema },
+  401: RefusalSchema,
+  404: RefusalSchema,
 } as const;
 
 export const GetSettlementResSchema = {

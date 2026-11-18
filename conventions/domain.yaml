@@ -152,7 +152,10 @@ relationships:
       A member leaves a group only once no payment they pay or receive through the provider waits, pending or refunding:
       a payment that landed after they left would change a former member's balance, and only Settlements knows which
       payments wait. Groups asks through a port it owns (WaitingPayments), answered over Settlements' read model, in
-      the leave's own transaction (request 20, ADR 11).
+      the leave's own transaction (request 20, ADR 11). A contested settlement (request 33) waits as a pending
+      one does, so the same port answers it. Groups answers the administrators' log through a second port it owns
+      (AdministratorDecisions), answered over Settlements' read model: Settlements writes each decision of an administrator in the
+      transaction of the decision (ADR 21).
   - upstream: Ledger
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]

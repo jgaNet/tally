@@ -5,6 +5,8 @@ import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommandAtOnce, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
 import {
+  ContestSettlementCommandEvent,
+  DecideContestCommandEvent,
   NetDebtsCommandEvent,
   PayThroughProviderCommandEvent,
   RecordCashSettlementCommandEvent,
@@ -13,6 +15,7 @@ import {
 } from '@Contexts/Settlements/Application/Commands';
 import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook/ReceivePaymentWebhookCommandEvent';
 import {
+  GetContestsQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetPayoutAccountQueryHandler,
@@ -20,6 +23,7 @@ import {
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
 import {
+  DecideContestBody,
   NetDebtsBody,
   PayThroughProviderBody,
   ProviderWebhookBody,
@@ -76,6 +80,30 @@ export class FastifySettlementController {
       this.#module,
       RefundSettlementCommandEvent.set({ settlementId: req.params.id }),
     );
+  }
+
+  contestSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommandAtOnce(
+      req,
+      reply,
+      this.#module,
+      ContestSettlementCommandEvent.set({ settlementId: req.params.id }),
+    );
+  }
+
+  decideContest(req: FastifyRequest<{ Params: { id: string }; Body: DecideContestBody }>, reply: FastifyReply) {
+    return acceptCommandAtOnce(
+      req,
+      reply,
+      this.#module,
+      DecideContestCommandEvent.set({ settlementId: req.params.id, paid: req.body.paid }),
+    );
+  }
+
+  async getContests(req: FastifyRequest, reply: FastifyReply) {
+    const result = await this.#module.getQuery(GetContestsQueryHandler).handle(undefined, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }
 
   receiveProviderWebhook(req: FastifyRequest<{ Body: ProviderWebhookBody }>, reply: FastifyReply) {
