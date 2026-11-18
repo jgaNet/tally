@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-3",
+  "ref": "57368e479973321d80746367c6b2aafd25889bd3",
+  "commit": "57368e479973321d80746367c6b2aafd25889bd3",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "budgets",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 4 passed, 5 total",
+        "failed": [
+          "budgets › makes one budget notice per member and month, even when the server is killed and started again"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● budgets › makes one budget notice per member and month, even when the server is killed and started again",
+          "    - Expected  - 6",
+          "    + Received  + 1",
+          "Tests:       1 failed, 4 passed, 5 total"
+        ]
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../57368e479973.storms/budgets.yaml is done, but Ledger: typescript lacks the command expected by ../57368e479973.storms/budgets.yaml has: RemoveBudget (a signed-in account, DELETE /groups/{param}/budgets/{param}, Budget → BudgetRemoved)",
+          "../57368e479973.storms/budgets.yaml is done, but Ledger: typescript lacks the command expected by ../57368e479973.storms/budgets.yaml has: SetBudget (a signed-in account, PUT /groups/{param}/budgets/{param}, Budget → BudgetSet)",
+          "../57368e479973.storms/budgets.yaml is done, but Ledger: typescript has a command expected by ../57368e479973.storms/budgets.yaml does not: RemoveBudget (a signed-in account, DELETE /groups/{param}/budgets/{param}, Budget → BudgetRemoved; answered at once)",
+          "../57368e479973.storms/budgets.yaml is done, but Ledger: typescript has a command expected by ../57368e479973.storms/budgets.yaml does not: SetBudget (a signed-in account, PUT /groups/{param}/budgets/{param}, Budget → BudgetSet, TemplateSaved; answered at once)"
+        ]
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 259,
+  "workers": 1
+}
