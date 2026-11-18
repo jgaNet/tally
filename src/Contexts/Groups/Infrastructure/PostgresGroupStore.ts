@@ -307,6 +307,19 @@ export class PostgresGroupStore implements IGroupStore, IGroupRoster {
     }));
   }
 
+  async groupsOf(accountId: string): Promise<string[]> {
+    const rows = (await this.database.read(db =>
+      db
+        .prepare(
+          `SELECT m.group_id FROM group_members m JOIN groups g ON g.id = m.group_id
+            WHERE m.account_id = ? AND m.group_id NOT IN (SELECT group_id FROM group_merges)
+            ORDER BY g.created_at ASC, g.rowid ASC`,
+        )
+        .all(accountId),
+    )) as { group_id: string }[];
+    return rows.map(row => row.group_id);
+  }
+
   async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {
     const row = await this.database.read(db =>
       db

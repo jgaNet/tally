@@ -41,6 +41,23 @@ export interface StatementRowView {
   readonly recordedAt: string;
 }
 
+/** A group the account is a member of, with the currency it was created in: the one its expenses are counted in (request 21). */
+export interface GroupCurrencyOf {
+  readonly groupId: string;
+  readonly currency: string;
+}
+
+/**
+ * What a person spent in a month, in a currency, on a category (feature 37): the sum of their shares in the groups' expenses of that category
+ * dated in that month (UTC), in the group's currency. Only the amounts above 0 are answered.
+ */
+export interface InsightView {
+  readonly month: string;
+  readonly currency: string;
+  readonly category: Category;
+  readonly amount: number;
+}
+
 /**
  * The store of expenses, the port the use cases write and read through. `add` keeps a new expense with its shares, and the
  * balances it counts, in the transaction of the command; `findById` loads an expense as the aggregate it was last saved as,
@@ -72,4 +89,11 @@ export interface IExpenseStore {
    * there are none (request 24). Read from the committed expenses, as a balance is.
    */
   spentIn(groupId: string, category: Category, month: string): Promise<number>;
+  /**
+   * What the account's shares come to across the groups given (feature 37, request 37): one line per month, currency and category where
+   * the sum is above 0, in the order the feature gives: the earliest month first; in a month, the currencies alphabetically; in a currency,
+   * the categories in the order CATEGORIES lists them. The expenses not deleted only (a deleted one has no rows), each in its group's currency.
+   * A group not given is not counted; no group given answers [].
+   */
+  insightsOf(memberId: string, groups: readonly GroupCurrencyOf[]): Promise<InsightView[]>;
 }

@@ -2,8 +2,10 @@ import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import {
+  GroupCurrencyOf,
   IExpenseStore,
   ExpenseView,
+  InsightView,
   MemberBalanceView,
   StatementRowView,
 } from '@Contexts/Ledger/Application/IExpenseStore';
@@ -251,6 +253,46 @@ export class PostgresExpenseStore implements IExpenseStore {
         .get(groupId, category, month),
     )) as { spent: number };
     return row.spent;
+  }
+
+  async insightsOf(memberId: string, groups: readonly GroupCurrencyOf[]): Promise<InsightView[]> {
+    if (groups.length === 0) return [];
+    const currencies = new Map(groups.map(({ groupId, currency }) => [groupId, currency]));
+    const rows = (await this.database.read(db =>
+      db
+        .prepare(
+          `SELECT e.group_id, substr(e.spent_on, 1, 7) AS month, c.category, SUM(s.amount) AS amount
+             FROM expense_shares s
+             JOIN expenses e ON e.id = s.expense_id
+             JOIN expense_categories c ON c.expense_id = e.id
+            WHERE s.member_id = ? AND e.group_id IN (${groups.map(() => '?').join(', ')})
+            GROUP BY e.group_id, month, c.category`,
+        )
+        .all(memberId, ...groups.map(({ groupId }) => groupId)),
+    )) as unknown as { group_id: string; month: string; category: Category; amount: number }[];
+
+    // A group's amounts are summed by currency, then the lines are put in the order the port declares.
+    const totals = new Map<string, InsightView>();
+    for (const row of rows) {
+      const currency = currencies.get(row.group_id);
+      if (currency === undefined) continue;
+      const key = `${row.month}\u0000${currency}\u0000${row.category}`;
+      const line = totals.get(key);
+      totals.set(key, {
+        month: row.month,
+        currency,
+        category: row.category,
+        amount: (line?.amount ?? 0) + row.amount,
+      });
+    }
+    return [...totals.values()]
+      .filter(line => line.amount > 0)
+      .sort(
+        (a, b) =>
+          a.month.localeCompare(b.month) ||
+          a.currency.localeCompare(b.currency) ||
+          CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category),
+      );
   }
 
   async statementRowsOf(groupId: string, memberId: string): Promise<StatementRowView[]> {

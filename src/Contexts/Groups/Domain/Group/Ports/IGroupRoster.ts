@@ -10,6 +10,11 @@ export interface IGroupRoster {
   membersOf(groupId: string): Promise<RosterMember[] | undefined>;
   /** Whether the account is, or has been, a member of the group: a member who left keeps their statement (feature 9). */
   hasBeenMember(groupId: string, accountId: string): Promise<boolean>;
+  /**
+   * The ids of the groups the account is a member of now, the earliest made first (feature 37): a group it has left is not among them, nor
+   * a group merged into another. An account in no group, or one that is not there, answers [].
+   */
+  groupsOf(accountId: string): Promise<string[]>;
   /** The currency the group was created in, as a code (EUR, USD, ...); a group that is not there answers `undefined` (feature 13). */
   currencyOf(groupId: string): Promise<string | undefined>;
   /**

@@ -39,6 +39,7 @@ import { PostgresAuditLog, auditTablesSchema } from '@Contexts/Ledger/Infrastruc
 import { ISettlementAudit } from '@Contexts/Ledger/Application/ISettlementAudit';
 import { IPassedBalances } from '@Contexts/Ledger/Application/IPassedBalances';
 import { getGroupAudit } from '@Contexts/Ledger/Application/Audit';
+import { getMyInsights } from '@Contexts/Ledger/Application/Insights';
 import {
   PostgresRecurringExpenseStore,
   recurringExpensesTablesSchema,
@@ -153,6 +154,7 @@ export function ledgerWiring(
       getGroupTemplates(templates, groupMembers),
       attachReceipt(expenses, groupMembers, receipts, receiptStore, systemClock),
       getReceipt(expenses, groupMembers, receipts),
+      getMyInsights(expenses, groupMembers, groupCurrency),
     ],
   });
 }

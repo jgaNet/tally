@@ -21,6 +21,11 @@ export interface IGroupMembers {
    */
   hasBeenMember(groupId: string, memberId: string): Promise<boolean>;
   /**
+   * The groups the account is a member of now (feature 37, request 37): a group it has left is not among them. The ids are the groups' own;
+   * the order is the earliest made first. Answered over the same roster.
+   */
+  groupsOf(memberId: string): Promise<string[]>;
+  /**
    * The balances that passed to the owner when members left the group, in the order they were made (request 20, ADR 15): every
    * balance Ledger reads takes each one off the leaver and puts it on the owner, so the leaver stands at 0 and the group still adds up
    * to 0. Answered over the same roster.

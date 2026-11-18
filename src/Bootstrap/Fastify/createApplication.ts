@@ -23,6 +23,7 @@ import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCu
 import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
 import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/HttpReceiptStore';
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
+import { insightRoutes } from '@Contexts/Ledger/Presentation/insights.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
 import { ratesRoutes } from '@Contexts/Ledger/Presentation/rates.routes';
@@ -190,6 +191,7 @@ export async function createApplication({
     .registerRoutes('/', adminRoutes, { module: groups.module })
     .registerRoutes('/', expenseRoutes, { module: ledger })
     .registerRoutes('/', balanceRoutes, { module: ledger })
+    .registerRoutes('/', insightRoutes, { module: ledger })
     .registerRoutes('/', historyRoutes, { module: ledger })
     .registerRoutes('/', ratesRoutes, { module: ledger })
     .registerRoutes('/', recurringRoutes, { module: ledger })

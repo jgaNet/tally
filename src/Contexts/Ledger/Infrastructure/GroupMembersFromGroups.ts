@@ -20,6 +20,10 @@ export class GroupMembersFromGroups implements IGroupMembers {
     return this.roster.hasBeenMember(groupId, memberId);
   }
 
+  groupsOf(memberId: string): Promise<string[]> {
+    return this.roster.groupsOf(memberId);
+  }
+
   passedBalancesOf(groupId: string): Promise<PassedBalance[]> {
     return this.roster.passedBalancesOf(groupId);
   }
