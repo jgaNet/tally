@@ -27,6 +27,7 @@ import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes';
 import { localNotificationsModule, remindLingeringDebts } from '@Contexts/Notifications/module.local';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/API/REST/Routes/notice.routes';
+import { noticePreferenceRoutes } from '@Contexts/Notifications/Presentation/API/REST/Routes/notice-preference.routes';
 
 /**
  * The composition root (ADR 27): the application's state is in one SQLite file (DATABASE_PATH), and every request
@@ -90,7 +91,8 @@ export async function createApplication({
       module: localSettlementsModule,
       providerWebhookSecret: process.env.PROVIDER_WEBHOOK_SECRET ?? '',
     })
-    .registerRoutes('/', noticeRoutes, { module: localNotificationsModule });
+    .registerRoutes('/', noticeRoutes, { module: localNotificationsModule })
+    .registerRoutes('/', noticePreferenceRoutes, { module: localNotificationsModule });
 
   await app.startModules();
 

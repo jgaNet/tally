@@ -57,8 +57,11 @@ export class DebtWatch extends AggregateRoot {
    * debt from this run, if it was not noted; a debt noted for `periodMs` or more, not reminded in the last `periodMs`, is reminded
    * at this run. Owing 2000 or less clears the note. Returns whether anything changed (so the caller saves) and whether a reminder
    * is owed (so the caller makes the notice); the events are recorded here.
+   *
+   * `mayRemind` is whether the member wants reminders now (request 36). A reminder they have turned off is not owed and not
+   * recorded: the debt stays noted, and the first run after they turn reminders on again reminds it, as if none was missed.
    */
-  observe({ owes, at, periodMs }: { owes: number; at: Date; periodMs: number }): {
+  observe({ owes, at, periodMs, mayRemind }: { owes: number; at: Date; periodMs: number; mayRemind: boolean }): {
     changed: boolean;
     reminded: boolean;
   } {
@@ -78,7 +81,7 @@ export class DebtWatch extends AggregateRoot {
 
     const lingered = at.getTime() - this.#notedSince.getTime() >= periodMs;
     const notRemindedLately = !this.#lastReminded || at.getTime() - this.#lastReminded.getTime() >= periodMs;
-    if (!lingered || !notRemindedLately) return { changed, reminded: false };
+    if (!lingered || !notRemindedLately || !mayRemind) return { changed, reminded: false };
 
     this.#lastReminded = at;
     this.record(

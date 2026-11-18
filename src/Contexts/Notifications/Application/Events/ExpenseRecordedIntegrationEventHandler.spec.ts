@@ -10,6 +10,7 @@ import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/Integ
 import { ExpenseRecordedIntegrationEventHandler } from '@Contexts/Notifications/Application/Events/ExpenseRecordedIntegrationEventHandler';
 import { PostgresNoticeRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresNoticeRepository';
 import { PostgresNoticeQueries } from '@Contexts/Notifications/Infrastructure/Queries/PostgresNoticeQueries';
+import { PostgresNoticePreferenceRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresNoticePreferenceRepository';
 
 /**
  * One notice per member, even when Tally is stopped at any moment and started again (request 17). A process that dies
@@ -42,13 +43,14 @@ describe('ExpenseRecordedIntegrationEventHandler (request 17)', () => {
     const database = new PostgresDatabase(process.env.DATABASE_URL!);
     databases.push(database);
     const notices = new PostgresNoticeRepository(database);
+    const preferences = new PostgresNoticePreferenceRepository(database);
     const unitOfWork = new PostgresUnitOfWork(database, new PostgresOutbox(database));
     await database.open();
 
     const bus = new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: () => AT });
     await bus.subscribe(
       ExpenseRecordedIntegrationEvent.name,
-      new ExpenseRecordedIntegrationEventHandler(notices, () => AT),
+      new ExpenseRecordedIntegrationEventHandler(notices, preferences, () => AT),
     );
     const context = new ExecutionContext({
       traceId: 'trace',

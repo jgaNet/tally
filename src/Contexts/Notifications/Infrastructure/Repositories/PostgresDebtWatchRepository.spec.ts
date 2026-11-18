@@ -31,15 +31,22 @@ describe('PostgresDebtWatchRepository', () => {
     const opened = DebtWatch.open({ groupId: 'house', memberId: 'cy' });
     if (opened.isFailure()) throw opened.error;
     const noted = opened.data;
-    noted.observe({ owes: 2500, at: AT, periodMs: WEEK });
+    noted.observe({ owes: 2500, at: AT, periodMs: WEEK, mayRemind: true });
     expect((await first.save(noted)).isSuccess()).toBe(true);
 
     const watchOfFirst = (await first.findBy('house', 'cy'))!;
     const watchOfSecond = (await (await startServer()).findBy('house', 'cy'))!;
-    expect(watchOfFirst.observe({ owes: 2500, at: new Date(AT.getTime() + WEEK), periodMs: WEEK }).reminded).toBe(true);
+    expect(
+      watchOfFirst.observe({ owes: 2500, at: new Date(AT.getTime() + WEEK), periodMs: WEEK, mayRemind: true }).reminded,
+    ).toBe(true);
     expect((await first.save(watchOfFirst)).isSuccess()).toBe(true);
 
-    const reminded = watchOfSecond.observe({ owes: 2500, at: new Date(AT.getTime() + WEEK), periodMs: WEEK });
+    const reminded = watchOfSecond.observe({
+      owes: 2500,
+      at: new Date(AT.getTime() + WEEK),
+      periodMs: WEEK,
+      mayRemind: true,
+    });
     expect(reminded.reminded).toBe(true);
     const refused = await (await startServer()).save(watchOfSecond);
     expect(refused.isFailure() && refused.error instanceof ConcurrencyConflictException).toBe(true);
@@ -54,8 +61,8 @@ describe('PostgresDebtWatchRepository', () => {
     const noted = DebtWatch.open({ groupId: 'flat', memberId: 'cy' });
     const cleared = DebtWatch.open({ groupId: 'flat', memberId: 'dee' });
     if (noted.isFailure() || cleared.isFailure()) throw new Error('a watch is for a member of a group');
-    noted.data.observe({ owes: 2500, at: AT, periodMs: WEEK });
-    cleared.data.observe({ owes: 100, at: AT, periodMs: WEEK });
+    noted.data.observe({ owes: 2500, at: AT, periodMs: WEEK, mayRemind: true });
+    cleared.data.observe({ owes: 100, at: AT, periodMs: WEEK, mayRemind: true });
     await repository.save(noted.data);
     await repository.save(cleared.data);
 

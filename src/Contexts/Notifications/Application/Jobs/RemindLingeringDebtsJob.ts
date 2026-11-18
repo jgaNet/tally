@@ -7,6 +7,8 @@ import { IDebtWatchRepository } from '@Contexts/Notifications/Domain/DebtWatch/P
 import { IOutstandingDebts } from '@Contexts/Notifications/Domain/DebtWatch/Ports/IOutstandingDebts';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 import { INoticeRepository } from '@Contexts/Notifications/Domain/Notice/Ports/INoticeRepository';
+import { NoticePreferences } from '@Contexts/Notifications/Domain/NoticePreference/NoticePreferences';
+import { INoticePreferenceRepository } from '@Contexts/Notifications/Domain/NoticePreference/Ports/INoticePreferenceRepository';
 
 /**
  * The background job that reminds a member who has owed more than 2000 in a group for a period (request 18, the storm
@@ -14,7 +16,9 @@ import { INoticeRepository } from '@Contexts/Notifications/Domain/Notice/Ports/I
  * or reminded, by the member's DebtWatch. Each member is decided in a transaction of its own, where the watch's change and the
  * reminder's notice are saved and what they record is published after the commit; a run that loses a race with another server
  * reads the watch again and decides again (CONC-OPTIMISTIC, up to three attempts). A member whose decision fails is logged, and
- * the next run tries again. The time is the application's clock, read once per run and handed to the aggregate.
+ * the next run tries again. The time is the application's clock, read once per run and handed to the aggregate. A member who has
+ * turned reminders off (request 36) is decided without a reminder: the debt stays noted, and is reminded at the first run after
+ * they turn them on again.
  */
 export class RemindLingeringDebtsJob {
   static readonly CONFLICT_ATTEMPTS = 3;
@@ -23,6 +27,7 @@ export class RemindLingeringDebtsJob {
     private debts: IOutstandingDebts,
     private watches: IDebtWatchRepository,
     private notices: INoticeRepository,
+    private preferences: INoticePreferenceRepository,
     private clock: Clock,
   ) {}
 
@@ -80,7 +85,13 @@ export class RemindLingeringDebtsJob {
       watch = opened.data;
     }
 
-    const { changed, reminded } = watch.observe({ owes: debt.owes, at, periodMs });
+    const preferences = (await this.preferences.findByPerson(debt.memberId)) ?? NoticePreferences.open(debt.memberId);
+    const { changed, reminded } = watch.observe({
+      owes: debt.owes,
+      at,
+      periodMs,
+      mayRemind: preferences.wants('reminder'),
+    });
     if (!changed) return Result.ok();
 
     const saved = await this.watches.save(watch);

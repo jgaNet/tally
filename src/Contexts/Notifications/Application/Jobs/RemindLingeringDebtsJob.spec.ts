@@ -12,6 +12,8 @@ import { IOutstandingDebts } from '@Contexts/Notifications/Domain/DebtWatch/Port
 import { PostgresDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresDebtWatchRepository';
 import { PostgresNoticeRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresNoticeRepository';
 import { PostgresNoticeQueries } from '@Contexts/Notifications/Infrastructure/Queries/PostgresNoticeQueries';
+import { NoticePreferences } from '@Contexts/Notifications/Domain/NoticePreference/NoticePreferences';
+import { PostgresNoticePreferenceRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresNoticePreferenceRepository';
 
 /**
  * The reminders sweep (request 18, ADR 10), on a real database: what each member still owes is the test's, given through the port the
@@ -35,6 +37,7 @@ describe('RemindLingeringDebtsJob (request 18)', () => {
   let database: PostgresDatabase;
   let watches: PostgresDebtWatchRepository;
   let notices: PostgresNoticeRepository;
+  let preferences: PostgresNoticePreferenceRepository;
   let noticeQueries: PostgresNoticeQueries;
   let unitOfWork: PostgresUnitOfWork;
 
@@ -43,6 +46,7 @@ describe('RemindLingeringDebtsJob (request 18)', () => {
     database = new PostgresDatabase(process.env.DATABASE_URL!);
     watches = new PostgresDebtWatchRepository(database);
     notices = new PostgresNoticeRepository(database);
+    preferences = new PostgresNoticePreferenceRepository(database);
     noticeQueries = new PostgresNoticeQueries(database);
     unitOfWork = new PostgresUnitOfWork(database, new PostgresOutbox(database));
     await database.open();
@@ -60,7 +64,7 @@ describe('RemindLingeringDebtsJob (request 18)', () => {
   /** One run of the job at `at`, in a context of its own over the database, as the composition root's job is. */
   async function sweep(at: number, { periodMs = WEEKLY } = {}): Promise<void> {
     clockAt = at;
-    const job = new RemindLingeringDebtsJob(owed, watches, notices, () => new Date(clockAt));
+    const job = new RemindLingeringDebtsJob(owed, watches, notices, preferences, () => new Date(clockAt));
     const bus = new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: () => new Date(clockAt) });
     const context = new ExecutionContext({
       traceId: `sweep-${at}`,
@@ -133,6 +137,27 @@ describe('RemindLingeringDebtsJob (request 18)', () => {
     owed.debts = [{ groupId: 'house', memberId: 'zed', owes: 2500 }];
     await sweep(T0 + WEEK + HOUR); // noted again from this run, not reminded at once
     expect(await remindersOf('zed')).toEqual([]);
+  });
+
+  /** Turns a member's reminders on or off, as their own command does (request 36). */
+  async function setReminders(memberId: string, enabled: boolean): Promise<void> {
+    const found = (await preferences.findByPerson(memberId)) ?? NoticePreferences.open(memberId);
+    found.set({ kind: 'reminder', enabled });
+    expect((await preferences.save(found)).isSuccess()).toBe(true);
+  }
+
+  it('does not remind a member who has turned reminders off, and reminds them at the first run after they are on again (request 36)', async () => {
+    owed.debts = [{ groupId: 'house', memberId: 'ivy', owes: 2500 }];
+    await sweep(T0); // noted from this run
+
+    await setReminders('ivy', false);
+    await sweep(T0 + WEEK); // lingered a week, but off: not made, and not counted as made
+    await sweep(T0 + WEEK + HOUR);
+    expect(await remindersOf('ivy')).toEqual([]);
+
+    await setReminders('ivy', true);
+    await sweep(T0 + WEEK + 2 * HOUR); // on again, and the debt still lingers: reminded at this run
+    expect((await remindersOf('ivy')).map(notice => notice.at)).toEqual([new Date(T0 + WEEK + 2 * HOUR).toISOString()]);
   });
 
   it('measures the period by the one each run is given', async () => {

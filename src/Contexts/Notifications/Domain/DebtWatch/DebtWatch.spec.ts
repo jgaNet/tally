@@ -15,49 +15,67 @@ describe('DebtWatch (request 18)', () => {
   it('is a debt over 2000 in cents, and a debt of 2000 or less is not one', () => {
     expect(LINGERING_DEBT_OVER).toBe(2000);
     const w = watch();
-    expect(w.observe({ owes: 2000, at: at(0), periodMs: WEEK })).toEqual({ changed: false, reminded: false });
+    expect(w.observe({ owes: 2000, at: at(0), periodMs: WEEK, mayRemind: true })).toEqual({
+      changed: false,
+      reminded: false,
+    });
     expect(w.toSnapshot().notedSince).toBeNull();
   });
 
   it('notes a debt from the run that first sees it, and reminds it only once it has lasted a period', () => {
     const w = watch();
-    expect(w.observe({ owes: 2001, at: at(0), periodMs: WEEK })).toEqual({ changed: true, reminded: false });
-    expect(w.observe({ owes: 2001, at: at(DAY), periodMs: WEEK })).toEqual({ changed: false, reminded: false });
+    expect(w.observe({ owes: 2001, at: at(0), periodMs: WEEK, mayRemind: true })).toEqual({
+      changed: true,
+      reminded: false,
+    });
+    expect(w.observe({ owes: 2001, at: at(DAY), periodMs: WEEK, mayRemind: true })).toEqual({
+      changed: false,
+      reminded: false,
+    });
     expect(w.toSnapshot().notedSince).toEqual(at(0));
 
-    expect(w.observe({ owes: 2001, at: at(WEEK), periodMs: WEEK })).toEqual({ changed: true, reminded: true });
+    expect(w.observe({ owes: 2001, at: at(WEEK), periodMs: WEEK, mayRemind: true })).toEqual({
+      changed: true,
+      reminded: true,
+    });
     expect(w.toSnapshot().lastReminded).toEqual(at(WEEK));
   });
 
   it('reminds again each period while the debt lasts, and not twice within one', () => {
     const w = watch();
-    w.observe({ owes: 2500, at: at(0), periodMs: WEEK });
-    w.observe({ owes: 2500, at: at(WEEK), periodMs: WEEK });
+    w.observe({ owes: 2500, at: at(0), periodMs: WEEK, mayRemind: true });
+    w.observe({ owes: 2500, at: at(WEEK), periodMs: WEEK, mayRemind: true });
 
-    expect(w.observe({ owes: 2500, at: at(WEEK + DAY), periodMs: WEEK }).reminded).toBe(false);
-    expect(w.observe({ owes: 2500, at: at(2 * WEEK), periodMs: WEEK }).reminded).toBe(true);
+    expect(w.observe({ owes: 2500, at: at(WEEK + DAY), periodMs: WEEK, mayRemind: true }).reminded).toBe(false);
+    expect(w.observe({ owes: 2500, at: at(2 * WEEK), periodMs: WEEK, mayRemind: true }).reminded).toBe(true);
   });
 
   it('clears the note at a run that sees 2000 or less, keeps the last reminder, and makes a returning debt wait a period from the run that sees it', () => {
     const w = watch();
-    w.observe({ owes: 2500, at: at(0), periodMs: WEEK });
-    w.observe({ owes: 2500, at: at(WEEK), periodMs: WEEK });
+    w.observe({ owes: 2500, at: at(0), periodMs: WEEK, mayRemind: true });
+    w.observe({ owes: 2500, at: at(WEEK), periodMs: WEEK, mayRemind: true });
 
-    expect(w.observe({ owes: 1000, at: at(WEEK + DAY), periodMs: WEEK })).toEqual({ changed: true, reminded: false });
+    expect(w.observe({ owes: 1000, at: at(WEEK + DAY), periodMs: WEEK, mayRemind: true })).toEqual({
+      changed: true,
+      reminded: false,
+    });
     expect(w.toSnapshot()).toEqual(expect.objectContaining({ notedSince: null, lastReminded: at(WEEK) }));
 
     // The debt comes back at 2 weeks: noted from that run, and not reminded until a week after it.
-    expect(w.observe({ owes: 3000, at: at(2 * WEEK), periodMs: WEEK })).toEqual({ changed: true, reminded: false });
-    expect(w.observe({ owes: 3000, at: at(3 * WEEK - DAY), periodMs: WEEK }).reminded).toBe(false);
-    expect(w.observe({ owes: 3000, at: at(3 * WEEK), periodMs: WEEK }).reminded).toBe(true);
+    expect(w.observe({ owes: 3000, at: at(2 * WEEK), periodMs: WEEK, mayRemind: true })).toEqual({
+      changed: true,
+      reminded: false,
+    });
+    expect(w.observe({ owes: 3000, at: at(3 * WEEK - DAY), periodMs: WEEK, mayRemind: true }).reminded).toBe(false);
+    expect(w.observe({ owes: 3000, at: at(3 * WEEK), periodMs: WEEK, mayRemind: true }).reminded).toBe(true);
   });
 
   it('records the facts of each change, and none for a run that changes nothing', () => {
     const w = watch();
-    w.observe({ owes: 2500, at: at(0), periodMs: WEEK });
-    w.observe({ owes: 2500, at: at(DAY), periodMs: WEEK });
-    w.observe({ owes: 2500, at: at(WEEK), periodMs: WEEK });
-    w.observe({ owes: 0, at: at(WEEK + DAY), periodMs: WEEK });
+    w.observe({ owes: 2500, at: at(0), periodMs: WEEK, mayRemind: true });
+    w.observe({ owes: 2500, at: at(DAY), periodMs: WEEK, mayRemind: true });
+    w.observe({ owes: 2500, at: at(WEEK), periodMs: WEEK, mayRemind: true });
+    w.observe({ owes: 0, at: at(WEEK + DAY), periodMs: WEEK, mayRemind: true });
 
     const names = w.pullDomainEvents().map(event => event.name);
     expect(names).toEqual(['DebtNotedEvent', 'ReminderIssuedEvent', 'DebtClearedEvent']);
