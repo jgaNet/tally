@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-2",
+  "ref": "03aa379a001b41bf98387444272169cc6e23fc6c",
+  "commit": "03aa379a001b41bf98387444272169cc6e23fc6c",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "budgets",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 4 passed, 5 total",
+        "failed": [
+          "budgets › makes one budget notice per member and month, even when the server is killed and started again"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● budgets › makes one budget notice per member and month, even when the server is killed and started again",
+          "    - Expected  - 0",
+          "    + Received  + 4",
+          "Tests:       1 failed, 4 passed, 5 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 22900,
+  "workers": 1
+}
