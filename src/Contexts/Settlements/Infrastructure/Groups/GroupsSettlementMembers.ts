@@ -1,5 +1,9 @@
 import { IGroupQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
-import { ISettlementMembers, SettlementMember } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementMembers';
+import {
+  ISettlementMembers,
+  SettlementMember,
+  SharedGroup,
+} from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementMembers';
 
 /**
  * Settlements' port onto Groups, answered over Groups' read model: the current members of a group, in the order they
@@ -20,5 +24,21 @@ export class GroupsSettlementMembers implements ISettlementMembers {
 
   isArchived(groupId: string): Promise<boolean> {
     return this.groups.isArchived(groupId);
+  }
+
+  /**
+   * The groups the asker is a member of that `other` is a current member of too, the earliest created first: Groups lists the
+   * asker's groups most recent first, so they are reversed. Each group is read as the asker sees it, so a group that is not the
+   * asker's is never read.
+   */
+  async groupsSharedBy(askedBy: string, other: string): Promise<SharedGroup[]> {
+    const groups = await this.groups.listGroupsOf(askedBy);
+    const shared: SharedGroup[] = [];
+    for (const group of [...groups].reverse()) {
+      const members = await this.groups.listMembersOf(askedBy, group.id);
+      if (!members?.some(member => member.memberId === other)) continue;
+      shared.push({ groupId: group.id, currency: group.currency, archived: group.archivedAt !== undefined });
+    }
+    return shared;
   }
 }

@@ -151,27 +151,7 @@ export class SettlementBook extends AggregateRoot {
     const decided = this.decide(request);
     if (decided.isFailure()) return Result.fail(decided.error);
 
-    const settlement = this.keep({
-      _id: Id.generate().value,
-      from: request.payer,
-      to: request.payee,
-      amount: request.amount,
-      at: request.at,
-      method: 'cash',
-      status: 'paid',
-      providerPaymentId: null,
-      payUrl: null,
-    });
-    this.#audit.push(
-      recordAudit({
-        groupId: this.#groupId,
-        at: request.at,
-        by: request.payee,
-        action: 'settlement-paid',
-        subjectId: settlement._id,
-        amount: settlement.amount,
-      }),
-    );
+    const settlement = this.#keepPaid(request, 'cash', request.payee);
     this.record(
       SettlementRecordedEvent.set({
         settlementId: settlement._id,
@@ -182,6 +162,36 @@ export class SettlementBook extends AggregateRoot {
       }),
     );
     return Result.ok({ ...settlement });
+  }
+
+  /**
+   * Records a settlement netted between two members (request 32): paid at once, like a cash one, its audit entry made by the member
+   * who asked for the netting (`asker`), whichever of the two pays. The rules are those of `recordCash()`, decided again here.
+   */
+  recordNet(request: SettlementRequest, asker: string): IResult<ISettlementSnapshot> {
+    const decided = this.decide(request);
+    if (decided.isFailure()) return Result.fail(decided.error);
+
+    const settlement = this.#keepPaid(request, 'net', asker);
+    this.record(
+      SettlementRecordedEvent.set({
+        settlementId: settlement._id,
+        groupId: this.#groupId,
+        from: settlement.from,
+        to: settlement.to,
+        amount: settlement.amount,
+      }),
+    );
+    return Result.ok({ ...settlement });
+  }
+
+  /**
+   * What `payer` can pay `payee` in this group, decided against the balances as they are: the smaller of what the payer still owes
+   * and what the payee is still owed, counting the payments waiting at the provider as paid; 0 when either is not owed. Records nothing.
+   */
+  payable({ payer, payee, balances }: { payer: string; payee: string; balances: BalanceOfMember[] }): number {
+    const { owedByPayer, owedToPayee } = this.#owed(payer, payee, balances);
+    return Math.min(owedByPayer, owedToPayee);
   }
 
   /**
@@ -362,11 +372,44 @@ export class SettlementBook extends AggregateRoot {
     if (payer === payee) return Result.fail(new SettlementToSelfException());
     if (!members.includes(payer)) return Result.fail(new SettlementPayerNotMemberException());
 
-    const balanceOf = new Map(balances.map(({ memberId, balance }) => [memberId, balance]));
-    const owedByPayer = Math.max(0, -(balanceOf.get(payer) ?? 0) - this.#waitingFrom(payer));
-    const owedToPayee = Math.max(0, (balanceOf.get(payee) ?? 0) - this.#waitingTo(payee));
+    const { owedByPayer, owedToPayee } = this.#owed(payer, payee, balances);
     if (amount > owedByPayer || amount > owedToPayee) return Result.fail(new SettlementExceedsBalanceException());
     return Result.ok();
+  }
+
+  /** What the payer still owes and what the payee is still owed, the payments waiting at the provider counted as paid. */
+  #owed(payer: string, payee: string, balances: BalanceOfMember[]): { owedByPayer: number; owedToPayee: number } {
+    const balanceOf = new Map(balances.map(({ memberId, balance }) => [memberId, balance]));
+    return {
+      owedByPayer: Math.max(0, -(balanceOf.get(payer) ?? 0) - this.#waitingFrom(payer)),
+      owedToPayee: Math.max(0, (balanceOf.get(payee) ?? 0) - this.#waitingTo(payee)),
+    };
+  }
+
+  /** Keeps a settlement paid at once, in cash or netted, and writes its audit entry: `by` is the member who recorded it (request 28). */
+  #keepPaid(request: SettlementRequest, method: 'cash' | 'net', by: string): ISettlementSnapshot {
+    const settlement = this.keep({
+      _id: Id.generate().value,
+      from: request.payer,
+      to: request.payee,
+      amount: request.amount,
+      at: request.at,
+      method,
+      status: 'paid',
+      providerPaymentId: null,
+      payUrl: null,
+    });
+    this.#audit.push(
+      recordAudit({
+        groupId: this.#groupId,
+        at: request.at,
+        by,
+        action: 'settlement-paid',
+        subjectId: settlement._id,
+        amount: settlement.amount,
+      }),
+    );
+    return settlement;
   }
 
   /** What `payer` is still to pay through the provider: the payments waiting, which count as paid. */

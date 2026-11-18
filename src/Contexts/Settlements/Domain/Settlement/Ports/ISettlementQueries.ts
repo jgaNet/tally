@@ -8,7 +8,7 @@ export interface SettlementView {
   from: string;
   to: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   status: 'paid' | 'pending' | 'failed' | 'refunding' | 'refunded';
   at: string;
   payUrl?: string;
@@ -32,7 +32,7 @@ export interface CountedSettlement {
   from: string;
   to: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   countedAt: string;
 }
 

@@ -13,7 +13,7 @@ export interface CountedSettlement {
   from: string;
   to: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   countedAt: string;
 }
 

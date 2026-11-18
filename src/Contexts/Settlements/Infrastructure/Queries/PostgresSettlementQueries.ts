@@ -99,7 +99,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
       payer: string;
       payee: string;
       amount: number;
-      method: 'cash' | 'provider';
+      method: 'cash' | 'provider' | 'net';
       counted_at: string;
     }>(
       `SELECT s.id, s.payer, s.payee, s.amount, s.method,

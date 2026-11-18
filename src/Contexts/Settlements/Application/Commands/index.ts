@@ -8,3 +8,5 @@ export * from '@Contexts/Settlements/Application/Commands/RefundSettlement/Refun
 export * from '@Contexts/Settlements/Application/Commands/RefundSettlement/RefundSettlementCommandHandler';
 export * from '@Contexts/Settlements/Application/Commands/SetPayoutAccount/SetPayoutAccountCommandEvent';
 export * from '@Contexts/Settlements/Application/Commands/SetPayoutAccount/SetPayoutAccountCommandHandler';
+export * from '@Contexts/Settlements/Application/Commands/NetDebts/NetDebtsCommandEvent';
+export * from '@Contexts/Settlements/Application/Commands/NetDebts/NetDebtsCommandHandler';

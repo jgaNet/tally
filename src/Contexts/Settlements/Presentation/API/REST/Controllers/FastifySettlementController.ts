@@ -5,6 +5,7 @@ import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommandAtOnce, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
 import {
+  NetDebtsCommandEvent,
   PayThroughProviderCommandEvent,
   RecordCashSettlementCommandEvent,
   RefundSettlementCommandEvent,
@@ -13,11 +14,13 @@ import {
 import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook/ReceivePaymentWebhookCommandEvent';
 import {
   GetGroupSettlementsQueryHandler,
+  GetNettingQueryHandler,
   GetPayoutAccountQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
 import {
+  NetDebtsBody,
   PayThroughProviderBody,
   ProviderWebhookBody,
   RecordCashSettlementBody,
@@ -91,6 +94,20 @@ export class FastifySettlementController {
   async getSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     const result = await this.#module
       .getQuery(GetSettlementQueryHandler)
+      .handle({ id: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  /** A netting of what the caller and another person owe each other across their groups, asked at once (request 32). */
+  netDebts(req: FastifyRequest<{ Body: NetDebtsBody }>, reply: FastifyReply) {
+    const { with: other, currency } = req.body;
+    return acceptCommandAtOnce(req, reply, this.#module, NetDebtsCommandEvent.set({ with: other, currency }));
+  }
+
+  async getNetting(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetNettingQueryHandler)
       .handle({ id: req.params.id }, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;

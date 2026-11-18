@@ -1,5 +1,5 @@
-/** How a settlement is paid: in cash, handed over by its payer, or through the payment provider. */
-export type SettlementMethod = 'cash' | 'provider';
+/** How a settlement is paid: in cash, through the provider, or netted between two people across their groups (request 32). */
+export type SettlementMethod = 'cash' | 'provider' | 'net';
 
 /**
  * Where a settlement stands: `pending` while a payment waits at the provider (not counted, but still owed-less), `paid` when

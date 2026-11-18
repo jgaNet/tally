@@ -20,6 +20,7 @@ export interface StatementReaders {
 const DESCRIPTIONS = {
   cash: 'Settlement in cash',
   provider: 'Settlement through the provider',
+  net: 'Settlement by netting',
 } as const;
 
 /** The day, in UTC, of an instant (ISO, as the clock gave it). */

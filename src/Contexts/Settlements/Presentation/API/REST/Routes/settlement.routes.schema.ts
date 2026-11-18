@@ -57,7 +57,7 @@ const SettlementSchema = {
     from: { type: 'string' },
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
-    method: { enum: ['cash', 'provider'] },
+    method: { enum: ['cash', 'provider', 'net'] },
     status: { enum: ['paid', 'pending', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },
@@ -158,6 +158,47 @@ export const SetPayoutAccountResSchema = {
 /** A member's payout account, as the member reads it (request 16's `payoutAccount` resource). */
 export const GetPayoutAccountResSchema = {
   200: { type: 'object', required: ['accountId'], properties: { accountId: { type: 'string' } } },
+  401: RefusalSchema,
+  404: RefusalSchema,
+} as const;
+
+/** The body of a netting: the person to net with, and the currency (request 32). Its values are the domain's to decide. */
+export interface NetDebtsBody {
+  with: string;
+  currency: string;
+}
+
+export const NetDebtsReqBodySchema = {
+  type: 'object',
+  required: ['with', 'currency'],
+  properties: { with: { type: 'string' }, currency: { type: 'string' } },
+} as const;
+
+export const NetDebtsResSchema = {
+  201: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+  202: { type: 'object', required: ['operationId'], properties: { operationId: { type: 'string' } } },
+  400: RefusalSchema,
+  401: RefusalSchema,
+  404: RefusalSchema,
+  409: RefusalSchema,
+} as const;
+
+/** A netting as the two people read it (request 32): who asked, with whom, its currency, the amount netted and its settlements, in order. */
+const NettingSchema = {
+  type: 'object',
+  required: ['id', 'by', 'with', 'currency', 'amount', 'settlements'],
+  properties: {
+    id: { type: 'string' },
+    by: { type: 'string' },
+    with: { type: 'string' },
+    currency: { type: 'string', pattern: '^[A-Z]{3}$' },
+    amount: { type: 'integer', minimum: 1 },
+    settlements: { type: 'array', minItems: 2, items: { type: 'string' } },
+  },
+} as const;
+
+export const GetNettingResSchema = {
+  200: NettingSchema,
   401: RefusalSchema,
   404: RefusalSchema,
 } as const;

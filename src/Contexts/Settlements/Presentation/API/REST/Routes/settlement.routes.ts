@@ -6,9 +6,13 @@ import { FastifySettlementController } from '@Contexts/Settlements/Presentation/
 import { providerSignatureIsValid } from '@Contexts/Settlements/Presentation/API/REST/Routes/provider-signature';
 import {
   GetGroupSettlementsResSchema,
+  GetNettingResSchema,
   GetPayoutAccountResSchema,
   GetSettlementResSchema,
   GetSuggestedSettlementsResSchema,
+  NetDebtsBody,
+  NetDebtsReqBodySchema,
+  NetDebtsResSchema,
   PayThroughProviderBody,
   PayThroughProviderReqBodySchema,
   PayThroughProviderResSchema,
@@ -56,6 +60,18 @@ export const settlementRoutes = function (
     '/groups/:id/settlements/cash',
     { schema: { tags, body: RecordCashSettlementReqBodySchema, response: RecordCashSettlementResSchema } },
     controller.recordCashSettlement.bind(controller),
+  );
+
+  fastify.post<{ Body: NetDebtsBody }>(
+    '/nettings',
+    { schema: { tags, body: NetDebtsReqBodySchema, response: NetDebtsResSchema } },
+    controller.netDebts.bind(controller),
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    '/nettings/:id',
+    { schema: { tags, response: GetNettingResSchema } },
+    controller.getNetting.bind(controller),
   );
 
   fastify.post<{ Params: { id: string }; Body: PayThroughProviderBody }>(

@@ -8,11 +8,14 @@ import { GroupsMergedIntegrationEventHandler } from '@Contexts/Settlements/Appli
 import { groupQueries } from '@Contexts/Groups/module.local';
 import {
   GetGroupSettlementsQueryHandler,
+  GetNettingQueryHandler,
   GetPayoutAccountQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
 import {
+  NetDebtsCommandEvent,
+  NetDebtsCommandHandler,
   PayThroughProviderCommandEvent,
   PayThroughProviderCommandHandler,
   ReceivePaymentWebhookCommandEvent,
@@ -32,6 +35,8 @@ import { PostgresSettlementBookRepository } from '@Contexts/Settlements/Infrastr
 import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/Queries/PostgresSettlementQueries';
 import { PostgresPayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/Queries/PostgresPayoutAccountQueries';
 import { PostgresPayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/Repositories/PostgresPayoutAccountRepository';
+import { PostgresNettingRepository } from '@Contexts/Settlements/Infrastructure/Repositories/PostgresNettingRepository';
+import { PostgresNettingQueries } from '@Contexts/Settlements/Infrastructure/Queries/PostgresNettingQueries';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADR 6, ADR 7, ADR 8). A settlement is recorded in its group's book, which
@@ -51,6 +56,8 @@ export const outstandingDebtQueries = new SettlementsOutstandingDebtQueries(
   groupBalances,
   settlementQueries,
 );
+const nettings = new PostgresNettingRepository(database);
+const nettingQueries = new PostgresNettingQueries(database);
 const payoutAccounts = new PostgresPayoutAccountRepository(database);
 const payoutAccountQueries = new PostgresPayoutAccountQueries(database);
 /** The provider is asked where PROVIDER_URL points when a payment is asked, so an unset URL refuses it (request 13). */
@@ -86,6 +93,10 @@ export const localSettlementsModule = new Module({
       handlers: [new RefundSettlementCommandHandler(settlementMembers, books, paymentProvider, clock)],
     },
     {
+      event: NetDebtsCommandEvent,
+      handlers: [new NetDebtsCommandHandler(settlementMembers, groupBalances, books, nettings, clock)],
+    },
+    {
       event: SetPayoutAccountCommandEvent,
       handlers: [new SetPayoutAccountCommandHandler(payoutAccounts, paymentProvider)],
     },
@@ -101,5 +112,6 @@ export const localSettlementsModule = new Module({
     new GetSettlementQueryHandler(settlementQueries, settlementMembers),
     new GetGroupSettlementsQueryHandler(settlementQueries, settlementMembers),
     new GetPayoutAccountQueryHandler(payoutAccountQueries),
+    new GetNettingQueryHandler(nettingQueries),
   ],
 });
