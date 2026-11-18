@@ -4,6 +4,7 @@ import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IBalanceCounts } from '@Contexts/Ledger/Application/Ports/IBalanceCounts';
+import { IAuditLog } from '@Contexts/Ledger/Application/Ports/IAuditLog';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
@@ -19,7 +20,8 @@ import { ISplitTemplateRepository } from '@Contexts/Ledger/Domain/SplitTemplate/
  * expense is counted into the balances in this same transaction, so the balances and the expense are stored together.
  * An expense paid in another currency is converted into the group's currency, which is read through the port Ledger owns (ADR 12).
  * Its rate is settled against the rate the rates service offers for that day, asked through the port Ledger owns (ADR 13). Its split may
- * be the split of a template of the group (request 25), which the expense is decided by as if it had been given.
+ * be the split of a template of the group (request 25), which the expense is decided by as if it had been given. Its entry in the
+ * group's audit is written in the same transaction (request 28).
  */
 export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCommandEvent> {
   constructor(
@@ -30,6 +32,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     private clock: Clock,
     private balances: IBalanceCounts,
     private templates: ISplitTemplateRepository,
+    private audit: IAuditLog,
   ) {
     super();
   }
@@ -54,6 +57,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
         ? await this.offeredRates.rateOn({ from: payload.money.original.currency, to: currency, date: payload.date })
         : null;
 
+    const now = this.clock();
     const expense = Expense.create({
       groupId: new Id(payload.groupId),
       paidBy: caller.data,
@@ -66,13 +70,21 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       groupCurrency: currency,
       offer,
       archived: await this.groupMembers.archivedOf(payload.groupId),
-      now: this.clock(),
+      now,
     });
     if (expense.isFailure()) return expense;
 
     const saved = await this.expenses.save(expense.data);
     if (saved.isFailure()) return saved;
     await this.balances.count(expense.data);
+    await this.audit.record(payload.groupId, {
+      id: `expense-recorded:${expense.data._id.value}`,
+      at: now.toISOString(),
+      by: caller.data.value,
+      action: 'expense-recorded',
+      subjectId: expense.data._id.value,
+      amount: expense.data.amount.value,
+    });
 
     await this.publishDomainEvents(expense.data, context);
     return Result.ok(expense.data._id.value);

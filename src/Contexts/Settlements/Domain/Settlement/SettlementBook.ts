@@ -78,6 +78,17 @@ export interface PaymentLink {
 }
 
 /**
+ * A change of money the book made since it was read: a settlement the balances start to count (`settlement-paid`, by its payee
+ * when it is in cash, by its payer when the provider says it succeeded), or stop counting (`settlement-refunded`, by its payee,
+ * when the provider says it is refunded, and only if it was counted before). Audited by the handler, in its transaction (request 28).
+ */
+export interface MoneyMoved {
+  action: 'settlement-paid' | 'settlement-refunded';
+  by: Id;
+  settlement: Settlement;
+}
+
+/**
  * The one place every settlement of a group is decided in (the storm's T7): a book per group, with a version, so that two writers
  * who read the same book cannot both win (CONC-OPTIMISTIC). A settlement is decided against the balances the handler reads inside
  * its transaction, and against what is waiting at the provider: it never pays more than the payer still owes, nor more than the
@@ -87,6 +98,7 @@ export interface PaymentLink {
 export class SettlementBook extends AggregateRoot {
   private readonly made: Settlement[] = [];
   private readonly statusChanged: Settlement[] = [];
+  private readonly moneyMoved: MoneyMoved[] = [];
   /** The lines learned on settlements that were read (a settlement recorded here keeps its lines in `made`). */
   private readonly learned: LearnedLine[] = [];
 
@@ -146,6 +158,11 @@ export class SettlementBook extends AggregateRoot {
     return [...recorded, ...this.learned];
   }
 
+  /** The changes of money the book made since it was read, in the order they were made (request 28). */
+  get moneyMovedSinceRead(): readonly MoneyMoved[] {
+    return this.moneyMoved;
+  }
+
   /** The settlements of the group whose payment is waiting at the provider. */
   private get waiting(): Settlement[] {
     return this.settlements.filter(settlement => settlement.status === 'pending');
@@ -172,6 +189,7 @@ export class SettlementBook extends AggregateRoot {
       [{ status: 'paid', at: now }],
     );
     this.keep(settlement);
+    this.moneyMoved.push({ action: 'settlement-paid', by: decision.payee, settlement });
     this.record(
       SettlementRecordedEvent.set({
         settlementId: settlement.id.value,
@@ -257,8 +275,13 @@ export class SettlementBook extends AggregateRoot {
     const outcome = outcomeOf(status);
     if (!outcome || !movesTo(settlement.status, outcome)) return false;
 
+    const before = settlement.status;
     this.learn(settlement, settlement.end(outcome, now));
     this.statusChanged.push(settlement);
+    if (outcome === 'paid') this.moneyMoved.push({ action: 'settlement-paid', by: settlement.payer, settlement });
+    if (outcome === 'refunded' && (before === 'paid' || before === 'refunding')) {
+      this.moneyMoved.push({ action: 'settlement-refunded', by: settlement.payee, settlement });
+    }
     const payload = {
       settlementId: settlement.id.value,
       groupId: this.groupId.value,

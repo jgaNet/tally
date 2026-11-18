@@ -43,6 +43,18 @@ export function createSettlementsTables(database: SqliteDatabase): void {
   database.exec(`INSERT INTO settlement_history (settlement_id, position, status, learned_at)
     SELECT id, 1, CASE method WHEN 'cash' THEN 'paid' ELSE 'pending' END, recorded_at FROM settlements
     WHERE NOT EXISTS (SELECT 1 FROM settlement_history WHERE settlement_history.settlement_id = settlements.id)`);
+  // The audit of the money the settlements move (request 28): an entry per change that starts or stops a settlement counting, written
+  // in the transaction of that change. Its id names the change, and a settlement moves money once each way, so an id is written once.
+  database.exec(`CREATE TABLE IF NOT EXISTS settlement_audit_entries (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    by_account TEXT NOT NULL,
+    action TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    amount INTEGER NOT NULL
+  )`);
+  database.exec('CREATE INDEX IF NOT EXISTS settlement_audit_by_group ON settlement_audit_entries (group_id)');
   // A person's payout account at the provider (request 16): one row per person, unique by owner, at its version.
   database.exec(`CREATE TABLE IF NOT EXISTS payout_accounts (
     id TEXT PRIMARY KEY,

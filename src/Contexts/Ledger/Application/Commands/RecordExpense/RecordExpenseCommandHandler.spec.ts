@@ -33,6 +33,7 @@ const setup = () => {
     () => at,
     new InMemoryBalances(balanceStore),
     new InMemorySplitTemplates(),
+    { record: async () => undefined },
   );
   return { store, balanceStore, handler };
 };

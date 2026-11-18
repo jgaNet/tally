@@ -1,3 +1,4 @@
+export { auditRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/audit.routes';
 export { budgetRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/budget.routes';
 export { templateRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/template.routes';
 export { balanceRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/balance.routes';

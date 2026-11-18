@@ -5,7 +5,7 @@ feature: audit
 intent: >-
   Every change of money is an entry of its group's audit, written with the change — who, when, what, how much — never changed; a member reads the group's audit, the oldest first.
 
-done: false
+done: true
 
 hotSpots:
   - question: T8 said an integration event would be reconsidered if request 28 needed a fact to react to. Does it?

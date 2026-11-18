@@ -4,6 +4,7 @@ import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense/EditExpenseCommandEvent';
 import { IBalanceCounts } from '@Contexts/Ledger/Application/Ports/IBalanceCounts';
+import { IAuditLog } from '@Contexts/Ledger/Application/Ports/IAuditLog';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
@@ -27,6 +28,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     private clock: Clock,
     private balances: IBalanceCounts,
     private templates: ISplitTemplateRepository,
+    private audit: IAuditLog,
   ) {
     super();
   }
@@ -70,6 +72,15 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (saved.isFailure()) return saved;
     await this.balances.uncount(expense);
     await this.balances.count(edited.data);
+    // The edit is audited at the version it was read at: two edits cannot both read it, so each version is edited once (request 28).
+    await this.audit.record(expense.groupId.value, {
+      id: `expense-edited:${expense._id.value}:${edited.data.version}`,
+      at: this.clock().toISOString(),
+      by: caller.data.value,
+      action: 'expense-edited',
+      subjectId: expense._id.value,
+      amount: edited.data.amount.value,
+    });
 
     await this.publishDomainEvents(edited.data, context);
     return Result.ok(expense._id.value);

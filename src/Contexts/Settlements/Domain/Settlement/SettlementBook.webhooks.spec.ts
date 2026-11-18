@@ -128,3 +128,62 @@ describe('SettlementBook.receivePayment (request 14: webhooks twice, late or out
     expect(book.pullDomainEvents()).toEqual([]);
   });
 });
+
+describe('SettlementBook money moved (request 28: the changes of money the audit records)', () => {
+  it('moves money when a provider payment succeeds, by its payer, and when a paid one is refunded, by its payee', () => {
+    const pending = pendingPayment('pay_1');
+    const paid = new Settlement(
+      new Id('settlement-pay_2'),
+      new Id('group'),
+      new Id('bob'),
+      new Id('ann'),
+      30,
+      'provider',
+      'paid',
+      new Date('2026-03-10T10:00:00Z'),
+      { paymentId: 'pay_2', payUrl: 'https://pay.example/pay_2' },
+      [
+        { status: 'pending', at: new Date('2026-03-10T10:00:00Z') },
+        { status: 'paid', at: new Date('2026-03-10T10:01:00Z') },
+      ],
+    );
+    const book = bookWaiting(pending, paid);
+
+    expect(book.receivePayment('pay_1', 'succeeded', LEARNED_AT)).toBe(true);
+    expect(book.receivePayment('pay_2', 'refunded', LEARNED_AT)).toBe(true);
+
+    expect(book.moneyMovedSinceRead.map(move => [move.action, move.by.value, move.settlement.id.value])).toEqual([
+      ['settlement-paid', 'bob', 'settlement-pay_1'],
+      ['settlement-refunded', 'ann', 'settlement-pay_2'],
+    ]);
+  });
+
+  it('moves no money for a refund of a payment the balances never counted (pending)', () => {
+    const book = bookWaiting(pendingPayment('pay_1'));
+
+    expect(book.receivePayment('pay_1', 'refunded', LEARNED_AT)).toBe(true);
+
+    expect(book.moneyMovedSinceRead).toEqual([]);
+  });
+
+  it('moves money when a settlement in cash is recorded, by its payee who recorded it', () => {
+    const book = SettlementBook.open(new Id('group'));
+
+    const recorded = book.recordCash({
+      archived: false,
+      payer: new Id('bob'),
+      payee: new Id('ann'),
+      amount: 10,
+      payerIsMember: true,
+      payeeIsMember: true,
+      payerBalance: -10,
+      payeeBalance: 10,
+      now: LEARNED_AT,
+    });
+
+    expect(recorded.isFailure()).toBe(false);
+    expect(book.moneyMovedSinceRead).toEqual([
+      { action: 'settlement-paid', by: new Id('ann'), settlement: recorded.data },
+    ]);
+  });
+});

@@ -38,6 +38,8 @@ import { memberBalances as ledgerMemberBalances } from '@Contexts/Ledger/module.
 import { waitingPayments as settlementsWaitingPayments } from '@Contexts/Settlements/module.local';
 import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsFromSettlements';
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
+import { IGroupAuditQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupAuditQueries';
+import { SqliteGroupAuditLog } from '@Contexts/Groups/Infrastructure/SqliteGroupAuditLog';
 
 const database = sharedDatabase();
 const accounts = new SqliteAccountRepository(database);
@@ -54,6 +56,10 @@ const tokens = HmacTokenIssuer.inDatabase(database);
  * through its own port. Nothing else of Groups is exported.
  */
 export const groupMembers: IGroupMembersQueries = groupReadModels;
+
+/** The balances passed to the owner when members left (request 28), read by Ledger's audit: Groups' audit, exported (ADR 19). */
+const audit = new SqliteGroupAuditLog(database);
+export const groupAudit: IGroupAuditQueries = audit;
 
 /**
  * The balance a member has in a group, read from Ledger's read model before the member may leave it (ADR 4). Ledger's
@@ -88,7 +94,7 @@ export const localGroupsModule = new Module({
     },
     {
       event: LeaveGroupCommandEvent,
-      handlers: [new LeaveGroupCommandHandler(groups, balances, waiting, systemClock)],
+      handlers: [new LeaveGroupCommandHandler(groups, balances, waiting, systemClock, audit)],
     },
     {
       event: ArchiveGroupCommandEvent,

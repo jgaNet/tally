@@ -5,6 +5,7 @@ import { requireSignedIn } from '@SharedKernel/Application/Guards';
 import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RecordCashSettlement/RecordCashSettlementCommandEvent';
 import { IGroupBalances } from '@Contexts/Settlements/Application/Ports/IGroupBalances';
 import { ISettlementMembers } from '@Contexts/Settlements/Application/Ports/ISettlementMembers';
+import { ISettlementAuditLog } from '@Contexts/Settlements/Application/Ports/ISettlementAuditLog';
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 
@@ -13,7 +14,7 @@ import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/Settleme
  * operation answers the settlement's id. For anyone who is not a member the group does not exist. The book decides the rule, on
  * the payer's and the payee's balances as they are read inside this transaction (which holds the file, so a settlement recorded
  * at the same moment is read as the other left it). The settlement is stored with the book's new version, in the same transaction,
- * and its event is published after the commit.
+ * and its event is published after the commit. Its money is audited in that transaction too, by the payee who recorded it (request 28).
  */
 export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCashSettlementCommandEvent> {
   constructor(
@@ -21,6 +22,7 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
     private members: ISettlementMembers,
     private balances: IGroupBalances,
     private clock: Clock,
+    private audit: ISettlementAuditLog,
   ) {
     super();
   }
@@ -36,6 +38,7 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
     }
 
     const book = (await this.books.findByGroupId(groupId)) ?? SettlementBook.open(groupId);
+    const now = this.clock();
     const recorded = book.recordCash({
       payer: new Id(payload.from),
       payee: caller.data,
@@ -45,12 +48,22 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
       payerBalance: await this.balances.balanceOf(payload.groupId, payload.from),
       payeeBalance: await this.balances.balanceOf(payload.groupId, caller.data.value),
       archived: await this.members.archivedOf(payload.groupId),
-      now: this.clock(),
+      now,
     });
     if (recorded.isFailure()) return recorded;
 
     const saved = await this.books.save(book);
     if (saved.isFailure()) return saved;
+    for (const move of book.moneyMovedSinceRead) {
+      await this.audit.record(payload.groupId, {
+        id: `${move.action}:${move.settlement.id.value}`,
+        at: now.toISOString(),
+        by: move.by.value,
+        action: move.action,
+        subjectId: move.settlement.id.value,
+        amount: move.settlement.amount,
+      });
+    }
 
     await this.publishDomainEvents(book, context);
     return Result.ok(recorded.data.id.value);

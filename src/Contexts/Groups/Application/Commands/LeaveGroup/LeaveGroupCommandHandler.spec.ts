@@ -61,7 +61,7 @@ const setup = async () => {
     waiting,
     groupStore,
     groupReadModels: new InMemoryGroupReadModels(groupStore),
-    handler: new LeaveGroupCommandHandler(groups, balances, waiting, () => later),
+    handler: new LeaveGroupCommandHandler(groups, balances, waiting, () => later, { record: async () => undefined }),
   };
 };
 

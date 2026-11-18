@@ -65,6 +65,18 @@ export function createLedgerTables(database: SqliteDatabase): void {
     balance INTEGER NOT NULL,
     PRIMARY KEY (group_id, member_id)
   )`);
+  // The audit of the expenses' money (request 28): an entry per change, written in the transaction of the change and never changed.
+  // Its id names the change: an expense recorded or deleted once, and edited once per version it is read at.
+  database.exec(`CREATE TABLE IF NOT EXISTS audit_entries (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    by_account TEXT NOT NULL,
+    action TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    amount INTEGER NOT NULL
+  )`);
+  database.exec('CREATE INDEX IF NOT EXISTS audit_entries_by_group ON audit_entries (group_id)');
   // The recurring expenses (request 23): what each is, kept as it was set up; `next_on` is the next day it records, and it is
   // the day the sweep asks for. `set_up_seq` is the order they were set up in, the earliest first.
   database.exec(`CREATE TABLE IF NOT EXISTS recurring_expenses (

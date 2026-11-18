@@ -37,6 +37,18 @@ export function createGroupsTables(database: SqliteDatabase): void {
     created_at TEXT NOT NULL
   )`);
   // The balances passed to the owner when members left (request 20), in the order they passed: kept for good.
+  // The audit of the money Groups moves (request 28): the balance a member passed to the owner when they left, with the leave's time.
+  // Its id names the leave, and a member leaves a group once, so an id is written once.
+  database.exec(`CREATE TABLE IF NOT EXISTS group_audit_entries (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    by_account TEXT NOT NULL,
+    action TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    amount INTEGER NOT NULL
+  )`);
+  database.exec('CREATE INDEX IF NOT EXISTS group_audit_by_group ON group_audit_entries (group_id)');
   database.exec(`CREATE TABLE IF NOT EXISTS balance_passages (
     group_id TEXT NOT NULL,
     position INTEGER NOT NULL,

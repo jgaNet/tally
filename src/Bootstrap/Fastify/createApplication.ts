@@ -16,6 +16,7 @@ import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/API/REST/Routes';
 import { payoutAccountRoutes, settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
 import {
+  auditRoutes,
   balanceRoutes,
   budgetRoutes,
   expenseRoutes,
@@ -67,6 +68,7 @@ export async function createApplication({
     .registerRoutes('/', groupRoutes, { groupsModule: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', auditRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', rateRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { ledgerModule: localLedgerModule })

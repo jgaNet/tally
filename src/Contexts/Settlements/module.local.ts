@@ -43,6 +43,8 @@ import { SqlitePayoutAccountReadModels } from '@Contexts/Settlements/Infrastruct
 import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountRepository';
 import { SqliteSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBookRepository';
 import { SqliteSettlementReadModels } from '@Contexts/Settlements/Infrastructure/SqliteSettlementReadModels';
+import { SqliteSettlementAuditLog } from '@Contexts/Settlements/Infrastructure/SqliteSettlementAuditLog';
+import { ISettlementAuditQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementAuditQueries';
 
 /**
  * The Settlements context, declared by checkpoint 2's strategic session before request 11 (conventions/domain.yaml, ADR 5),
@@ -53,11 +55,16 @@ import { SqliteSettlementReadModels } from '@Contexts/Settlements/Infrastructure
 const database = sharedDatabase();
 const books = new SqliteSettlementBookRepository(database);
 const readModels = new SqliteSettlementReadModels(database);
+/** The audit of the money the settlements move (request 28), written in each change's transaction and read by Ledger's audit (ADR 19). */
+const audit = new SqliteSettlementAuditLog(database);
 const payoutAccounts = new SqlitePayoutAccountRepository(database);
 const payoutAccountReadModels = new SqlitePayoutAccountReadModels(database);
 
 /** What has been settled in a group, read by Ledger when it reads a balance (ADR 7): Settlements' read model, exported. */
 export const settledAmounts: ISettledAmountsQueries = readModels;
+
+/** The money a group's settlements moved, read by Ledger when it reads the group's audit (request 28): Settlements' audit, exported. */
+export const settlementAudit: ISettlementAuditQueries = audit;
 
 /** The payments waiting at the provider, which keep a member in the group until they end (request 20): Settlements' read model, exported. */
 export const waitingPayments: IWaitingPaymentsQueries = readModels;
@@ -89,7 +96,7 @@ export const localSettlementsModule = new Module({
   commands: [
     {
       event: RecordCashSettlementCommandEvent,
-      handlers: [new RecordCashSettlementCommandHandler(books, members, balances, systemClock)],
+      handlers: [new RecordCashSettlementCommandHandler(books, members, balances, systemClock, audit)],
     },
     {
       event: PayThroughProviderCommandEvent,
@@ -101,7 +108,7 @@ export const localSettlementsModule = new Module({
     },
     {
       event: ReceivePaymentWebhookCommandEvent,
-      handlers: [new ReceivePaymentWebhookCommandHandler(books, systemClock)],
+      handlers: [new ReceivePaymentWebhookCommandHandler(books, systemClock, audit)],
     },
     {
       event: SetPayoutAccountCommandEvent,

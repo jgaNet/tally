@@ -2,8 +2,11 @@ import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { groupMembers } from '@Contexts/Groups/module.local';
-import { settledAmounts as settlementsSettledAmounts } from '@Contexts/Settlements/module.local';
+import { groupAudit, groupMembers } from '@Contexts/Groups/module.local';
+import {
+  settledAmounts as settlementsSettledAmounts,
+  settlementAudit as settlementsAudit,
+} from '@Contexts/Settlements/module.local';
 import {
   RecordExpenseCommandEvent,
   RecordExpenseCommandHandler,
@@ -53,7 +56,11 @@ import {
   GetRecurringExpenseQueryHandler,
   GetGroupTemplatesQueryHandler,
   GetReceiptQueryHandler,
+  GetGroupAuditQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
+import { SqliteAuditLog } from '@Contexts/Ledger/Infrastructure/SqliteAuditLog';
+import { SettlementAuditFromSettlements } from '@Contexts/Ledger/Infrastructure/SettlementAuditFromSettlements';
+import { PassedBalancesFromGroups } from '@Contexts/Ledger/Infrastructure/PassedBalancesFromGroups';
 import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
 import { HttpRatesService } from '@Contexts/Ledger/Infrastructure/HttpRatesService';
 import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/HttpReceiptStore';
@@ -119,6 +126,13 @@ const templateReadModels = new SqliteSplitTemplateReadModels(database);
  * file is kept, so a server started without it refuses every receipt). The store is Ledger's port; its adapter is an HTTP client.
  */
 const receipts = new SqliteReceiptRepository(database);
+/**
+ * The audit of the money (request 28, ADR 19): the expenses' entries are Ledger's own; the settlements' and the balances passed are read
+ * through the ports Ledger owns, each written by the context that made the change.
+ */
+const audit = new SqliteAuditLog(database);
+const settlementAudit = new SettlementAuditFromSettlements(() => settlementsAudit);
+const passedBalances = new PassedBalancesFromGroups(() => groupAudit);
 const receiptReadModels = new SqliteReceiptReadModels(database);
 const receiptStore = new HttpReceiptStore();
 /**
@@ -149,7 +163,7 @@ export const localLedgerModule = new Module({
     { event: BudgetPassedEvent, handlers: [new BudgetPassedHandler()] },
     {
       event: RecurringExpenseDayCameEvent,
-      handlers: [new RecurringExpenseDayCameHandler(expenses, currencies, systemClock, balances, members)],
+      handlers: [new RecurringExpenseDayCameHandler(expenses, currencies, systemClock, balances, members, audit)],
     },
   ],
   commands: [
@@ -164,6 +178,7 @@ export const localLedgerModule = new Module({
           systemClock,
           balances,
           splitTemplates,
+          audit,
         ),
       ],
     },
@@ -178,12 +193,13 @@ export const localLedgerModule = new Module({
           systemClock,
           balances,
           splitTemplates,
+          audit,
         ),
       ],
     },
     {
       event: DeleteExpenseCommandEvent,
-      handlers: [new DeleteExpenseCommandHandler(expenses, members, balances)],
+      handlers: [new DeleteExpenseCommandHandler(expenses, members, balances, systemClock, audit)],
     },
     {
       event: SetUpRecurringExpenseCommandEvent,
@@ -210,6 +226,7 @@ export const localLedgerModule = new Module({
     new GetGroupTemplatesQueryHandler(templateReadModels, members),
     new GetReceiptQueryHandler(receiptReadModels, expenseReadModels, members),
     new GetGroupExpensesQueryHandler(expenseReadModels, members),
+    new GetGroupAuditQueryHandler(audit, settlementAudit, passedBalances, members),
     new GetMemberStatementQueryHandler(expenseReadModels, members),
     new GetOfferedRateQueryHandler(offeredRates, members, currencies, systemClock),
     new GetRecurringExpenseQueryHandler(recurringReadModels, members),

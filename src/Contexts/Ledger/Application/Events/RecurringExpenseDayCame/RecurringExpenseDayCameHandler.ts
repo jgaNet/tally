@@ -2,6 +2,7 @@ import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembe
 import { Clock, EventHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
+import { IAuditLog } from '@Contexts/Ledger/Application/Ports/IAuditLog';
 import { IBalanceCounts } from '@Contexts/Ledger/Application/Ports/IBalanceCounts';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
@@ -21,6 +22,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
     private clock: Clock,
     private balances: IBalanceCounts,
     private groupMembers: IGroupMembers,
+    private audit: IAuditLog,
   ) {
     super();
   }
@@ -33,6 +35,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
     if (!currency) return Result.fail(new NotFoundException('Ledger', 'Group not found', { id: payload.groupId }));
 
     // The members are those the day's decision checked (the payer and the split), so the expense is recorded as decided.
+    const now = this.clock();
     const expense = Expense.create({
       id: expenseId,
       groupId: new Id(payload.groupId),
@@ -46,13 +49,22 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
       groupCurrency: currency,
       offer: null,
       archived: await this.groupMembers.archivedOf(payload.groupId),
-      now: this.clock(),
+      now,
     });
     if (expense.isFailure()) return expense;
 
     const saved = await this.expenses.save(expense.data);
     if (saved.isFailure()) return saved;
     await this.balances.count(expense.data);
+    // Audited by the payer, whom the day acts for (request 28): a redelivered day finds its expense above and is not audited twice.
+    await this.audit.record(payload.groupId, {
+      id: `expense-recorded:${expenseId.value}`,
+      at: now.toISOString(),
+      by: payload.paidBy,
+      action: 'expense-recorded',
+      subjectId: expenseId.value,
+      amount: expense.data.amount.value,
+    });
 
     await publishDomainEvents(expense.data, context);
     return Result.ok();

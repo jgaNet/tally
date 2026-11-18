@@ -23,6 +23,7 @@ why, what it costs, and when to revisit it.
 | [16](0016-a-split-template-is-an-aggregate-of-ledger-that-an-expense-is-split-by-as-given.md) | A split template is an aggregate of Ledger, and an expense is split by it as if its split had been given |
 | [17](0017-a-receipt-is-an-aggregate-of-ledger-kept-in-an-outside-store-behind-a-port.md) | A receipt is an aggregate of Ledger, kept in an outside store behind a port Ledger owns |
 | [18](0018-a-group-is-archived-by-its-owner-and-every-change-in-it-is-refused-by-one-name.md) | A group is archived by its owner, decided by Groups, and every change in it is refused by one name |
+| [19](0019-each-context-writes-its-own-audit-entries-in-its-transaction-and-ledger-reads-them-through-owned-ports.md) | Each context writes its own audit entries in the transaction of its change, and Ledger reads them through ports it owns |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
