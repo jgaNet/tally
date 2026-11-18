@@ -74,7 +74,7 @@ export interface EditExpenseBody extends CreateExpenseBody {
   version: number;
 }
 
-const SplitProperties = {
+export const SplitProperties = {
   splitBetween: { type: 'array', items: { type: 'string' } },
   splitExactly: {
     type: 'array',
@@ -95,7 +95,7 @@ const SplitProperties = {
 } as const;
 
 /** Exactly one of the three splits: each alone is required, and two of them together match none of the branches. */
-const ExactlyOneSplit = {
+export const ExactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 } as const;
 

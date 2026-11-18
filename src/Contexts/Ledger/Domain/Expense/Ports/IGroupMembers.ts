@@ -34,6 +34,11 @@ export interface IGroupMembers {
    */
   membersOf(groupId: string, askedBy: string): Promise<GroupMember[] | null>;
   /**
+   * The ids of the current members of a group, in the order they joined, for the background job, which names no caller: a
+   * recurring expense's day is decided with the members as they are then (request 23). Never answered to a person.
+   */
+  currentMemberIds(groupId: string): Promise<string[]>;
+  /**
    * Whether the account has ever been a member of the group, one who left included, when `askedBy` is a current member;
    * null otherwise, as if the group did not exist. A former member's statement is read through it (request 9).
    */

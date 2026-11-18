@@ -19,6 +19,11 @@ export class GroupsMembership implements IGroupMembers {
     return members ? members.map(member => ({ memberId: member.memberId, role: member.role })) : null;
   }
 
+  async currentMemberIds(groupId: string): Promise<string[]> {
+    const memberships = await this.groups.membersOfEveryGroup();
+    return memberships.filter(membership => membership.groupId === groupId).map(membership => membership.memberId);
+  }
+
   hasBeenMember(groupId: string, accountId: string, askedBy: string): Promise<boolean | null> {
     return this.groups.hasBeenMemberOf(askedBy, groupId, accountId);
   }

@@ -16,7 +16,8 @@ import { expenseRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/exp
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/balance.routes';
 import { statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/statement.routes';
 import { rateRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/rate.routes';
-import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { localLedgerModule, recordRecurringExpenses } from '@Contexts/Ledger/module.local';
+import { recurringRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/recurring.routes';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes';
 import { localNotificationsModule, remindLingeringDebts } from '@Contexts/Notifications/module.local';
@@ -72,6 +73,7 @@ export async function createApplication({
     .registerRoutes('/', balanceRoutes, { module: localLedgerModule })
     .registerRoutes('/', statementRoutes, { module: localLedgerModule })
     .registerRoutes('/', rateRoutes, { module: localLedgerModule })
+    .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, {
       module: localSettlementsModule,
       providerWebhookSecret: process.env.PROVIDER_WEBHOOK_SECRET ?? '',
@@ -87,6 +89,9 @@ export async function createApplication({
   app.schedule(jobsIntervalSeconds * 1000, () =>
     remindLingeringDebts.run(app.executionContext('job'), reminderPeriodSeconds * 1000),
   );
+
+  // The days of recurring expenses come at the same runs: each day that has come is recorded once, by the job, never by a read (request 23).
+  app.schedule(jobsIntervalSeconds * 1000, () => recordRecurringExpenses.run(app.executionContext('job')));
 
   return app;
 }

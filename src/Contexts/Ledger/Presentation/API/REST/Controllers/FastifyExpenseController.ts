@@ -101,7 +101,7 @@ const moneyOf = (body: AmountBody): ExpenseMoney =>
  * The split the body gives. The transport has let exactly one of the three through (the schema answers 400 to any other
  * body), so the one given is the split; an equal split is the default only for a body the schema has not seen.
  */
-const splitOf = (body: SplitBody): SplitRequest => {
+export const splitOf = (body: SplitBody): SplitRequest => {
   if (body.splitExactly) return { kind: 'exact', amounts: body.splitExactly };
   if (body.splitByShares) return { kind: 'shares', shares: body.splitByShares };
   return { kind: 'equal', memberIds: body.splitBetween ?? [] };

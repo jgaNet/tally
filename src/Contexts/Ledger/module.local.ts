@@ -4,6 +4,10 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
 import { groupQueries } from '@Contexts/Groups/module.local';
 import {
+  SetUpRecurringExpenseCommandEvent,
+  SetUpRecurringExpenseCommandHandler,
+  StopRecurringExpenseCommandEvent,
+  StopRecurringExpenseCommandHandler,
   DeleteExpenseCommandEvent,
   DeleteExpenseCommandHandler,
   EditExpenseCommandEvent,
@@ -17,9 +21,16 @@ import {
   GetGroupExpensesQueryHandler,
   GetMemberStatementQueryHandler,
   GetOfferedRateQueryHandler,
+  GetRecurringExpenseQueryHandler,
+  GetGroupRecurringExpensesQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
+import { RecurringExpenseDayCameHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCameHandler';
+import { RecordRecurringExpensesJob } from '@Contexts/Ledger/Application/Jobs/RecordRecurringExpensesJob';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
+import { SqliteRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteRecurringExpenseRepository';
+import { SqliteRecurringExpenseQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteRecurringExpenseQueries';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteExpenseRepository';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteExpenseQueries';
 import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteBalanceQueries';
@@ -36,7 +47,9 @@ import { settlementQueries } from '@Contexts/Settlements/module.local';
  * who the members of a group are, through its own port, answered over Groups' read model; it asks the rates service the rate
  * offered for an expense in another currency, through its own port (request 22); the clock is the application's,
  * passed to what decides a time: an expense's day. An expense's recording is published to the other contexts as
- * ExpenseRecorded (request 17, ADR 6), through the outbox.
+ * ExpenseRecorded (request 17, ADR 6), through the outbox. A recurring expense (request 23) is set up and stopped by its commands, and
+ * its days are recorded by the background job `recordRecurringExpenses`, which the composition root schedules; the expense of a day is
+ * recorded by the policy on its fact.
  */
 const database = applicationDatabase();
 const expenses = new SqliteExpenseRepository(database);
@@ -51,7 +64,12 @@ const balanceQueries = new SqliteBalanceQueries(
   groupMembers,
 );
 const statementQueries = new SqliteStatementQueries(database);
+const recurring = new SqliteRecurringExpenseRepository(database);
+const recurringQueries = new SqliteRecurringExpenseQueries(database);
 const clock = systemClock;
+
+/** The sweep of request 23: run by the composition root every JOBS_INTERVAL_SECONDS, recording each day that has come, once. */
+export const recordRecurringExpenses = new RecordRecurringExpensesJob(recurring, groupMembers, clock);
 
 export const localLedgerModule = new Module({
   name: 'Ledger',
@@ -68,6 +86,14 @@ export const localLedgerModule = new Module({
       event: DeleteExpenseCommandEvent,
       handlers: [new DeleteExpenseCommandHandler(groupMembers, expenses)],
     },
+    {
+      event: SetUpRecurringExpenseCommandEvent,
+      handlers: [new SetUpRecurringExpenseCommandHandler(groupMembers, groupCurrency, recurring, clock)],
+    },
+    {
+      event: StopRecurringExpenseCommandEvent,
+      handlers: [new StopRecurringExpenseCommandHandler(groupMembers, recurring)],
+    },
   ],
   queries: [
     new GetExpenseQueryHandler(expenseQueries, groupMembers),
@@ -75,6 +101,14 @@ export const localLedgerModule = new Module({
     new GetGroupExpensesQueryHandler(expenseQueries, groupMembers),
     new GetMemberStatementQueryHandler(statementQueries, groupMembers),
     new GetOfferedRateQueryHandler(offeredRates, groupCurrency, clock),
+    new GetRecurringExpenseQueryHandler(recurringQueries, groupMembers),
+    new GetGroupRecurringExpensesQueryHandler(recurringQueries, groupMembers),
   ],
-  domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
+  domainEvents: [
+    { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] },
+    {
+      event: RecurringExpenseDayCameEvent,
+      handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers, clock)],
+    },
+  ],
 });

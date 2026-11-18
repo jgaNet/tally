@@ -86,6 +86,7 @@ export class Expense extends AggregateRoot {
     members,
     today,
     offer = null,
+    id,
   }: {
     groupId: string;
     description: string;
@@ -97,6 +98,8 @@ export class Expense extends AggregateRoot {
     members: string[];
     today: Date;
     offer?: RateOffer | null;
+    /** The id of an expense whose day a recurring expense made (request 23): built on the id its fact carries; generated when left out. */
+    id?: string;
   }): IResult<Expense> {
     const decided = Expense.decide({
       description,
@@ -112,7 +115,7 @@ export class Expense extends AggregateRoot {
     if (decided.isFailure()) return Result.fail(decided.error);
 
     const expense = new Expense(
-      Id.generate(),
+      id === undefined ? Id.generate() : new Id(id),
       groupId,
       decided.data.description,
       decided.data.amount,
