@@ -598,7 +598,7 @@ export function expensesOfGroup(db: DatabaseSync, accountId: string, groupId: st
  * split has left the group cannot be changed (`409`): an expense of a member who left stays as it was. Answers the expense
  * as it is now.
  */
-function expenseChangeableBy(
+export function expenseChangeableBy(
   db: DatabaseSync,
   editorId: string,
   expenseId: string,
@@ -693,7 +693,7 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
 }
 
 /**
- * Deletes the expense: it is no longer read, and counts in no balance. Refused like an edit: `404`
+ * Deletes the expense, and its receipt with it: it is no longer read, and counts in no balance. Refused like an edit: `404`
  * when the deleter is not a member of its group, `403` when they are neither its payer nor the
  * group's owner.
  */
@@ -701,6 +701,7 @@ export function deleteExpense(db: DatabaseSync, input: { expenseId: string; dele
   const { expenseId, deleterId } = input;
   inTransaction(db, () => {
     expenseChangeableBy(db, deleterId, expenseId);
+    db.prepare('DELETE FROM receipts WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
   });

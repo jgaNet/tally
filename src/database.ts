@@ -182,6 +182,22 @@ const NOTICES_TABLE = `
 `;
 
 /**
+ * The receipt of an expense: the id and the link the receipts store gave its file, and its type and size. One per
+ * expense: a receipt attached replaces the one it had. It is written in the transaction that attaches it, and deleted
+ * with its expense. Tally keeps no file, only what the store answered.
+ */
+const RECEIPTS_TABLE = `
+  CREATE TABLE IF NOT EXISTS receipts (
+    expense_id  TEXT PRIMARY KEY REFERENCES expenses (id),
+    store_id    TEXT NOT NULL,
+    type        TEXT NOT NULL CHECK (type IN ('image/jpeg', 'image/png')),
+    size        INTEGER NOT NULL CHECK (size BETWEEN 1 AND 2097152),
+    url         TEXT NOT NULL,
+    attached_at TEXT NOT NULL
+  );
+`;
+
+/**
  * The settlements table. A settlement in cash is `paid` at once; one through the payment provider is `pending`
  * with the provider's payment id and `payUrl`, until the provider says it `paid` or `failed`. A paid one may be
  * `refunding` (asked of the provider) and then `refunded`, as the provider says.
@@ -357,6 +373,7 @@ export function openDatabase(path: string): DatabaseSync {
       db.exec(SCHEMA);
       db.exec(SETTLEMENTS_TABLE);
       db.exec(NOTICES_TABLE);
+      db.exec(RECEIPTS_TABLE);
       addMissingColumns(db);
       // After the settlements' rebuilds: a table referencing `settlements` would follow a rename of it.
       db.exec(SETTLEMENT_STATUSES_TABLE);

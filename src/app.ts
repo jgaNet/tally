@@ -15,12 +15,14 @@ import { registerNoticeRoutes } from './routes/notices';
 import { registerOperationRoutes } from './routes/operations';
 import { registerPayoutAccountRoutes } from './routes/payout-accounts';
 import { registerProviderRoutes } from './routes/provider';
+import { registerReceiptRoutes } from './routes/receipts';
 import { registerRecurringRoutes } from './routes/recurring';
 import { registerRateRoutes } from './routes/rates';
 import { registerSettlementRoutes } from './routes/settlements';
 import { registerStatementRoutes } from './routes/statements';
 import { registerTemplateRoutes } from './routes/templates';
 import type { RatesConfig } from './rates';
+import type { ReceiptsConfig } from './receipts';
 
 /** The running application: what the server entry point and the tests start and stop. */
 export interface Application {
@@ -54,6 +56,9 @@ function secondsFrom(value: string | undefined, fallback: number): number {
  * The rates an expense in another currency is recorded at are asked of the rates service at `ratesUrl` (`RATES_URL`), the
  * base of its API; without it no rate is offered, and a rate given is taken as it is. The service has `ratesTimeoutMs`
  * (5000 by default) to answer.
+ *
+ * The receipts attached to expenses are kept in the receipts store at `receiptsUrl` (`RECEIPTS_URL`), the base of its API;
+ * without it, attaching a receipt is refused. The store has `receiptsTimeoutMs` (5000 by default) to answer.
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
@@ -64,6 +69,8 @@ export async function createApplication({
   providerTimeoutMs = 5000,
   ratesUrl = process.env.RATES_URL,
   ratesTimeoutMs = 5000,
+  receiptsUrl = process.env.RECEIPTS_URL,
+  receiptsTimeoutMs = 5000,
   jobsIntervalSeconds = secondsFrom(process.env.JOBS_INTERVAL_SECONDS, 60),
   reminderPeriodSeconds = secondsFrom(process.env.REMINDER_PERIOD_SECONDS, DEFAULT_REMINDER_PERIOD_SECONDS),
   clock = () => new Date(),
@@ -76,6 +83,8 @@ export async function createApplication({
   providerTimeoutMs?: number;
   ratesUrl?: string;
   ratesTimeoutMs?: number;
+  receiptsUrl?: string;
+  receiptsTimeoutMs?: number;
   jobsIntervalSeconds?: number;
   reminderPeriodSeconds?: number;
   clock?: () => Date;
@@ -89,6 +98,8 @@ export async function createApplication({
   };
   // An empty value is no value: no rates service is configured.
   const rates: RatesConfig = { url: ratesUrl || undefined, timeoutMs: ratesTimeoutMs };
+  // An empty value is no value: no receipts store is configured.
+  const receipts: ReceiptsConfig = { url: receiptsUrl || undefined, timeoutMs: receiptsTimeoutMs };
   // A body's values are checked by the rules, not coerced: a number where a string is due is a `400`.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
   let jobsTimer: NodeJS.Timeout | undefined;
@@ -109,6 +120,7 @@ export async function createApplication({
       registerGroupRoutes(api, db);
       registerInvitationRoutes(api, db);
       registerExpenseRoutes(api, db, rates);
+      registerReceiptRoutes(api, db, receipts);
       registerRateRoutes(api, db, rates);
       registerRecurringRoutes(api, db, clock);
       registerBudgetRoutes(api, db, clock);
