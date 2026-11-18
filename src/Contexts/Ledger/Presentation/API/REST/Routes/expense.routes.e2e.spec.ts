@@ -23,6 +23,7 @@ type Expense = {
   paidBy: string;
   splitKind: 'equal' | 'exact' | 'shares';
   version: number;
+  category?: string;
   shares: { memberId: string; amount: number }[];
   original?: { currency: string; amount: number; rate: string };
 };
@@ -119,6 +120,7 @@ describe('expenses', () => {
       paidBy: alice.id,
       splitKind: 'equal',
       version: 1,
+      category: 'other',
       shares: [
         { memberId: bob.id, amount: 334 },
         { memberId: alice.id, amount: 333 },
@@ -626,6 +628,7 @@ describe('an expense in another currency', () => {
       paidBy: alice.id,
       splitKind: 'equal',
       version: 1,
+      category: 'other',
       shares: [
         { memberId: alice.id, amount: 656 },
         { memberId: bob.id, amount: 655 },

@@ -10,9 +10,17 @@ const OriginalSchema = {
   properties: { currency: { type: 'string' }, amount: { type: 'integer' }, rate: { type: 'string' } },
 } as const;
 
+/** The category an expense reads with (request 24). */
+export const CategorySchema = {
+  enum: ['groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'],
+} as const;
+
+/** The category a body may give, by shape only: whether it is one of the eight is the expense's to decide, behind the 202. */
+export const CategoryBodyProperty = { category: { type: 'string' } } as const;
+
 const ExpenseSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'splitKind', 'version', 'shares'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'splitKind', 'version', 'category', 'shares'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -22,6 +30,7 @@ const ExpenseSchema = {
     paidBy: { type: 'string' },
     splitKind: { enum: ['equal', 'exact', 'shares'] },
     version: { type: 'integer', minimum: 1 },
+    category: CategorySchema,
     shares: {
       type: 'array',
       items: {
@@ -92,6 +101,7 @@ export const RecordExpenseBodySchema = {
   properties: {
     description: { type: 'string' },
     date: { type: 'string' },
+    ...CategoryBodyProperty,
     ...MoneyBodyProperties,
     ...SplitBodyProperties,
   },
@@ -106,6 +116,7 @@ export const EditExpenseBodySchema = {
     description: { type: 'string' },
     date: { type: 'string' },
     version: { type: 'integer' },
+    ...CategoryBodyProperty,
     ...MoneyBodyProperties,
     ...SplitBodyProperties,
   },

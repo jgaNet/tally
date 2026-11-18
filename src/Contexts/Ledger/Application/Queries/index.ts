@@ -5,3 +5,4 @@ export { GetMemberStatementQueryHandler } from '@Contexts/Ledger/Application/Que
 export { GetOfferedRateQueryHandler } from '@Contexts/Ledger/Application/Queries/GetOfferedRate';
 export { GetRecurringExpenseQueryHandler } from '@Contexts/Ledger/Application/Queries/GetRecurringExpense/GetRecurringExpenseQueryHandler';
 export { GetGroupRecurringExpensesQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupRecurringExpenses/GetGroupRecurringExpensesQueryHandler';
+export { GetGroupBudgetsQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupBudgets';

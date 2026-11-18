@@ -39,6 +39,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
       money: { amount: payload.amount },
       date: payload.day,
       split: payload.split,
+      category: payload.category,
       groupMembers: payload.members.map(member => new Id(member)),
       groupCurrency: currency,
       offer: null,

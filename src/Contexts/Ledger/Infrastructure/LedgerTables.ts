@@ -44,7 +44,12 @@ export function createLedgerTables(database: SqliteDatabase): void {
   if (!columns.some(column => column.name === 'original_rate_source')) {
     database.exec('ALTER TABLE expenses ADD COLUMN original_rate_source TEXT');
   }
+  // What an expense is for (request 24): one of the eight categories; an expense kept before categories is `other`.
+  if (!columns.some(column => column.name === 'category')) {
+    database.exec("ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'");
+  }
   database.exec('CREATE INDEX IF NOT EXISTS expenses_by_group ON expenses (group_id)');
+  database.exec('CREATE INDEX IF NOT EXISTS expenses_by_group_category ON expenses (group_id, category)');
   database.exec(`CREATE TABLE IF NOT EXISTS expense_shares (
     expense_id TEXT NOT NULL,
     position INTEGER NOT NULL,
@@ -74,6 +79,10 @@ export function createLedgerTables(database: SqliteDatabase): void {
     version INTEGER NOT NULL DEFAULT 1,
     set_up_seq INTEGER NOT NULL DEFAULT 0
   )`);
+  const recurringColumns = database.all<{ name: string }>('PRAGMA table_info(recurring_expenses)');
+  if (!recurringColumns.some(column => column.name === 'category')) {
+    database.exec("ALTER TABLE recurring_expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'");
+  }
   database.exec('CREATE INDEX IF NOT EXISTS recurring_expenses_by_group ON recurring_expenses (group_id)');
   database.exec('CREATE INDEX IF NOT EXISTS recurring_expenses_by_next ON recurring_expenses (next_on)');
   // The split as it was given: one row per member, in the order given. `amount` is an exact amount, `shares` a member's shares;
@@ -85,5 +94,21 @@ export function createLedgerTables(database: SqliteDatabase): void {
     amount INTEGER,
     shares INTEGER,
     PRIMARY KEY (recurring_id, position)
+  )`);
+  // The budgets (request 24): one per group and category. A removed budget stays as a row, `removed`, so the months it was passed in
+  // are not forgotten if the owner sets it again; `version` is the aggregate's (ADR 8).
+  database.exec(`CREATE TABLE IF NOT EXISTS budgets (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    category TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    removed INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (group_id, category)
+  )`);
+  database.exec(`CREATE TABLE IF NOT EXISTS budget_passed_months (
+    budget_id TEXT NOT NULL,
+    month TEXT NOT NULL,
+    PRIMARY KEY (budget_id, month)
   )`);
 }

@@ -18,7 +18,7 @@ type SplitBody =
   | { splitByShares: { memberId: string; shares: number }[] };
 /** Exactly one of the two ways to give the money: an amount in the group's currency, or what was paid in another (request 21). */
 type MoneyBody = { amount: number } | { original: { currency: string; amount: number; rate?: string } };
-type RecordExpenseBody = { description: string; date: string } & MoneyBody & SplitBody;
+type RecordExpenseBody = { description: string; date: string; category?: string } & MoneyBody & SplitBody;
 type EditExpenseBody = RecordExpenseBody & { version: number };
 
 /** The money a body gives: the transport has refused a body of neither, or of both, of the two. */
@@ -40,7 +40,7 @@ export class FastifyExpenseController {
   }
 
   async recordExpense(req: FastifyRequest<{ Params: { id: string }; Body: RecordExpenseBody }>, reply: FastifyReply) {
-    const { description, date } = req.body;
+    const { description, date, category } = req.body;
     return acceptCommand(
       req,
       reply,
@@ -51,12 +51,13 @@ export class FastifyExpenseController {
         money: moneyOf(req.body),
         date,
         split: splitOf(req.body),
+        category,
       }),
     );
   }
 
   async editExpense(req: FastifyRequest<{ Params: { id: string }; Body: EditExpenseBody }>, reply: FastifyReply) {
-    const { description, date, version } = req.body;
+    const { description, date, version, category } = req.body;
     return acceptCommand(
       req,
       reply,
@@ -68,6 +69,7 @@ export class FastifyExpenseController {
         date,
         version,
         split: splitOf(req.body),
+        category,
       }),
     );
   }

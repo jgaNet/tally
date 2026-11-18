@@ -138,3 +138,13 @@ export class NoRateOffered extends LedgerException {
     super('NoRateOffered', 'No rate is offered for its currency and day, so the expense cannot take or check a rate');
   }
 }
+
+/** A category is one of the eight an expense may have (request 24). */
+export class InvalidCategory extends LedgerException {
+  constructor() {
+    super(
+      'InvalidCategory',
+      'A category is one of groceries, rent, utilities, transport, food, travel, leisure or other',
+    );
+  }
+}

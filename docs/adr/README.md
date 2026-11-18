@@ -19,6 +19,7 @@ why, what it costs, and when to revisit it.
 | [12](0012-an-expense-in-another-currency-is-converted-once-and-kept-as-given.md) | An expense in another currency is converted once, in exact arithmetic, and kept as given; the group's currency is read through an owned port |
 | [13](0013-an-offered-rate-is-a-port-the-expense-takes-or-checks-within-two-percent.md) | An offered rate is a port the expense takes or checks within 2 %, and its source is kept |
 | [14](0014-a-recurring-expense-is-an-aggregate-of-ledger-and-its-day-names-its-expense.md) | A recurring expense is an aggregate of Ledger, and its day names the expense it records |
+| [15](0015-a-budget-is-an-aggregate-of-ledger-that-remembers-its-passed-months-and-tells-notifications-through-the-existing-link.md) | A budget is an aggregate of Ledger that remembers the months it was passed in, and tells Notifications through the link they already have |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

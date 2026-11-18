@@ -33,5 +33,11 @@ export function createNoticesTables(database: SqliteDatabase): void {
       SELECT id, recipient, group_id, 'expense', expense_id, amount, recorded_at FROM notices_before_reminders ORDER BY rowid`);
     database.exec('DROP TABLE notices_before_reminders');
   }
+  // A budget's notice (request 24) names the category, the month and the budget it passed; the others have none.
+  if (!database.all<{ name: string }>('PRAGMA table_info(notices)').some(column => column.name === 'category')) {
+    database.exec('ALTER TABLE notices ADD COLUMN category TEXT');
+    database.exec('ALTER TABLE notices ADD COLUMN month TEXT');
+    database.exec('ALTER TABLE notices ADD COLUMN budget INTEGER');
+  }
   database.exec('CREATE INDEX IF NOT EXISTS notices_by_recipient ON notices (recipient, recorded_at)');
 }

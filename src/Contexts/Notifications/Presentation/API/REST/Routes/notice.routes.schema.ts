@@ -13,9 +13,12 @@ export const GetNoticesResSchema = {
       required: ['id', 'kind', 'groupId', 'amount', 'at'],
       properties: {
         id: { type: 'string' },
-        kind: { enum: ['expense', 'reminder'] },
+        kind: { enum: ['expense', 'reminder', 'budget'] },
         groupId: { type: 'string' },
         expenseId: { type: 'string' },
+        category: { type: 'string' },
+        month: { type: 'string' },
+        budget: { type: 'integer' },
         amount: { type: 'integer' },
         at: {
           type: 'string',

@@ -79,4 +79,55 @@ describe('Ledger → Notifications', () => {
     const payerNotices = await http.get(`${api}/notices`, { token: payer.token });
     expect((payerNotices.body as { expenseId: string }[]).some(notice => notice.expenseId === expenseId)).toBe(false);
   });
+
+  it('finds, by the group the budget was set in, the notice each member, the payer too, has when an expense passes it', async () => {
+    const payer = await signedIn('budget-relation-payer@example.com', 'Rue');
+    const member = await signedIn('budget-relation-member@example.com', 'Ivo');
+    const group = await createGroup(payer.token, 'Budget relation');
+    await join(payer.token, group, member.token);
+
+    const set = await http.request('PUT', `${api}/groups/${group}/budgets/groceries`, {
+      token: payer.token,
+      body: { amount: 400 },
+    });
+    expect((await outcome((set.body as { operationId: string }).operationId, payer.token)).status).toBe('SUCCESS');
+
+    const day = '2026-03-11';
+    const answer = await http.request('POST', `${api}/groups/${group}/expenses`, {
+      token: payer.token,
+      body: {
+        description: 'Market',
+        amount: 401,
+        date: day,
+        category: 'groceries',
+        splitBetween: [payer.id, member.id],
+      },
+    });
+    const expenseId = (await outcome((answer.body as { operationId: string }).operationId, payer.token))
+      .result as string;
+    expect(expenseId).toEqual(expect.any(String));
+
+    for (const person of [payer, member]) {
+      let found: { groupId: string; kind: string }[] = [];
+      for (let attempt = 0; attempt < 250 && !found.length; attempt++) {
+        const { body } = await http.get(`${api}/notices`, { token: person.token });
+        found = (body as { groupId: string; kind: string }[]).filter(
+          notice => notice.kind === 'budget' && notice.groupId === group,
+        );
+        if (!found.length) await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(found).toEqual([
+        {
+          id: expect.any(String),
+          kind: 'budget',
+          groupId: group,
+          category: 'groceries',
+          month: '2026-03',
+          budget: 400,
+          amount: 401,
+          at: expect.any(String),
+        },
+      ]);
+    }
+  });
 });

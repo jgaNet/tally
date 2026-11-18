@@ -85,6 +85,10 @@ contexts:
         meaning: what a member owes, or is owed, in a group, read from the expenses' shares and payers.
       - term: RecurringExpense
         meaning: an expense a member pays every month, from a start day of 1 to 28, recorded on each of its days by the background sweep; it ends when its payer or a member of its split has left the group.
+      - term: Category
+        meaning: what an expense is for, one of eight (groceries, rent, utilities, transport, food, travel, leisure, other), other when none is given.
+      - term: Budget
+        meaning: what a group's month may spend in a category, set and removed by the group's owner; it keeps the months it was passed in, so that a month is told once.
   - id: Tracker
     purpose: >-
       What became of each command: every operation the bus dispatches is recorded with its outcome, so that a
@@ -173,9 +177,10 @@ relationships:
     patterns: [published-language, anti-corruption-layer]
     mechanism: integration-event
     why: >-
-      A member is told when an expense concerns them. Ledger says it in its public words (ExpenseRecorded, Tally's
-      first integration event), through the outbox; Notifications turns it into one notice per member and delivers
-      it, which keeps the telling out of the ledger's transactions (T9).
+      A member is told when an expense concerns them, and when a month passes a category's budget. Ledger says it in its
+      public words (ExpenseRecorded, Tally's first integration event, and BudgetPassed, ADR 15), through the outbox;
+      Notifications turns each into one notice per member and delivers it, which keeps the telling out of the ledger's
+      transactions (T9).
   - upstream: Settlements
     downstream: Notifications
     patterns: [customer-supplier, anti-corruption-layer]

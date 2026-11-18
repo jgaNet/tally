@@ -5,7 +5,8 @@ import { InvalidNoticeAmount } from '@Contexts/Notifications/Domain/Notice/Notic
 
 /**
  * One message owed to one member about one fact, made once from it: that an expense concerns them, and their share of it; or, for a
- * debt that lasted (ADR 10), a reminder of what they still owe, which names no expense. It is the member's own: it names no group they
+ * debt that lasted (ADR 10), a reminder of what they still owe, which names no expense; or, for a month that passed a category's budget
+ * (request 24), the budget's notice, which names the category, the month, the budget and what the month spent. It is the member's own: it names no group they
  * are still in, so it stays theirs after they leave. It is never changed once made.
  */
 export class Notice extends AggregateRoot {
@@ -13,10 +14,12 @@ export class Notice extends AggregateRoot {
     id: Id,
     readonly recipient: Id,
     readonly groupId: Id,
-    readonly kind: 'expense' | 'reminder',
+    readonly kind: 'expense' | 'reminder' | 'budget',
     readonly expenseId: Id | null,
     readonly amount: number,
     readonly at: Date,
+    /** What a budget's notice is about (request 24): its category, its month (YYYY-MM) and the budget it passed; none for another kind. */
+    readonly budgetPassed: { category: string; month: string; budget: number } | null = null,
   ) {
     super(id, 0);
   }
@@ -69,6 +72,47 @@ export class Notice extends AggregateRoot {
         noticeId: notice._id.value,
         recipientId: recipient.value,
         kind: 'reminder',
+        expenseId: null,
+      }),
+    );
+    return Result.ok(notice);
+  }
+
+  /**
+   * A budget's notice made now: the month (YYYY-MM) spent `spent` in the category of the group, more than its `budget`, a whole amount
+   * from 1; it names no expense. Its `amount` is what the month spent.
+   */
+  static overBudget({
+    recipient,
+    groupId,
+    category,
+    month,
+    budget,
+    spent,
+    now,
+  }: {
+    recipient: Id;
+    groupId: Id;
+    category: string;
+    month: string;
+    budget: number;
+    spent: number;
+    now: Date;
+  }): IResult<Notice> {
+    if (!Number.isInteger(budget) || budget < 1 || !Number.isInteger(spent) || spent <= budget) {
+      return Result.fail(new InvalidNoticeAmount());
+    }
+
+    const notice = new Notice(Id.generate(), recipient, groupId, 'budget', null, spent, now, {
+      category,
+      month,
+      budget,
+    });
+    notice.record(
+      NoticeIssuedEvent.set({
+        noticeId: notice._id.value,
+        recipientId: recipient.value,
+        kind: 'budget',
         expenseId: null,
       }),
     );

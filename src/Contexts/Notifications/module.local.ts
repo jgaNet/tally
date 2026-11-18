@@ -2,8 +2,12 @@ import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/LedgerIntegrationEvents';
+import {
+  BudgetPassedIntegrationEvent,
+  ExpenseRecordedIntegrationEvent,
+} from '@SharedKernel/Application/IntegrationEvents/LedgerIntegrationEvents';
 
+import { BudgetPassedIntegrationEventHandler } from '@Contexts/Notifications/Application/Events/BudgetPassed/BudgetPassedIntegrationEventHandler';
 import { ExpenseRecordedIntegrationEventHandler } from '@Contexts/Notifications/Application/Events/ExpenseRecorded/ExpenseRecordedIntegrationEventHandler';
 import { ReminderIssuedHandler } from '@Contexts/Notifications/Application/Events/ReminderIssued/ReminderIssuedHandler';
 import { GetMyNoticesQueryHandler } from '@Contexts/Notifications/Application/Queries/GetMyNotices';
@@ -36,7 +40,7 @@ export const debtSweep = new DebtSweepJob(
 
 /**
  * The Notifications context (conventions/domain.yaml, ADR 5, ADR 10): a notice to each member of an expense's split but its payer,
- * made from Ledger's ExpenseRecorded; a reminder to a member who has owed for a period, made from the sweep's ReminderIssued; and a
+ * made from Ledger's ExpenseRecorded; a notice to each member when a month passes a category's budget, made from Ledger's BudgetPassed (request 24); a reminder to a member who has owed for a period, made from the sweep's ReminderIssued; and a
  * person's own notices, read on their own.
  */
 export const localNotificationsModule = new Module({
@@ -48,5 +52,6 @@ export const localNotificationsModule = new Module({
       event: ExpenseRecordedIntegrationEvent,
       handlers: [new ExpenseRecordedIntegrationEventHandler(notices, systemClock)],
     },
+    { event: BudgetPassedIntegrationEvent, handlers: [new BudgetPassedIntegrationEventHandler(notices, systemClock)] },
   ],
 });

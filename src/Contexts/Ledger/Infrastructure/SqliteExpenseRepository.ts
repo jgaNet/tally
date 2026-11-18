@@ -19,6 +19,7 @@ interface Row {
   original_amount: number | null;
   original_rate: string | null;
   original_rate_source: string | null;
+  category: string;
 }
 
 interface ShareRow {
@@ -39,7 +40,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
   async findById(id: Id): Promise<Expense | null> {
     const row = this.database.get<Row>(
       `SELECT id, group_id, description, amount, spent_on, paid_by, split_kind, version,
-              original_currency, original_amount, original_rate, original_rate_source
+              original_currency, original_amount, original_rate, original_rate_source, category
        FROM expenses WHERE id = ?`,
       id.value,
     );
@@ -66,12 +67,13 @@ export class SqliteExpenseRepository implements IExpenseRepository {
               rate: row.original_rate ?? '',
               rateSource: row.original_rate_source === 'offered' ? 'offered' : 'stated',
             },
+      category: row.category,
       version: row.version,
     });
   }
 
   async save(expense: Expense): Promise<IResult> {
-    const { id, groupId, description, amount, date, paidBy, splitKind, shares, original, version } =
+    const { id, groupId, description, amount, date, paidBy, splitKind, shares, original, category, version } =
       expense.toSnapshot();
     const originalColumns = [
       original?.currency ?? null,
@@ -83,8 +85,8 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       this.database.run(
         // The recording order is set once, here: the next position after every expense stored so far. An edit never sets it.
         `INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, split_kind, version, recorded_seq,
-                               original_currency, original_amount, original_rate, original_rate_source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM expenses), ?, ?, ?, ?)`,
+                               original_currency, original_amount, original_rate, original_rate_source, category)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM expenses), ?, ?, ?, ?, ?)`,
         id,
         groupId,
         description,
@@ -94,12 +96,13 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         splitKind,
         1,
         ...originalColumns,
+        category,
       );
     } else {
       const changed = this.database.run(
         `UPDATE expenses SET description = ?, amount = ?, spent_on = ?, paid_by = ?, split_kind = ?,
                              original_currency = ?, original_amount = ?, original_rate = ?, original_rate_source = ?,
-                             version = ?
+                             category = ?, version = ?
          WHERE id = ? AND version = ?`,
         description,
         amount,
@@ -107,6 +110,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         paidBy,
         splitKind,
         ...originalColumns,
+        category,
         version + 1,
         id,
         version,

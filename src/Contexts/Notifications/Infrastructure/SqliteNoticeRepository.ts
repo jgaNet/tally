@@ -13,7 +13,7 @@ export class SqliteNoticeRepository implements INoticeRepository {
 
   async save(notice: Notice): Promise<IResult> {
     this.database.run(
-      'INSERT INTO notices (id, recipient, group_id, kind, expense_id, amount, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO notices (id, recipient, group_id, kind, expense_id, amount, recorded_at, category, month, budget) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       notice._id.value,
       notice.recipient.value,
       notice.groupId.value,
@@ -21,6 +21,9 @@ export class SqliteNoticeRepository implements INoticeRepository {
       notice.expenseId?.value ?? null,
       notice.amount,
       notice.at.toISOString(),
+      notice.budgetPassed?.category ?? null,
+      notice.budgetPassed?.month ?? null,
+      notice.budgetPassed?.budget ?? null,
     );
     return Result.ok();
   }

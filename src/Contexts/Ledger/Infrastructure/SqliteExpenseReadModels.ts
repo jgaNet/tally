@@ -1,5 +1,6 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
+import { CategoryName } from '@Contexts/Ledger/Domain/Expense/Category';
 import { IExpenseQueries } from '@Contexts/Ledger/Application/Ports/IExpenseQueries';
 import { ExpenseReadModel, ExpenseShareReadModel } from '@Contexts/Ledger/Application/ReadModel/ExpenseReadModel';
 import { createLedgerTables } from '@Contexts/Ledger/Infrastructure/LedgerTables';
@@ -16,6 +17,7 @@ interface Row {
   original_currency: string | null;
   original_amount: number | null;
   original_rate: string | null;
+  category: CategoryName;
 }
 
 interface ShareRow {
@@ -25,7 +27,7 @@ interface ShareRow {
 }
 
 const SELECT_EXPENSES = `SELECT id, group_id, description, amount, spent_on, paid_by, split_kind, version,
-                                original_currency, original_amount, original_rate FROM expenses`;
+                                original_currency, original_amount, original_rate, category FROM expenses`;
 
 /** The expenses' read models: read outside any command's transaction, so it waits for the one in progress. */
 export class SqliteExpenseReadModels implements IExpenseQueries {
@@ -81,6 +83,7 @@ function toReadModel(row: Row, shares: ExpenseShareReadModel[]): ExpenseReadMode
     paidBy: row.paid_by,
     splitKind: row.split_kind,
     version: row.version,
+    category: row.category,
     shares,
   };
   // An expense in the group's currency has no `original`: the read says so by leaving it out.

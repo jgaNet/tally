@@ -1,3 +1,4 @@
+import { CategoryName } from '@Contexts/Ledger/Domain/Expense/Category';
 import { SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** One member's share of an expense as a member reads it. */
@@ -28,6 +29,8 @@ export interface ExpenseReadModel {
   splitKind: SplitKind;
   /** The version it was last saved at: 1 when recorded, one more at each edit. */
   version: number;
+  /** What it is for (request 24); an expense recorded before categories is `other`. */
+  category: CategoryName;
   shares: ExpenseShareReadModel[];
   original?: ExpenseOriginalReadModel;
 }

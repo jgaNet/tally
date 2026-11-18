@@ -17,6 +17,7 @@ import { noticeRoutes } from '@Contexts/Notifications/Presentation/API/REST/Rout
 import { payoutAccountRoutes, settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
 import {
   balanceRoutes,
+  budgetRoutes,
   expenseRoutes,
   rateRoutes,
   recurringRoutes,
@@ -67,6 +68,7 @@ export async function createApplication({
     .registerRoutes('/', rateRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', budgetRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { settlementsModule: localSettlementsModule, webhookSignatures })
     .registerRoutes('/', payoutAccountRoutes, { settlementsModule: localSettlementsModule })
     .registerRoutes('/', noticeRoutes, { notificationsModule: localNotificationsModule })

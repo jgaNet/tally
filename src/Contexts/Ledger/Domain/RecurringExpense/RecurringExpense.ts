@@ -1,6 +1,7 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { NotAMemberOfTheGroup } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { Split, SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
@@ -26,6 +27,8 @@ export interface RecurringExpenseSnapshot {
   startsOn: string;
   next: string;
   split: SplitInput;
+  /** What its expenses are for (request 24); a recurring expense kept before categories is `other`. */
+  category: string;
   version: number;
 }
 
@@ -48,6 +51,7 @@ export class RecurringExpense extends AggregateRoot {
     readonly startsOn: string,
     readonly next: string,
     readonly split: SplitInput,
+    readonly category: Category,
     /** Whether the day decided ended it: the repository then deletes it instead of saving it (`recordDay`). */
     readonly ended: boolean,
     version: number,
@@ -67,6 +71,7 @@ export class RecurringExpense extends AggregateRoot {
     amount,
     startsOn,
     split,
+    category,
     groupMembers,
     now,
   }: {
@@ -76,6 +81,8 @@ export class RecurringExpense extends AggregateRoot {
     amount: number;
     startsOn: string;
     split: SplitInput;
+    /** What its expenses are for; `other` when none is given (request 24). */
+    category?: string;
     groupMembers: Id[];
     now: Date;
   }): IResult<RecurringExpense> {
@@ -85,6 +92,8 @@ export class RecurringExpense extends AggregateRoot {
     if (day.isFailure()) return day;
     const value = Amount.create(amount);
     if (value.isFailure()) return value;
+    const kind = Category.create(category);
+    if (kind.isFailure()) return kind;
 
     const decided = Split.decide({ amount: value.data, payer: paidBy, input: split });
     if (decided.isFailure()) return decided;
@@ -102,6 +111,7 @@ export class RecurringExpense extends AggregateRoot {
       day.data.value,
       day.data.value,
       split,
+      kind.data,
       false,
       0,
     );
@@ -150,6 +160,7 @@ export class RecurringExpense extends AggregateRoot {
         amount: this.amount.value,
         day: this.next,
         split: this.split,
+        category: this.category.value,
         members: [this.paidBy.value, ...splitMemberIds(this.split)],
       }),
     );
@@ -183,6 +194,7 @@ export class RecurringExpense extends AggregateRoot {
       snapshot.startsOn,
       snapshot.next,
       snapshot.split,
+      Category.restore(snapshot.category),
       false,
       snapshot.version,
     );
@@ -198,6 +210,7 @@ export class RecurringExpense extends AggregateRoot {
       startsOn: this.startsOn,
       next: this.next,
       split: this.split,
+      category: this.category.value,
       version: this.version,
     };
   }
@@ -213,6 +226,7 @@ export class RecurringExpense extends AggregateRoot {
       this.startsOn,
       changes.next ?? this.next,
       this.split,
+      this.category,
       changes.ended ?? this.ended,
       this.version,
     );

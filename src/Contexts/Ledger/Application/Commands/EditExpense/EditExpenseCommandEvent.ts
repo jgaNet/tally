@@ -13,5 +13,7 @@ export class EditExpenseCommandEvent extends CommandEvent<{
   money: MoneyInput;
   date: string;
   split: SplitInput;
+  /** One of the eight categories, `other` when none is given (request 24); checked by the expense, behind the 202. */
+  category?: string;
   version: number;
 }> {}

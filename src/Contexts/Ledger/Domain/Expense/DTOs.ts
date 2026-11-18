@@ -34,5 +34,7 @@ export interface ExpenseSnapshot {
   splitKind: SplitKind;
   shares: ShareSnapshot[];
   original: OriginalSnapshot | null;
+  /** What it is for (request 24): one of the eight categories; an expense kept before categories is `other`. */
+  category: string;
   version: number;
 }

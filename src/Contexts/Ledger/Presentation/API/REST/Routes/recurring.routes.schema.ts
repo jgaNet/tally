@@ -1,4 +1,6 @@
 import {
+  CategoryBodyProperty,
+  CategorySchema,
   ExactlyOneSplit,
   SplitBodyProperties,
 } from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes.schema';
@@ -14,7 +16,7 @@ const RefusedSchema = {
  */
 const RecurringSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next'],
+  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next', 'category'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -23,6 +25,7 @@ const RecurringSchema = {
     amount: { type: 'integer' },
     startsOn: { type: 'string' },
     next: { type: 'string' },
+    category: CategorySchema,
     splitBetween: { type: 'array', items: { type: 'string' } },
     splitExactly: {
       type: 'array',
@@ -55,6 +58,7 @@ export const SetUpRecurringBodySchema = {
     description: { type: 'string' },
     amount: { type: 'integer' },
     startsOn: { type: 'string' },
+    ...CategoryBodyProperty,
     ...SplitBodyProperties,
   },
   allOf: [ExactlyOneSplit],

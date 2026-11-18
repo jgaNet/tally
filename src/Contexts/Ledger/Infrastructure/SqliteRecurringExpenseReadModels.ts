@@ -1,5 +1,6 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
+import { CategoryName } from '@Contexts/Ledger/Domain/Expense/Category';
 import { SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 import { IRecurringExpenseQueries } from '@Contexts/Ledger/Application/Ports/IRecurringExpenseQueries';
 import { RecurringExpenseReadModel } from '@Contexts/Ledger/Application/ReadModel/RecurringExpenseReadModel';
@@ -14,6 +15,7 @@ interface Row {
   starts_on: string;
   next_on: string;
   split_kind: SplitKind;
+  category: CategoryName;
 }
 
 interface SplitRow {
@@ -23,7 +25,7 @@ interface SplitRow {
   shares: number | null;
 }
 
-const SELECT_RECURRING = `SELECT id, group_id, paid_by, description, amount, starts_on, next_on, split_kind FROM recurring_expenses`;
+const SELECT_RECURRING = `SELECT id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, category FROM recurring_expenses`;
 
 /** The recurring expenses' read models: read outside any command's transaction, so it waits for the one in progress. */
 export class SqliteRecurringExpenseReadModels implements IRecurringExpenseQueries {
@@ -64,6 +66,7 @@ export class SqliteRecurringExpenseReadModels implements IRecurringExpenseQuerie
         amount: row.amount,
         startsOn: row.starts_on,
         next: row.next_on,
+        category: row.category,
       };
       switch (row.split_kind) {
         case 'equal':

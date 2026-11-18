@@ -15,6 +15,7 @@ interface Row {
   starts_on: string;
   next_on: string;
   split_kind: SplitKind;
+  category: string;
   version: number;
 }
 
@@ -36,7 +37,7 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
 
   async findById(id: Id): Promise<RecurringExpense | null> {
     const row = this.database.get<Row>(
-      `SELECT id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, version
+      `SELECT id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, category, version
        FROM recurring_expenses WHERE id = ?`,
       id.value,
     );
@@ -54,6 +55,7 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
       startsOn: row.starts_on,
       next: row.next_on,
       split: splitOf(row.split_kind, splits),
+      category: row.category,
       version: row.version,
     });
   }
@@ -69,12 +71,13 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
   }
 
   async save(recurring: RecurringExpense): Promise<IResult> {
-    const { id, groupId, paidBy, description, amount, startsOn, next, split, version } = recurring.toSnapshot();
+    const { id, groupId, paidBy, description, amount, startsOn, next, split, category, version } =
+      recurring.toSnapshot();
     if (version === 0) {
       this.database.run(
-        `INSERT INTO recurring_expenses (id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, version,
+        `INSERT INTO recurring_expenses (id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, category, version,
                                          set_up_seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(set_up_seq), 0) + 1 FROM recurring_expenses))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, (SELECT COALESCE(MAX(set_up_seq), 0) + 1 FROM recurring_expenses))`,
         id,
         groupId,
         paidBy,
@@ -83,6 +86,7 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
         startsOn,
         next,
         split.kind,
+        category,
       );
       splitRows(split).forEach((member, position) =>
         this.database.run(

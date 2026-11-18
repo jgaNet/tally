@@ -52,6 +52,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
       money: payload.money,
       date: payload.date,
       split: payload.split,
+      category: payload.category,
       groupMembers: await this.groupMembers.membersOf(expense.groupId.value),
       groupCurrency: currency,
       offer,

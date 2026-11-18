@@ -14,7 +14,7 @@ export class RecurringExpenseStoppedEvent extends DomainEvent<{ recurringExpense
 
 /**
  * The day of a recurring expense came: its expense is to be recorded under `expenseId`, the id the day was born with, dated `day`,
- * paid by `paidBy` and split as `split` says. `members` are the payer and the members of the split, all of them members of the
+ * paid by `paidBy` and split as `split` says, for the category it names (request 24). `members` are the payer and the members of the split, all of them members of the
  * group when the day came: the reaction records the expense among them (ADR 14).
  */
 export class RecurringExpenseDayCameEvent extends DomainEvent<{
@@ -26,6 +26,7 @@ export class RecurringExpenseDayCameEvent extends DomainEvent<{
   amount: number;
   day: string;
   split: SplitInput;
+  category: string;
   members: string[];
 }> {}
 

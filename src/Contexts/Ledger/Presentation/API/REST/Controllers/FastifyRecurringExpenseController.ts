@@ -17,7 +17,7 @@ type SplitBody =
   | { splitBetween: string[] }
   | { splitExactly: { memberId: string; amount: number }[] }
   | { splitByShares: { memberId: string; shares: number }[] };
-type SetUpRecurringBody = { description: string; amount: number; startsOn: string } & SplitBody;
+type SetUpRecurringBody = { description: string; amount: number; startsOn: string; category?: string } & SplitBody;
 
 /** The split a body gives, by its kind: the transport has refused a body of none, or of more than one, of the three. */
 const splitOf = (body: SplitBody): SplitInput => {
@@ -34,7 +34,7 @@ export class FastifyRecurringExpenseController {
   }
 
   async setUp(req: FastifyRequest<{ Params: { id: string }; Body: SetUpRecurringBody }>, reply: FastifyReply) {
-    const { description, amount, startsOn } = req.body;
+    const { description, amount, startsOn, category } = req.body;
     return acceptCommand(
       req,
       reply,
@@ -45,6 +45,7 @@ export class FastifyRecurringExpenseController {
         amount,
         startsOn,
         split: splitOf(req.body),
+        category,
       }),
     );
   }

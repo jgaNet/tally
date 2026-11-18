@@ -280,6 +280,7 @@ describe('Expense', () => {
         { memberId: 'carl', amount: 333 },
       ],
       original: null,
+      category: 'other',
       version: 0,
     });
   });
@@ -566,5 +567,42 @@ describe('an expense that concerns a member who has left the group', () => {
         .edit(editing({ by: alice, byOwner: true, groupMembers: [alice, bob, carl] }))
         .isSuccess(),
     ).toBe(true);
+  });
+});
+
+describe('Expense, its category (request 24)', () => {
+  it('is the one given when the expense is recorded or edited, and other when none is given', () => {
+    const recorded = recordExpense({ category: 'groceries' }).data as Expense;
+    expect(recorded.category.value).toBe('groceries');
+    expect(recorded.toSnapshot().category).toBe('groceries');
+
+    const edited = recorded.edit({
+      by: alice,
+      byOwner: false,
+      version: recorded.version,
+      description: 'Groceries',
+      money: { amount: 1000 },
+      date: '2026-03-10',
+      split: equally(['alice', 'bob', 'carl']),
+      groupMembers: [alice, bob, carl],
+      groupCurrency: 'EUR',
+      offer: null,
+      now,
+    }).data as Expense;
+    expect(edited.category.value).toBe('other');
+  });
+
+  it('refuses a word that is not one of the eight', () => {
+    const refused = recordExpense({ category: 'pets' });
+
+    expect(refused.isFailure()).toBe(true);
+    expect(refused.error?.type).toBe('InvalidCategory');
+  });
+
+  it('is restored from a snapshot, and a snapshot with another word is corrupted', () => {
+    const snapshot = (recordExpense({ category: 'travel' }).data as Expense).toSnapshot();
+
+    expect(Expense.fromSnapshot(snapshot).category.value).toBe('travel');
+    expect(() => Expense.fromSnapshot({ ...snapshot, category: 'pets' })).toThrow();
   });
 });

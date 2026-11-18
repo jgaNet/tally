@@ -2,6 +2,7 @@ import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 import { CurrencyCode } from '@SharedKernel/Domain/Currency';
 
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import {
   ExpenseChanged,
@@ -24,6 +25,7 @@ import { Share, Split, SplitInput, SplitKind } from '@Contexts/Ledger/Domain/Exp
 interface Decided {
   description: Description;
   amount: Amount;
+  category: Category;
   original: OriginalAmount | null;
   spentOn: SpentOn;
   splitKind: SplitKind;
@@ -51,6 +53,7 @@ export class Expense extends AggregateRoot {
     readonly splitKind: SplitKind,
     readonly shares: Share[],
     readonly original: OriginalAmount | null,
+    readonly category: Category,
     version: number,
   ) {
     super(id, version);
@@ -70,6 +73,7 @@ export class Expense extends AggregateRoot {
     money,
     date,
     split,
+    category,
     groupMembers,
     groupCurrency,
     offer,
@@ -83,6 +87,8 @@ export class Expense extends AggregateRoot {
     money: MoneyInput;
     date: string;
     split: SplitInput;
+    /** What it is for, one of the eight categories; `other` when none is given (request 24). */
+    category?: string;
     groupMembers: Id[];
     groupCurrency: CurrencyCode;
     /** The rates service's answer for what was paid, read by the handler when the money is in another currency (request 22). */
@@ -95,6 +101,7 @@ export class Expense extends AggregateRoot {
       money,
       date,
       split,
+      category,
       groupMembers,
       groupCurrency,
       offer,
@@ -102,7 +109,7 @@ export class Expense extends AggregateRoot {
     });
     if (decided.isFailure()) return decided;
 
-    const { description: text, amount: value, original, spentOn, splitKind, shares } = decided.data;
+    const { description: text, amount: value, original, spentOn, splitKind, shares, category: kind } = decided.data;
     const expense = new Expense(
       id ?? Id.generate(),
       groupId,
@@ -113,6 +120,7 @@ export class Expense extends AggregateRoot {
       splitKind,
       shares,
       original,
+      kind,
       0,
     );
     expense.record(
@@ -143,6 +151,7 @@ export class Expense extends AggregateRoot {
     money,
     date,
     split,
+    category,
     groupMembers,
     groupCurrency,
     offer,
@@ -155,6 +164,7 @@ export class Expense extends AggregateRoot {
     money: MoneyInput;
     date: string;
     split: SplitInput;
+    category?: string;
     groupMembers: Id[];
     groupCurrency: CurrencyCode;
     offer: RateOffer | null;
@@ -170,6 +180,7 @@ export class Expense extends AggregateRoot {
       money,
       date,
       split,
+      category,
       groupMembers,
       groupCurrency,
       offer,
@@ -177,7 +188,7 @@ export class Expense extends AggregateRoot {
     });
     if (decided.isFailure()) return decided;
 
-    const { description: text, amount: value, original, spentOn, splitKind, shares } = decided.data;
+    const { description: text, amount: value, original, spentOn, splitKind, shares, category: kind } = decided.data;
     const edited = new Expense(
       this._id,
       this.groupId,
@@ -188,6 +199,7 @@ export class Expense extends AggregateRoot {
       splitKind,
       shares,
       original,
+      kind,
       this.version,
     );
     edited.record(ExpenseEditedEvent.set({ expenseId: this._id.value, groupId: this.groupId.value, splitKind }));
@@ -211,6 +223,7 @@ export class Expense extends AggregateRoot {
     const value = Amount.create(snapshot.amount);
     const day = SpentOn.create(snapshot.date, '9999-12-31');
     const original = snapshot.original ? OriginalAmount.restore(snapshot.original) : null;
+    const kind = Category.restore(snapshot.category);
     if (
       text.isFailure() ||
       value.isFailure() ||
@@ -235,6 +248,7 @@ export class Expense extends AggregateRoot {
       split.kind,
       split.shares,
       original,
+      kind,
       snapshot.version,
     );
   }
@@ -274,6 +288,7 @@ export class Expense extends AggregateRoot {
             rateSource: this.original.value.rateSource,
           }
         : null,
+      category: this.category.value,
       version: this.version,
     };
   }
@@ -300,6 +315,7 @@ export class Expense extends AggregateRoot {
     money,
     date,
     split,
+    category,
     groupMembers,
     groupCurrency,
     offer,
@@ -310,6 +326,7 @@ export class Expense extends AggregateRoot {
     money: MoneyInput;
     date: string;
     split: SplitInput;
+    category?: string;
     groupMembers: Id[];
     groupCurrency: CurrencyCode;
     offer: RateOffer | null;
@@ -321,6 +338,8 @@ export class Expense extends AggregateRoot {
     // The day is checked before the money, so a bad day is refused as a bad day, whatever the rate.
     const day = SpentOn.create(date, now.toISOString().slice(0, 10));
     if (day.isFailure()) return day;
+    const kind = Category.create(category);
+    if (kind.isFailure()) return kind;
 
     let value: Amount;
     let original: OriginalAmount | null = null;
@@ -346,6 +365,7 @@ export class Expense extends AggregateRoot {
     return Result.ok({
       description: text.data,
       amount: value,
+      category: kind.data,
       original,
       spentOn: day.data,
       splitKind: decidedSplit.data.kind,

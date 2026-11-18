@@ -37,6 +37,7 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
       amount: payload.amount,
       startsOn: payload.startsOn,
       split: payload.split,
+      category: payload.category,
       groupMembers: members,
       now: this.clock(),
     });

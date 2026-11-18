@@ -139,6 +139,7 @@ describe('Recurring expenses (request 23)', () => {
       amount: 90000,
       startsOn: '2026-12-05',
       next: '2026-12-05',
+      category: 'other',
       splitBetween: [ann.id, ben.id],
     });
 

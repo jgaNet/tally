@@ -54,6 +54,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       money: payload.money,
       date: payload.date,
       split: payload.split,
+      category: payload.category,
       groupMembers: members,
       groupCurrency: currency,
       offer,
