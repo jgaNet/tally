@@ -1,3 +1,4 @@
+import { CURRENCIES, type Currency } from '../groups/validation';
 import { Refusal } from '../refusal';
 import { charLength } from '../text';
 
@@ -25,10 +26,24 @@ export type SplitInput =
       splitByShares: { memberId: string; shares: number }[];
     };
 
+/**
+ * The amount as a request gives it: in the group's currency, or in another currency at a rate. The rate
+ * is a decimal string, kept as given.
+ */
+export type MoneyInput =
+  { kind: 'group'; amount: number } | { kind: 'other'; currency: string; amount: number; rate: string };
+
+/** An expense's amount in another currency, and the rate it was paid at: what one of that currency is worth. */
+export interface Original {
+  currency: Currency;
+  /** In hundredths of `currency`. */
+  amount: number;
+  rate: string;
+}
+
 export interface ExpenseInput {
   description: string;
-  /** In hundredths of the group's currency. */
-  amount: number;
+  money: MoneyInput;
   /** A day of the calendar, written `YYYY-MM-DD`. */
   date: string;
   split: SplitInput;
@@ -37,7 +52,10 @@ export interface ExpenseInput {
 export interface ValidExpense {
   /** Trimmed. */
   description: string;
+  /** In hundredths of the group's currency: the original amount times the rate, when there is one. */
   amount: number;
+  /** Present when the expense was paid in another currency. */
+  original?: Original;
   date: string;
   split: SplitInput;
 }
@@ -57,11 +75,76 @@ function isRealDay(text: string): boolean {
 /** Today's date in UTC, as `YYYY-MM-DD`. */
 export const todayInUtc = (): string => new Date().toISOString().slice(0, 10);
 
+/** A rate: a decimal number, at most 6 digits after the point. */
+const RATE_SHAPE = /^\d+(\.\d{1,6})?$/;
+const RATE_DIGITS = 6;
+
 /**
- * Checks a new expense. `groupMembers` are the account ids of the group's members and `payerId` is
- * the member who records it. Refusals are `422`: the body had the right shape, a value is not allowed.
+ * The amount in the group's currency, and for one in another currency, the original with its currency and
+ * rate. That amount is the original times the rate, rounded to the nearest whole number, a half rounded up.
+ * It is worked in integers of any size, in millionths of the rate, so no product overflows or rounds early.
  */
-export function validateExpense(input: ExpenseInput, groupMembers: ReadonlySet<string>, payerId: string): ValidExpense {
+function validateMoney(money: MoneyInput, groupCurrency: Currency): { amount: number; original?: Original } {
+  if (money.kind === 'group') {
+    if (!Number.isInteger(money.amount) || money.amount < 1 || money.amount > MAX_AMOUNT) {
+      throw new Refusal(422, 'InvalidAmount', `The amount must be a whole number from 1 to ${MAX_AMOUNT}.`);
+    }
+    return { amount: money.amount };
+  }
+
+  const others = CURRENCIES.filter(currency => currency !== groupCurrency);
+  if (!(others as readonly string[]).includes(money.currency)) {
+    throw new Refusal(
+      422,
+      'InvalidOriginalCurrency',
+      `The currency of an expense in another currency must be one of ${others.join(', ')}.`,
+    );
+  }
+  if (!Number.isInteger(money.amount) || money.amount < 1 || money.amount > MAX_AMOUNT) {
+    throw new Refusal(
+      422,
+      'InvalidOriginalAmount',
+      `The amount in that currency must be a whole number from 1 to ${MAX_AMOUNT}.`,
+    );
+  }
+  if (!RATE_SHAPE.test(money.rate)) {
+    throw new Refusal(
+      422,
+      'InvalidRate',
+      'The rate must be a decimal number with at most 6 digits after the point, such as "0.9542".',
+    );
+  }
+  const [whole, fraction = ''] = money.rate.split('.');
+  const millionths = BigInt(whole + fraction.padEnd(RATE_DIGITS, '0'));
+  if (millionths === 0n) {
+    throw new Refusal(422, 'InvalidRate', 'The rate must be greater than 0.');
+  }
+
+  const converted = (BigInt(money.amount) * millionths + 500_000n) / 1_000_000n;
+  if (converted < 1n || converted > BigInt(MAX_AMOUNT)) {
+    throw new Refusal(
+      422,
+      'InvalidAmount',
+      `The amount in the group's currency must be a whole number from 1 to ${MAX_AMOUNT}.`,
+    );
+  }
+  return {
+    amount: Number(converted),
+    original: { currency: money.currency as Currency, amount: money.amount, rate: money.rate },
+  };
+}
+
+/**
+ * Checks a new expense of a group in `groupCurrency`. `groupMembers` are the account ids of the group's
+ * members and `payerId` is the member who records it. Refusals are `422`: the body had the right shape, a
+ * value is not allowed.
+ */
+export function validateExpense(
+  input: ExpenseInput,
+  groupMembers: ReadonlySet<string>,
+  payerId: string,
+  groupCurrency: Currency,
+): ValidExpense {
   const description = input.description.trim();
   if (charLength(description) < 1 || charLength(description) > 100) {
     throw new Refusal(
@@ -71,9 +154,7 @@ export function validateExpense(input: ExpenseInput, groupMembers: ReadonlySet<s
     );
   }
 
-  if (!Number.isInteger(input.amount) || input.amount < 1 || input.amount > MAX_AMOUNT) {
-    throw new Refusal(422, 'InvalidAmount', `The amount must be a whole number from 1 to ${MAX_AMOUNT}.`);
-  }
+  const { amount, original } = validateMoney(input.money, groupCurrency);
 
   if (!isRealDay(input.date) || input.date > todayInUtc()) {
     throw new Refusal(
@@ -83,8 +164,8 @@ export function validateExpense(input: ExpenseInput, groupMembers: ReadonlySet<s
     );
   }
 
-  const split = validateSplit(input.split, input.amount, groupMembers, payerId);
-  return { description, amount: input.amount, date: input.date, split };
+  const split = validateSplit(input.split, amount, groupMembers, payerId);
+  return { description, amount, original, date: input.date, split };
 }
 
 /** The members a split names, in the order given. */

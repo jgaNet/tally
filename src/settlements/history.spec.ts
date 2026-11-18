@@ -265,11 +265,18 @@ describe('a group’s settlements and their history', () => {
       };
       await app.stop();
 
-      // Takes the schema back to before the history was kept, undoing the step that came after it too, and
-      // brings it up to date again.
+      // Takes the schema back to before the history was kept, undoing the steps that came after it too (the
+      // balances' transfers, and the expenses' original amounts), and brings it up to date again.
       const db = new DatabaseSync(databasePath);
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
-      db.exec(`DROP TABLE balance_transfers; DROP TABLE settlement_statuses; PRAGMA user_version = ${version - 2};`);
+      db.exec(`
+        DROP TABLE balance_transfers;
+        DROP TABLE settlement_statuses;
+        ALTER TABLE expenses DROP COLUMN original_currency;
+        ALTER TABLE expenses DROP COLUMN original_amount;
+        ALTER TABLE expenses DROP COLUMN original_rate;
+        PRAGMA user_version = ${version - 3};
+      `);
       db.close();
       app = await createApplication({ databasePath, providerUrl: provider.url, providerWebhookSecret: SECRET });
 

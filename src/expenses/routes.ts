@@ -2,8 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { requireAccount } from '../auth';
 import type { Database } from '../database';
 import { requireMembership } from '../groups/groups';
+import { CURRENCIES } from '../groups/validation';
 import { createExpense, deleteExpense, expensesOfGroup, requireExpense, updateExpense } from './expenses';
-import type { SplitInput } from './validation';
+import type { MoneyInput, SplitInput } from './validation';
 
 const shareSchema = {
   type: 'object',
@@ -42,10 +43,43 @@ const exactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 };
 
+/** An expense in another currency: what was paid in it, at the rate its payer states. */
+const originalBodySchema = {
+  type: 'object',
+  required: ['currency', 'amount', 'rate'],
+  properties: {
+    currency: { type: 'string' },
+    amount: { type: 'number' },
+    rate: { type: 'string' },
+  },
+};
+
+/** The amount, in the group's currency or in another: exactly one of them, else the body is of the wrong shape. */
+const exactlyOneAmount = {
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
+};
+
+/** The two rules a body must meet at once: exactly one split, and exactly one amount. */
+const exactlyOneSplitAndAmount = { allOf: [exactlyOneSplit, exactlyOneAmount] };
+
 interface SplitBody {
   splitBetween?: string[];
   splitExactly?: { memberId: string; amount: number }[];
   splitByShares?: { memberId: string; shares: number }[];
+}
+
+interface AmountBody {
+  amount?: number;
+  original?: { currency: string; amount: number; rate: string };
+}
+
+/** The amount a body gives; the schema has already let through exactly one of the two. */
+function moneyOf(body: AmountBody): MoneyInput {
+  if (body.original !== undefined) {
+    const { currency, amount, rate } = body.original;
+    return { kind: 'other', currency, amount, rate };
+  }
+  return { kind: 'group', amount: body.amount ?? 0 };
 }
 
 /** The split a body gives; the schema has already let through exactly one of the three. */
@@ -72,27 +106,37 @@ const expenseSchema = {
     version: { type: 'integer', minimum: 1 },
     splitKind: { enum: ['equal', 'exact', 'shares'] },
     shares: { type: 'array', items: shareSchema },
+    original: {
+      type: 'object',
+      required: ['currency', 'amount', 'rate'],
+      properties: {
+        currency: { enum: [...CURRENCIES] },
+        amount: { type: 'integer' },
+        rate: { type: 'string' },
+      },
+    },
   },
 };
 
 /** The fields of an expense as an edit gives them, with one split, and the version the edit was made from. */
 const editBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date', 'version'],
+  required: ['description', 'date', 'version'],
   properties: {
     description: { type: 'string' },
     amount: { type: 'number' },
+    original: originalBodySchema,
     date: { type: 'string' },
     version: { type: 'integer', minimum: 1 },
     ...splitProperties,
   },
-  ...exactlyOneSplit,
+  ...exactlyOneSplitAndAmount,
 };
 
 export function registerExpenseRoutes(app: FastifyInstance, db: Database): void {
   app.post<{
     Params: { id: string };
-    Body: { description: string; amount: number; date: string } & SplitBody;
+    Body: { description: string; date: string } & AmountBody & SplitBody;
   }>(
     '/groups/:id/expenses',
     {
@@ -100,24 +144,25 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database): void 
         params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
         body: {
           type: 'object',
-          required: ['description', 'amount', 'date'],
+          required: ['description', 'date'],
           properties: {
             description: { type: 'string' },
             amount: { type: 'number' },
+            original: originalBodySchema,
             date: { type: 'string' },
             ...splitProperties,
           },
-          ...exactlyOneSplit,
+          ...exactlyOneSplitAndAmount,
         },
         response: { 201: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } } },
       },
     },
     async (request, reply) => {
       const account = requireAccount(db, request);
-      const { description, amount, date } = request.body;
+      const { description, date } = request.body;
       const id = createExpense(db, request.params.id, account.id, {
         description,
-        amount,
+        money: moneyOf(request.body),
         date,
         split: splitOf(request.body),
       });
@@ -157,7 +202,7 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database): void 
 
   app.put<{
     Params: { id: string };
-    Body: { description: string; amount: number; date: string; version: number } & SplitBody;
+    Body: { description: string; date: string; version: number } & AmountBody & SplitBody;
   }>(
     '/expenses/:id',
     {
@@ -168,8 +213,8 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database): void 
     },
     async (request, reply) => {
       const account = requireAccount(db, request);
-      const { version, description, amount, date } = request.body;
-      const input = { description, amount, date, split: splitOf(request.body) };
+      const { version, description, date } = request.body;
+      const input = { description, money: moneyOf(request.body), date, split: splitOf(request.body) };
       updateExpense(db, request.params.id, account.id, input, version);
       return reply.code(204).send();
     },

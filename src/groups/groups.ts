@@ -74,6 +74,12 @@ export function groupsOfMember(db: Database, accountId: string): Group[] {
   return rows.map(toGroup);
 }
 
+/** The currency `groupId` counts in. It is fixed when the group is created. */
+export function currencyOfGroup(db: Database, groupId: string): Currency {
+  const row = db.prepare('SELECT currency FROM groups WHERE id = ?').get(groupId) as { currency: Currency };
+  return row.currency;
+}
+
 /**
  * The group, for a member of it. Anyone else is refused with `404`, the same as a group that does
  * not exist: the group is not there for them.

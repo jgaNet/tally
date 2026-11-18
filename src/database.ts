@@ -265,6 +265,17 @@ const migrations: readonly string[] = [
   );
   CREATE INDEX balance_transfers_by_group ON balance_transfers (group_id);
   `,
+  `
+  -- An expense may be paid in another currency: its original amount, in hundredths of that currency, and the
+  -- rate it was paid at, as its payer stated it (a decimal string, kept as given). Its \`amount\` is still the
+  -- group's, the original times the rate. An expense in the group's currency, or recorded before this step,
+  -- has none of the three.
+  ALTER TABLE expenses ADD COLUMN original_currency TEXT
+    CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'));
+  ALTER TABLE expenses ADD COLUMN original_amount INTEGER
+    CHECK (original_amount BETWEEN 1 AND 100000000);
+  ALTER TABLE expenses ADD COLUMN original_rate TEXT;
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */
