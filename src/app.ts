@@ -11,6 +11,7 @@ import { DEFAULT_REMINDER_PERIOD_SECONDS, sweepReminders } from './reminders';
 import { registerAccountRoutes } from './routes/accounts';
 import { registerBalanceRoutes } from './routes/balances';
 import { registerBudgetRoutes } from './routes/budgets';
+import { registerInsightRoutes } from './routes/insights';
 import { registerExpenseRoutes } from './routes/expenses';
 import { registerGroupRoutes } from './routes/groups';
 import { registerInvitationRoutes } from './routes/invitations';
@@ -153,6 +154,7 @@ export async function createApplication({
       registerTemplateRoutes(api, db);
       registerOperationRoutes(api, db);
       registerAuditRoutes(api, db);
+      registerInsightRoutes(api, db);
       registerAdminRoutes(api, db, administrators);
     },
     { prefix: `/${apiPrefix}` },
