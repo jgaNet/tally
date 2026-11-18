@@ -5,8 +5,11 @@ import type { Database, Queryable } from './database';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
-/** What an administrator decided on a settlement contested: the money arrived, or it did not. */
-export const ADMIN_ACTIONS = ['decided-paid', 'decided-annulled'] as const;
+/**
+ * What an administrator decided: on a settlement contested, that the money arrived or did not; on an account, that it is
+ * suspended or reinstated.
+ */
+export const ADMIN_ACTIONS = ['decided-paid', 'decided-annulled', 'suspended', 'reinstated'] as const;
 export type AdminAction = (typeof ADMIN_ACTIONS)[number];
 
 /** A decision of an administrator, as the administrators' log keeps it. */

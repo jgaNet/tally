@@ -284,13 +284,21 @@ CREATE TABLE audit_entries (
 CREATE INDEX audit_entries_group ON audit_entries (group_id, seq);
 
 -- What the administrators decided on the settlements contested: the administrators' log, which nothing changes or removes.
+-- The administrators' log. Its subject is a settlement when an administrator decides it, and an account when one suspends or
+-- reinstates it, so the subject is not a reference to one table.
 CREATE TABLE admin_log (
   seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
   id TEXT PRIMARY KEY,
   at TEXT NOT NULL,
   account_id TEXT NOT NULL REFERENCES accounts (id),
-  action TEXT NOT NULL CHECK (action IN ('decided-paid', 'decided-annulled')),
-  subject_id TEXT NOT NULL REFERENCES settlements (id)
+  action TEXT NOT NULL CHECK (action IN ('decided-paid', 'decided-annulled', 'suspended', 'reinstated')),
+  subject_id TEXT NOT NULL
+);
+
+-- The accounts an administrator has suspended and not yet reinstated: a suspended account cannot record money, in any group.
+CREATE TABLE suspensions (
+  account_id TEXT PRIMARY KEY REFERENCES accounts (id),
+  suspended_at TEXT NOT NULL
 );
 `;
 

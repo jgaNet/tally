@@ -12,6 +12,7 @@ import { Refusal } from './refusal';
 import { MILLIONTHS, offeredRate, rateMillionths, type RatesConfig } from './rates';
 import { requireCaller } from './sessions';
 import { templateSplitOf } from './templates';
+import { refuseIfSuspended } from './suspensions';
 
 const DESCRIPTION_MAX = 100;
 const AMOUNT_MAX = 100_000_000;
@@ -483,6 +484,7 @@ export async function createExpense(
 ): Promise<string> {
   const group = await findGroupOf(db, accountId, groupId);
   if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  await refuseIfSuspended(db, accountId);
   await refuseIfArchived(db, groupId);
   const description = checkDescription(input.description);
   const offer = await offerFor(rates, input, group.currency);
@@ -492,6 +494,7 @@ export async function createExpense(
   const recordedAt = new Date().toISOString();
   // The split is checked and the expense, its shares and the notices of its members are written together, or not at all.
   await db.transaction(async tx => {
+    await refuseIfSuspended(tx, accountId);
     await refuseIfArchived(tx, groupId);
     const split = await splitOf(tx, groupId, input);
     await checkSplit(tx, groupId, accountId, membersOf(split));

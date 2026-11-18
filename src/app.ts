@@ -22,6 +22,7 @@ import { registerRateRoutes, type RatesConfig } from './rates';
 import { registerReceiptRoutes, type ReceiptsConfig } from './receipts';
 import { registerRecurringRoutes, runRecurring } from './recurring';
 import { registerSettlementRoutes } from './settlements';
+import { registerSuspensionRoutes } from './suspensions';
 import { registerTemplateRoutes } from './templates';
 import { type ProviderConfig } from './provider';
 import { Refusal } from './refusal';
@@ -131,6 +132,7 @@ export async function createApplication({
       registerAuditRoutes(instance, db);
       registerContestRoutes(instance, db, administrators);
       registerAdminRoutes(instance, db, administrators);
+      registerSuspensionRoutes(instance, db, administrators);
       registerOperationRoutes(instance, db);
     },
     { prefix: `/${apiPrefix}` },

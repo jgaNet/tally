@@ -15,6 +15,7 @@ import {
   type ProviderConfig,
 } from './provider';
 import { requireCaller } from './sessions';
+import { refuseIfSuspended } from './suspensions';
 
 /**
  * The status of a settlement: `pending`, `paid` or `failed` for one through the provider, and `refunding` or `refunded` once paid.
@@ -163,6 +164,7 @@ export async function recordCashSettlement(
   const id = randomUUID();
   await db.transaction(async tx => {
     if (!(await findGroupOf(tx, payeeId, groupId))) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    await refuseIfSuspended(tx, payeeId);
     await refuseIfArchived(tx, groupId);
     checkWholeAmount(input.amount);
     if (input.from === payeeId || !(await isMember(tx, groupId, input.from))) {
@@ -200,6 +202,7 @@ export async function reserveProviderSettlement(
   await db.transaction(async tx => {
     const group = await findGroupOf(tx, payerId, groupId);
     if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    await refuseIfSuspended(tx, payerId);
     await refuseIfArchived(tx, groupId);
     currency = group.currency;
     checkWholeAmount(input.amount);

@@ -18,6 +18,7 @@ import { findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
+import { isSuspended, refuseIfSuspended } from './suspensions';
 
 const WINDOW_DAYS = 365;
 
@@ -156,12 +157,14 @@ export async function createRecurring(
   input: NewRecurring,
 ): Promise<string> {
   if (!(await findGroupOf(db, accountId, groupId))) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  await refuseIfSuspended(db, accountId);
   await refuseIfArchived(db, groupId);
   const description = checkDescription(input.description);
   checkAmount(input.amount);
   checkStartsOn(input.startsOn);
   const id = randomUUID();
   await db.transaction(async tx => {
+    await refuseIfSuspended(tx, accountId);
     await refuseIfArchived(tx, groupId);
     const split = splitGiven(input);
     await checkSplit(tx, groupId, accountId, membersOf(split));
@@ -267,6 +270,8 @@ export async function runRecurring(db: Database, now: Date = new Date()): Promis
         [id, today],
       );
       if (!row) return;
+      // A payer suspended records nothing: its days wait, unchanged, until it is reinstated.
+      if (await isSuspended(tx, row.paid_by)) return;
       const split = splitOfRows(row, await sharesOfRecurring(tx, id));
       const members = [row.paid_by, ...membersOf(split)];
       for (const memberId of members) {

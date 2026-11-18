@@ -7,6 +7,7 @@ import { CURRENCIES } from './groups';
 import { Refusal } from './refusal';
 import { addHistory } from './settlement-history';
 import { requireCaller } from './sessions';
+import { refuseIfSuspended } from './suspensions';
 
 /** What the caller asks: netting what they and `with`, an account id, owe each other in `currency`. */
 export interface NewNetting {
@@ -74,12 +75,14 @@ async function groupPlansOf(db: Queryable, accountId: string, withId: string, cu
  * is still owed.
  */
 export async function netAcrossGroups(db: Database, accountId: string, input: NewNetting): Promise<string> {
+  await refuseIfSuspended(db, accountId);
   if (input.with === accountId) throw new Refusal(422, 'SameAccount', 'A netting is between two different people.');
   if (!(CURRENCIES as readonly string[]).includes(input.currency)) {
     throw new Refusal(422, 'InvalidCurrency', `The currency must be one of ${CURRENCIES.join(', ')}.`);
   }
   const id = randomUUID();
   await db.transaction(async tx => {
+    await refuseIfSuspended(tx, accountId);
     const plans = await groupPlansOf(tx, accountId, input.with, input.currency);
     const callerTotal = plans.reduce((sum, plan) => sum + plan.payCaller, 0);
     const otherTotal = plans.reduce((sum, plan) => sum + plan.payOther, 0);
