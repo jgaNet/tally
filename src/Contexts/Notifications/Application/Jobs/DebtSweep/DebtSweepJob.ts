@@ -4,6 +4,7 @@ import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture
 import { IOutstandingDebts } from '@Contexts/Notifications/Application/Ports/IOutstandingDebts';
 import { DEBT_THRESHOLD, DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 import { IDebtWatchRepository } from '@Contexts/Notifications/Domain/DebtWatch/Ports/IDebtWatchRepository';
+import { INoticePreferencesRepository } from '@Contexts/Notifications/Domain/NoticePreferences/Ports/INoticePreferencesRepository';
 
 /** How many times a watch is read and decided again when another sweep saved it first; the last conflict is left for the next run. */
 const CONFLICT_ATTEMPTS = 3;
@@ -12,12 +13,15 @@ const CONFLICT_ATTEMPTS = 3;
  * The background sweep (ADR 10): at each run, it reads what every current member still owes, and for each member it sees owing, or
  * noted, decides their watch in a transaction of its own. A debt above the threshold is noted from the run that first sees it, and a
  * member noted for a period, and not reminded during the last one, is reminded (a notice of kind reminder, made by the reaction to
- * `ReminderIssued`). A debt no longer above the threshold is cleared. Nothing is decided by a read; the run has one clock.
+ * `ReminderIssued`). A debt no longer above the threshold is cleared. A member who turned reminders off (request 36) is not reminded,
+ * and the debt stays noted, so the first run that finds reminders on again reminds them. Nothing is decided by a read; the run has
+ * one clock.
  */
 export class DebtSweepJob {
   constructor(
     private debts: IOutstandingDebts,
     private watches: IDebtWatchRepository,
+    private preferences: INoticePreferencesRepository,
     private clock: Clock,
     private periodSeconds: number,
   ) {}
@@ -74,7 +78,13 @@ export class DebtSweepJob {
     }
 
     watch.see({ owed, now });
-    watch.remindIfDue({ owed, now, period: this.periodSeconds * 1000 });
+    const preferences = await this.preferences.findByOwner(memberId);
+    watch.remindIfDue({
+      owed,
+      now,
+      period: this.periodSeconds * 1000,
+      remindable: preferences?.enables('reminder') !== false,
+    });
     const saved = await this.watches.save(watch);
     if (saved.isFailure()) return saved;
 

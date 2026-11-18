@@ -34,7 +34,7 @@ describe('DebtWatch', () => {
   it('clears the noted debt when a sweep sees it at or below the threshold, and keeps the last reminder', () => {
     const watch = opened();
     watch.see({ owed: 2500, now: day(0) });
-    watch.remindIfDue({ owed: 2500, now: day(0.5), period: WEEK });
+    watch.remindIfDue({ owed: 2500, now: day(0.5), period: WEEK, remindable: true });
     expect(watch.lastReminded).toBeNull();
     watch.pullDomainEvents();
 
@@ -50,8 +50,8 @@ describe('DebtWatch', () => {
     watch.see({ owed: 2500, now: day(0) });
     watch.pullDomainEvents();
 
-    expect(watch.remindIfDue({ owed: 2500, now: day(6), period: WEEK })).toBe(false);
-    expect(watch.remindIfDue({ owed: 2500, now: day(7), period: WEEK })).toBe(true);
+    expect(watch.remindIfDue({ owed: 2500, now: day(6), period: WEEK, remindable: true })).toBe(false);
+    expect(watch.remindIfDue({ owed: 2500, now: day(7), period: WEEK, remindable: true })).toBe(true);
     expect(watch.pullDomainEvents()).toEqual([
       ReminderIssuedEvent.set({
         watchId: watch._id.value,
@@ -62,21 +62,21 @@ describe('DebtWatch', () => {
       }),
     ]);
 
-    expect(watch.remindIfDue({ owed: 2500, now: day(8), period: WEEK })).toBe(false);
-    expect(watch.remindIfDue({ owed: 2500, now: day(13), period: WEEK })).toBe(false);
-    expect(watch.remindIfDue({ owed: 2500, now: day(14), period: WEEK })).toBe(true);
+    expect(watch.remindIfDue({ owed: 2500, now: day(8), period: WEEK, remindable: true })).toBe(false);
+    expect(watch.remindIfDue({ owed: 2500, now: day(13), period: WEEK, remindable: true })).toBe(false);
+    expect(watch.remindIfDue({ owed: 2500, now: day(14), period: WEEK, remindable: true })).toBe(true);
   });
 
   it('waits a period from the sweep that sees a debt come back, after its last reminder', () => {
     const watch = opened();
     watch.see({ owed: 2500, now: day(0) });
-    watch.remindIfDue({ owed: 2500, now: day(7), period: WEEK });
+    watch.remindIfDue({ owed: 2500, now: day(7), period: WEEK, remindable: true });
     watch.see({ owed: 0, now: day(9) });
     watch.see({ owed: 2500, now: day(10) });
 
     expect(watch.notedSince).toEqual(day(10));
-    expect(watch.remindIfDue({ owed: 2500, now: day(16), period: WEEK })).toBe(false);
-    expect(watch.remindIfDue({ owed: 2500, now: day(17), period: WEEK })).toBe(true);
+    expect(watch.remindIfDue({ owed: 2500, now: day(16), period: WEEK, remindable: true })).toBe(false);
+    expect(watch.remindIfDue({ owed: 2500, now: day(17), period: WEEK, remindable: true })).toBe(true);
   });
 
   it('is kept as it was read, and records nothing when it is read', () => {
@@ -92,5 +92,17 @@ describe('DebtWatch', () => {
     expect(watch.version).toBe(3);
     expect(watch.notedSince).toEqual(day(0));
     expect(watch.pullDomainEvents()).toEqual([]);
+  });
+  it('does not remind a member who turned reminders off, and records nothing, so the first run on again reminds them', () => {
+    const watch = opened();
+    watch.see({ owed: 2500, now: day(0) });
+    watch.pullDomainEvents();
+
+    expect(watch.remindIfDue({ owed: 2500, now: day(7), period: WEEK, remindable: false })).toBe(false);
+    expect(watch.lastReminded).toBeNull();
+    expect(watch.pullDomainEvents()).toEqual([]);
+
+    expect(watch.remindIfDue({ owed: 2500, now: day(8), period: WEEK, remindable: true })).toBe(true);
+    expect(watch.lastReminded).toEqual(day(8));
   });
 });

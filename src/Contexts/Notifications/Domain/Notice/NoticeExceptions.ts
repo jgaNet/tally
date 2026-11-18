@@ -13,3 +13,10 @@ export class InvalidNoticeAmount extends NoticesException {
     super('InvalidNoticeAmount', 'An amount is a whole number, at least 0');
   }
 }
+
+/** A notice kind is one of expense, reminder and budget (request 36): a preference for any other word is refused. */
+export class InvalidNoticeKind extends NoticesException {
+  constructor() {
+    super('InvalidNoticeKind', 'A notice kind is expense, reminder or budget');
+  }
+}

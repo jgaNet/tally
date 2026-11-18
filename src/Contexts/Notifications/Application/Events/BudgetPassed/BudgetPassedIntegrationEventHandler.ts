@@ -5,15 +5,18 @@ import { BudgetPassedIntegrationEvent } from '@SharedKernel/Application/Integrat
 
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 import { INoticeRepository } from '@Contexts/Notifications/Domain/Notice/Ports/INoticeRepository';
+import { INoticePreferencesRepository } from '@Contexts/Notifications/Domain/NoticePreferences/Ports/INoticePreferencesRepository';
 
 /**
  * Makes one notice for each member Ledger says to tell when a month passed a category's budget (request 24), the payer of the
  * expense that passed it among them. The notices are saved in this reaction's transaction, and the bus hands the fact over once, so a
- * member is noticed once however the server stops and starts (nothing here is idempotent by hand).
+ * member is noticed once however the server stops and starts (nothing here is idempotent by hand). A member who turned budget notices
+ * off (request 36) is made none; the others are told as before, and the month is still told once.
  */
 export class BudgetPassedIntegrationEventHandler extends EventHandler<BudgetPassedIntegrationEvent> {
   constructor(
     private notices: INoticeRepository,
+    private preferences: INoticePreferencesRepository,
     private clock: Clock,
   ) {
     super();
@@ -21,6 +24,9 @@ export class BudgetPassedIntegrationEventHandler extends EventHandler<BudgetPass
 
   async execute({ payload }: BudgetPassedIntegrationEvent, context: ExecutionContext): Promise<IResult<unknown>> {
     for (const member of payload.members) {
+      const preferences = await this.preferences.findByOwner(member);
+      if (preferences?.enables('budget') === false) continue;
+
       const made = Notice.overBudget({
         recipient: new Id(member),
         groupId: new Id(payload.groupId),

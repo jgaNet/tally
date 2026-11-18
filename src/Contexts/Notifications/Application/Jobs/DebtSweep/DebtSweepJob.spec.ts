@@ -13,6 +13,7 @@ import { IOutstandingDebts, OutstandingDebt } from '@Contexts/Notifications/Appl
 import { DebtSweepJob } from '@Contexts/Notifications/Application/Jobs/DebtSweep/DebtSweepJob';
 import { DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 import { PostgresDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/PostgresDebtWatchRepository';
+import { PostgresNoticePreferencesRepository } from '@Contexts/Notifications/Infrastructure/PostgresNoticePreferencesRepository';
 
 const WEEK_SECONDS = 604_800;
 const DAY = 86_400_000;
@@ -39,14 +40,15 @@ function setUp() {
   });
   const debts = new Debts();
   const watches = new PostgresDebtWatchRepository(database);
-  const sweep = (at: Date) => new DebtSweepJob(debts, watches, () => at, WEEK_SECONDS).run(context);
+  const preferences = new PostgresNoticePreferencesRepository(database);
+  const sweep = (at: Date) => new DebtSweepJob(debts, watches, preferences, () => at, WEEK_SECONDS).run(context);
   /** The names of the domain events published since the last call. */
   const published = () => {
     const names = publish.mock.calls.map(([event]) => (event as { name: string }).name);
     publish.mockClear();
     return names;
   };
-  return { database, debts, watches, sweep, published };
+  return { database, debts, watches, preferences, sweep, published };
 }
 
 describe('DebtSweepJob (ADR 10)', () => {
@@ -131,7 +133,7 @@ describe('PostgresDebtWatchRepository (ADR 10)', () => {
 
     const first = (await watches.find('flat', 'cy')) as DebtWatch;
     const second = (await watches.find('flat', 'cy')) as DebtWatch;
-    first.remindIfDue({ owed: 2500, now: day(7), period: WEEK_SECONDS * 1000 });
+    first.remindIfDue({ owed: 2500, now: day(7), period: WEEK_SECONDS * 1000, remindable: true });
     expect((await watches.save(first)).isFailure()).toBe(false);
 
     second.see({ owed: 0, now: day(8) });

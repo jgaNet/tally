@@ -99,9 +99,22 @@ export class DebtWatch extends AggregateRoot {
 
   /**
    * At the sweep at `now`, the member is reminded when the debt has been noted for a `period` (in milliseconds) and they were not
-   * reminded during the last one. Returns whether they were reminded, with the amount they owe as the sweep last saw it.
+   * reminded during the last one. Returns whether they were reminded, with the amount they owe as the sweep last saw it. A member who
+   * turned reminders off (`remindable` false, request 36) is not reminded, and nothing is recorded: the reminder is not made, so it
+   * does not count as made, and the first run that finds reminders on again reminds them.
    */
-  remindIfDue({ owed, now, period }: { owed: number; now: Date; period: number }): boolean {
+  remindIfDue({
+    owed,
+    now,
+    period,
+    remindable,
+  }: {
+    owed: number;
+    now: Date;
+    period: number;
+    remindable: boolean;
+  }): boolean {
+    if (!remindable) return false;
     if (this.since === null) return false;
     if (now.getTime() - this.since.getTime() < period) return false;
     if (this.reminded !== null && now.getTime() - this.reminded.getTime() < period) return false;
