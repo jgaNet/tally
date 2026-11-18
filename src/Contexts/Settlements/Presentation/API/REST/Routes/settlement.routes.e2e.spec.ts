@@ -455,6 +455,7 @@ describe('settle in cash (request 12)', () => {
   });
 });
 
+// The two contexts keep their tables in one PostgreSQL database (ADR 21): the id a request answered still finds the thing across them.
 describe('Settlements → Ledger (SettledAmounts)', () => {
   it('makes a settlement through the API, keeps the id its operation answered, and finds it there after Ledger reads it', async () => {
     const ann = await signedIn('sl-ann@example.com', 'Ann');

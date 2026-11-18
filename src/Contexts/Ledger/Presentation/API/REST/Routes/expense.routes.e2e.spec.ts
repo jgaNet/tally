@@ -358,6 +358,7 @@ describe('expenses', () => {
   });
 });
 
+// The two contexts keep their tables in one PostgreSQL database (ADR 21): the id a request answered still finds the thing across them.
 describe('Groups → Ledger', () => {
   it('splits an expense with a member who has just joined Groups, and finds it by the id it answered', async () => {
     const alice = await signedIn('ros@example.com', 'Alice');
