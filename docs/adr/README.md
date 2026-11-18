@@ -32,6 +32,7 @@ why, what it costs, and when to revisit it.
 | [25](0025-an-audit-of-money-changes-each-context-keeps-its-entries-and-ledger-reads-them.md) | An audit of money changes: each context keeps the entries of its own changes, and Ledger reads them through two owned ports |
 | [26](0026-a-statement-lists-the-settlements-the-balances-count-and-is-read-as-csv.md) | A statement lists the settlements the balances count, in the order of their days, and is read as CSV from the same statement; an expense records the instant it was recorded |
 | [27](0027-storage-on-postgresql-and-the-one-move-from-the-file.md) | Storage on PostgreSQL: one database, the outbox and the bus's record in it, and one move from the file that is not read again |
+| [28](0028-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
