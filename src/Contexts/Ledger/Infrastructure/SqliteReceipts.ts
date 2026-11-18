@@ -16,17 +16,18 @@ type ReceiptRow = {
 };
 
 /**
- * The receipts in SQLite (request 26): the repository the attach use case loads and writes, and the read side `GetReceipt` reads. One row per
+ * The receipts in PostgreSQL (request 26): the repository the attach use case loads and writes, and the read side `GetReceipt` reads. One row per
  * expense, its unique key the backstop of "one per expense". A save is conditional on the version it was read at (CONC-OPTIMISTIC), the check and
- * the write one transaction on the file, so the second of two writers from one version is refused and keeps nothing of its change.
+ * the write one transaction, so the second of two writers from one version is refused and keeps nothing of its change.
  */
 export class SqliteReceipts implements IReceiptRepository, IReceiptQueries {
   constructor(private readonly database: LedgerDatabase) {}
 
   async get(expenseId: string): Promise<Receipt | undefined> {
-    const row = this.database.connection
-      .prepare('SELECT id, expense_id, type, size, url, version FROM ledger_receipts WHERE expense_id = ?')
-      .get(expenseId) as ReceiptRow | undefined;
+    const row = await this.database.row<ReceiptRow>(
+      'SELECT id, expense_id, type, size, url, version FROM ledger_receipts WHERE expense_id = $1',
+      [expenseId],
+    );
     if (!row) return undefined;
     return Receipt.fromSnapshot({
       id: row.id,
@@ -40,37 +41,39 @@ export class SqliteReceipts implements IReceiptRepository, IReceiptQueries {
 
   async insert(receipt: Receipt): Promise<void> {
     const { id, expenseId, type, size, url, version } = receipt.toSnapshot();
-    const connection = this.database.connection;
-    await this.database.file.transaction(() => {
-      connection
-        .prepare('INSERT INTO ledger_receipts (id, expense_id, type, size, url, version) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id, expenseId, type, size, url, version + 1);
-    });
+    await this.database.transaction(() =>
+      this.database.execute(
+        'INSERT INTO ledger_receipts (id, expense_id, type, size, url, version) VALUES ($1, $2, $3, $4, $5, $6)',
+        [id, expenseId, type, size, url, version + 1],
+      ),
+    );
   }
 
   async save(receipt: Receipt): Promise<void> {
     const { id, type, size, url, version } = receipt.toSnapshot();
-    const connection = this.database.connection;
-    await this.database.file.transaction(() => {
-      const stored = connection.prepare('SELECT version FROM ledger_receipts WHERE id = ?').get(id) as
-        { version: number } | undefined;
+    await this.database.transaction(async () => {
+      const stored = await this.database.row<{ version: number }>('SELECT version FROM ledger_receipts WHERE id = $1', [
+        id,
+      ]);
       if (!stored || stored.version !== version) {
         throw new ConcurrencyConflictException('Ledger', 'The receipt changed since it was read');
       }
-      connection
-        .prepare('UPDATE ledger_receipts SET type = ?, size = ?, url = ?, version = ? WHERE id = ?')
-        .run(type, size, url, version + 1, id);
+      await this.database.execute(
+        'UPDATE ledger_receipts SET type = $1, size = $2, url = $3, version = $4 WHERE id = $5',
+        [type, size, url, version + 1, id],
+      );
     });
   }
 
   inTransaction<T>(work: () => Promise<T>): Promise<T> {
-    return this.database.file.transaction(work);
+    return this.database.transaction(work);
   }
 
   async receiptOf(expenseId: string): Promise<ReceiptView | undefined> {
-    const row = this.database.connection
-      .prepare('SELECT type, size, url FROM ledger_receipts WHERE expense_id = ?')
-      .get(expenseId) as Pick<ReceiptRow, 'type' | 'size' | 'url'> | undefined;
+    const row = await this.database.row<Pick<ReceiptRow, 'type' | 'size' | 'url'>>(
+      'SELECT type, size, url FROM ledger_receipts WHERE expense_id = $1',
+      [expenseId],
+    );
     return row ? { type: row.type, size: row.size, url: row.url } : undefined;
   }
 }

@@ -22,11 +22,11 @@ import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPass
 import { SignedAccessTokens } from '@Contexts/Groups/Infrastructure/SignedAccessTokens';
 
 /**
- * The Groups context, as data (ADR 1, ADR 2, ADR 3, ADR 4): its accounts, groups and invitations in SQLite at `DATABASE_PATH` (read when the first request
- * needs the file, so that a process may set it before then), its password hashing and its tokens, and the use cases
+ * The Groups context, as data (ADR 1, ADR 2, ADR 3, ADR 4): its accounts, groups and invitations in PostgreSQL at `DATABASE_URL` (read when the first request
+ * needs the database, so that a process may set it before then), its password hashing and its tokens, and the use cases
  * it answers. The access tokens are shared with the transport, which says who is calling (`createApplication`).
  */
-const database = new GroupsDatabase(() => process.env.DATABASE_PATH || 'tally.sqlite');
+export const database = new GroupsDatabase();
 const accounts = new SqliteAccounts(database);
 const groups = new SqliteGroups(database);
 const invitations = new SqliteInvitations(database);

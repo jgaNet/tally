@@ -1,12 +1,9 @@
 import { createHmac } from 'crypto';
-import { mkdtempSync } from 'fs';
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
-import { tmpdir } from 'os';
-import { join } from 'path';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabaseUrl } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -59,7 +56,7 @@ beforeAll(async () => {
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', () => resolve()));
   const providerOrigin = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
 
-  process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-refunds-')), 'tally.sqlite');
+  process.env.DATABASE_URL = await freshDatabaseUrl();
   process.env.PROVIDER_URL = providerOrigin;
   process.env.PROVIDER_WEBHOOK_SECRET = SECRET;
 

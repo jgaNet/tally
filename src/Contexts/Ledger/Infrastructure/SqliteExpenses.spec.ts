@@ -1,7 +1,7 @@
-import { NO_SERVICE } from '@Contexts/Ledger/Domain/Expense/Rate';
 import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { NO_SERVICE } from '@Contexts/Ledger/Domain/Expense/Rate';
 import { DatabaseSync } from 'node:sqlite';
 
 import { ConcurrencyConflictException } from '@Architecture/Domain';
@@ -10,6 +10,8 @@ import { decideEditExpense, decideRecordExpense } from '@Contexts/Ledger/Domain/
 
 import { LedgerDatabase } from './LedgerDatabase';
 import { SqliteExpenses } from './SqliteExpenses';
+import { freshDatabaseUrl } from '@Architecture/Infrastructure/DataSources/FreshDatabase';
+import { moveFromFile } from '@Architecture/Infrastructure/DataSources/MoveFromFile';
 
 const now = new Date('2026-11-17T10:00:00Z');
 const ada = '3c9d2f1e-0000-4000-8000-000000000001';
@@ -17,7 +19,12 @@ const grace = '3c9d2f1e-0000-4000-8000-000000000002';
 const linus = '3c9d2f1e-0000-4000-8000-000000000003';
 const groupId = '3c9d2f1e-0000-4000-8000-0000000000aa';
 
-const newDatabasePath = () => join(mkdtempSync(join(tmpdir(), 'tally-ledger-store-')), 'tally.sqlite');
+let url = '';
+beforeEach(async () => {
+  url = await freshDatabaseUrl();
+});
+/** A database of its own for the test: its URL is what the store opens. */
+const newDatabasePath = () => url;
 
 /** A recorded expense of 1000 paid by Ada, split between the three, as Ledger stores it. */
 function recorded(): Expense {
@@ -178,8 +185,8 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
 });
 
 describe('a database written by feature 4 or 5', () => {
-  it('is brought up to the layout this feature needs: each expense at version 1, and its balances as they were', async () => {
-    const path = newDatabasePath();
+  it('is moved into the database: each expense at version 1, and its balances as they were', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'tally-feature-4-')), 'tally.sqlite');
     const old = new DatabaseSync(path);
     old.exec(`
       CREATE TABLE ledger_expenses (id TEXT PRIMARY KEY, group_id TEXT NOT NULL, description TEXT NOT NULL, amount INTEGER NOT NULL, date TEXT NOT NULL, paid_by TEXT NOT NULL);
@@ -191,7 +198,11 @@ describe('a database written by feature 4 or 5', () => {
     `);
     old.close();
 
-    const store = new SqliteExpenses(new LedgerDatabase(() => path));
+    // The file is moved into the database of the test, which holds nothing of Tally's yet, and the expense is read from there.
+    const tables = new LedgerDatabase(newDatabasePath);
+    await tables.ready();
+    expect(await moveFromFile(tables.database, path, [tables])).toBe(true);
+    const store = new SqliteExpenses(tables);
     expect(await store.expenseOf('6f1d2c3b-0000-4000-8000-0000000000ee')).toMatchObject({ version: 1, amount: 900 });
     expect(await balancesOf(store)).toEqual({ [ada]: 600, [grace]: -300, [linus]: -300 });
   });

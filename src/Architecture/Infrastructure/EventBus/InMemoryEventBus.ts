@@ -13,6 +13,30 @@ import {
 } from '@Architecture/Application';
 
 /**
+ * What each subscriber has handled: the inbox (ADR 24). `has` and `add` are asynchronous, so that the inbox can be a table (see
+ * PostgresInbox); the bus's own default keeps it in memory.
+ */
+export interface Inbox {
+  has(subscriber: string, messageId: string): Promise<boolean>;
+  add(subscriber: string, messageId: string): Promise<void>;
+}
+
+/** An inbox in memory: the default of a bus built without one (specs, and the unit tests of the building blocks). */
+export class MemoryInbox implements Inbox {
+  readonly #seen = new Map<string, Set<string>>();
+
+  async has(subscriber: string, messageId: string): Promise<boolean> {
+    return this.#seen.get(subscriber)?.has(messageId) ?? false;
+  }
+
+  async add(subscriber: string, messageId: string): Promise<void> {
+    const seen = this.#seen.get(subscriber) ?? new Set<string>();
+    seen.add(messageId);
+    this.#seen.set(subscriber, seen);
+  }
+}
+
+/**
  * A process-local bus on top of Node's EventEmitter. Publishing returns an Operation whose
  * status and result the handler fills in; the Tracker context records those (see
  * Contexts/Tracker/Infrastructure/TrackedEventBus.ts, which decorates this bus).
@@ -26,17 +50,26 @@ import {
  */
 export class InMemoryEventBus implements EventBus {
   #eventEmitter: IEventEmitter;
-  /** Per subscription, the ids of the messages it handled: the inbox. */
-  #delivered: Map<number, Set<string>> = new Map();
+  #inbox: Inbox;
+  /** How many subscriptions each channel and handler class had: a subscriber's name in the inbox, stable across restarts. */
+  #subscriptionsNamed = new Map<string, number>();
   /** While a message is emitted, the reactions it starts: what its `delivered` waits for. */
   #reactions = new Map<IOperation<Event<unknown>>, Promise<boolean>[]>();
-  #subscriptions = 0;
   /** When an operation was created and finished: the application's clock (DOMAIN-ONE-CLOCK). */
   #clock: Clock;
 
-  constructor({ eventEmitter, clock }: { eventEmitter: IEventEmitter; clock: Clock }) {
+  constructor({
+    eventEmitter,
+    clock,
+    inbox = new MemoryInbox(),
+  }: {
+    eventEmitter: IEventEmitter;
+    clock: Clock;
+    inbox?: Inbox;
+  }) {
     this.#eventEmitter = eventEmitter;
     this.#clock = clock;
+    this.#inbox = inbox;
   }
 
   /** Nothing to connect to: the emitter is in this process. */
@@ -81,34 +114,45 @@ export class InMemoryEventBus implements EventBus {
   }
 
   async subscribe<T>(channel: Event<T>['name'], eventHandler: EventHandler<Event<T>> | CommandHandler<Event<T>>) {
-    const subscription = this.#subscriptions++;
-    const inbox = new Set<string>();
-    this.#delivered.set(subscription, inbox);
+    const named = `${channel}|${eventHandler.constructor.name}`;
+    const occurrence = this.#subscriptionsNamed.get(named) ?? 0;
+    this.#subscriptionsNamed.set(named, occurrence + 1);
+    const subscriber = `${named}#${occurrence}`;
     // The channel is the event's name: what arrives on it is that event, which the emitter cannot know.
     this.#eventEmitter.addListener(channel, emitted => {
       const operation = emitted as IOperation<Event<T>>;
-      if (inbox.has(operation.id)) {
-        operation.sent();
-        return;
-      }
-      // Each subscriber's own verdict: the operation is one for every subscriber, so its status
-      // says how the last of them ended, not how this one did. A delivery is the operation, with
-      // `failed` noting that this subscriber failed.
-      let succeeded = true;
-      const delivery: IOperation<Event<T>> = Object.assign(Object.create(operation) as IOperation<Event<T>>, {
-        failed: (error: unknown) => {
-          succeeded = false;
-          return operation.failed(error);
-        },
-      });
-      const reaction = eventHandler.handle(delivery).then(
-        () => {
-          if (succeeded) inbox.add(operation.id);
-          return succeeded;
-        },
-        () => false,
-      );
+      const reaction = this.#deliver(subscriber, operation, eventHandler);
       this.#reactions.get(operation as IOperation<Event<unknown>>)?.push(reaction);
     });
+  }
+
+  /** One subscriber's delivery of one message: handed out unless its inbox has it, and recorded there once it succeeded. */
+  async #deliver<T>(
+    subscriber: string,
+    operation: IOperation<Event<T>>,
+    eventHandler: EventHandler<Event<T>> | CommandHandler<Event<T>>,
+  ): Promise<boolean> {
+    if (await this.#inbox.has(subscriber, operation.id)) {
+      operation.sent();
+      return true;
+    }
+    // Each subscriber's own verdict: the operation is one for every subscriber, so its status
+    // says how the last of them ended, not how this one did. A delivery is the operation, with
+    // `failed` noting that this subscriber failed.
+    let succeeded = true;
+    const delivery: IOperation<Event<T>> = Object.assign(Object.create(operation) as IOperation<Event<T>>, {
+      failed: (error: unknown) => {
+        succeeded = false;
+        return operation.failed(error);
+      },
+    });
+    try {
+      await eventHandler.handle(delivery);
+    } catch {
+      return false;
+    }
+    if (!succeeded) return false;
+    await this.#inbox.add(subscriber, operation.id);
+    return true;
   }
 }

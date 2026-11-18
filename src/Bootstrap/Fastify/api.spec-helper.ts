@@ -1,6 +1,8 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 
+export { freshDatabaseUrl } from '@Architecture/Infrastructure/DataSources/FreshDatabase';
+
 /** An answer, as a test reads it: its status, its body parsed (or its text, or nothing), its headers. */
 export interface ApiAnswer {
   status: number;

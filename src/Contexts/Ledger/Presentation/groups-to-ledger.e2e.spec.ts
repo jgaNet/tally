@@ -1,11 +1,8 @@
-import { mkdtempSync } from 'fs';
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
-import { tmpdir } from 'os';
-import { join } from 'path';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabaseUrl } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -49,7 +46,7 @@ beforeAll(async () => {
   receiptsOrigin = `http://127.0.0.1:${(receipts.address() as AddressInfo).port}`;
   process.env.RECEIPTS_URL = receiptsOrigin;
   // `RATES_URL` is unset for the other tests of this file: a server without a rates service takes the payer's rate (request 21).
-  process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-groups-to-ledger-')), 'tally.sqlite');
+  process.env.DATABASE_URL = await freshDatabaseUrl();
   app = await createApplication();
   await app.start(0);
   http = apiClient(app.address);

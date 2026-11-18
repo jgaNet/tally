@@ -10,13 +10,20 @@ import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 
 import { GroupsDatabase } from './GroupsDatabase';
 import { SqliteGroups } from './SqliteGroups';
+import { freshDatabaseUrl } from '@Architecture/Infrastructure/DataSources/FreshDatabase';
+import { moveFromFile } from '@Architecture/Infrastructure/DataSources/MoveFromFile';
 
 const at = new Date('2026-04-01T09:00:00.000Z');
 const ownerId = '3c9d2f1e-0000-4000-8000-000000000001';
 const firstId = '3c9d2f1e-0000-4000-8000-000000000002';
 const secondId = '3c9d2f1e-0000-4000-8000-000000000003';
 
-const newDatabasePath = () => join(mkdtempSync(join(tmpdir(), 'tally-groups-store-')), 'tally.sqlite');
+let url = '';
+beforeEach(async () => {
+  url = await freshDatabaseUrl();
+});
+/** A database of its own for the test: its URL is what the store opens. */
+const newDatabasePath = () => url;
 
 describe('saving a group over a newer version of it (CONC-OPTIMISTIC)', () => {
   it('refuses a save over a version another writer has already stored, and keeps what the other writer stored', async () => {
@@ -49,8 +56,8 @@ describe('saving a group over a newer version of it (CONC-OPTIMISTIC)', () => {
 });
 
 describe('a database written by feature 2', () => {
-  it('is brought up to the layout this feature needs, with the owner joined when the group was created', async () => {
-    const path = newDatabasePath();
+  it('is moved into the database with the owner joined when the group was created', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'tally-feature-2-')), 'tally.sqlite');
     const old = new DatabaseSync(path);
     old.exec(`
       CREATE TABLE expense_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, currency TEXT NOT NULL, owner_id TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -60,7 +67,11 @@ describe('a database written by feature 2', () => {
     `);
     old.close();
 
-    const groups = new SqliteGroups(new GroupsDatabase(() => path));
+    // The file is moved into the database of the test, which holds nothing of Tally's yet, and the group is read from there.
+    const tables = new GroupsDatabase(newDatabasePath);
+    await tables.ready();
+    expect(await moveFromFile(tables.database, path, [tables])).toBe(true);
+    const groups = new SqliteGroups(tables);
     const group = (await groups.get('6f1d2c3b-0000-4000-8000-0000000000aa'))!;
 
     expect(group.version).toBe(1);
@@ -69,7 +80,7 @@ describe('a database written by feature 2', () => {
 });
 
 describe('a membership an older build wrote without a time', () => {
-  it('reads as joined when its group was created, so a server of the older build can share the file', async () => {
+  it('reads as joined when its group was created, as a membership an older layout wrote does', async () => {
     const database = new GroupsDatabase(newDatabasePath);
     const groups = new SqliteGroups(database);
     const group = Group.register({
@@ -78,13 +89,12 @@ describe('a membership an older build wrote without a time', () => {
       ownerId,
       at,
     });
-    database.connection
-      .prepare("INSERT INTO accounts (id, email, name, password_hash) VALUES (?, 'owner@example.org', 'Owner', 'x')")
-      .run(ownerId);
+    await database.execute(
+      "INSERT INTO accounts (id, email, name, password_hash) VALUES ($1, 'owner@example.org', 'Owner', 'x')",
+      [ownerId],
+    );
     await groups.insert(group);
-    database.connection
-      .prepare("UPDATE expense_group_members SET joined_at = '' WHERE group_id = ?")
-      .run(group._id.value);
+    await database.execute("UPDATE expense_group_members SET joined_at = '' WHERE group_id = $1", [group._id.value]);
 
     const loaded = (await groups.get(group._id.value))!;
     expect(loaded.members).toEqual([{ accountId: ownerId, joinedAt: at }]);

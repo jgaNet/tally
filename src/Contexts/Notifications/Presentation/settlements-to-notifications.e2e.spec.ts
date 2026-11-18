@@ -1,9 +1,5 @@
-import { mkdtempSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
-
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabaseUrl } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -21,7 +17,7 @@ const saved: Record<string, string | undefined> = {};
 beforeAll(async () => {
   for (const name of ['DATABASE_PATH', 'JOBS_INTERVAL_SECONDS', 'REMINDER_PERIOD_SECONDS'])
     saved[name] = process.env[name];
-  process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-settlements-to-notifications-')), 'tally.sqlite');
+  process.env.DATABASE_URL = await freshDatabaseUrl();
   process.env.JOBS_INTERVAL_SECONDS = '0.1';
   process.env.REMINDER_PERIOD_SECONDS = String(PERIOD_MS / 1000);
   app = await createApplication();

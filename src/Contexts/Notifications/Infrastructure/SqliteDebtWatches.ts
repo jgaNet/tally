@@ -4,7 +4,7 @@ import { DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 
 import { NoticesDatabase } from './NoticesDatabase';
-import { INSERT_NOTICE, insertNotice } from './SqliteNotices';
+import { insertNotice } from './SqliteNotices';
 
 type WatchRow = {
   id: string;
@@ -16,17 +16,17 @@ type WatchRow = {
 };
 
 /**
- * The debt watches in SQLite (request 18, ADR 15): one row per member and group. The watch's version is checked and stored, with the
- * reminder it made, in one transaction that holds the database's write lock, so that of two servers sweeping the same database from
- * the same version the second is refused and none of its change is kept, its reminder included (CONC-OPTIMISTIC).
+ * The debt watches in PostgreSQL (request 18, ADR 15): one row per member and group. The watch's version is checked and stored, with the
+ * reminder it made, in one transaction that takes the database's writers' lock, so that of two servers sweeping the same database from the
+ * same version the second is refused and none of its change is kept, its reminder included (CONC-OPTIMISTIC).
  */
 export class SqliteDebtWatches implements IDebtWatches {
   constructor(private readonly database: NoticesDatabase) {}
 
   async all(): Promise<DebtWatch[]> {
-    const rows = this.database.connection
-      .prepare('SELECT id, group_id, member_id, noted_since, reminded_at, version FROM notifications_debt_watches')
-      .all() as WatchRow[];
+    const rows = await this.database.rows<WatchRow>(
+      'SELECT id, group_id, member_id, noted_since, reminded_at, version FROM notifications_debt_watches',
+    );
     return rows.map(row =>
       DebtWatch.fromSnapshot({
         id: row.id,
@@ -40,31 +40,29 @@ export class SqliteDebtWatches implements IDebtWatches {
   }
 
   async save(watch: DebtWatch, reminder?: Notice): Promise<void> {
-    const connection = this.database.connection;
     const { id, groupId, memberId, notedSince, remindedAt } = watch.toSnapshot();
-    await this.database.file.transaction(() => {
-      const stored = connection
-        .prepare('SELECT version FROM notifications_debt_watches WHERE group_id = ? AND member_id = ?')
-        .get(groupId, memberId) as { version: number } | undefined;
+    await this.database.transaction(async () => {
+      const stored = await this.database.row<{ version: number }>(
+        'SELECT version FROM notifications_debt_watches WHERE group_id = $1 AND member_id = $2',
+        [groupId, memberId],
+      );
       // A watch never stored is at version 0; any other is at the version it was stored at.
       if ((stored?.version ?? 0) !== watch.version) {
         throw new ConcurrencyConflictException('Notifications', 'The debt watch changed since it was read');
       }
       if (stored) {
-        connection
-          .prepare(
-            'UPDATE notifications_debt_watches SET noted_since = ?, reminded_at = ?, version = ? WHERE group_id = ? AND member_id = ?',
-          )
-          .run(notedSince, remindedAt, watch.version + 1, groupId, memberId);
+        await this.database.execute(
+          'UPDATE notifications_debt_watches SET noted_since = $1, reminded_at = $2, version = $3 WHERE group_id = $4 AND member_id = $5',
+          [notedSince, remindedAt, watch.version + 1, groupId, memberId],
+        );
       } else {
-        connection
-          .prepare(
-            'INSERT INTO notifications_debt_watches (id, group_id, member_id, noted_since, reminded_at, version) VALUES (?, ?, ?, ?, ?, ?)',
-          )
-          .run(id, groupId, memberId, notedSince, remindedAt, watch.version + 1);
+        await this.database.execute(
+          'INSERT INTO notifications_debt_watches (id, group_id, member_id, noted_since, reminded_at, version) VALUES ($1, $2, $3, $4, $5, $6)',
+          [id, groupId, memberId, notedSince, remindedAt, watch.version + 1],
+        );
       }
       if (reminder) {
-        insertNotice(connection.prepare(INSERT_NOTICE), reminder);
+        await insertNotice((text, params) => this.database.execute(text, params), reminder);
       }
     });
   }

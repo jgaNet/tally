@@ -13,13 +13,10 @@ import { SqliteDebtWatches } from '@Contexts/Notifications/Infrastructure/Sqlite
 import { SqliteNotices } from '@Contexts/Notifications/Infrastructure/SqliteNotices';
 
 /**
- * The Notifications context, as data (ADR 9, ADR 14): its notices in SQLite at `NOTIFICATIONS_DATABASE_PATH`, or the application's
- * database file (`DATABASE_PATH`) when that is not set. It is told of an expense only by Ledger's integration event, which its
+ * The Notifications context, as data (ADR 9, ADR 14): its notices in PostgreSQL, in the database at `DATABASE_URL`. It is told of an expense only by Ledger's integration event, which its
  * reaction turns into one notice per member; it asks Settlements, through a port it owns, what each member still owes when the background job sweeps (request 18, ADR 15).
  */
-const database = new NoticesDatabase(
-  () => process.env.NOTIFICATIONS_DATABASE_PATH || process.env.DATABASE_PATH || 'tally.sqlite',
-);
+export const database = new NoticesDatabase();
 const notices = new SqliteNotices(database);
 const debtWatches = new SqliteDebtWatches(database);
 const outstandingDebts = new OutstandingDebtsOfSettlements(() => outstandingDebtsReadModel);

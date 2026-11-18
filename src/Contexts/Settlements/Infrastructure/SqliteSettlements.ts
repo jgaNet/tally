@@ -67,22 +67,23 @@ const LIVE_STATUSES = "('pending', 'paid', 'refunding')";
 const COUNTED_STATUSES = "('paid', 'refunding')";
 
 /**
- * The settlements in SQLite: the book the use cases load and save (`ISettlementBooks`), and the read side `GetSettlement`, Ledger's
+ * The settlements in PostgreSQL: the book the use cases load and save (`ISettlementBooks`), and the read side `GetSettlement`, Ledger's
  * `SettledAmounts` and the suggestions read (`ISettlementQueries`). The book's version is checked and stored with the settlements it
- * recorded and the statuses they moved to, in one transaction that holds the database's write lock, so of two writers from one version
+ * recorded and the statuses they moved to, in one transaction that takes the database's writers' lock, so of two writers from one version
  * the second is refused and nothing of its change is kept (CONC-OPTIMISTIC, ADR 11).
  */
 export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
   constructor(private readonly database: SettlementsDatabase) {}
 
   async bookOf(groupId: string): Promise<SettlementBook> {
-    const row = this.database.connection
-      .prepare('SELECT id, version FROM settlement_books WHERE group_id = ?')
-      .get(groupId) as BookRow | undefined;
+    const row = await this.database.row<BookRow>('SELECT id, version FROM settlement_books WHERE group_id = $1', [
+      groupId,
+    ]);
     if (!row) return SettlementBook.open(groupId);
-    const live = this.database.connection
-      .prepare(`SELECT ${LIVE_COLUMNS} FROM settlements WHERE group_id = ? AND status IN ${LIVE_STATUSES}`)
-      .all(groupId) as LiveRow[];
+    const live = await this.database.rows<LiveRow>(
+      `SELECT ${LIVE_COLUMNS} FROM settlements WHERE group_id = $1 AND status IN ${LIVE_STATUSES} ORDER BY seq`,
+      [groupId],
+    );
     return SettlementBook.fromSnapshot({
       id: row.id,
       groupId,
@@ -92,27 +93,30 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
   }
 
   async bookOfPayment(providerPaymentId: string): Promise<SettlementBook | undefined> {
-    const row = this.database.connection
-      .prepare(`SELECT group_id FROM settlements WHERE provider_payment_id = ? AND status IN ${LIVE_STATUSES}`)
-      .get(providerPaymentId) as { group_id: string } | undefined;
+    const row = await this.database.row<{ group_id: string }>(
+      `SELECT group_id FROM settlements WHERE provider_payment_id = $1 AND status IN ${LIVE_STATUSES}`,
+      [providerPaymentId],
+    );
     return row ? this.bookOf(row.group_id) : undefined;
   }
 
   async bookOfSettlement(settlementId: string): Promise<SettlementBook | undefined> {
-    const row = this.database.connection.prepare('SELECT group_id FROM settlements WHERE id = ?').get(settlementId) as
-      { group_id: string } | undefined;
+    const row = await this.database.row<{ group_id: string }>('SELECT group_id FROM settlements WHERE id = $1', [
+      settlementId,
+    ]);
     return row ? this.bookOf(row.group_id) : undefined;
   }
 
   inTransaction<T>(work: () => Promise<T>): Promise<T> {
-    return this.database.file.transaction(work);
+    return this.database.transaction(work);
   }
 
   async save(book: SettlementBook): Promise<void> {
-    const connection = this.database.connection;
-    await this.database.file.transaction(() => {
-      const stored = connection.prepare('SELECT version FROM settlement_books WHERE group_id = ?').get(book.groupId) as
-        { version: number } | undefined;
+    await this.database.transaction(async () => {
+      const stored = await this.database.row<{ version: number }>(
+        'SELECT version FROM settlement_books WHERE group_id = $1',
+        [book.groupId],
+      );
       // A book never stored is at version 0; any other is at the version it was stored at.
       if ((stored?.version ?? 0) !== book.version) {
         throw new ConcurrencyConflictException(
@@ -121,65 +125,75 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
         );
       }
       if (stored) {
-        connection
-          .prepare('UPDATE settlement_books SET version = ? WHERE group_id = ?')
-          .run(book.version + 1, book.groupId);
+        await this.database.execute('UPDATE settlement_books SET version = $1 WHERE group_id = $2', [
+          book.version + 1,
+          book.groupId,
+        ]);
       } else {
-        connection
-          .prepare('INSERT INTO settlement_books (id, group_id, version) VALUES (?, ?, ?)')
-          .run(book.bookId, book.groupId, book.version + 1);
+        await this.database.execute('INSERT INTO settlement_books (id, group_id, version) VALUES ($1, $2, $3)', [
+          book.bookId,
+          book.groupId,
+          book.version + 1,
+        ]);
       }
-      const insert = connection.prepare(
-        'INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, at, provider_payment_id, pay_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      );
       // Each status a settlement has is a line of its history, written with the fact that moved it (request 19).
-      const history = connection.prepare('INSERT INTO settlement_history (settlement_id, status, at) VALUES (?, ?, ?)');
       for (const settlement of book.recorded()) {
-        insert.run(
-          settlement.id,
-          settlement.groupId,
-          settlement.from,
-          settlement.to,
-          settlement.amount,
-          settlement.method,
-          settlement.status,
-          settlement.at,
-          settlement.providerPaymentId ?? null,
-          settlement.payUrl ?? null,
+        await this.database.execute(
+          'INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, at, provider_payment_id, pay_url) ' +
+            'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+          [
+            settlement.id,
+            settlement.groupId,
+            settlement.from,
+            settlement.to,
+            settlement.amount,
+            settlement.method,
+            settlement.status,
+            settlement.at,
+            settlement.providerPaymentId ?? null,
+            settlement.payUrl ?? null,
+          ],
         );
-        history.run(settlement.id, settlement.status, settlement.at);
+        await this.#history(settlement.id, settlement.status, settlement.at);
       }
-      const update = connection.prepare('UPDATE settlements SET status = ? WHERE id = ?');
       for (const { id, status, at } of book.moved()) {
-        update.run(status, id);
-        history.run(id, status, at);
+        await this.database.execute('UPDATE settlements SET status = $1 WHERE id = $2', [status, id]);
+        await this.#history(id, status, at);
       }
     });
   }
 
+  async #history(settlementId: string, status: string, at: string): Promise<void> {
+    await this.database.execute('INSERT INTO settlement_history (settlement_id, status, at) VALUES ($1, $2, $3)', [
+      settlementId,
+      status,
+      at,
+    ]);
+  }
+
   async settlementOf(id: string): Promise<SettlementView | undefined> {
-    const row = this.database.connection
-      .prepare('SELECT id, group_id, payer, payee, amount, method, status, at, pay_url FROM settlements WHERE id = ?')
-      .get(id) as SettlementRow | undefined;
+    const row = await this.database.row<SettlementRow>(
+      'SELECT id, group_id, payer, payee, amount, method, status, at, pay_url FROM settlements WHERE id = $1',
+      [id],
+    );
     if (!row) return undefined;
-    const history = this.database.connection
-      .prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq')
-      .all(id) as HistoryRow[];
+    const history = await this.database.rows<HistoryRow>(
+      'SELECT status, at FROM settlement_history WHERE settlement_id = $1 ORDER BY seq',
+      [id],
+    );
     return toView(row, history);
   }
 
   async settlementsOf(groupId: string): Promise<SettlementView[]> {
-    const rows = this.database.connection
-      .prepare(
-        'SELECT id, group_id, payer, payee, amount, method, status, at, pay_url FROM settlements WHERE group_id = ? ORDER BY at DESC, rowid DESC',
-      )
-      .all(groupId) as SettlementRow[];
-    const lines = this.database.connection
-      .prepare(
-        `SELECT h.settlement_id, h.status, h.at FROM settlement_history h
-         JOIN settlements s ON s.id = h.settlement_id WHERE s.group_id = ? ORDER BY h.seq`,
-      )
-      .all(groupId) as HistoryOfGroupRow[];
+    const rows = await this.database.rows<SettlementRow>(
+      'SELECT id, group_id, payer, payee, amount, method, status, at, pay_url FROM settlements WHERE group_id = $1 ORDER BY at DESC, seq DESC',
+      [groupId],
+    );
+    const lines = await this.database.rows<HistoryOfGroupRow>(
+      `SELECT h.settlement_id, h.status, h.at FROM settlement_history h
+         JOIN settlements s ON s.id = h.settlement_id WHERE s.group_id = $1 ORDER BY h.seq`,
+      [groupId],
+    );
     const historyOf = new Map<string, HistoryRow[]>();
     for (const { settlement_id, status, at } of lines) {
       historyOf.set(settlement_id, [...(historyOf.get(settlement_id) ?? []), { status, at }]);
@@ -188,23 +202,23 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
   }
 
   async settledOf(groupId: string): Promise<SettledTransfer[]> {
-    const rows = this.database.connection
-      .prepare(`SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND status IN ${COUNTED_STATUSES}`)
-      .all(groupId) as { payer: string; payee: string; amount: number }[];
+    const rows = await this.database.rows<{ payer: string; payee: string; amount: number }>(
+      `SELECT payer, payee, amount FROM settlements WHERE group_id = $1 AND status IN ${COUNTED_STATUSES}`,
+      [groupId],
+    );
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
   }
 
   async countedOf(groupId: string, memberId: string): Promise<CountedSettlement[]> {
-    const rows = this.database.connection
-      .prepare(
-        `SELECT s.id, s.payer, s.payee, s.amount, s.method,
-                COALESCE((SELECT h.at FROM settlement_history h
-                           WHERE h.settlement_id = s.id AND h.status = 'paid' ORDER BY h.seq LIMIT 1), s.at) AS counted_at
-           FROM settlements s
-          WHERE s.group_id = ? AND s.status IN ${COUNTED_STATUSES} AND (s.payer = ? OR s.payee = ?)
-          ORDER BY s.rowid`,
-      )
-      .all(groupId, memberId, memberId) as CountedRow[];
+    const rows = await this.database.rows<CountedRow>(
+      `SELECT s.id, s.payer, s.payee, s.amount, s.method,
+              COALESCE((SELECT h.at FROM settlement_history h
+                         WHERE h.settlement_id = s.id AND h.status = 'paid' ORDER BY h.seq LIMIT 1), s.at) AS counted_at
+         FROM settlements s
+        WHERE s.group_id = $1 AND s.status IN ${COUNTED_STATUSES} AND (s.payer = $2 OR s.payee = $2)
+        ORDER BY s.seq`,
+      [groupId, memberId],
+    );
     return rows.map(row => ({
       id: row.id,
       from: row.payer,
@@ -216,28 +230,26 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
   }
 
   async hasWaitingPayment(groupId: string, memberId: string): Promise<boolean> {
-    const row = this.database.connection
-      .prepare(
-        `SELECT 1 AS waiting FROM settlements
-          WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding') AND (payer = ? OR payee = ?)
-          LIMIT 1`,
-      )
-      .get(groupId, memberId, memberId);
-    return row !== undefined;
+    const rows = await this.database.rows(
+      `SELECT 1 AS waiting FROM settlements
+        WHERE group_id = $1 AND method = 'provider' AND status IN ('pending', 'refunding') AND (payer = $2 OR payee = $2)
+        LIMIT 1`,
+      [groupId, memberId],
+    );
+    return rows.length > 0;
   }
 
   async auditOf(groupId: string): Promise<SettlementAuditLine[]> {
-    const rows = this.database.connection
-      .prepare(
-        `SELECT s.id, s.payer, s.payee, s.amount, s.method, h.status, h.at
-           FROM settlement_history h JOIN settlements s ON s.id = h.settlement_id
-          WHERE s.group_id = ?
-            AND (h.status = 'paid'
-                 OR (h.status = 'refunded' AND EXISTS (
-                       SELECT 1 FROM settlement_history p WHERE p.settlement_id = h.settlement_id AND p.status = 'paid')))
-          ORDER BY h.seq`,
-      )
-      .all(groupId) as AuditRow[];
+    const rows = await this.database.rows<AuditRow>(
+      `SELECT s.id, s.payer, s.payee, s.amount, s.method, h.status, h.at
+         FROM settlement_history h JOIN settlements s ON s.id = h.settlement_id
+        WHERE s.group_id = $1
+          AND (h.status = 'paid'
+               OR (h.status = 'refunded' AND EXISTS (
+                     SELECT 1 FROM settlement_history p WHERE p.settlement_id = h.settlement_id AND p.status = 'paid')))
+        ORDER BY h.seq`,
+      [groupId],
+    );
     return rows.map(row =>
       row.status === 'paid'
         ? {
@@ -260,9 +272,10 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
   }
 
   async pendingOf(groupId: string): Promise<PendingTransfer[]> {
-    const rows = this.database.connection
-      .prepare(`SELECT ${LIVE_COLUMNS} FROM settlements WHERE group_id = ? AND status = 'pending'`)
-      .all(groupId) as LiveRow[];
+    const rows = await this.database.rows<LiveRow>(
+      `SELECT ${LIVE_COLUMNS} FROM settlements WHERE group_id = $1 AND status = 'pending'`,
+      [groupId],
+    );
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
   }
 }

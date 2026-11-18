@@ -13,7 +13,8 @@ import fastifyCors from '@fastify/cors';
 import { Role } from '@SharedKernel/Domain';
 import { Application, ExecutionContext, Logger } from '@Architecture/Application';
 import { formatOf } from '@Architecture/Presentation/Format';
-import { InMemoryUnitOfWork } from '@Architecture/Infrastructure/UnitOfWork/InMemoryUnitOfWork';
+import { PostgresUnitOfWork } from '@Architecture/Infrastructure/UnitOfWork/PostgresUnitOfWork';
+import { PostgresDatabase, databaseUrl } from '@Architecture/Infrastructure/DataSources/PostgresDatabase';
 
 const ANONYMOUS = { subjectId: '', role: Role.GUEST };
 
@@ -137,7 +138,7 @@ export class FastifyApplication extends Application {
       traceId,
       auth,
       eventBus: this.getEventBus(),
-      unitOfWork: new InMemoryUnitOfWork(),
+      unitOfWork: new PostgresUnitOfWork(PostgresDatabase.of(databaseUrl())),
       logger: this.logger,
     });
   }

@@ -19,8 +19,8 @@ type MemberRow = { account_id: string; joined_at: string };
 const GROUP_COLUMNS = 'g.id, g.name, g.currency, g.owner_id, g.archived_at';
 const MEMBER_OF_GROUP = 'JOIN expense_group_members m ON m.group_id = g.id';
 /**
- * When a member joined. A membership an older build wrote, while a server of it still shares the file, carries no time:
- * it joined when its group was created, which is the only membership such a build writes (the owner's).
+ * When a member joined. A membership written with no time (by an older layout of the tables, whose only membership was the owner's)
+ * joined when its group was created.
  */
 const JOINED_AT = "COALESCE(NULLIF(m.joined_at, ''), g.created_at)";
 
@@ -33,7 +33,7 @@ const viewOf = (row: Pick<GroupRow, 'id' | 'name' | 'currency' | 'owner_id' | 'a
 });
 
 /**
- * The groups in SQLite: the repository `CreateGroup` inserts into and `AcceptInvitation` loads and saves, and the read side
+ * The groups in PostgreSQL: the repository `CreateGroup` inserts into and `AcceptInvitation` loads and saves, and the read side
  * `GetGroup`, `GetMyGroups` and `GetGroupMembers` read. A group and its members are written in one transaction, so a group
  * always has its first member. A save is conditional on the version the group was read at (CONC-OPTIMISTIC, ADR 4).
  */
@@ -42,34 +42,32 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
 
   async insert(group: Group): Promise<void> {
     const { id, name, currency, ownerId, createdAt, members } = group.toSnapshot();
-    await this.database.file.transaction(() => {
-      this.database.connection
-        .prepare(
-          'INSERT INTO expense_groups (id, name, currency, owner_id, created_at, version) VALUES (?, ?, ?, ?, ?, ?)',
-        )
-        .run(id, name, currency, ownerId, createdAt, group.version + 1);
-      this.insertMembers(id, members);
+    await this.database.transaction(async () => {
+      await this.database.execute(
+        'INSERT INTO expense_groups (id, name, currency, owner_id, created_at, version) VALUES ($1, $2, $3, $4, $5, $6)',
+        [id, name, currency, ownerId, createdAt, group.version + 1],
+      );
+      await this.insertMembers(id, members);
     });
   }
 
   inTransaction<T>(work: () => Promise<T>): Promise<T> {
-    return this.database.file.transaction(work);
+    return this.database.transaction(work);
   }
 
   async get(id: string): Promise<Group | undefined> {
-    const connection = this.database.connection;
-    const row = connection
-      .prepare('SELECT id, name, currency, owner_id, created_at, version, archived_at FROM expense_groups WHERE id = ?')
-      .get(id) as GroupRow | undefined;
+    const row = await this.database.row<GroupRow>(
+      'SELECT id, name, currency, owner_id, created_at, version, archived_at FROM expense_groups WHERE id = $1',
+      [id],
+    );
     if (!row) return undefined;
-    const members = connection
-      .prepare(
-        `SELECT m.account_id, ${JOINED_AT} AS joined_at
-           FROM expense_group_members m JOIN expense_groups g ON g.id = m.group_id
-          WHERE m.group_id = ?
-          ORDER BY ${JOINED_AT}, m.rowid`,
-      )
-      .all(id) as MemberRow[];
+    const members = await this.database.rows<MemberRow>(
+      `SELECT m.account_id, ${JOINED_AT} AS joined_at
+         FROM expense_group_members m JOIN expense_groups g ON g.id = m.group_id
+        WHERE m.group_id = $1
+        ORDER BY ${JOINED_AT}, m.seq`,
+      [id],
+    );
     const snapshot: GroupSnapshot = {
       id: row.id,
       name: row.name,
@@ -85,42 +83,50 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
 
   async save(group: Group): Promise<void> {
     const { id, members, archivedAt } = group.toSnapshot();
-    await this.database.file.transaction(() => {
-      const connection = this.database.connection;
-      const updated = connection
-        .prepare('UPDATE expense_groups SET version = ?, archived_at = ? WHERE id = ? AND version = ?')
-        .run(group.version + 1, archivedAt ?? null, id, group.version);
-      if (updated.changes !== 1) {
+    await this.database.transaction(async () => {
+      const updated = await this.database.execute(
+        'UPDATE expense_groups SET version = $1, archived_at = $2 WHERE id = $3 AND version = $4',
+        [group.version + 1, archivedAt ?? null, id, group.version],
+      );
+      if (updated !== 1) {
         throw new ConcurrencyConflictException('Groups', 'The group changed since it was read');
       }
       // The members stored are kept as they are, except those who left since the read: they are removed. Those who joined
       // since the read are inserted; a member who left and joins again is inserted again, last.
       const kept = members.map(member => member.accountId);
-      connection
-        .prepare(
-          `DELETE FROM expense_group_members WHERE group_id = ? AND account_id NOT IN (${kept.map(() => '?').join(', ')})`,
-        )
-        .run(id, ...kept);
-      this.insertMembers(id, members);
-      const pass = connection.prepare(
-        'INSERT INTO expense_group_passes (group_id, from_account, to_account, amount, passed_at) VALUES (?, ?, ?, ?, ?)',
+      await this.database.execute(
+        'DELETE FROM expense_group_members WHERE group_id = $1 AND NOT (account_id = ANY($2::text[]))',
+        [id, kept],
       );
-      for (const { from, to, amount, at } of group.newPasses) pass.run(id, from, to, amount, at.toISOString());
+      await this.insertMembers(id, members);
+      for (const { from, to, amount, at } of group.newPasses) {
+        await this.database.execute(
+          'INSERT INTO expense_group_passes (group_id, from_account, to_account, amount, passed_at) VALUES ($1, $2, $3, $4, $5)',
+          [id, from, to, amount, at.toISOString()],
+        );
+      }
     });
   }
 
   async archivedOf(groupId: string): Promise<boolean> {
-    const row = this.database.connection.prepare('SELECT archived_at FROM expense_groups WHERE id = ?').get(groupId) as
-      { archived_at: string | null } | undefined;
+    const row = await this.database.row<{ archived_at: string | null }>(
+      'SELECT archived_at FROM expense_groups WHERE id = $1',
+      [groupId],
+    );
     return Boolean(row?.archived_at);
   }
 
   async passesOf(groupId: string): Promise<PassView[]> {
-    const rows = this.database.connection
-      .prepare(
-        'SELECT seq, from_account, to_account, amount, passed_at FROM expense_group_passes WHERE group_id = ? ORDER BY seq',
-      )
-      .all(groupId) as { seq: number; from_account: string; to_account: string; amount: number; passed_at: string }[];
+    const rows = await this.database.rows<{
+      seq: number;
+      from_account: string;
+      to_account: string;
+      amount: number;
+      passed_at: string;
+    }>(
+      'SELECT seq, from_account, to_account, amount, passed_at FROM expense_group_passes WHERE group_id = $1 ORDER BY seq',
+      [groupId],
+    );
     return rows.map(row => ({
       id: `pass-${row.seq}`,
       from: row.from_account,
@@ -131,25 +137,25 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
   }
 
   async groupOf(id: string, memberId: string): Promise<GroupView | undefined> {
-    const row = this.database.connection
-      .prepare(`SELECT ${GROUP_COLUMNS} FROM expense_groups g ${MEMBER_OF_GROUP} WHERE g.id = ? AND m.account_id = ?`)
-      .get(id, memberId) as GroupRow | undefined;
+    const row = await this.database.row<GroupRow>(
+      `SELECT ${GROUP_COLUMNS} FROM expense_groups g ${MEMBER_OF_GROUP} WHERE g.id = $1 AND m.account_id = $2`,
+      [id, memberId],
+    );
     return row && viewOf(row);
   }
 
   async groupsOf(memberId: string): Promise<GroupView[]> {
-    const rows = this.database.connection
-      .prepare(
-        `SELECT ${GROUP_COLUMNS} FROM expense_groups g ${MEMBER_OF_GROUP} WHERE m.account_id = ? ORDER BY g.created_at DESC, g.rowid DESC`,
-      )
-      .all(memberId) as GroupRow[];
+    const rows = await this.database.rows<GroupRow>(
+      `SELECT ${GROUP_COLUMNS} FROM expense_groups g ${MEMBER_OF_GROUP} WHERE m.account_id = $1 ORDER BY g.created_at DESC, g.seq DESC`,
+      [memberId],
+    );
     return rows.map(viewOf);
   }
 
   async currentMembers(): Promise<{ groupId: string; memberIds: string[] }[]> {
-    const rows = this.database.connection
-      .prepare('SELECT group_id, account_id FROM expense_group_members ORDER BY group_id, rowid')
-      .all() as { group_id: string; account_id: string }[];
+    const rows = await this.database.rows<{ group_id: string; account_id: string }>(
+      'SELECT group_id, account_id FROM expense_group_members ORDER BY group_id, seq',
+    );
     const groups = new Map<string, string[]>();
     for (const { group_id, account_id } of rows) groups.set(group_id, [...(groups.get(group_id) ?? []), account_id]);
     return [...groups].map(([groupId, memberIds]) => ({ groupId, memberIds }));
@@ -157,16 +163,15 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
 
   async membersOf(id: string, memberId: string): Promise<MemberView[] | undefined> {
     if (!(await this.groupOf(id, memberId))) return undefined;
-    const rows = this.database.connection
-      .prepare(
-        `SELECT m.account_id, a.name, ${JOINED_AT} AS joined_at, g.owner_id
-           FROM expense_group_members m
-           JOIN expense_groups g ON g.id = m.group_id
-           JOIN accounts a ON a.id = m.account_id
-          WHERE m.group_id = ?
-          ORDER BY ${JOINED_AT}, m.rowid`,
-      )
-      .all(id) as { account_id: string; name: string; joined_at: string; owner_id: string }[];
+    const rows = await this.database.rows<{ account_id: string; name: string; joined_at: string; owner_id: string }>(
+      `SELECT m.account_id, a.name, ${JOINED_AT} AS joined_at, g.owner_id
+         FROM expense_group_members m
+         JOIN expense_groups g ON g.id = m.group_id
+         JOIN accounts a ON a.id = m.account_id
+        WHERE m.group_id = $1
+        ORDER BY ${JOINED_AT}, m.seq`,
+      [id],
+    );
     return rows.map(row => ({
       memberId: row.account_id,
       name: row.name,
@@ -175,10 +180,12 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
     }));
   }
 
-  private insertMembers(groupId: string, members: GroupSnapshot['members']): void {
-    const insert = this.database.connection.prepare(
-      'INSERT OR IGNORE INTO expense_group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)',
-    );
-    for (const member of members) insert.run(groupId, member.accountId, member.joinedAt);
+  private async insertMembers(groupId: string, members: GroupSnapshot['members']): Promise<void> {
+    for (const member of members) {
+      await this.database.execute(
+        'INSERT INTO expense_group_members (group_id, account_id, joined_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+        [groupId, member.accountId, member.joinedAt],
+      );
+    }
   }
 }

@@ -1,12 +1,9 @@
 import { createHmac } from 'crypto';
-import { mkdtempSync } from 'fs';
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
-import { tmpdir } from 'os';
-import { join } from 'path';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabaseUrl } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -65,7 +62,7 @@ beforeAll(async () => {
   // The reminders of request 18: the job runs every tenth of a second, and a period is a second.
   process.env.JOBS_INTERVAL_SECONDS = '0.1';
   process.env.REMINDER_PERIOD_SECONDS = '1';
-  process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-ledger-to-settlements-')), 'tally.sqlite');
+  process.env.DATABASE_URL = await freshDatabaseUrl();
   app = await createApplication();
   await app.start(0);
   http = apiClient(app.address);

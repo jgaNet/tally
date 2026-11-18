@@ -14,7 +14,7 @@ export class SignedAccessTokens implements IAccessTokens {
 
   async issue(accountId: string): Promise<string> {
     const payload = `${accountId}.${randomBytes(16).toString('base64url')}`;
-    return `${payload}.${this.sign(payload)}`;
+    return `${payload}.${await this.sign(payload)}`;
   }
 
   async accountOf(token: string): Promise<string | undefined> {
@@ -22,19 +22,19 @@ export class SignedAccessTokens implements IAccessTokens {
     if (parts.length !== 3) return undefined;
     const [accountId, nonce, signature] = parts;
     const given = Buffer.from(signature);
-    const expected = Buffer.from(this.sign(`${accountId}.${nonce}`));
+    const expected = Buffer.from(await this.sign(`${accountId}.${nonce}`));
     return given.length === expected.length && timingSafeEqual(given, expected) ? accountId : undefined;
   }
 
-  private sign(payload: string): string {
-    return createHmac('sha256', this.key()).update(payload).digest('base64url');
+  private async sign(payload: string): Promise<string> {
+    return createHmac('sha256', await this.key())
+      .update(payload)
+      .digest('base64url');
   }
 
-  /** The signing key, written once when the file is set up (`GroupsDatabase`), so that signing only reads it. */
-  private key(): string {
-    return (
-      this.database.connection.prepare("SELECT value FROM settings WHERE key = 'token_key'").get() as
-        { value: string } | undefined
-    )?.value as string;
+  /** The signing key, written once when the tables are set up (`GroupsDatabase`), so that signing only reads it. */
+  private async key(): Promise<string> {
+    const row = await this.database.row<{ value: string }>("SELECT value FROM settings WHERE key = 'token_key'");
+    return row?.value as string;
   }
 }

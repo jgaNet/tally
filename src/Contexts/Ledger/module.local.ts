@@ -54,14 +54,11 @@ import { PassedBalancesOfGroups } from '@Contexts/Ledger/Infrastructure/PassedBa
 import { settlementsReadModel } from '@Contexts/Settlements/module.local';
 
 /**
- * The Ledger context, as data (ADR 1, ADR 5): its expenses in SQLite at `LEDGER_DATABASE_PATH`, or the application's
- * database file (`DATABASE_PATH`) when that is not set, read when the first request needs it. Ledger asks Groups who the
+ * The Ledger context, as data (ADR 1, ADR 5): its expenses in PostgreSQL, in the database at `DATABASE_URL`, read when the first request needs it. Ledger asks Groups who the
  * members of a group are through its own `GroupMembers` port, answered over Groups' read model, which Groups' wiring
  * exports and nothing else of Groups is reached through.
  */
-const database = new LedgerDatabase(
-  () => process.env.LEDGER_DATABASE_PATH || process.env.DATABASE_PATH || 'tally.sqlite',
-);
+export const database = new LedgerDatabase();
 const expenses = new SqliteExpenses(database);
 /** The recurring expenses (request 23), in the same file as the expenses they record. */
 const recurringExpenses = new SqliteRecurringExpenses(database);

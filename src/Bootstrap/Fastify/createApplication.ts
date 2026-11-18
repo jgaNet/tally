@@ -6,21 +6,28 @@ import { Logger, relayOutbox } from '@Architecture/Application';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
-import { InMemoryOutbox } from '@Architecture/Infrastructure/Outbox/InMemoryOutbox';
+import { PostgresOutbox } from '@Architecture/Infrastructure/Outbox/PostgresOutbox';
+import { PostgresInbox } from '@Architecture/Infrastructure/EventBus/PostgresInbox';
+import { PostgresDatabase, databaseUrl } from '@Architecture/Infrastructure/DataSources/PostgresDatabase';
+import { prepareStorage } from '@Bootstrap/Storage/storage';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { groupsAccessTokens, localGroupsModule } from '@Contexts/Groups/module.local';
+import { database as groupsDatabase, groupsAccessTokens, localGroupsModule } from '@Contexts/Groups/module.local';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
-import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { database as ledgerDatabase, localLedgerModule } from '@Contexts/Ledger/module.local';
 import { sweepRecurringExpenses } from '@Contexts/Ledger/Application/RecurringExpenses';
 import { auditRoutes } from '@Contexts/Ledger/Presentation/audit.routes';
 import { budgetRoutes } from '@Contexts/Ledger/Presentation/budgets.routes';
 import { templateRoutes } from '@Contexts/Ledger/Presentation/templates.routes';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
-import { localSettlementsModule, providerSignedBy } from '@Contexts/Settlements/module.local';
-import { localNotificationsModule } from '@Contexts/Notifications/module.local';
+import {
+  database as settlementsDatabase,
+  localSettlementsModule,
+  providerSignedBy,
+} from '@Contexts/Settlements/module.local';
+import { database as notificationsDatabase, localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { sweepDebts } from '@Contexts/Notifications/Application/Reminders';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
@@ -49,6 +56,7 @@ export async function createApplication({
     .split(',')
     .filter(Boolean),
 }: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
+  await prepareStorage([groupsDatabase, ledgerDatabase, settlementsDatabase, notificationsDatabase]);
   const app = new FastifyApplication({
     logger,
     apiPrefix,
@@ -56,7 +64,13 @@ export async function createApplication({
     webOrigins,
     authenticate: authenticateWith(groupsAccessTokens),
   })
-    .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
+    .setEventBus(
+      new InMemoryEventBus({
+        eventEmitter: new EventEmitter(),
+        clock: systemClock,
+        inbox: new PostgresInbox(PostgresDatabase.of(databaseUrl())),
+      }),
+    )
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
     .registerModule(localSettlementsModule)
@@ -85,7 +99,12 @@ export async function createApplication({
   });
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an
   // in-memory outbox, and the line is where a store's outbox would be relayed.
-  await relayOutbox(InMemoryOutbox.shared, app.getEventBus(), app.executionContext('startup'));
+  await relayOutbox(
+    new PostgresOutbox(PostgresDatabase.of(databaseUrl())),
+    app.getEventBus(),
+    app.executionContext('startup'),
+  );
+  app.fastify.addHook('onClose', () => PostgresDatabase.closeAll());
   return app;
 }
 

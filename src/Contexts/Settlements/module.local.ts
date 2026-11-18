@@ -23,16 +23,14 @@ import { SqlitePayoutAccounts } from '@Contexts/Settlements/Infrastructure/Sqlit
 
 /**
  * The Settlements context, as data (ADR 9, ADR 10, ADR 11, ADR 12). Its settlement books and settlements are in SQLite at
- * `SETTLEMENTS_DATABASE_PATH`, or the application's database file (`DATABASE_PATH`) when that is not set, read when the first
+ * in PostgreSQL, at `DATABASE_URL`, read when the first
  * request needs it. It reads the balances through a port it owns over Ledger's balances read model, and the members through one
  * over Groups' read model; both read models are given as functions, read at a request and not when the modules are built (ADR 7).
  * It asks the payment provider for a payment link through a port it owns, at `PROVIDER_URL` (read at a request, as the others).
  * Ledger reads the settlements through its own `SettledAmounts` port over `settlementsReadModel`, the one thing of this file
  * another context reaches.
  */
-const database = new SettlementsDatabase(
-  () => process.env.SETTLEMENTS_DATABASE_PATH || process.env.DATABASE_PATH || 'tally.sqlite',
-);
+export const database = new SettlementsDatabase();
 export const settlementsReadModel = new SqliteSettlements(database);
 
 const groupBalances = new GroupBalancesOfLedger(() => ledgerBalancesReadModel);
