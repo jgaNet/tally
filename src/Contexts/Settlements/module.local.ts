@@ -1,6 +1,8 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
+import { GroupsMergedIntegrationHandler } from '@Contexts/Settlements/Application/Events/GroupsMergedIntegrationHandler';
 
 import { groupsReadModel, ledgerReadModel } from '@Bootstrap/Fastify/readModels';
 import {
@@ -53,5 +55,9 @@ export const localSettlementsModule = new LiteModule({
     getSuggestedSettlements(balances, members, settlements),
     setPayoutAccount(payouts, provider),
     getPayoutAccount(payoutQueries),
+  ],
+  integrationEvents: [
+    // A merge is moved here: the group merged's settlements move to the group kept (request 31, docs/adr/0031).
+    { event: GroupsMergedIntegrationEvent, handlers: [new GroupsMergedIntegrationHandler(books)] },
   ],
 });

@@ -10,4 +10,8 @@ export interface IRecurringExpenses {
   save(recurring: RecurringExpense): Promise<IResult<undefined>>;
   /** Deletes it, if it is still at the version it was read at: a conflict otherwise. */
   delete(recurring: RecurringExpense): Promise<IResult<undefined>>;
+  /** The ids of the recurring expenses of a group, in the order they were set up: a merge moves them one by one (request 31, docs/adr/0031). */
+  idsOfGroup(groupId: string): Promise<string[]>;
+  /** Stores a recurring expense moved to another group by a merge: its group only, and its version is kept (request 31). A conflict otherwise. */
+  move(recurring: RecurringExpense): Promise<IResult<undefined>>;
 }

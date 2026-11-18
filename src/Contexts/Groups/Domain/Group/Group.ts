@@ -13,11 +13,15 @@ import {
   BalancePassedEvent,
   GroupArchivedEvent,
   GroupCreatedEvent,
+  GroupsMergedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
 } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 import {
   BalancesNotZeroException,
+  CurrenciesDifferException,
+  MergeIntoItselfException,
+  MergePaymentsWaitingException,
   OwnerCannotLeaveException,
   PaymentsWaitingException,
   PaymentWaitingException,
@@ -35,6 +39,12 @@ export interface PassedLeave {
   memberId: string;
   amount: number;
   at: string;
+}
+
+/** Sets what a membership passed to the owner in total: a membership that passed nothing keeps no `passed` (docs/adr/0019). */
+function setPassed(member: MemberSnapshot, passed: number): void {
+  if (passed === 0) delete member.passed;
+  else member.passed = passed;
 }
 
 /**
@@ -242,6 +252,56 @@ export class Group extends AggregateRoot {
     if (paymentWaiting) return Result.fail(new PaymentsWaitingException());
     this.#archivedAt = at;
     this.record(GroupArchivedEvent.set({ groupId: this._id.value }));
+    return Result.ok(undefined);
+  }
+
+  /**
+   * Merges the group `merged` into this one, which is kept (request 31, docs/adr/0031): the group merged is gone once this is stored. Refused,
+   * and nothing changes: a merge into itself; a group archived, either of the two (GroupArchived); a `by` that does not own both groups
+   * (NotAllowed); two groups in different currencies; a payment in the group merged waiting at the provider (`paymentWaiting`, read by the
+   * use case in the same transaction). Every member of the group merged joins this one at `at`, last, in the order they joined the group
+   * merged, with the role `member`: a member of both stays where it is; a former member of the group merged is a former member here, and
+   * a member who left here and is one there joins again. What each member passed to the owner, in either group, is added together, so
+   * each balance here is what it was here plus what it was there. Records GroupsMerged, for the store to make durable with it.
+   */
+  absorb({
+    merged,
+    by,
+    paymentWaiting,
+    at,
+  }: {
+    merged: Group;
+    by: string;
+    paymentWaiting: boolean;
+    at: Date;
+  }): IResult<undefined> {
+    if (merged.id === this.id) return Result.fail(new MergeIntoItselfException());
+    if (this.isArchived || merged.isArchived) return Result.fail(new GroupArchivedException('Groups'));
+    if (by !== this.#ownerId || by !== merged.ownerId) {
+      return Result.fail(new NotAllowedException('Groups', 'Only the owner of both groups may merge them'));
+    }
+    if (this.currency !== merged.currency) return Result.fail(new CurrenciesDifferException());
+    if (paymentWaiting) return Result.fail(new MergePaymentsWaitingException());
+
+    for (const incoming of merged.toSnapshot().members) {
+      const index = this.#members.findIndex(member => member.accountId === incoming.accountId);
+      const here = index === -1 ? undefined : this.#members[index];
+      if (here && here.leftAt === undefined) {
+        // A member of both stays where it is; what it passed in either group is what it passed here.
+        setPassed(here, (here.passed ?? 0) + (incoming.passed ?? 0));
+        continue;
+      }
+      const passed = (here?.passed ?? 0) + (incoming.passed ?? 0);
+      if (index !== -1) this.#members.splice(index, 1);
+      this.#members.push({
+        accountId: incoming.accountId,
+        role: 'member',
+        joinedAt: at.toISOString(),
+        ...(incoming.leftAt === undefined ? {} : { leftAt: incoming.leftAt }),
+        ...(passed === 0 ? {} : { passed }),
+      });
+    }
+    this.record(GroupsMergedEvent.set({ keptGroupId: this._id.value, mergedGroupId: merged.id }));
     return Result.ok(undefined);
   }
 

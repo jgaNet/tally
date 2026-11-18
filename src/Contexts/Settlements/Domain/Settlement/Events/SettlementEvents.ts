@@ -71,3 +71,9 @@ export class SettlementRefundedEvent extends DomainEvent<{
   to: string;
   amount: number;
 }> {}
+
+/**
+ * The settlements of a merged group became the group kept's (request 31, docs/adr/0031): the book of the group kept takes them, and the
+ * group merged's book is gone. Recorded by `SettlementBook.absorb()`, once the move is stored.
+ */
+export class SettlementBookMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string }> {}

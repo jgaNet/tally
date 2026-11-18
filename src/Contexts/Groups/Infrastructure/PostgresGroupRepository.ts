@@ -120,4 +120,24 @@ export class PostgresGroupRepository implements IGroupRepository {
     }
     return Result.ok(undefined);
   }
+
+  async remove(group: Group): Promise<IResult<undefined>> {
+    this.database.assertInTransaction();
+    const snapshot = group.toSnapshot();
+    // The memberships go first: they reference the group. A conflict rolls the whole transaction back.
+    await this.database.run('DELETE FROM group_members WHERE group_id = ?', [snapshot.id]);
+    const { changes } = await this.database.run('DELETE FROM groups WHERE id = ? AND version = ?', [
+      snapshot.id,
+      snapshot.version,
+    ]);
+    if (changes === 0) {
+      return Result.fail(new ConcurrencyConflictException('Groups', 'The group changed since it was read'));
+    }
+    return Result.ok(undefined);
+  }
+
+  async movePassedBalances(fromGroupId: string, intoGroupId: string): Promise<void> {
+    this.database.assertInTransaction();
+    await this.database.run('UPDATE passed_balances SET group_id = ? WHERE group_id = ?', [intoGroupId, fromGroupId]);
+  }
 }

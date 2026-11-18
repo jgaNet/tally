@@ -55,6 +55,39 @@ export class BalancesNotZeroException extends Exception {
   }
 }
 
+/** A group is merged into another, not into itself (request 31). */
+export class MergeIntoItselfException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'MergeIntoItself',
+      message: 'A group is merged into another group, not into itself',
+    });
+  }
+}
+
+/** Two groups are merged once they are in the same currency (request 31, docs/adr/0031). */
+export class CurrenciesDifferException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'CurrenciesDiffer',
+      message: 'Two groups are merged once they are in the same currency',
+    });
+  }
+}
+
+/** A group is merged once no payment in the group merged waits at the provider: pending or refunding (request 31, docs/adr/0031). */
+export class MergePaymentsWaitingException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'MergePaymentsWaiting',
+      message: 'A group is merged once no payment in it waits at the provider',
+    });
+  }
+}
+
 /** A group is archived once no payment in it waits at the provider: pending or refunding (request 27, docs/adr/0026). */
 export class PaymentsWaitingException extends Exception {
   constructor() {

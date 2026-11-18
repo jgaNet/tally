@@ -5,6 +5,7 @@ import { SettlementView } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
   PaymentRequestedEvent,
   RefundRequestedEvent,
+  SettlementBookMergedEvent,
   SettlementFailedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
@@ -184,6 +185,14 @@ export class SettlementBook extends AggregateRoot {
     if (badStatus)
       throw new Error(`A settlement book is corrupted: group ${groupId} has a paid settlement of another status`);
     return new SettlementBook(new Id(groupId), version, [...pending], [...paid]);
+  }
+
+  /**
+   * Takes in the settlements of the group merged into this book's group (request 31, docs/adr/0031): the settlements keep their ids,
+   * statuses and histories, and move with the store's move. Records SettlementBookMerged, for the store to make durable with the move.
+   */
+  absorb(mergedGroupId: string): void {
+    this.record(SettlementBookMergedEvent.set({ groupId: this._id.value, mergedGroupId }));
   }
 
   get groupId(): string {

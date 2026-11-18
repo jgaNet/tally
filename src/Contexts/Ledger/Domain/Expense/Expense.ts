@@ -11,6 +11,7 @@ import {
 import {
   ExpenseDeletedEvent,
   ExpenseEditedEvent,
+  ExpenseMovedEvent,
   ExpenseRecordedEvent,
 } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { AmountInput, MAX_EXPENSE_AMOUNT, OriginalAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
@@ -47,7 +48,7 @@ export { MAX_EXPENSE_AMOUNT };
  * saves it: the aggregate never changes its own version (ADR 8).
  */
 export class Expense extends AggregateRoot {
-  readonly #groupId: string;
+  #groupId: string;
   readonly #description: ExpenseDescription;
   readonly #amount: number;
   readonly #date: string;
@@ -306,6 +307,16 @@ export class Expense extends AggregateRoot {
 
   get id(): string {
     return this._id.value;
+  }
+
+  /**
+   * Moves the expense to the group kept by a merge (request 31, docs/adr/0031): the expense keeps its id, its payer, its shares, its version
+   * and its category, and changes only its group. Records ExpenseMoved, for the store to make durable with the move.
+   */
+  moveTo(groupId: string): void {
+    const from = this.#groupId;
+    this.#groupId = groupId;
+    this.record(ExpenseMovedEvent.set({ expenseId: this._id.value, from, to: groupId }));
   }
 
   get groupId(): string {

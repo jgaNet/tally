@@ -35,3 +35,10 @@ export class BalancePassedEvent extends DomainEvent<{ groupId: string; from: str
  * ask Groups whether a group is archived, through the ports they own.
  */
 export class GroupArchivedEvent extends DomainEvent<{ groupId: string }> {}
+
+/**
+ * Two groups were merged by their owner (request 31, docs/adr/0031): the group merged, `mergedGroupId`, is gone once this is stored, and
+ * what it held is the group kept's, `keptGroupId`. Recorded by `Group.absorb()`, once the merge is stored; GroupsMergedHandler tells
+ * Ledger and Settlements as the integration event `GroupsMerged`, which each moves its own by.
+ */
+export class GroupsMergedEvent extends DomainEvent<{ keptGroupId: string; mergedGroupId: string }> {}

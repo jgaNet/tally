@@ -7,6 +7,7 @@ import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepo
 import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
 import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPayments';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
+import { IInvitationRepository } from '@Contexts/Groups/Domain/Invitation/Ports/IInvitationRepository';
 
 /** Creates a group: a signed-in person, who becomes its owner and first member. Its id is the answer. */
 export const createGroup = command(
@@ -44,6 +45,42 @@ export const getGroupMembers = query(
       const members = await groups.listMembersOf(callerOf(context), id);
       if (!members) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
       return Result.ok(members);
+    },
+);
+
+/**
+ * Merges the group `from` into the group `groupId`, which is kept, for the owner of both (request 31, docs/adr/0031): the caller must be a
+ * member of both, or they do not exist for it. The kept group takes the members of the group merged and their balances, the group merged
+ * is removed with its memberships and its invitations, and its passed balances are the kept group's, in this transaction. A payment in the
+ * group merged that waits at the provider, read through Settlements' port in the same transaction, refuses the merge. Ledger and Settlements
+ * move what they hold of the group merged in reactions to the GroupsMerged event, which GroupsMergedHandler publishes after the commit.
+ */
+export const mergeGroups = command(
+  'MergeGroups',
+  (groups: IGroupRepository, invitations: IInvitationRepository, payments: IWaitingPayments, clock: Clock) =>
+    async ({ groupId, from }: { groupId: string; from: string }, context) => {
+      const by = callerOf(context);
+      const kept = await groups.findById(groupId);
+      if (!kept || !kept.isMember(by)) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
+      const merged = await groups.findById(from);
+      if (!merged || !merged.isMember(by))
+        return Result.fail(new NotFoundException('Groups', 'There is no such group'));
+
+      let paymentWaiting = false;
+      for (const member of merged.members) {
+        if (await payments.paymentWaitingOf(from, member.accountId)) paymentWaiting = true;
+      }
+      const absorbed = kept.absorb({ merged, by, paymentWaiting, at: clock() });
+      if (absorbed.isFailure()) return absorbed;
+
+      const saved = await groups.save(kept);
+      if (saved.isFailure()) return saved;
+      const removed = await groups.remove(merged);
+      if (removed.isFailure()) return removed;
+      await groups.movePassedBalances(from, groupId);
+      await invitations.removeOfGroup(from);
+      await publishDomainEvents(kept, context);
+      return Result.ok(undefined);
     },
 );
 

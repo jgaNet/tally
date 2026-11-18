@@ -2,6 +2,9 @@ import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
+import { GroupsMergedIntegrationHandler } from '@Contexts/Ledger/Application/Events/GroupsMergedIntegrationHandler';
+import { PostgresMergedGroupRecords } from '@Contexts/Ledger/Infrastructure/PostgresMergedGroupRecords';
 
 import {
   groupsReadModel,
@@ -93,6 +96,8 @@ const receiptStore = new HttpReceiptStore();
 // The group's audit (request 28, docs/adr/0027): the expenses' entries are Ledger's own table; the settlements' and the balances that
 // passed are read through the ports below, over the other contexts' read models (readModels.ts).
 const auditQueries = new PostgresAuditQueries(sharedDatabase);
+// What a merged group keeps in Ledger's own tables (request 31, docs/adr/0031): its audit entries and receipts move, its budgets and templates go.
+const mergedRecords = new PostgresMergedGroupRecords(sharedDatabase);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
@@ -141,6 +146,13 @@ export const localLedgerModule = new LiteModule({
     {
       event: RecurringExpenseDayCameEvent,
       handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers, systemClock)],
+    },
+  ],
+  integrationEvents: [
+    // A merge is moved here: the group merged's expenses, recurring expenses and audit move to the group kept (request 31, docs/adr/0031).
+    {
+      event: GroupsMergedIntegrationEvent,
+      handlers: [new GroupsMergedIntegrationHandler(expenses, recurring, mergedRecords)],
     },
   ],
 });

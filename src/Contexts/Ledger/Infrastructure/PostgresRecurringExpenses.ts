@@ -111,6 +111,26 @@ export class PostgresRecurringExpenses implements IRecurringExpenses {
     if (changes === 0) return Result.fail(changedSinceRead());
     return Result.ok(undefined);
   }
+
+  async idsOfGroup(groupId: string): Promise<string[]> {
+    this.database.assertInTransaction();
+    const rows = await this.database.all<{ id: string }>(
+      'SELECT id FROM recurring_expenses WHERE group_id = ? ORDER BY seq',
+      [groupId],
+    );
+    return rows.map(row => String(row.id));
+  }
+
+  async move(recurring: RecurringExpense): Promise<IResult<undefined>> {
+    this.database.assertInTransaction();
+    const snapshot = recurring.toSnapshot();
+    const { changes } = await this.database.run(
+      'UPDATE recurring_expenses SET group_id = ? WHERE id = ? AND version = ?',
+      [snapshot.groupId, snapshot.id, snapshot.version],
+    );
+    if (changes === 0) return Result.fail(changedSinceRead());
+    return Result.ok(undefined);
+  }
 }
 
 const changedSinceRead = () =>

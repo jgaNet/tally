@@ -12,6 +12,7 @@ import { RecurringExpenseSnapshot } from '@Contexts/Ledger/Domain/RecurringExpen
 import {
   RecurringExpenseDayCameEvent,
   RecurringExpenseEndedEvent,
+  RecurringExpenseMovedEvent,
   RecurringExpenseSetUpEvent,
   RecurringExpenseStoppedEvent,
 } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
@@ -47,7 +48,7 @@ export type DayRun = { kind: 'recorded'; recurring: RecurringExpense } | { kind:
  * recurring expense on is saved at that version, so two servers that run for the same day cannot both record it.
  */
 export class RecurringExpense extends AggregateRoot {
-  readonly #groupId: string;
+  #groupId: string;
   readonly #paidBy: string;
   readonly #description: ExpenseDescription;
   readonly #amount: number;
@@ -245,6 +246,16 @@ export class RecurringExpense extends AggregateRoot {
 
   get id(): string {
     return this._id.value;
+  }
+
+  /**
+   * Moves the recurring expense to the group kept by a merge (request 31, docs/adr/0031): it keeps its id, its payer, its split, its next day
+   * and its version, and changes only its group. Records RecurringExpenseMoved, for the store to make durable with the move.
+   */
+  moveTo(groupId: string): void {
+    const from = this.#groupId;
+    this.#groupId = groupId;
+    this.record(RecurringExpenseMovedEvent.set({ recurringId: this._id.value, from, to: groupId }));
   }
 
   get groupId(): string {

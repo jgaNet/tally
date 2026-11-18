@@ -21,4 +21,9 @@ export interface ISettlementBooks {
    * otherwise (ConcurrencyConflictException, CONC-OPTIMISTIC, docs/adr/0013). The store then holds one version more.
    */
   save(book: SettlementBook): Promise<IResult<undefined>>;
+  /**
+   * Moves a merged group's settlements and their audit to the group kept, keeping their ids, statuses and order, and removes the merged
+   * group's book (request 31, docs/adr/0031). Inside a transaction only.
+   */
+  moveGroup(fromGroupId: string, intoGroupId: string): Promise<void>;
 }

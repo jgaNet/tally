@@ -36,6 +36,13 @@ class MemoryRecurring implements IRecurringExpenses, IRecurringExpenseQueries {
     this.rows.delete(recurring.id);
     return Result.ok(undefined);
   }
+  async idsOfGroup(groupId: string): Promise<string[]> {
+    return [...this.rows.values()].filter(row => row.groupId === groupId).map(row => row.id);
+  }
+  async move(recurring: RecurringExpense): Promise<IResult<undefined>> {
+    this.rows.set(recurring.id, recurring);
+    return Result.ok(undefined);
+  }
   async findRecurring(recurringId: string): Promise<RecurringExpenseView | undefined> {
     const found = this.rows.get(recurringId);
     return (

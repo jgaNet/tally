@@ -13,7 +13,10 @@ import {
   getGroupMembers,
   getMyGroups,
   leaveGroup,
+  mergeGroups,
 } from '@Contexts/Groups/Application/Groups';
+import { GroupsMergedHandler } from '@Contexts/Groups/Application/Events/GroupsMergedHandler';
+import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { PostgresAccountRepository } from '@Contexts/Groups/Infrastructure/PostgresAccountRepository';
 import { PostgresAccountQueries } from '@Contexts/Groups/Infrastructure/PostgresAccountQueries';
@@ -60,6 +63,11 @@ export const localGroupsModule = new LiteModule({
     getInvitation(invitationQueries),
     leaveGroup(groups, memberBalances, waitingPaymentsOfSettlements, systemClock),
     archiveGroup(groups, memberBalances, waitingPaymentsOfSettlements, systemClock),
+    mergeGroups(groups, invitations, waitingPaymentsOfSettlements, systemClock),
+  ],
+  domainEvents: [
+    // A merge is told to the other contexts as the published fact (request 31, docs/adr/0031): Ledger and Settlements move what they hold.
+    { event: GroupsMergedEvent, handlers: [new GroupsMergedHandler()] },
   ],
 });
 

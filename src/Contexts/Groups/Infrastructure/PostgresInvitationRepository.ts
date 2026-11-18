@@ -63,4 +63,9 @@ export class PostgresInvitationRepository implements IInvitationRepository {
     }
     return Result.ok(undefined);
   }
+
+  async removeOfGroup(groupId: string): Promise<void> {
+    this.database.assertInTransaction();
+    await this.database.run('DELETE FROM invitations WHERE group_id = ?', [groupId]);
+  }
 }

@@ -164,6 +164,27 @@ export class PostgresExpenseRepository implements IExpenseRepository {
     await recordAudit(this.database, snapshot.groupId, expense.audited);
     return Result.ok(undefined);
   }
+
+  async idsOfGroup(groupId: string): Promise<string[]> {
+    this.database.assertInTransaction();
+    const rows = await this.database.all<{ id: string }>('SELECT id FROM expenses WHERE group_id = ? ORDER BY seq', [
+      groupId,
+    ]);
+    return rows.map(row => String(row.id));
+  }
+
+  async move(expense: Expense): Promise<IResult<undefined>> {
+    this.database.assertInTransaction();
+    const snapshot = expense.toSnapshot();
+    // Only the group changes: the version stays, so the expense is the one its author read (request 31).
+    const { changes } = await this.database.run('UPDATE expenses SET group_id = ? WHERE id = ? AND version = ?', [
+      snapshot.groupId,
+      snapshot.id,
+      snapshot.version,
+    ]);
+    if (changes === 0) return Result.fail(changedSinceRead());
+    return Result.ok(undefined);
+  }
 }
 
 const changedSinceRead = () => new ConcurrencyConflictException('Ledger', 'The expense changed since it was read');

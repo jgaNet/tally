@@ -37,3 +37,9 @@ export class RecurringExpenseDayCameEvent extends DomainEvent<{
  * It records no expense from that day on, and it no longer exists. Recorded by `RecurringExpense.runDay()`, once the deletion is stored.
  */
 export class RecurringExpenseEndedEvent extends DomainEvent<{ recurringId: string; groupId: string }> {}
+
+/**
+ * A recurring expense moved from a merged group to the group kept (request 31, docs/adr/0031): its id, and the two groups. Recorded by
+ * `RecurringExpense.moveTo()`, once the move is stored; its payer, split, next day and version are unchanged.
+ */
+export class RecurringExpenseMovedEvent extends DomainEvent<{ recurringId: string; from: string; to: string }> {}

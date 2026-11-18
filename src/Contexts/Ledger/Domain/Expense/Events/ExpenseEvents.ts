@@ -37,3 +37,9 @@ export class ExpenseDeletedEvent extends DomainEvent<{
   groupId: string;
   paidBy: string;
 }> {}
+
+/**
+ * An expense moved from a merged group to the group kept (request 31, docs/adr/0031): its id, and the two groups. Recorded by
+ * `Expense.moveTo()`, once the move is stored; its payer, shares, version and category are unchanged.
+ */
+export class ExpenseMovedEvent extends DomainEvent<{ expenseId: string; from: string; to: string }> {}

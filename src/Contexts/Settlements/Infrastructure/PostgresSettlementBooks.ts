@@ -88,6 +88,14 @@ export class PostgresSettlementBooks implements ISettlementBooks {
     return row ? this.get(String(row.group_id)) : undefined;
   }
 
+  async moveGroup(fromGroupId: string, intoGroupId: string): Promise<void> {
+    this.database.assertInTransaction();
+    // The settlements and their audit keep their rows, and so their order (seq); the merged group's book row goes (request 31).
+    await this.database.run('UPDATE settlements SET group_id = ? WHERE group_id = ?', [intoGroupId, fromGroupId]);
+    await this.database.run('UPDATE settlement_audit SET group_id = ? WHERE group_id = ?', [intoGroupId, fromGroupId]);
+    await this.database.run('DELETE FROM settlement_books WHERE group_id = ?', [fromGroupId]);
+  }
+
   async save(book: SettlementBook): Promise<IResult<undefined>> {
     this.database.assertInTransaction();
     const groupId = book.groupId;
