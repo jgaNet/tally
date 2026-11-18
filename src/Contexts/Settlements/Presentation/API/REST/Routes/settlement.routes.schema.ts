@@ -1,3 +1,5 @@
+import { CURRENCIES } from '@SharedKernel/Domain/Currency';
+
 const RefusalSchema = {
   type: 'object',
   properties: { type: { type: 'string' }, message: { type: 'string' } },
@@ -16,7 +18,7 @@ export const GetSuggestedSettlementsResSchema = {
   404: RefusalSchema,
 } as const;
 
-/** What is paid in another currency than the group's, as the payer gives it (request 39): one of Tally's currencies, and its amount in hundredths. */
+/** What is paid in another currency than the group's, as the payer gives it (request 39): one of Tally's currencies, and its amount in its minor unit. */
 export interface OriginalBody {
   currency: string;
   amount: number;
@@ -91,7 +93,7 @@ const SettlementSchema = {
       type: 'object',
       required: ['currency', 'amount', 'rate'],
       properties: {
-        currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+        currency: { enum: [...CURRENCIES] },
         amount: { type: 'integer', minimum: 1 },
         rate: { type: 'string', pattern: '^\\d+(\\.\\d{1,6})?$' },
       },

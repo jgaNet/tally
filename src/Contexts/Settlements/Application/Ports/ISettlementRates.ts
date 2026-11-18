@@ -1,4 +1,6 @@
-import { CURRENCIES, OriginalRequest } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
+import { isCurrency } from '@SharedKernel/Domain/Currency';
+
+import { OriginalRequest } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
 import { RateOffer } from '@Contexts/Settlements/Domain/Settlement/RateOffer';
 
 /** What Settlements asks a rate for: one currency in another, on a day (`YYYY-MM-DD`, in UTC). */
@@ -28,6 +30,6 @@ export async function offerForSettlement(
   groupCurrency: string,
   at: Date,
 ): Promise<RateOffer> {
-  if (!CURRENCIES.includes(original.currency) || original.currency === groupCurrency) return { kind: 'none' };
+  if (!isCurrency(original.currency) || original.currency === groupCurrency) return { kind: 'none' };
   return rates.rateOf({ from: original.currency, to: groupCurrency, date: at.toISOString().slice(0, 10) });
 }

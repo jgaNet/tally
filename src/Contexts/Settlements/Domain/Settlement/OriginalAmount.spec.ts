@@ -24,7 +24,7 @@ describe('OriginalAmount, what a settlement paid in another currency is (request
   });
 
   it('refuses a currency that is not one of Tally’s, or the group’s own', () => {
-    for (const currency of ['JPY', 'eur', 'EUR']) {
+    for (const currency of ['XYZ', 'eur', 'EUR']) {
       const refused = OriginalAmount.create({ currency, amount: 100 }, 'EUR', offered('1'));
       expect(refused.isFailure() && refused.error.type).toBe('InvalidOriginalCurrency');
     }

@@ -8,7 +8,7 @@ import {
 } from '@Contexts/Notifications/Domain/Notice/DTOs';
 import { NoticeIssuedEvent } from '@Contexts/Notifications/Domain/Notice/Events/NoticeEvents';
 import { InvalidNoticeException } from '@Contexts/Notifications/Domain/Notice/NoticeExceptions';
-import { LINGERING_DEBT_OVER } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
+import { lingeringDebtOver } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 
 /** A month, YYYY-MM. */
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -110,24 +110,28 @@ export class Notice extends AggregateRoot {
   }
 
   /**
-   * A reminder to `recipient` that they still owe `amount` in the group, more than 2000 (request 18): its id is generated here,
-   * and NoticeIssued is recorded. The decision that a debt lasted is the DebtWatch's; this only makes the notice it asks for.
+   * A reminder to `recipient` that they still owe `amount` in the group's `currency`, more than 20 of it (request 18, request 40): its
+   * id is generated here, and NoticeIssued is recorded. The decision that a debt lasted is the DebtWatch's; this only makes the notice it asks for.
    */
   static remind({
     recipient,
     groupId,
+    currency,
     amount,
     at,
   }: {
     recipient: string;
     groupId: string;
+    currency: string;
     amount: number;
     at: Date;
   }): IResult<Notice> {
     if (!recipient) return Result.fail(new InvalidNoticeException('A notice is for someone'));
     if (!groupId) return Result.fail(new InvalidNoticeException('A reminder is about a group'));
-    if (!Number.isInteger(amount) || amount <= LINGERING_DEBT_OVER)
-      return Result.fail(new InvalidNoticeException('A reminder is for more than 2000 still owed'));
+    if (!Number.isInteger(amount) || amount <= lingeringDebtOver(currency))
+      return Result.fail(
+        new InvalidNoticeException("A reminder is for more than 20 of the group's currency still owed"),
+      );
 
     const notice = new Notice(Id.generate(), recipient, 'reminder', groupId, null, amount, at, null, 0);
     notice.record(
@@ -205,8 +209,9 @@ export class Notice extends AggregateRoot {
     version,
   }: INoticeSnapshot): Notice {
     const aboutAnExpense = kind === 'expense' && !!expenseId;
-    const aboutADebt =
-      kind === 'reminder' && expenseId === null && Number.isInteger(amount) && amount > LINGERING_DEBT_OVER;
+    // A stored reminder was decided against its group's currency when it was made; that currency is not kept with the notice,
+    // so only what the stored amount must be (a whole, positive amount of the minor unit) is checked here (request 40).
+    const aboutADebt = kind === 'reminder' && expenseId === null && Number.isInteger(amount) && amount > 0;
     const aboutABudget =
       kind === 'budget' &&
       expenseId === null &&

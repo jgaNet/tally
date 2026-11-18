@@ -23,7 +23,7 @@ describe('PostgresNoticeQueries (request 18)', () => {
     await database.open();
 
     const at = new Date('2026-11-08T00:00:00.000Z');
-    const reminder = Notice.remind({ recipient: 'cy', groupId: 'house', amount: 2500, at });
+    const reminder = Notice.remind({ currency: 'EUR', recipient: 'cy', groupId: 'house', amount: 2500, at });
     const expense = Notice.issue({ recipient: 'cy', groupId: 'house', expenseId: 'pizzas', amount: 333, at });
     if (reminder.isFailure() || expense.isFailure()) throw new Error('a notice is made');
     await repository.save(reminder.data);

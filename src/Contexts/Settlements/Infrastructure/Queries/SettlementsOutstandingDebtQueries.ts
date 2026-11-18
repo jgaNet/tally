@@ -20,21 +20,23 @@ export class SettlementsOutstandingDebtQueries implements IOutstandingDebtQuerie
   ) {}
 
   async owing(): Promise<OutstandingDebt[]> {
-    const membersByGroup = new Map<string, string[]>();
-    for (const { groupId, memberId } of await this.groups.membersOfEveryGroup()) {
+    const membersByGroup = new Map<string, { currency: string; members: string[] }>();
+    for (const { groupId, memberId, currency } of await this.groups.membersOfEveryGroup()) {
       // A deleted account is reminded of nothing (request 35): its balance is kept, its person is no longer told.
       if (await this.groups.isDeleted(memberId)) continue;
-      membersByGroup.set(groupId, [...(membersByGroup.get(groupId) ?? []), memberId]);
+      const group = membersByGroup.get(groupId) ?? { currency, members: [] };
+      group.members.push(memberId);
+      membersByGroup.set(groupId, group);
     }
 
     const debts: OutstandingDebt[] = [];
-    for (const [groupId, members] of membersByGroup) {
+    for (const [groupId, { currency, members }] of membersByGroup) {
       const owed = stillOwed({
         members,
         balances: await this.balances.balancesOf(groupId),
         waiting: await this.settlements.waitingIn(groupId),
       });
-      for (const { memberId, owes } of owed) debts.push({ groupId, memberId, owes });
+      for (const { memberId, owes } of owed) debts.push({ groupId, memberId, currency, owes });
     }
     return debts;
   }

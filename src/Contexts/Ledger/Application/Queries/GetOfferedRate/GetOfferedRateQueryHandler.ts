@@ -1,11 +1,11 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { Clock, ExecutionContext, QueryHandler } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
+import { isCurrency } from '@SharedKernel/Domain/Currency';
 
 import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
-import { CURRENCIES } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 
 /** The rate Tally offers from a currency to a group's, on a day (request 22), as the API answers it. */
 export interface OfferedRateView {
@@ -43,7 +43,7 @@ export class GetOfferedRateQueryHandler extends QueryHandler<
     const today = this.clock();
     const groupsCurrency = await this.groupCurrency.currencyOf(groupId, caller.data.value);
     if (!groupsCurrency) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
-    if (!CURRENCIES.includes(currency) || currency === groupsCurrency) {
+    if (!isCurrency(currency) || currency === groupsCurrency) {
       return Result.fail(new NotFoundException('Ledger', 'No rate is offered for this currency'));
     }
 

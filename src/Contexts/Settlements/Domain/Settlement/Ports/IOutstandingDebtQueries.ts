@@ -2,7 +2,9 @@
 export interface OutstandingDebt {
   groupId: string;
   memberId: string;
-  /** What the member still owes in the group, in the group's currency's cents: positive, never 0. */
+  /** The currency the group counts in: what `owes` is counted in, in its minor unit (request 40). */
+  currency: string;
+  /** What the member still owes in the group, in the group's currency's minor unit: positive, never 0. */
   owes: number;
 }
 

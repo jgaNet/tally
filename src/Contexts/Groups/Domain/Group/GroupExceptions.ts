@@ -17,7 +17,7 @@ export class UnsupportedCurrencyException extends Exception {
     super({
       service: 'Groups',
       type: 'UnsupportedCurrency',
-      message: 'The currency is one of EUR, USD, GBP, CHF, CAD or AUD',
+      message: 'The currency is one of EUR, USD, GBP, CHF, CAD, AUD, JPY, KRW, KWD or BHD',
     });
   }
 }

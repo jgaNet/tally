@@ -1,4 +1,5 @@
 import { IResult, Result } from '@Architecture/Domain';
+import { decimalsOf, isCurrency } from '@SharedKernel/Domain/Currency';
 
 import { ExpenseAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import {
@@ -10,14 +11,11 @@ import {
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { RateOffer } from '@Contexts/Ledger/Domain/Expense/RateOffer';
 
-/** The currencies Tally counts in (request 2), as Ledger keeps its own list of them. */
-export const CURRENCIES: readonly string[] = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'];
-
 /** What was paid in another currency, as the payer states it (request 21, and request 22 when the rate is left out). */
 export interface OriginalRequest {
   /** One of Tally's currencies, other than the group's. */
   currency: string;
-  /** In the hundredths of the currency: a whole number from 1 to 100 000 000. */
+  /** In the minor unit of the currency (hundredths, yen, thousandths): a whole number from 1 to 100 000 000. */
   amount: number;
   /**
    * What one unit of the currency is worth in the group's currency: a decimal string, greater than 0, at most 6 digits after
@@ -39,7 +37,6 @@ export interface OriginalSnapshot {
 const RATE = /^\d+(\.\d{1,6})?$/;
 /** A rate is kept in millionths, so that the arithmetic is exact. */
 const RATE_SCALE = 1_000_000n;
-const HALF = 500_000n;
 /** A stated rate may differ from the offered one by at most 2 % of the offered one, both ends included (request 22). */
 const BAND_PERCENT = 2n;
 /** A stored original amount was decided when it was recorded: its rate is taken as it is. */
@@ -58,10 +55,11 @@ export function rateMillionths(rate: unknown): bigint | null {
 }
 
 /**
- * What an expense was paid in, in another currency than its group's: the currency, the amount in its hundredths, and the
- * rate, kept as the decimal string it was given or taken as. The amount in the group's currency is the original amount times
- * the rate, rounded to the nearest whole number, a half rounded up, computed in exact integer arithmetic and never in floating
- * point (ADR 12): 1234 at "1.0625" is 1311.125, so 1311; 1000 at "0.9545" is 954.5, so 955.
+ * What an expense was paid in, in another currency than its group's: the currency, the amount in its minor unit, and the
+ * rate, kept as the decimal string it was given or taken as. The amount in the group's currency is the original amount, read in
+ * its currency's units, times the rate, written in the group's minor unit, rounded to the nearest whole number, a half rounded up,
+ * computed in exact integer arithmetic and never in floating point (ADR 12, ADR 25): 1234 at "1.0625" is 1311.125, so 1311;
+ * 1000 at "0.9545" is 954.5, so 955; in a yen group, 1250 euro cents at "161.5" is 2018.75 yen, so 2019.
  *
  * The rate is settled by `create()` against the rate offered for the currency and the day (ADR 13), which the Expense is given
  * as an input like any other: a rate left out is the offered one; a stated rate is taken when no rates service is configured,
@@ -90,7 +88,7 @@ export class OriginalAmount {
     groupCurrency: string | undefined,
     offer: RateOffer | null,
   ): IResult<OriginalAmount> {
-    if (!CURRENCIES.includes(request.currency) || request.currency === groupCurrency) {
+    if (!isCurrency(request.currency) || request.currency === groupCurrency) {
       return Result.fail(new InvalidOriginalCurrencyException());
     }
     if (!Number.isInteger(request.amount) || request.amount < ExpenseAmount.MIN || request.amount > ExpenseAmount.MAX) {
@@ -113,9 +111,17 @@ export class OriginalAmount {
     return OriginalAmount.create(snapshot, undefined, AS_STORED);
   }
 
-  /** The amount in the group's currency: the original amount times the rate, a half rounded up. */
-  inGroupCurrency(): number {
-    return Number((BigInt(this.#amount) * this.#scaledRate + HALF) / RATE_SCALE);
+  /**
+   * The amount in the group's currency, in its minor unit: the original amount, read in its currency's units, times the rate, a
+   * half rounded up. Between two currencies that count in hundredths it is the original amount times the rate, as it always was.
+   */
+  inGroupCurrency(groupCurrency: string): number {
+    return convertMinorUnits({
+      amount: this.#amount,
+      from: this.#currency,
+      to: groupCurrency,
+      scaledRate: this.#scaledRate,
+    });
   }
 
   get currency(): string {
@@ -133,6 +139,27 @@ export class OriginalAmount {
   toSnapshot(): OriginalSnapshot {
     return { currency: this.#currency, amount: this.#amount, rate: this.#rate };
   }
+}
+
+/**
+ * An amount in the minor unit of one currency, converted into the minor unit of another at a rate kept in millionths of a unit of
+ * the second per unit of the first: `amount × rate × 10^toDecimals / 10^(fromDecimals + 6)`, a half rounded up, in exact integers.
+ * The rate scale (6) is an even power, so the half is a whole number of the denominator.
+ */
+export function convertMinorUnits({
+  amount,
+  from,
+  to,
+  scaledRate,
+}: {
+  amount: number;
+  from: string;
+  to: string;
+  scaledRate: bigint;
+}): number {
+  const numerator = BigInt(amount) * scaledRate * 10n ** BigInt(decimalsOf(to));
+  const denominator = 10n ** BigInt(decimalsOf(from) + 6);
+  return Number((numerator + denominator / 2n) / denominator);
 }
 
 /**

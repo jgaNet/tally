@@ -77,4 +77,6 @@ export interface BalancePassingView {
 export interface GroupMembership {
   groupId: string;
   memberId: string;
+  /** The currency the group counts in, as its minor unit is read (request 40). */
+  currency: string;
 }

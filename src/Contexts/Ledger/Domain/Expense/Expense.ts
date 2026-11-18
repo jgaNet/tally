@@ -287,13 +287,15 @@ export class Expense extends AggregateRoot {
     const amount = ExpenseAmount.create(snapshot.amount);
     // A stored day was valid when it was recorded; it is checked for its shape and calendar, not against today again.
     const date = ExpenseDate.create(snapshot.date, new Date(`${snapshot.date}T00:00:00.000Z`));
+    // A stored original amount is checked for its own values; its amount in the group's currency is not converted again here,
+    // because an expense does not keep its group's currency, and the conversion needs it (ADR 25). It was decided when recorded.
     const original = snapshot.original ? OriginalAmount.restore(snapshot.original) : null;
     const total = snapshot.shares.reduce((sum, share) => sum + share.amount, 0);
     if (
       description.isFailure() ||
       amount.isFailure() ||
       date.isFailure() ||
-      (original !== null && (original.isFailure() || original.data.inGroupCurrency() !== snapshot.amount)) ||
+      (original !== null && original.isFailure()) ||
       total !== snapshot.amount ||
       !snapshot.shares.some(share => share.memberId === snapshot.paidBy) ||
       !SPLIT_KINDS.includes(snapshot.splitKind) ||
@@ -444,7 +446,7 @@ export class Expense extends AggregateRoot {
 
     const original = OriginalAmount.create(money.original, groupCurrency, offer);
     if (original.isFailure()) return Result.fail(original.error);
-    return Result.ok({ amount: original.data.inGroupCurrency(), original: original.data });
+    return Result.ok({ amount: original.data.inGroupCurrency(groupCurrency), original: original.data });
   }
 }
 

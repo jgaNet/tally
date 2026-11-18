@@ -12,6 +12,11 @@ export class SettlementsOutstandingDebts implements IOutstandingDebts {
   constructor(private debts: IOutstandingDebtQueries) {}
 
   async owing(): Promise<OutstandingDebt[]> {
-    return (await this.debts.owing()).map(({ groupId, memberId, owes }) => ({ groupId, memberId, owes }));
+    return (await this.debts.owing()).map(({ groupId, memberId, currency, owes }) => ({
+      groupId,
+      memberId,
+      currency,
+      owes,
+    }));
   }
 }

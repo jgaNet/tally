@@ -14,6 +14,8 @@ export interface IDebtWatchSnapshot {
 export interface OutstandingDebt {
   groupId: string;
   memberId: string;
-  /** What the member still owes, in the group's currency's cents: positive. */
+  /** The currency the group counts in: `owes` is in its minor unit, and a reminder is decided against 20 of it (request 40). */
+  currency: string;
+  /** What the member still owes, in the group's currency's minor unit: positive. */
   owes: number;
 }

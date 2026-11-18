@@ -113,7 +113,7 @@ describe('Groups → Ledger → the rates service: the rate offered (request 22)
     const groupId = await eurGroupOf(ana);
 
     expect(await readRate(groupId, 'EUR', `?date=${SPENT}`, ana.token)).toMatchObject({ status: 404 });
-    expect(await readRate(groupId, 'JPY', `?date=${SPENT}`, ana.token)).toMatchObject({ status: 404 });
+    expect(await readRate(groupId, 'XYZ', `?date=${SPENT}`, ana.token)).toMatchObject({ status: 404 });
     expect(await readRate(groupId, 'GBP', `?date=${SPENT}`, ana.token)).toMatchObject({ status: 404 });
     mode = 'fail';
     expect(await readRate(groupId, 'USD', `?date=${SPENT}`, ana.token)).toMatchObject({ status: 404 });

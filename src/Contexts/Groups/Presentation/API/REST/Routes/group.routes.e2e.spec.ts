@@ -58,9 +58,9 @@ describe('creating a group', () => {
     expect(long.body).toMatchObject({ type: 'InvalidGroupName' });
   });
 
-  it('refuses a currency that is not one of the six', async () => {
+  it('refuses a currency that is not one of the ten', async () => {
     const ana = await accountOf('ana.currency@example.com', 'Ana');
-    const answer = await createGroup(ana.token, { name: 'Trip', currency: 'JPY' });
+    const answer = await createGroup(ana.token, { name: 'Trip', currency: 'XYZ' });
 
     expect(answer.status).toBe(400);
     expect(answer.body).toMatchObject({ type: 'UnsupportedCurrency' });

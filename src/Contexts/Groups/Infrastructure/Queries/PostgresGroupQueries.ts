@@ -103,10 +103,11 @@ export class PostgresGroupQueries implements IGroupQueries {
   }
 
   async membersOfEveryGroup(): Promise<GroupMembership[]> {
-    const rows = await this.database.all<{ group_id: string; account_id: string }>(
-      'SELECT group_id, account_id FROM group_members ORDER BY group_id COLLATE "C", position',
+    const rows = await this.database.all<{ group_id: string; account_id: string; currency: string }>(
+      `SELECT gm.group_id, gm.account_id, g.currency FROM group_members gm JOIN groups g ON g.id = gm.group_id
+       ORDER BY gm.group_id COLLATE "C", gm.position`,
     );
-    return rows.map(row => ({ groupId: row.group_id, memberId: row.account_id }));
+    return rows.map(row => ({ groupId: row.group_id, memberId: row.account_id, currency: row.currency }));
   }
 
   async auditOf(groupId: string): Promise<AuditEntry[]> {

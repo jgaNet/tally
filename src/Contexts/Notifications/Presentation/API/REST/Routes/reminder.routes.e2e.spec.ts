@@ -50,7 +50,44 @@ async function remindersOnce(token: string, count: number): Promise<NoticeAnswer
   return reminders;
 }
 
+/** A group in yen, made in Groups, with `other` in it: its id is the one the creation answered. */
+async function yenGroupOf(owner: { token: string }, other: { token: string }): Promise<string> {
+  const created = await http.request('POST', '/v1/groups', {
+    body: { name: 'Tokyo, in yen', currency: 'JPY' },
+    token: owner.token,
+  });
+  const groupId = (created.body as { id: string }).id;
+  const invitation = await http.request('POST', `/v1/groups/${groupId}/invitations`, { token: owner.token });
+  const joined = await http.request('POST', `/v1/invitations/${(invitation.body as { id: string }).id}/accept`, {
+    token: other.token,
+  });
+  expect(joined.status).toBe(201);
+  return groupId;
+}
+
 describe('Settlements → Notifications', () => {
+  it('reminds a member of a yen group who owes more than 20 yen, and of nothing who owes 20 yen or less (request 40)', async () => {
+    const ann = await accountOf('ann.yen.reminder@example.com', 'Ann');
+    const bob = await accountOf('bob.yen.reminder@example.com', 'Bob');
+    const carl = await accountOf('carl.yen.reminder@example.com', 'Carl');
+    const owing = await yenGroupOf(ann, bob);
+    const owes20 = await yenGroupOf(ann, carl);
+
+    // Bob owes Ann 500 yen of 1000 for the ramen; Carl owes 15 yen of 30 for the tea, which is no more than 20 yen.
+    await http.request('POST', `/v1/groups/${owing}/expenses`, {
+      body: { description: 'Ramen', amount: 1000, date: SPENT, splitBetween: [ann.id, bob.id] },
+      token: ann.token,
+    });
+    await http.request('POST', `/v1/groups/${owes20}/expenses`, {
+      body: { description: 'Tea', amount: 30, date: SPENT, splitBetween: [ann.id, carl.id] },
+      token: ann.token,
+    });
+
+    const [reminder] = await remindersOnce(bob.token, 1);
+    expect(reminder).toMatchObject({ kind: 'reminder', groupId: owing, amount: 500 });
+    expect((await remindersOnce(carl.token, 1)).filter(notice => notice.groupId === owes20)).toEqual([]);
+  });
+
   it('reminds a member of what Settlements counts as still owed, with the settlement paid in cash taken off', async () => {
     const ann = await accountOf('ann.reminder.settlements@example.com', 'Ann');
     const bob = await accountOf('bob.reminder.settlements@example.com', 'Bob');

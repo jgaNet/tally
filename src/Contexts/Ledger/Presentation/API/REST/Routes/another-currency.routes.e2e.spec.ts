@@ -163,7 +163,7 @@ describe('Groups → Ledger: an expense in another currency (request 21)', () =>
     });
     const notTally = await record(groupId, ana.token, {
       ...base,
-      original: { currency: 'JPY', amount: 300, rate: '1' },
+      original: { currency: 'XYZ', amount: 300, rate: '1' },
     });
     const zeroAmount = await record(groupId, ana.token, {
       ...base,

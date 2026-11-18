@@ -84,7 +84,7 @@ describe('Notice (request 17)', () => {
 
 describe('Notice of a reminder (request 18)', () => {
   it('is for a member, about a group, for more than 2000 still owed, with no expense', () => {
-    const notice = Notice.remind({ recipient: 'cy', groupId: 'house', amount: 2500, at: AT });
+    const notice = Notice.remind({ currency: 'EUR', recipient: 'cy', groupId: 'house', amount: 2500, at: AT });
     if (notice.isFailure()) throw notice.error;
 
     expect(notice.data.toSnapshot()).toEqual(
@@ -101,8 +101,14 @@ describe('Notice of a reminder (request 18)', () => {
   });
 
   it('refuses a reminder for 2000 or less, for no one, or about no group', () => {
-    expect(Notice.remind({ recipient: 'cy', groupId: 'house', amount: 2000, at: AT }).isFailure()).toBe(true);
-    expect(Notice.remind({ recipient: '', groupId: 'house', amount: 2500, at: AT }).isFailure()).toBe(true);
-    expect(Notice.remind({ recipient: 'cy', groupId: '', amount: 2500, at: AT }).isFailure()).toBe(true);
+    expect(
+      Notice.remind({ currency: 'EUR', recipient: 'cy', groupId: 'house', amount: 2000, at: AT }).isFailure(),
+    ).toBe(true);
+    expect(Notice.remind({ currency: 'EUR', recipient: '', groupId: 'house', amount: 2500, at: AT }).isFailure()).toBe(
+      true,
+    );
+    expect(Notice.remind({ currency: 'EUR', recipient: 'cy', groupId: '', amount: 2500, at: AT }).isFailure()).toBe(
+      true,
+    );
   });
 });

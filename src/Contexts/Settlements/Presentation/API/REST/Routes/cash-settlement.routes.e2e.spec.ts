@@ -158,6 +158,31 @@ describe('a cash settlement', () => {
 });
 
 describe('Groups → Settlements', () => {
+  it('counts a settlement in a yen group Groups made, in yen, and reads it back by the id it answered (request 40)', async () => {
+    const ann = await accountOf('ann.yen.groups@example.com', 'Ann');
+    const bob = await accountOf('bob.yen.groups@example.com', 'Bob');
+    // A group in yen, made in Groups: Settlements reads its currency as it counts the settlement.
+    const created = await http.request('POST', '/v1/groups', {
+      body: { name: 'Tokyo, in yen', currency: 'JPY' },
+      token: ann.token,
+    });
+    const groupId = (created.body as { id: string }).id;
+    const invitation = await http.request('POST', `/v1/groups/${groupId}/invitations`, { token: ann.token });
+    const joined = await http.request('POST', `/v1/invitations/${(invitation.body as { id: string }).id}/accept`, {
+      token: bob.token,
+    });
+    expect(joined.status).toBe(201);
+    await http.request('POST', `/v1/groups/${groupId}/expenses`, {
+      body: { description: 'Sushi', amount: 1001, date: SPENT, splitBetween: [ann.id, bob.id] },
+      token: ann.token,
+    });
+
+    const recorded = await settle(groupId, ann.token, { from: bob.id, amount: 500 });
+    expect(recorded.status).toBe(201);
+    const read = await http.get(`/v1/settlements/${(recorded.body as { id: string }).id}`, { token: bob.token });
+    expect(read.body).toMatchObject({ groupId, from: bob.id, amount: 500, status: 'paid' });
+  });
+
   it('records a settlement in a group Groups made, and reads it back by the id it answered, with that group', async () => {
     const ann = await accountOf('ann.groups@example.com', 'Ann');
     const bob = await accountOf('bob.groups@example.com', 'Bob');

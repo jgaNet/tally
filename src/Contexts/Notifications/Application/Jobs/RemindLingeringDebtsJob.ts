@@ -1,8 +1,7 @@
 import { ConcurrencyConflictException, IResult, Result } from '@Architecture/Domain';
 import { Clock, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 
-import { DebtWatch, LINGERING_DEBT_OVER } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
-import { OutstandingDebt } from '@Contexts/Notifications/Domain/DebtWatch/DTOs';
+import { DebtWatch, lingeringDebtOver } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 import { IDebtWatchRepository } from '@Contexts/Notifications/Domain/DebtWatch/Ports/IDebtWatchRepository';
 import { IOutstandingDebts } from '@Contexts/Notifications/Domain/DebtWatch/Ports/IOutstandingDebts';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
@@ -35,11 +34,14 @@ export class RemindLingeringDebtsJob {
   async run(context: ExecutionContext, periodMs: number): Promise<void> {
     const at = this.clock();
 
-    const decisions = new Map<string, OutstandingDebt>();
-    for (const debt of await this.debts.owing()) decisions.set(keyOf(debt), debt);
+    // A member who owes now is decided with their group's currency; a member whose debt is noted and who owes nothing is decided
+    // as owing 0, which clears the note whatever the threshold is, so their currency is not needed.
+    const decisions = new Map<string, Decision>();
+    for (const debt of await this.debts.owing())
+      decisions.set(keyOf(debt), { ...debt, over: lingeringDebtOver(debt.currency) });
     for (const { groupId, memberId } of await this.watches.notedMembers()) {
       const key = keyOf({ groupId, memberId });
-      if (!decisions.has(key)) decisions.set(key, { groupId, memberId, owes: 0 });
+      if (!decisions.has(key)) decisions.set(key, { groupId, memberId, currency: null, owes: 0, over: 0 });
     }
 
     for (const debt of decisions.values()) {
@@ -59,7 +61,7 @@ export class RemindLingeringDebtsJob {
   }
 
   private async decideWithRetries(
-    debt: OutstandingDebt,
+    debt: Decision,
     at: Date,
     periodMs: number,
     context: ExecutionContext,
@@ -74,9 +76,9 @@ export class RemindLingeringDebtsJob {
     }
   }
 
-  private async decide(debt: OutstandingDebt, at: Date, periodMs: number, context: ExecutionContext): Promise<IResult> {
+  private async decide(debt: Decision, at: Date, periodMs: number, context: ExecutionContext): Promise<IResult> {
     const kept = await this.watches.findBy(debt.groupId, debt.memberId);
-    if (!kept && debt.owes <= LINGERING_DEBT_OVER) return Result.ok();
+    if (!kept && debt.owes <= debt.over) return Result.ok();
 
     let watch = kept;
     if (!watch) {
@@ -87,6 +89,7 @@ export class RemindLingeringDebtsJob {
 
     const preferences = (await this.preferences.findByPerson(debt.memberId)) ?? NoticePreferences.open(debt.memberId);
     const { changed, reminded } = watch.observe({
+      over: debt.over,
       owes: debt.owes,
       at,
       periodMs,
@@ -98,8 +101,14 @@ export class RemindLingeringDebtsJob {
     if (saved.isFailure()) return Result.fail(saved.error);
     await publishDomainEvents(watch, context);
 
-    if (reminded) {
-      const notice = Notice.remind({ recipient: debt.memberId, groupId: debt.groupId, amount: debt.owes, at });
+    if (reminded && debt.currency !== null) {
+      const notice = Notice.remind({
+        recipient: debt.memberId,
+        groupId: debt.groupId,
+        currency: debt.currency,
+        amount: debt.owes,
+        at,
+      });
       if (notice.isFailure()) return Result.fail(notice.error);
       const noticed = await this.notices.save(notice.data);
       if (noticed.isFailure()) return Result.fail(noticed.error);
@@ -108,6 +117,12 @@ export class RemindLingeringDebtsJob {
     return Result.ok();
   }
 }
+
+/**
+ * What a run decides about one member of one group: what they owe in its currency (null when they owe nothing, and their debt is
+ * only noted), and the amount above which a debt lasts (0 when they owe nothing).
+ */
+type Decision = { groupId: string; memberId: string; currency: string | null; owes: number; over: number };
 
 function keyOf({ groupId, memberId }: { groupId: string; memberId: string }): string {
   return `${groupId}\u0000${memberId}`;

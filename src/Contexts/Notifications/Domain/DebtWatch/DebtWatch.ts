@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { decimalsOf } from '@SharedKernel/Domain/Currency';
 
 import { IDebtWatchSnapshot } from '@Contexts/Notifications/Domain/DebtWatch/DTOs';
 import {
@@ -8,8 +9,13 @@ import {
 } from '@Contexts/Notifications/Domain/DebtWatch/Events/DebtWatchEvents';
 import { InvalidDebtWatchException } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatchExceptions';
 
-/** A debt lasts, and is reminded, once it is more than this many cents (20.00) in a group (request 18). */
-export const LINGERING_DEBT_OVER = 2000;
+/**
+ * A debt lasts, and is reminded, once it is more than 20 of its group's currency (request 18, request 40): 2000 hundredths in
+ * EUR, 20 yen in JPY, 20 000 thousandths in KWD. The amount is in the currency's minor unit.
+ */
+export function lingeringDebtOver(currency: string): number {
+  return 20 * 10 ** decimalsOf(currency);
+}
 
 /**
  * DebtWatch is the aggregate of one member's debt in one group, as the background job keeps it (request 18, the storm
@@ -53,7 +59,8 @@ export class DebtWatch extends AggregateRoot {
   }
 
   /**
-   * What the run at `at` decides about this member, who owes `owes` in the group now (request 18). Owing more than 2000 notes the
+   * What the run at `at` decides about this member, who owes `owes` now, against `over`: the amount above which a debt lasts, which
+   * the job reads from the group's currency (`lingeringDebtOver`, request 40), and 0 for a member who owes nothing. Owing more than `over` notes the
    * debt from this run, if it was not noted; a debt noted for `periodMs` or more, not reminded in the last `periodMs`, is reminded
    * at this run. Owing 2000 or less clears the note. Returns whether anything changed (so the caller saves) and whether a reminder
    * is owed (so the caller makes the notice); the events are recorded here.
@@ -61,11 +68,23 @@ export class DebtWatch extends AggregateRoot {
    * `mayRemind` is whether the member wants reminders now (request 36). A reminder they have turned off is not owed and not
    * recorded: the debt stays noted, and the first run after they turn reminders on again reminds it, as if none was missed.
    */
-  observe({ owes, at, periodMs, mayRemind }: { owes: number; at: Date; periodMs: number; mayRemind: boolean }): {
+  observe({
+    over,
+    owes,
+    at,
+    periodMs,
+    mayRemind,
+  }: {
+    over: number;
+    owes: number;
+    at: Date;
+    periodMs: number;
+    mayRemind: boolean;
+  }): {
     changed: boolean;
     reminded: boolean;
   } {
-    if (owes <= LINGERING_DEBT_OVER) {
+    if (owes <= over) {
       if (!this.#notedSince) return { changed: false, reminded: false };
       this.#notedSince = null;
       this.record(DebtClearedEvent.set({ groupId: this.#groupId, memberId: this.#memberId, at: at.toISOString() }));

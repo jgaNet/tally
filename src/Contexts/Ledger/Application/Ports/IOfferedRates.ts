@@ -1,5 +1,7 @@
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
-import { CURRENCIES, ExpenseMoney } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
+import { isCurrency } from '@SharedKernel/Domain/Currency';
+
+import { ExpenseMoney } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { RateOffer } from '@Contexts/Ledger/Domain/Expense/RateOffer';
 
 /** What Ledger asks a rate for: one currency in another, on a day (`YYYY-MM-DD`). */
@@ -33,7 +35,7 @@ export async function offerForExpense(
   if (!('original' in money)) return null;
 
   const { currency } = money.original;
-  if (!CURRENCIES.includes(currency) || currency === groupCurrency) return null;
+  if (!isCurrency(currency) || currency === groupCurrency) return null;
   if (ExpenseDate.create(date, today).isFailure()) return null;
 
   return offeredRates.rateOf({ from: currency, to: groupCurrency, date });

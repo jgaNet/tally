@@ -81,8 +81,8 @@ describe('RemindLingeringDebtsJob (request 18)', () => {
 
   it('reminds a member who owes more than 2000 once a week while it lasts, and never one who owes 2000 or less', async () => {
     owed.debts = [
-      { groupId: 'house', memberId: 'vic', owes: 2500 },
-      { groupId: 'house', memberId: 'wes', owes: 2000 },
+      { groupId: 'house', memberId: 'vic', currency: 'EUR', owes: 2500 },
+      { groupId: 'house', memberId: 'wes', currency: 'EUR', owes: 2000 },
     ];
 
     await sweep(T0);
@@ -109,17 +109,17 @@ describe('RemindLingeringDebtsJob (request 18)', () => {
   });
 
   it('clears a debt paid down to 2000 or less, and makes a debt that comes back wait a week from the run that sees it', async () => {
-    owed.debts = [{ groupId: 'house', memberId: 'yui', owes: 2500 }];
+    owed.debts = [{ groupId: 'house', memberId: 'yui', currency: 'EUR', owes: 2500 }];
     await sweep(T0);
     await sweep(T0 + WEEK);
     expect(await remindersOf('yui')).toHaveLength(1);
 
-    owed.debts = [{ groupId: 'house', memberId: 'yui', owes: 1500 }]; // paid down: the note is cleared
+    owed.debts = [{ groupId: 'house', memberId: 'yui', currency: 'EUR', owes: 1500 }]; // paid down: the note is cleared
     await sweep(T0 + 2 * WEEK);
     await sweep(T0 + 2 * WEEK + HOUR);
     expect(await remindersOf('yui')).toHaveLength(1);
 
-    owed.debts = [{ groupId: 'house', memberId: 'yui', owes: 3000 }]; // owed again: noted from this run
+    owed.debts = [{ groupId: 'house', memberId: 'yui', currency: 'EUR', owes: 3000 }]; // owed again: noted from this run
     await sweep(T0 + 2 * WEEK + 2 * HOUR);
     await sweep(T0 + 3 * WEEK + HOUR); // a week from the run that saw it: not yet
     expect(await remindersOf('yui')).toHaveLength(1);
@@ -129,12 +129,12 @@ describe('RemindLingeringDebtsJob (request 18)', () => {
   });
 
   it('clears a note for a member who has left the group, since they no longer owe in it', async () => {
-    owed.debts = [{ groupId: 'house', memberId: 'zed', owes: 2500 }];
+    owed.debts = [{ groupId: 'house', memberId: 'zed', currency: 'EUR', owes: 2500 }];
     await sweep(T0);
 
     owed.debts = []; // Zed is not a current member, so nothing is owed by Zed
     await sweep(T0 + WEEK);
-    owed.debts = [{ groupId: 'house', memberId: 'zed', owes: 2500 }];
+    owed.debts = [{ groupId: 'house', memberId: 'zed', currency: 'EUR', owes: 2500 }];
     await sweep(T0 + WEEK + HOUR); // noted again from this run, not reminded at once
     expect(await remindersOf('zed')).toEqual([]);
   });
@@ -147,7 +147,7 @@ describe('RemindLingeringDebtsJob (request 18)', () => {
   }
 
   it('does not remind a member who has turned reminders off, and reminds them at the first run after they are on again (request 36)', async () => {
-    owed.debts = [{ groupId: 'house', memberId: 'ivy', owes: 2500 }];
+    owed.debts = [{ groupId: 'house', memberId: 'ivy', currency: 'EUR', owes: 2500 }];
     await sweep(T0); // noted from this run
 
     await setReminders('ivy', false);
@@ -161,7 +161,7 @@ describe('RemindLingeringDebtsJob (request 18)', () => {
   });
 
   it('measures the period by the one each run is given', async () => {
-    owed.debts = [{ groupId: 'house', memberId: 'ann', owes: 2500 }];
+    owed.debts = [{ groupId: 'house', memberId: 'ann', currency: 'EUR', owes: 2500 }];
     await sweep(T0, { periodMs: HOUR });
     await sweep(T0 + HOUR, { periodMs: HOUR }); // noted for an hour: reminded
     await sweep(T0 + 2 * HOUR, { periodMs: HOUR }); // a period since that reminder: reminded again

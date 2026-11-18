@@ -1,3 +1,5 @@
+import { CURRENCIES } from '@SharedKernel/Domain/Currency';
+
 const RefusalSchema = {
   type: 'object',
   properties: { type: { type: 'string' }, message: { type: 'string' } },
@@ -8,7 +10,7 @@ const RateSchema = {
   type: 'object',
   required: ['currency', 'date', 'rate'],
   properties: {
-    currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+    currency: { enum: [...CURRENCIES] },
     date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
     rate: { type: 'string', pattern: '^\\d+(\\.\\d{1,6})?$' },
   },

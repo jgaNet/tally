@@ -1,3 +1,5 @@
+import { CURRENCIES } from '@SharedKernel/Domain/Currency';
+
 /** A refusal, named by the rule that refused it (`type`) and said in a sentence (`message`). */
 const RefusalSchema = {
   type: 'object',
@@ -17,7 +19,7 @@ const GroupSchema = {
   properties: {
     id: { type: 'string' },
     name: { type: 'string' },
-    currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+    currency: { enum: [...CURRENCIES] },
     ownerId: { type: 'string' },
     /** Present only on an archived group, when it was archived (request 27). */
     archivedAt: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },

@@ -20,11 +20,11 @@ const AT = new Date('2026-11-01T10:00:00.000Z');
 const created = () => valueOf(Group.found({ name: 'The flat', currency: 'EUR', ownerId: 'ana', createdAt: AT }));
 
 describe('Currency', () => {
-  it('accepts the six currencies and refuses any other', () => {
-    for (const code of ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD']) {
+  it('accepts the ten currencies of Tally, the yen and the won and the two dinars among them, and refuses any other', () => {
+    for (const code of ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD']) {
       expect(Currency.create(code).isSuccess()).toBe(true);
     }
-    expect(Currency.create('JPY').isFailure()).toBe(true);
+    expect(Currency.create('XYZ').isFailure()).toBe(true);
     expect(Currency.create('eur').isFailure()).toBe(true);
   });
 });
@@ -44,7 +44,7 @@ describe('Group', () => {
     const at = { ownerId: 'ana', createdAt: AT };
 
     expect(Group.found({ name: '   ', currency: 'EUR', ...at }).isFailure()).toBe(true);
-    expect(Group.found({ name: 'Trip', currency: 'JPY', ...at }).isFailure()).toBe(true);
+    expect(Group.found({ name: 'Trip', currency: 'XYZ', ...at }).isFailure()).toBe(true);
   });
 
   it('founds a group whose owner is its first member, and records its creation', () => {
@@ -73,7 +73,7 @@ describe('Group', () => {
   it('refuses to rebuild a corrupted snapshot', () => {
     const snapshot = created().toSnapshot();
 
-    expect(() => Group.fromSnapshot({ ...snapshot, currency: 'JPY' })).toThrow();
+    expect(() => Group.fromSnapshot({ ...snapshot, currency: 'XYZ' })).toThrow();
     expect(() => Group.fromSnapshot({ ...snapshot, members: [] })).toThrow();
   });
 

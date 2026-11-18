@@ -1,4 +1,5 @@
 import { IResult, Result } from '@Architecture/Domain';
+import { isCurrency } from '@SharedKernel/Domain/Currency';
 
 import { BalanceOfMember, SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import { Netting } from '@Contexts/Settlements/Domain/Netting/Netting';
@@ -7,9 +8,6 @@ import {
   NothingToNetException,
   UnknownCurrencyException,
 } from '@Contexts/Settlements/Domain/Netting/NettingExceptions';
-
-/** The currencies Tally counts in (request 2): a netting in any other is refused. */
-export const TALLY_CURRENCIES: readonly string[] = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'];
 
 /**
  * A group the two people share, in the currency, not archived, as the handler read it: its book (opened when it has no settlement
@@ -51,7 +49,7 @@ export class NetDebts {
     at: Date;
   }): IResult<Netting> {
     if (by === other) return Result.fail(new NettingWithSelfException());
-    if (!TALLY_CURRENCIES.includes(currency)) return Result.fail(new UnknownCurrencyException());
+    if (!isCurrency(currency)) return Result.fail(new UnknownCurrencyException());
 
     const byPays = groups.map(group => group.book.payable({ payer: by, payee: other, balances: group.balances }));
     const otherPays = groups.map(group => group.book.payable({ payer: other, payee: by, balances: group.balances }));
