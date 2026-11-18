@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { writeAudit } from './audit';
 import { listBalancesIncludingWaiting } from './balances';
 import type { Database, Queryable } from './database';
+import { isDeleted } from './accounts';
 import { CURRENCIES } from './groups';
 import { Refusal } from './refusal';
 import { addHistory } from './settlement-history';
@@ -83,6 +84,10 @@ export async function netAcrossGroups(db: Database, accountId: string, input: Ne
   const id = randomUUID();
   await db.transaction(async tx => {
     await refuseIfSuspended(tx, accountId);
+    // A deleted account is still a member of its groups, but nothing is netted with it.
+    if (await isDeleted(tx, input.with)) {
+      throw new Refusal(409, 'AccountDeleted', 'The other account has been deleted, so cannot be netted with.');
+    }
     const plans = await groupPlansOf(tx, accountId, input.with, input.currency);
     const callerTotal = plans.reduce((sum, plan) => sum + plan.payCaller, 0);
     const otherTotal = plans.reduce((sum, plan) => sum + plan.payOther, 0);

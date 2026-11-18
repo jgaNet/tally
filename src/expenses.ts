@@ -7,6 +7,7 @@ import type { Database, Queryable } from './database';
 import { isRealDay, todayUtc } from './days';
 import { CURRENCIES, findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
+import { isDeleted } from './accounts';
 import { writeExpenseNotices } from './notices';
 import { Refusal } from './refusal';
 import { MILLIONTHS, offeredRate, rateMillionths, type RatesConfig } from './rates';
@@ -386,7 +387,9 @@ export function sharesOf(split: Split, amount: number): Share[] {
 }
 
 /**
- * The split holds each member once, names the payer among them, and names only members of the group.
+ * The split holds each member once, names the payer among them, and names only members of the group. It names no
+ * deleted account, unless the expense already had it (`kept`, the members of the expense before an edit): a deleted
+ * account is not put in the split of a new expense.
  * It is checked where it is written, inside the write transaction that records or edits the expense.
  */
 export async function checkSplit(
@@ -394,6 +397,7 @@ export async function checkSplit(
   groupId: string,
   payerId: string,
   members: readonly string[],
+  kept: readonly string[] = [],
 ): Promise<void> {
   if (new Set(members).size !== members.length) {
     refuse('InvalidSplit', 'Each member can be in the split only once.');
@@ -404,6 +408,9 @@ export async function checkSplit(
   for (const memberId of members) {
     if (!(await isMember(db, groupId, memberId))) {
       refuse('InvalidSplit', 'Every member in the split must be a member of the group.');
+    }
+    if (!kept.includes(memberId) && (await isDeleted(db, memberId))) {
+      refuse('InvalidSplit', 'A deleted account cannot be in the split of an expense.');
     }
   }
 }
@@ -603,7 +610,13 @@ export async function editExpense(
     const { amount, original } = amountOf(edit, group.currency, offer);
     checkDate(edit.date);
     const split = await splitOf(tx, expense.groupId, edit);
-    await checkSplit(tx, expense.groupId, expense.paidBy, membersOf(split));
+    await checkSplit(
+      tx,
+      expense.groupId,
+      expense.paidBy,
+      membersOf(split),
+      expense.shares.map(share => share.memberId),
+    );
     const shares = sharesOf(split, amount);
     const category = edit.category ?? DEFAULT_CATEGORY;
     const at = new Date().toISOString();

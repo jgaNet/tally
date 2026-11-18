@@ -5,6 +5,7 @@ import { type Balance, listBalancesIncludingWaiting } from './balances';
 import type { Database, Queryable } from './database';
 import { findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
+import { isDeleted } from './accounts';
 import { payoutAccountOf } from './payout-accounts';
 import { Refusal } from './refusal';
 import { addHistory, forgetHistory, historyOf, moveSettlement, type StatusEntry } from './settlement-history';
@@ -208,6 +209,9 @@ export async function reserveProviderSettlement(
     checkWholeAmount(input.amount);
     if (input.to === payerId || !(await isMember(tx, groupId, input.to))) {
       refuse(422, 'InvalidPayee', 'The payee must be another member of the group.');
+    }
+    if (await isDeleted(tx, input.to)) {
+      refuse(409, 'AccountDeleted', 'The payee has deleted their account, so cannot be paid through the provider.');
     }
     if ((await payoutAccountOf(tx, input.to)) === undefined) {
       refuse(409, 'PayoutAccountRequired', 'The payee has no payout account at the payment provider.');

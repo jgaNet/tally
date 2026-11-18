@@ -75,8 +75,57 @@ export async function signIn(db: Database, input: SignIn): Promise<string> {
   return issueSession(db, row.id);
 }
 
+/** Whether the account was deleted: its person is gone, and it stays only as an id in what the groups hold. */
+export async function isDeleted(db: Queryable, accountId: string): Promise<boolean> {
+  return (await db.get('SELECT 1 FROM accounts WHERE id = ? AND deleted_at IS NOT NULL', [accountId])) !== undefined;
+}
+
+/** The account, when it exists and was not deleted: a deleted account is as if no account had its id. */
 export async function findAccount(db: Queryable, id: string): Promise<Account | undefined> {
-  return db.get<Account>('SELECT id, email, name FROM accounts WHERE id = ?', [id]);
+  return db.get<Account>('SELECT id, email, name FROM accounts WHERE id = ? AND deleted_at IS NULL', [id]);
+}
+
+/**
+ * Deletes the account of the caller. Refused, and nothing changes, while the account owns a group that has another
+ * member (`OwnsGroupWithMembers`), or while a payment or a refund through the provider it pays or receives is pending,
+ * refunding or contested (`SettlementWaiting`). Otherwise, in one write transaction: its tokens are dropped, its payout
+ * account is removed, and its name is erased, with its email and password hash, so no one signs in with them again.
+ * Its id stays where it is, in the groups' members, the expenses, the settlements, the audit and the administrators' log;
+ * it stays a member of each group it was in, with its balance, which the members list names `Deleted account`.
+ */
+export async function deleteAccount(db: Database, accountId: string): Promise<void> {
+  await db.transaction(async tx => {
+    const ownsOthers = await tx.get(
+      `SELECT 1 FROM groups g JOIN group_members m ON m.group_id = g.id AND m.left_at IS NULL AND m.account_id <> g.owner_id
+       WHERE g.owner_id = ?`,
+      [accountId],
+    );
+    if (ownsOthers) {
+      throw new Refusal(
+        409,
+        'OwnsGroupWithMembers',
+        'The account owns a group that has other members, so it cannot be deleted.',
+      );
+    }
+    const waiting = await tx.get(
+      `SELECT 1 FROM settlements WHERE method = 'provider' AND status IN ('pending', 'refunding', 'contested')
+         AND (payer_id = ? OR payee_id = ?)`,
+      [accountId, accountId],
+    );
+    if (waiting) {
+      throw new Refusal(
+        409,
+        'SettlementWaiting',
+        'A payment or a refund through the provider is still waiting for the account.',
+      );
+    }
+    await tx.run('DELETE FROM sessions WHERE account_id = ?', [accountId]);
+    await tx.run('DELETE FROM payout_accounts WHERE account_id = ?', [accountId]);
+    await tx.run(
+      "UPDATE accounts SET name = 'Deleted account', email = NULL, password_hash = NULL, deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
+      [new Date().toISOString(), accountId],
+    );
+  });
 }
 
 const idSchema = {
@@ -123,5 +172,10 @@ export function registerAccountRoutes(app: FastifyInstance, db: Database): void 
     const account = await findAccount(db, id);
     if (!account) throw new Refusal(401, 'Unauthorized', 'The signed-in account no longer exists.');
     return account;
+  });
+
+  app.delete('/accounts/me', async (request, reply) => {
+    await deleteAccount(db, await requireCaller(db, request));
+    return reply.code(204).send();
   });
 }

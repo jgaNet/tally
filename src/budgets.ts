@@ -62,8 +62,10 @@ export async function writeBudgetPassing(
     [groupId, category, month],
   );
   if (noted.changes === 0) return;
+  // A deleted account is told nothing any more.
   const members = await db.all<{ account_id: string }>(
-    'SELECT account_id FROM group_members WHERE group_id = ? AND left_at IS NULL',
+    `SELECT m.account_id FROM group_members m JOIN accounts a ON a.id = m.account_id
+     WHERE m.group_id = ? AND m.left_at IS NULL AND a.deleted_at IS NULL`,
     [groupId],
   );
   for (const member of members) {

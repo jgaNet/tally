@@ -4,6 +4,7 @@ import type { ShareCount, Split } from './expenses';
 import type { Database, Queryable } from './database';
 import { findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
+import { isDeleted } from './accounts';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
@@ -67,9 +68,15 @@ function givenSplit(input: NewTemplate): TemplateSplit {
 
 /**
  * Checks a split given to a template: it names at least one member, each once, and only members of the group, and each
- * member of a split by shares has at least 1 share. The amounts of an expense are not known here, so they are not checked.
+ * member of a split by shares has at least 1 share. It names no deleted account, unless the template already did (`kept`).
+ * The amounts of an expense are not known here, so they are not checked.
  */
-async function checkTemplateSplit(db: Queryable, groupId: string, split: TemplateSplit): Promise<void> {
+async function checkTemplateSplit(
+  db: Queryable,
+  groupId: string,
+  split: TemplateSplit,
+  kept: readonly string[] = [],
+): Promise<void> {
   const invalid = (message: string) => new Refusal(422, 'InvalidSplit', message);
   const members = split.kind === 'equal' ? split.members : split.shares.map(share => share.memberId);
   if (members.length === 0) throw invalid('The split needs at least one member.');
@@ -77,6 +84,9 @@ async function checkTemplateSplit(db: Queryable, groupId: string, split: Templat
   for (const memberId of members) {
     if (!(await isMember(db, groupId, memberId))) {
       throw invalid('Every member in the split must be a member of the group.');
+    }
+    if (!kept.includes(memberId) && (await isDeleted(db, memberId))) {
+      throw invalid('A deleted account cannot be in the split of a template.');
     }
   }
   if (split.kind === 'shares' && split.shares.some(share => share.shares < 1)) {
@@ -204,7 +214,10 @@ export async function replaceTemplate(db: Database, accountId: string, id: strin
     await checkMayChange(tx, accountId, row);
     const name = checkTemplateName(input.name);
     const split = givenSplit(input);
-    await checkTemplateSplit(tx, row.group_id, split);
+    const kept = (
+      await tx.all<{ account_id: string }>('SELECT account_id FROM template_shares WHERE template_id = ?', [id])
+    ).map(share => share.account_id);
+    await checkTemplateSplit(tx, row.group_id, split, kept);
     await checkNameFree(tx, row.group_id, name, id);
     await tx.run('UPDATE templates SET name = ?, name_key = ?, split_kind = ? WHERE id = ?', [
       name,

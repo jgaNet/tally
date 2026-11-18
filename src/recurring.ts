@@ -16,6 +16,7 @@ import {
 import { CATEGORIES, DEFAULT_CATEGORY, type Category } from './categories';
 import { findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
+import { isDeleted } from './accounts';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 import { isSuspended, refuseIfSuspended } from './suspensions';
@@ -251,7 +252,7 @@ export async function stopRecurring(db: Database, accountId: string, id: string)
  * One run of the recurring expenses, as the background job makes it. For each, in one write transaction (so servers
  * sharing the database never record a day twice): every day from its next one to today that has come is recorded as an
  * expense dated that day, and the next day moves on. When its payer or a member of its split is no longer a member of
- * the group, nothing more is recorded and the recurring expense is removed.
+ * the group, or a deleted account, nothing more is recorded and the recurring expense is removed.
  */
 export async function runRecurring(db: Database, now: Date = new Date()): Promise<void> {
   const today = now.toISOString().slice(0, 10);
@@ -270,10 +271,17 @@ export async function runRecurring(db: Database, now: Date = new Date()): Promis
         [id, today],
       );
       if (!row) return;
-      // A payer suspended records nothing: its days wait, unchanged, until it is reinstated.
-      if (await isSuspended(tx, row.paid_by)) return;
       const split = splitOfRows(row, await sharesOfRecurring(tx, id));
       const members = [row.paid_by, ...membersOf(split)];
+      // A deleted account, as a former member, ends the recurring expense on its day: it is not one that waits.
+      for (const memberId of members) {
+        if (await isDeleted(tx, memberId)) {
+          await removeRecurring(tx, id);
+          return;
+        }
+      }
+      // A payer suspended records nothing: its days wait, unchanged, until it is reinstated.
+      if (await isSuspended(tx, row.paid_by)) return;
       for (const memberId of members) {
         if (!(await isMember(tx, row.group_id, memberId))) {
           await removeRecurring(tx, id);

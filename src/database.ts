@@ -45,11 +45,15 @@ const SCHEMA_VERSION = 1;
 const SCHEMA = `
 CREATE TABLE schema_version (version BIGINT NOT NULL);
 
+-- A deleted account keeps its id, and no more of the person: its name is erased, and its email and password hash are null, so
+-- its email may be used by another account (a unique index allows many nulls). It is deleted when deleted_at is set.
 CREATE TABLE accounts (
   id TEXT PRIMARY KEY,
-  email TEXT NOT NULL,
+  email TEXT,
   name TEXT NOT NULL,
-  password_hash TEXT NOT NULL
+  password_hash TEXT,
+  deleted_at TEXT,
+  CHECK ((deleted_at IS NULL) = (email IS NOT NULL) AND (deleted_at IS NULL) = (password_hash IS NOT NULL))
 );
 CREATE UNIQUE INDEX accounts_email ON accounts (email);
 

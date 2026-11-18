@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Queryable } from './database';
 import { CATEGORIES, type Category } from './categories';
+import { isDeleted } from './accounts';
 import { requireCaller } from './sessions';
 import type { Database } from './database';
 
@@ -45,7 +46,7 @@ export async function writeExpenseNotices(
   shares: readonly { memberId: string; amount: number }[],
 ): Promise<void> {
   for (const share of shares) {
-    if (share.memberId === expense.paidBy) continue;
+    if (share.memberId === expense.paidBy || (await isDeleted(db, share.memberId))) continue;
     await db.run(
       `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
        VALUES (?, ?, 'expense', ?, ?, ?, ?)`,

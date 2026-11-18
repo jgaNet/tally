@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from './database';
 import { listBalancesIncludingWaiting } from './balances';
+import { isDeleted } from './accounts';
 
 /** A member owing more than this, in hundredths of the group's currency, is noted, and reminded when it lasts. */
 export const REMINDER_THRESHOLD = 2000;
@@ -24,7 +25,8 @@ export async function runReminders(db: Database, periodMs: number, now: Date = n
     const owed = new Map<string, number>();
     for (const { id: groupId } of groups) {
       for (const { memberId, balance } of await listBalancesIncludingWaiting(tx, groupId)) {
-        if (-balance > REMINDER_THRESHOLD) {
+        // A deleted account is told nothing any more, so its debt is not noted.
+        if (-balance > REMINDER_THRESHOLD && !(await isDeleted(tx, memberId))) {
           owing.add(`${groupId}\n${memberId}`);
           owed.set(`${groupId}\n${memberId}`, -balance);
         }
