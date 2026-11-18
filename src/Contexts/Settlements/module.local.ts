@@ -1,4 +1,6 @@
 import { Module } from '@Architecture/Application';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupsIntegrationEvents';
+import { GroupsMergedSettlementsHandler } from '@Contexts/Settlements/Application/Events/GroupsMergedSettlementsHandler';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 import { groupCurrencyInCommand, groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
@@ -149,6 +151,12 @@ export function settlementsModuleWith(
         handlers: [
           new ReceivePaymentWebhookCommandHandler(new PostgresSettlementBookRepository(database), systemClock),
         ],
+      },
+    ],
+    integrationEvents: [
+      {
+        event: GroupsMergedIntegrationEvent,
+        handlers: [new GroupsMergedSettlementsHandler(new PostgresSettlementBookRepository(database), systemClock)],
       },
     ],
     queries: [

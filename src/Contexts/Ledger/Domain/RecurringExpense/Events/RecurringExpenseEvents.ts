@@ -42,3 +42,11 @@ export class RecurringExpenseStoppedEvent extends DomainEvent<{
   groupId: string;
   stoppedAt: string;
 }> {}
+
+/** A recurring expense moved to the group its group was merged into (request 31): its id stays, and its expenses are recorded there from then on. */
+export class RecurringExpenseMovedEvent extends DomainEvent<{
+  recurringId: string;
+  groupId: string;
+  fromGroupId: string;
+  movedAt: string;
+}> {}

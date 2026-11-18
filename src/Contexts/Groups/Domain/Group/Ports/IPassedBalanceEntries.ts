@@ -1,6 +1,9 @@
-/** A balance that passed to the owner when a member left, as Groups recorded it: its position in the group, who left, and the balance. */
+/**
+ * A balance that passed to the owner when a member left, as Groups recorded it: the key it was born with (`<group>:<position>`,
+ * which a merge keeps, request 31), who left, and the balance.
+ */
 export interface PassedBalanceEntry {
-  position: number;
+  key: string;
   by: string;
   amount: number;
   at: string;

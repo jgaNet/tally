@@ -378,3 +378,36 @@ describe('Expense', () => {
     expect(() => Expense.fromSnapshot({ ...snapshot, shares: [{ memberId: 'alice', amount: 4 }] })).toThrow();
   });
 });
+
+describe('Expense moved by a merge (request 31)', () => {
+  it('changes its group only, keeps its id, payer, shares, version and category, and records ExpenseMoved', () => {
+    const stored = Expense.fromSnapshot({
+      id: 'expense-1',
+      groupId: 'merged',
+      description: 'Groceries',
+      amount: 10,
+      original: null,
+      date: '2026-05-10',
+      paidBy: 'alice',
+      splitKind: 'equal',
+      shares: [
+        { memberId: 'alice', amount: 5 },
+        { memberId: 'bob', amount: 5 },
+      ],
+      recordedAt: NOW.toISOString(),
+      category: 'groceries',
+      version: 3,
+    });
+    const moved = stored.moveTo(new Id('kept'), NOW);
+    expect(moved.isMoved).toBe(true);
+    expect(moved.toSnapshot()).toEqual({ ...stored.toSnapshot(), groupId: 'kept' });
+    const events = moved.pullDomainEvents();
+    expect(events.map(event => event.name)).toEqual(['ExpenseMovedEvent']);
+    expect(events[0].payload).toEqual({
+      expenseId: 'expense-1',
+      groupId: 'kept',
+      fromGroupId: 'merged',
+      movedAt: NOW.toISOString(),
+    });
+  });
+});

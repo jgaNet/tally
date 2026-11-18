@@ -73,3 +73,18 @@ export const ArchiveGroupResSchema = {
   202: { type: 'object', properties: { operationId: { type: 'string' } } },
   401: RefusedSchema,
 } as const;
+
+/** The body of a merge (request 31): the group merged, by its id; whether it may be merged is the domain's. */
+export const MergeGroupsBodySchema = {
+  type: 'object',
+  required: ['from'],
+  properties: {
+    from: { type: 'string' },
+  },
+} as const;
+
+export const MergeGroupsResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  400: RefusedSchema,
+  401: RefusedSchema,
+} as const;

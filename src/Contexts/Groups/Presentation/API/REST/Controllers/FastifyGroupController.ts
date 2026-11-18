@@ -6,6 +6,7 @@ import {
   CreateGroupCommandEvent,
   CreateInvitationCommandEvent,
   LeaveGroupCommandEvent,
+  MergeGroupsCommandEvent,
 } from '@Contexts/Groups/Application/Commands';
 import {
   GetGroupMembersQueryHandler,
@@ -47,6 +48,15 @@ export class FastifyGroupController {
 
   archiveGroup(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     return acceptCommand(req, reply, this.#module, ArchiveGroupCommandEvent.set({ groupId: req.params.id }));
+  }
+
+  mergeGroups(req: FastifyRequest<{ Params: { id: string }; Body: { from: string } }>, reply: FastifyReply) {
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      MergeGroupsCommandEvent.set({ groupId: req.params.id, from: req.body.from }),
+    );
   }
 
   async getMembers(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

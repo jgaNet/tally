@@ -16,6 +16,7 @@ import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
   ExpenseDeletedEvent,
   ExpenseEditedEvent,
+  ExpenseMovedEvent,
   ExpenseRecordedEvent,
 } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 
@@ -42,6 +43,7 @@ export class Expense extends AggregateRoot {
     /** What the expense is filed under (request 24): `other` when none was given. */
     readonly category: Category = 'other',
     private readonly removed: boolean = false,
+    private readonly relocated: boolean = false,
   ) {
     super(id, version);
   }
@@ -49,6 +51,11 @@ export class Expense extends AggregateRoot {
   /** Who paid the expense. An edit never changes it. */
   get payer(): Id {
     return this.split.payer;
+  }
+
+  /** Whether the expense moved to another group by a merge (request 31): its repository changes its group, and nothing else. */
+  get isMoved(): boolean {
+    return this.relocated;
   }
 
   /** Whether the expense was deleted: a deleted expense is gone from every read, and its repository forgets it. */
@@ -216,6 +223,37 @@ export class Expense extends AggregateRoot {
       }),
     );
     return Result.ok(deleted);
+  }
+
+  /**
+   * Moves the expense to the group its group was merged into (request 31, ADR 23): it keeps its id, its payer, its shares, its
+   * version and its category, and only its group changes; the members of its split are members of the group kept, or former
+   * members of it, as the merge made them. Records ExpenseMoved.
+   */
+  moveTo(groupId: Id, at: Date): Expense {
+    const moved = new Expense(
+      this._id,
+      this.version,
+      groupId,
+      this.description,
+      this.amount,
+      this.original,
+      this.date,
+      this.split,
+      this.recordedAt,
+      this.category,
+      false,
+      true,
+    );
+    moved.record(
+      ExpenseMovedEvent.set({
+        expenseId: this._id.value,
+        groupId: groupId.value,
+        fromGroupId: this.groupId.value,
+        movedAt: at.toISOString(),
+      }),
+    );
+    return moved;
   }
 
   /** Whether the payer or a member of the split is no longer a member of the group. */

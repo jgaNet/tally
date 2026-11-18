@@ -57,3 +57,14 @@ export class SettlementRefundedEvent extends DomainEvent<{
   payee: string;
   amount: number;
 }> {}
+
+/**
+ * The book of a group merged into this one was taken in (request 31, ADR 23): the group kept, the group merged, the
+ * settlements that moved, and when. Each keeps its id, its status and its history; only its group changes.
+ */
+export class SettlementBookMergedEvent extends DomainEvent<{
+  groupId: string;
+  mergedGroupId: string;
+  settlementIds: string[];
+  mergedAt: string;
+}> {}

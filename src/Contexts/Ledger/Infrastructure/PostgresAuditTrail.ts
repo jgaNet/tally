@@ -20,4 +20,12 @@ export class PostgresAuditTrail implements IAuditTrail {
       entry.amount,
     );
   }
+
+  async moveGroup(fromGroupId: string, toGroupId: string): Promise<void> {
+    await this.database.connection.run(
+      'UPDATE ledger_audit_entries SET group_id = ? WHERE group_id = ?',
+      toGroupId,
+      fromGroupId,
+    );
+  }
 }

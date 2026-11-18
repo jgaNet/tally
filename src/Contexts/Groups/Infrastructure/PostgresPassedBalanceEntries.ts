@@ -11,7 +11,10 @@ export class PostgresPassedBalanceEntries implements IPassedBalanceEntries {
   entriesOf(groupId: string): Promise<PassedBalanceEntry[]> {
     return this.database.exclusive(connection =>
       connection.rows<PassedBalanceEntry>(
-        'SELECT position, from_id AS by, amount, passed_at AS at FROM group_balances_passed WHERE group_id = ? ORDER BY position',
+        `SELECT COALESCE(o.origin, p.group_id || ':' || p.position) AS key, p.from_id AS by, p.amount, p.passed_at AS at
+           FROM group_balances_passed p
+           LEFT JOIN group_balances_passed_origins o ON o.group_id = p.group_id AND o.position = p.position
+          WHERE p.group_id = ? ORDER BY p.position`,
         groupId,
       ),
     );

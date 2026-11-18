@@ -46,3 +46,11 @@ events:
           budget: number
           spent: number
           memberIds: array
+  GroupsMerged:
+    publisher: Groups
+    versions:
+      - version: 1
+        payload:
+          groupId: string
+          mergedGroupId: string
+          mergedAt: string

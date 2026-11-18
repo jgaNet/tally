@@ -5,8 +5,11 @@ import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import { GroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 import {
   AlreadyMember,
+  CurrenciesDiffer,
+  GroupMergedIntoItself,
   GroupNotSettled,
   NotAMember,
+  OnlyTheOwnerMerges,
   OnlyTheOwnerArchives,
   OwnerCannotLeave,
   PaymentWaitingAtProvider,
@@ -15,6 +18,7 @@ import {
   BalancePassedEvent,
   GroupArchivedEvent,
   GroupCreatedEvent,
+  GroupsMergedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
 } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
@@ -26,6 +30,8 @@ export interface PassedBalance {
   readonly toId: Id;
   readonly amount: number;
   readonly passedAt: Date;
+  /** The key it was born with in another group, `<group>:<position>`, when a merge brought it here (request 31); null otherwise. */
+  readonly origin: string | null;
 }
 
 /**
@@ -56,6 +62,7 @@ export class Group extends AggregateRoot {
     private _passed: PassedBalance[],
     readonly createdAt: Date,
     private _archivedAt: Date | null = null,
+    private _mergedInto: Id | null = null,
   ) {
     super(id, version);
   }
@@ -133,6 +140,76 @@ export class Group extends AggregateRoot {
   }
 
   /**
+   * Merges another group, the group merged, into this one, the group kept (request 31, ADR 23). Only the owner of both, two
+   * groups that are not one, of one currency, neither archived (GroupArchived), and no payment waiting at the provider in the
+   * group merged, read by the caller and given as a plain value. Every member of the group merged who is not a member here
+   * joins now, after the members, in the order they joined it, as a member; one who had left it is a former member here, unless
+   * they have been one of this group already; a member of both stays where they are. What passed to its owner when its members
+   * left is this group's from now on, each keeping the key it was born with. The group merged is closed in the same step: it no
+   * longer exists, and records nothing. Records GroupsMerged, which tells the other contexts to move what they hold of it.
+   */
+  merge({
+    merged,
+    accountId,
+    paymentWaiting,
+    at,
+  }: {
+    merged: Group;
+    accountId: Id;
+    paymentWaiting: boolean;
+    at: Date;
+  }): IResult {
+    const open = this.mayChange();
+    if (open.isFailure()) return open;
+    const mergedOpen = merged.mayChange();
+    if (mergedOpen.isFailure()) return mergedOpen;
+    if (!accountId.equals(this.ownerId) || !accountId.equals(merged.ownerId)) {
+      return Result.fail(new OnlyTheOwnerMerges());
+    }
+    if (merged._id.equals(this._id)) return Result.fail(new GroupMergedIntoItself());
+    if (merged.currency.value !== this.currency.value) return Result.fail(new CurrenciesDiffer());
+    if (paymentWaiting) {
+      return Result.fail(
+        new PaymentWaitingAtProvider('A group is merged once no payment in it is waiting at the provider'),
+      );
+    }
+
+    for (const membership of merged._memberships) {
+      if (this.hasMember(membership.accountId)) continue;
+      if (membership.leftAt === null) {
+        this._memberships = [
+          ...this._memberships.filter(current => !current.accountId.equals(membership.accountId)),
+          { accountId: membership.accountId, joinedAt: at, leftAt: null },
+        ];
+      } else if (!this.hasBeenMember(membership.accountId)) {
+        this._memberships = [...this._memberships, membership];
+      }
+    }
+    this._passed = [
+      ...this._passed,
+      ...merged._passed.map((passed, position) => ({
+        ...passed,
+        origin: passed.origin ?? `${merged._id.value}:${position}`,
+      })),
+    ];
+    merged._mergedInto = this._id;
+    this.record(
+      GroupsMergedEvent.set({
+        groupId: this._id.value,
+        mergedGroupId: merged._id.value,
+        ownerId: this.ownerId.value,
+        mergedAt: at.toISOString(),
+      }),
+    );
+    return Result.ok();
+  }
+
+  /** The group this one was merged into, once it is (request 31): it no longer exists, and its repository forgets it. */
+  get mergedInto(): Id | null {
+    return this._mergedInto;
+  }
+
+  /**
    * Adds an account as a member, from now on. It is refused when the account is a member already: a group is joined
    * once per account, however many invitations lead to it. An account that left joins again last, from now on, with
    * the time of this join. Records MemberJoined.
@@ -180,7 +257,10 @@ export class Group extends AggregateRoot {
     this._memberships = this._memberships.map(membership =>
       membership.accountId.equals(accountId) ? { ...membership, leftAt: at } : membership,
     );
-    this._passed = [...this._passed, { fromId: accountId, toId: this.ownerId, amount: balance, passedAt: at }];
+    this._passed = [
+      ...this._passed,
+      { fromId: accountId, toId: this.ownerId, amount: balance, passedAt: at, origin: null },
+    ];
     this.record(
       BalancePassedEvent.set({
         groupId: this._id.value,
@@ -231,9 +311,11 @@ export class Group extends AggregateRoot {
         toId: new Id(passed.toId),
         amount: passed.amount,
         passedAt: new Date(passed.passedAt),
+        origin: passed.origin ?? null,
       })),
       createdAt,
       snapshot.archivedAt ? new Date(snapshot.archivedAt) : null,
+      snapshot.mergedInto ? new Id(snapshot.mergedInto) : null,
     );
   }
 
@@ -278,9 +360,11 @@ export class Group extends AggregateRoot {
         toId: passed.toId.value,
         amount: passed.amount,
         passedAt: passed.passedAt.toISOString(),
+        origin: passed.origin,
       })),
       createdAt: this.createdAt.toISOString(),
       archivedAt: this._archivedAt === null ? null : this._archivedAt.toISOString(),
+      mergedInto: this._mergedInto === null ? null : this._mergedInto.value,
       version: this.version,
     };
   }

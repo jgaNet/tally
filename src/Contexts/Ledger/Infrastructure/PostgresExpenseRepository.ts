@@ -61,6 +61,14 @@ export class PostgresExpenseRepository implements IExpenseRepository {
     });
   }
 
+  async idsInGroup(groupId: Id): Promise<Id[]> {
+    const rows = await this.database.connection.rows<{ id: string }>(
+      'SELECT id FROM ledger_expenses WHERE group_id = ? ORDER BY rowid',
+      groupId.value,
+    );
+    return rows.map(row => new Id(row.id));
+  }
+
   async save(expense: Expense): Promise<IResult> {
     const { id, groupId, description, amount, original, date, paidBy, splitKind, shares, recordedAt, version } =
       expense.toSnapshot();
@@ -76,6 +84,19 @@ export class PostgresExpenseRepository implements IExpenseRepository {
       await connection.run('DELETE FROM ledger_expense_categories WHERE expense_id = ?', id);
       await connection.run('DELETE FROM ledger_expense_originals WHERE expense_id = ?', id);
       await connection.run('DELETE FROM ledger_balance_entries WHERE expense_id = ?', id);
+      return Result.ok();
+    }
+
+    // A move changes the expense's group and nothing else, its version included (request 31): the version is its edits'.
+    if (expense.isMoved) {
+      const { changes } = await connection.run(
+        'UPDATE ledger_expenses SET group_id = ? WHERE id = ? AND version = ?',
+        groupId,
+        id,
+        version,
+      );
+      if (changes === 0) return conflict();
+      await connection.run('UPDATE ledger_balance_entries SET group_id = ? WHERE expense_id = ?', groupId, id);
       return Result.ok();
     }
 

@@ -103,6 +103,9 @@ import { SettlementsSettlementAudit } from '@Contexts/Ledger/Infrastructure/Sett
 import { GroupsPassedBalances } from '@Contexts/Ledger/Infrastructure/GroupsPassedBalances';
 import { GetGroupAuditQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupAudit/GetGroupAuditQueryHandler';
 
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupsIntegrationEvents';
+import { GroupsMergedLedgerHandler } from '@Contexts/Ledger/Application/Events/GroupsMergedLedgerHandler';
+
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3, ADR 7): the expenses of each group, recorded with their equal
  * split, the members' balances read from them and from what the settlements paid, and read by the members of the group,
@@ -333,6 +336,19 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
             new GroupsMembers(groupMembershipInCommand),
             clock,
             audit,
+          ),
+        ],
+      },
+    ],
+    integrationEvents: [
+      {
+        event: GroupsMergedIntegrationEvent,
+        handlers: [
+          new GroupsMergedLedgerHandler(
+            new PostgresExpenseRepository(database),
+            new PostgresRecurringExpenseRepository(database),
+            audit,
+            clock,
           ),
         ],
       },

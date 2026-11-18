@@ -13,6 +13,7 @@ import {
   RecurringExpenseDayCameEvent,
   RecurringExpenseEndedEvent,
   RecurringExpenseSetUpEvent,
+  RecurringExpenseMovedEvent,
   RecurringExpenseStoppedEvent,
 } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
 
@@ -217,12 +218,37 @@ export class RecurringExpense extends AggregateRoot {
     return Result.ok(stopped);
   }
 
+  /**
+   * Moves it to the group its group was merged into (request 31, ADR 23): it keeps its id, its payer, its split, its days and
+   * its category; only its group changes. Records RecurringExpenseMoved.
+   */
+  moveTo(groupId: Id, at: Date): RecurringExpense {
+    const moved = this.moved({ groupId });
+    moved.record(
+      RecurringExpenseMovedEvent.set({
+        recurringId: this._id.value,
+        groupId: groupId.value,
+        fromGroupId: this.groupId.value,
+        movedAt: at.toISOString(),
+      }),
+    );
+    return moved;
+  }
+
   /** The same recurring expense at its version, with what changed. It records nothing. */
-  private moved({ next = this.next, removed = this.removed }: { next?: string; removed?: boolean }): RecurringExpense {
+  private moved({
+    next = this.next,
+    removed = this.removed,
+    groupId = this.groupId,
+  }: {
+    next?: string;
+    removed?: boolean;
+    groupId?: Id;
+  }): RecurringExpense {
     return new RecurringExpense(
       this._id,
       this.version,
-      this.groupId,
+      groupId,
       this.description,
       this.amount,
       this.startsOn,

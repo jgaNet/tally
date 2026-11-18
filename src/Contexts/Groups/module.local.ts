@@ -38,10 +38,14 @@ import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBala
 import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPayments';
 import { LeaveGroupCommandEvent, LeaveGroupCommandHandler } from '@Contexts/Groups/Application/Commands';
 import { ArchiveGroupCommandEvent, ArchiveGroupCommandHandler } from '@Contexts/Groups/Application/Commands';
+import { MergeGroupsCommandEvent, MergeGroupsCommandHandler } from '@Contexts/Groups/Application/Commands';
+import { GroupsMergedEventHandler } from '@Contexts/Groups/Application/Events/GroupsMergedEventHandler';
+import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 
 /**
  * The Groups context (conventions/domain.yaml, ADR 1): accounts (signing up, signing in, reading one's own account)
- * and groups (creating one, reading one of one's own, listing one's own, the members in their join order, leaving one),
+ * and groups (creating one, reading one of one's own, listing one's own, the members in their join order, leaving one,
+ * archiving one, merging one into another),
  * invitations by a link (creating one, reading one, accepting one), kept in the application's PostgreSQL database (ADR 2, ADR 22).
  */
 const database = PostgresDatabase.shared();
@@ -134,7 +138,12 @@ export function groupsModuleWith(memberBalances: IMemberBalances, waitingPayment
           ),
         ],
       },
+      {
+        event: MergeGroupsCommandEvent,
+        handlers: [new MergeGroupsCommandHandler(new PostgresGroupRepository(database), waitingPayments, systemClock)],
+      },
     ],
+    domainEvents: [{ event: GroupsMergedEvent, handlers: [new GroupsMergedEventHandler()] }],
     queries: [
       new GetMyAccountQueryHandler(accountQueries),
       new LoginQueryHandler(accountQueries, hasher, tokens),

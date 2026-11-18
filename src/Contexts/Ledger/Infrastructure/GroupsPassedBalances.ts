@@ -4,8 +4,8 @@ import { IPassedBalanceEntries } from '@Contexts/Groups/Domain/Group/Ports/IPass
 
 /**
  * Ledger's PassedBalances, answered over Groups' read side (request 28): each balance that passed to the owner when a member
- * left, as an entry of the audit. A balance of 0 changed no money, so it is no entry. The id is the balance's position in its
- * group, which a leave takes once.
+ * left, as an entry of the audit. A balance of 0 changed no money, so it is no entry. The id is the key the balance was born with,
+ * its group and its position there, which a leave takes once and a merge keeps (request 31).
  */
 export class GroupsPassedBalances implements IPassedBalances {
   constructor(private readonly passed: IPassedBalanceEntries) {}
@@ -15,7 +15,7 @@ export class GroupsPassedBalances implements IPassedBalances {
     return balances
       .filter(balance => balance.amount !== 0)
       .map((balance): AuditEntryReadModel => ({
-        id: `balance-passed:${groupId}:${balance.position}`,
+        id: `balance-passed:${balance.key}`,
         at: balance.at,
         by: balance.by,
         action: 'balance-passed',

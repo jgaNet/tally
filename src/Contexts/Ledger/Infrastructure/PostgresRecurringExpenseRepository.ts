@@ -57,6 +57,14 @@ export class PostgresRecurringExpenseRepository implements IRecurringExpenseRepo
    * The job asks it before its transactions, outside any (ADR 16): it takes its own turn on the connection, which no
    * transaction holds then. Each recurring expense it answers is then read again inside the transaction that decides it.
    */
+  async idsInGroup(groupId: Id): Promise<Id[]> {
+    const rows = await this.database.connection.rows<{ id: string }>(
+      'SELECT id FROM ledger_recurring_expenses WHERE group_id = ? ORDER BY rowid',
+      groupId.value,
+    );
+    return rows.map(row => new Id(row.id));
+  }
+
   async dueBy(day: string): Promise<string[]> {
     const rows = await this.database.exclusive(connection =>
       connection.rows<{ id: string }>('SELECT id FROM ledger_recurring_expenses WHERE next <= ? ORDER BY rowid', day),
@@ -102,7 +110,8 @@ export class PostgresRecurringExpenseRepository implements IRecurringExpenseRepo
       );
     } else {
       const { changes } = await connection.run(
-        'UPDATE ledger_recurring_expenses SET next = ?, version = version + 1 WHERE id = ? AND version = ?',
+        'UPDATE ledger_recurring_expenses SET group_id = ?, next = ?, version = version + 1 WHERE id = ? AND version = ?',
+        groupId,
         next,
         id,
         version,

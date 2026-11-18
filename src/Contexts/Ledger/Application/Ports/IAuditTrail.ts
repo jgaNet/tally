@@ -18,4 +18,6 @@ export interface AuditEntryDraft {
  */
 export interface IAuditTrail {
   record(entry: AuditEntryDraft): Promise<void>;
+  /** Makes the entries of a group merged the entries of the group kept (request 31): each keeps its id and what it says. */
+  moveGroup(fromGroupId: string, toGroupId: string): Promise<void>;
 }

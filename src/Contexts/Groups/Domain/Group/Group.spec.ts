@@ -157,3 +157,67 @@ describe('Group archived (request 27)', () => {
     expect(restored.archivedAt).toEqual(later);
   });
 });
+
+describe('Group merged into another (request 31)', () => {
+  const later = new Date('2026-06-01T00:00:00.000Z');
+  const make = (owner = 'owner-1', code = 'EUR') =>
+    Group.create({
+      name: name('Flat').data as GroupName,
+      currency: currency(code).data as Currency,
+      ownerId: new Id(owner),
+      at,
+    });
+  const mergeInto = (kept: Group, merged: Group, accountId = 'owner-1', paymentWaiting = false) =>
+    kept.merge({ merged, accountId: new Id(accountId), paymentWaiting, at: later });
+
+  it('takes the members of the group merged after its own, its former members and its passed balances, and records GroupsMerged', () => {
+    const kept = make();
+    kept.join(new Id('bob'), at);
+    const merged = make();
+    merged.join(new Id('cat'), at);
+    merged.join(new Id('bob'), at);
+    merged.join(new Id('dan'), at);
+    merged.leave({ accountId: new Id('dan'), balance: 20, paymentWaiting: false, at });
+    kept.pullDomainEvents();
+
+    expect(mergeInto(kept, merged).isFailure()).toBe(false);
+    expect(kept.members.map(member => [member.accountId.value, member.joinedAt])).toEqual([
+      ['owner-1', at],
+      ['bob', at],
+      ['cat', later],
+    ]);
+    expect(kept.hasBeenMember(new Id('dan'))).toBe(true);
+    expect(kept.passed).toEqual([
+      expect.objectContaining({ fromId: new Id('dan'), amount: 20, origin: `${merged._id.value}:0` }),
+    ]);
+    expect(merged.mergedInto).toEqual(kept._id);
+    expect(merged.pullDomainEvents().map(event => event.name)).not.toContain('GroupsMergedEvent');
+    const events = kept.pullDomainEvents();
+    expect(events.map(event => event.name)).toEqual(['GroupsMergedEvent']);
+    expect(events[0].payload).toEqual({
+      groupId: kept._id.value,
+      mergedGroupId: merged._id.value,
+      ownerId: 'owner-1',
+      mergedAt: later.toISOString(),
+    });
+    const snapshot = kept.toSnapshot();
+    expect(Group.fromSnapshot(snapshot).toSnapshot()).toEqual(snapshot);
+  });
+
+  it('refuses a caller who does not own both, one group, two currencies, a payment waiting and an archived group', () => {
+    const kept = make();
+    kept.join(new Id('bob'), at);
+    const refusal = (result: ReturnType<Group['merge']>) => result.isFailure() && result.error.type;
+
+    expect(refusal(mergeInto(kept, make(), 'bob'))).toBe('OnlyTheOwnerMerges');
+    expect(refusal(mergeInto(kept, make('bob')))).toBe('OnlyTheOwnerMerges');
+    expect(refusal(mergeInto(kept, kept))).toBe('GroupMergedIntoItself');
+    expect(refusal(mergeInto(kept, make('owner-1', 'USD')))).toBe('CurrenciesDiffer');
+    expect(refusal(mergeInto(kept, make(), 'owner-1', true))).toBe('PaymentWaitingAtProvider');
+    const archived = make();
+    archived.archive({ accountId: new Id('owner-1'), balances: [0], paymentWaiting: false, at });
+    expect(refusal(mergeInto(kept, archived))).toBe('GroupArchived');
+    expect(refusal(mergeInto(archived, make()))).toBe('GroupArchived');
+    expect(kept.members.map(member => member.accountId.value)).toEqual(['owner-1', 'bob']);
+  });
+});

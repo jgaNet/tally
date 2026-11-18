@@ -32,3 +32,14 @@ export class ExpenseDeletedEvent extends DomainEvent<{
   groupId: string;
   deletedAt: string;
 }> {}
+
+/**
+ * An expense moved to the group its group was merged into (request 31, ADR 23): its id, its new group, the group it was in,
+ * and when. It keeps its payer, its shares, its version and its category; only its group changes.
+ */
+export class ExpenseMovedEvent extends DomainEvent<{
+  expenseId: string;
+  groupId: string;
+  fromGroupId: string;
+  movedAt: string;
+}> {}

@@ -10,6 +10,8 @@ import {
   GetMyGroupsResSchema,
   ArchiveGroupResSchema,
   LeaveGroupResSchema,
+  MergeGroupsBodySchema,
+  MergeGroupsResSchema,
 } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes.schema';
 
 export const groupRoutes = function (
@@ -53,6 +55,11 @@ export const groupRoutes = function (
     '/groups/:id/archive',
     { schema: { tags: ['groups'], response: ArchiveGroupResSchema } },
     controller.archiveGroup.bind(controller),
+  );
+  fastify.post(
+    '/groups/:id/merge',
+    { schema: { tags: ['groups'], body: MergeGroupsBodySchema, response: MergeGroupsResSchema } },
+    controller.mergeGroups.bind(controller),
   );
 
   done();

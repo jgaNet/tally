@@ -95,7 +95,7 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
       await connection.run(
         `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, provider_payment_id, pay_url)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET status = excluded.status`,
+         ON CONFLICT (id) DO UPDATE SET status = excluded.status, group_id = excluded.group_id`,
         settlement.id.value,
         groupId,
         settlement.payer.value,

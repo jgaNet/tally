@@ -27,8 +27,17 @@ export class PostgresGroupRepository implements IGroupRepository {
       'SELECT account_id, joined_at, left_at FROM group_members WHERE group_id = ? ORDER BY position',
       id.value,
     );
-    const passed = await connection.rows<{ from_id: string; to_id: string; amount: number; passed_at: string }>(
-      'SELECT from_id, to_id, amount, passed_at FROM group_balances_passed WHERE group_id = ? ORDER BY position',
+    const passed = await connection.rows<{
+      from_id: string;
+      to_id: string;
+      amount: number;
+      passed_at: string;
+      origin: string | null;
+    }>(
+      `SELECT p.from_id, p.to_id, p.amount, p.passed_at, o.origin
+         FROM group_balances_passed p
+         LEFT JOIN group_balances_passed_origins o ON o.group_id = p.group_id AND o.position = p.position
+        WHERE p.group_id = ? ORDER BY p.position`,
       id.value,
     );
     const archive = await connection.row<{ archived_at: string }>(
@@ -50,6 +59,7 @@ export class PostgresGroupRepository implements IGroupRepository {
         toId: fact.to_id,
         amount: Number(fact.amount),
         passedAt: fact.passed_at,
+        origin: fact.origin,
       })),
       createdAt: row.created_at,
       archivedAt: archive?.archived_at ?? null,
@@ -58,8 +68,10 @@ export class PostgresGroupRepository implements IGroupRepository {
   }
 
   async save(group: Group): Promise<IResult> {
-    const { id, name, currency, ownerId, members, passed, createdAt, archivedAt, version } = group.toSnapshot();
+    const { id, name, currency, ownerId, members, passed, createdAt, archivedAt, mergedInto, version } =
+      group.toSnapshot();
     const { connection } = this.database;
+    if (mergedInto) return this.forget(id, version);
     if (version === 0) {
       await connection.run(
         'INSERT INTO tally_groups (id, name, currency, owner_id, created_at, version) VALUES (?, ?, ?, ?, ?, 1)',
@@ -102,6 +114,15 @@ export class PostgresGroupRepository implements IGroupRepository {
         fact.amount,
         fact.passedAt,
       );
+      if (fact.origin) {
+        await connection.run(
+          `INSERT INTO group_balances_passed_origins (group_id, position, origin) VALUES (?, ?, ?)
+           ON CONFLICT DO NOTHING`,
+          id,
+          position,
+          fact.origin,
+        );
+      }
     }
     // An archive is a fact: written once, and a group archived by another save is not archived twice (request 27).
     if (archivedAt) {
@@ -111,6 +132,23 @@ export class PostgresGroupRepository implements IGroupRepository {
         archivedAt,
       );
     }
+    return Result.ok();
+  }
+
+  /**
+   * Forgets a group merged into another (request 31), in the merge's transaction: from then on it does not exist, and its
+   * invitations lead nowhere. Its members and its balances that passed are the group kept's, which the same transaction saves.
+   */
+  private async forget(id: string, version: number): Promise<IResult> {
+    const { connection } = this.database;
+    const { changes } = await connection.run('DELETE FROM tally_groups WHERE id = ? AND version = ?', id, version);
+    if (changes === 0) {
+      return Result.fail(new ConcurrencyConflictException('Groups', 'The group changed since it was read', { id }));
+    }
+    await connection.run('DELETE FROM group_members WHERE group_id = ?', id);
+    await connection.run('DELETE FROM group_balances_passed WHERE group_id = ?', id);
+    await connection.run('DELETE FROM group_balances_passed_origins WHERE group_id = ?', id);
+    await connection.run('DELETE FROM group_invitations WHERE group_id = ?', id);
     return Result.ok();
   }
 }

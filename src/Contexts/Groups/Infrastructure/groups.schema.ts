@@ -34,6 +34,14 @@ export const GROUP_STATEMENTS = [
      passed_at TEXT NOT NULL,
      PRIMARY KEY (group_id, position)
    )`,
+  // Where a balance that passed came from, when a merge brought it from the group it was born in (request 31): the key it was
+  // born with, `<group>:<position>`, which keeps its id in the audit. A balance born in its own group has no row.
+  `CREATE TABLE IF NOT EXISTS group_balances_passed_origins (
+     group_id TEXT NOT NULL,
+     position BIGINT NOT NULL,
+     origin TEXT NOT NULL,
+     PRIMARY KEY (group_id, position)
+   )`,
   // The moment a group was archived (request 27, ADR 20): a fact, written once, and never undone. A group without a row is open.
   `CREATE TABLE IF NOT EXISTS group_archives (
      group_id TEXT PRIMARY KEY,

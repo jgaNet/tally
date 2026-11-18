@@ -40,3 +40,15 @@ export class GroupArchivedEvent extends DomainEvent<{
   groupId: string;
   archivedAt: string;
 }> {}
+
+/**
+ * A group was merged into this one, the group kept (request 31, ADR 23): the group merged, its owner (the owner of both), and
+ * when. Its members, its balances that passed, and its invitations' end were decided in the same write; the group merged no
+ * longer exists from then on, and what the other contexts hold of it is theirs to move.
+ */
+export class GroupsMergedEvent extends DomainEvent<{
+  groupId: string;
+  mergedGroupId: string;
+  ownerId: string;
+  mergedAt: string;
+}> {}

@@ -4,6 +4,7 @@ import {
   PaymentRequestedEvent,
   RefundRequestedEvent,
   SettlementFailedEvent,
+  SettlementBookMergedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
   SettlementRefundedEvent,
@@ -276,6 +277,29 @@ export class SettlementBook extends AggregateRoot {
       this.#moveTo(settlement, 'failed', at);
       this.record(SettlementFailedEvent.set(ended));
     }
+  }
+
+  /**
+   * Takes every settlement of the book of a group merged into this one (request 31, ADR 23): each keeps its id, its payer and
+   * payee, its amount, its method, its status and its history, and only its group changes; the book merged is left empty. A
+   * settlement moves as much up as down, so each group's balances add up to 0 before and after. Records SettlementBookMerged.
+   */
+  absorb(merged: SettlementBook, at: Date): void {
+    const moved = merged.#settlements.map((settlement): Settlement => ({ ...settlement, groupId: this._id }));
+    merged.#settlements = [];
+    merged.#unsaved.clear();
+    for (const settlement of moved) {
+      this.#settlements.push(settlement);
+      this.#unsaved.add(settlement);
+    }
+    this.record(
+      SettlementBookMergedEvent.set({
+        groupId: this._id.value,
+        mergedGroupId: merged._id.value,
+        settlementIds: moved.map(settlement => settlement.id.value),
+        mergedAt: at.toISOString(),
+      }),
+    );
   }
 
   /** The refusal of a settlement on these balances, or none: the rules of a settlement, on what is still owed. */

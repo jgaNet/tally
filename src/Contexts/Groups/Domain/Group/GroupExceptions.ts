@@ -38,8 +38,11 @@ export class OwnerCannotLeave extends GroupException {
 }
 
 export class PaymentWaitingAtProvider extends GroupException {
-  constructor() {
-    super('PaymentWaitingAtProvider', 'A member leaves a group once no payment of theirs is waiting at the provider');
+  constructor(message?: string) {
+    super(
+      'PaymentWaitingAtProvider',
+      message ?? 'A member leaves a group once no payment of theirs is waiting at the provider',
+    );
   }
 }
 
@@ -52,5 +55,23 @@ export class OnlyTheOwnerArchives extends GroupException {
 export class GroupNotSettled extends GroupException {
   constructor() {
     super('GroupNotSettled', "A group is archived once every member's balance is 0");
+  }
+}
+
+export class OnlyTheOwnerMerges extends GroupException {
+  constructor() {
+    super('OnlyTheOwnerMerges', 'Only the owner of both groups merges one into the other');
+  }
+}
+
+export class GroupMergedIntoItself extends GroupException {
+  constructor() {
+    super('GroupMergedIntoItself', 'A group is merged into another group, not into itself');
+  }
+}
+
+export class CurrenciesDiffer extends GroupException {
+  constructor() {
+    super('CurrenciesDiffer', 'Two groups are merged only when they are in the same currency');
   }
 }
