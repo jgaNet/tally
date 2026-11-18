@@ -5,6 +5,12 @@ import type { SettlementMethod, SettlementStatus } from './settlements';
 /** The statuses a settlement's balances count: `paid`, and `refunding` until the refund is said to be done. */
 const COUNTED: readonly SettlementStatus[] = ['paid', 'refunding'];
 
+/**
+ * The statuses of a contest: `contested`, and `annulled` once it is decided against the money. Their changes are audited by the
+ * code that makes them (see `contests.ts`), not here.
+ */
+const CONTEST: readonly SettlementStatus[] = ['contested', 'annulled'];
+
 /** A settlement as a status change of it reads it: its group, its parties, its amount, its method and its status now. */
 interface SettlementState {
   group_id: string;
@@ -43,7 +49,8 @@ export async function addHistory(
  * A move that starts the balances to count the settlement (it becomes `paid`) is an audit entry of `settlement-paid`,
  * made by its payer when it is paid through the provider; a move that ends the count (it becomes `refunded`) is one of
  * `settlement-refunded`, made by its payee. A move that does not change whether the balances count it (`refunding`, or
- * a settlement never counted, going to `refunded` or `failed`) has none.
+ * a settlement never counted, going to `refunded` or `failed`) has none. A move into or out of a contest has none either:
+ * the contest and its decision are audited where they are made.
  */
 export async function moveSettlement(
   db: Queryable,
@@ -58,6 +65,7 @@ export async function moveSettlement(
   if (!before) throw new Error(`settlement ${settlementId} is not kept`);
   await db.run('UPDATE settlements SET status = ? WHERE id = ?', [status, settlementId]);
   await addHistory(db, settlementId, status, at);
+  if (CONTEST.includes(before.status) || CONTEST.includes(status)) return;
   const countedBefore = COUNTED.includes(before.status);
   const countedAfter = COUNTED.includes(status);
   if (countedBefore === countedAfter) return;

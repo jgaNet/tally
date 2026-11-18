@@ -18,8 +18,11 @@ interface MembershipRow {
   raw: number;
 }
 
-/** The statuses a balance counts, as the SQL list of them, written here and never from input. */
-type CountedStatuses = "('paid', 'refunding')" | "('paid', 'pending', 'refunding')";
+/**
+ * The statuses a balance counts, as the SQL list of them, written here and never from input. A contested settlement is counted
+ * by neither: the balances are as they were before it was paid, until an administrator decides it.
+ */
+type CountedStatuses = "('paid', 'refunding')" | "('paid', 'pending', 'refunding', 'contested')";
 
 /**
  * The balances of the group now, in the order its members joined, the earliest first. A member's balance is
@@ -50,7 +53,7 @@ export function listBalances(db: Queryable, groupId: string): Promise<Balance[]>
  * from. The balances still add up to 0. A read changes nothing.
  */
 export function listBalancesIncludingWaiting(db: Queryable, groupId: string): Promise<Balance[]> {
-  return balancesCounting(db, groupId, "('paid', 'pending', 'refunding')");
+  return balancesCounting(db, groupId, "('paid', 'pending', 'refunding', 'contested')");
 }
 
 /**

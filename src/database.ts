@@ -145,7 +145,7 @@ CREATE TABLE settlements (
   payee_id TEXT NOT NULL REFERENCES accounts (id),
   amount BIGINT NOT NULL CHECK (amount >= 1),
   method TEXT NOT NULL CHECK (method IN ('cash', 'provider', 'net')),
-  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled')),
   provider_id TEXT,
   pay_url TEXT,
   created_at TEXT NOT NULL,
@@ -196,7 +196,7 @@ CREATE TABLE debt_notes (
 CREATE TABLE settlement_history (
   seq BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   settlement_id TEXT NOT NULL REFERENCES settlements (id),
-  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled')),
   at TEXT NOT NULL
 );
 CREATE INDEX settlement_history_settlement ON settlement_history (settlement_id, seq);
@@ -275,12 +275,23 @@ CREATE TABLE audit_entries (
   at TEXT NOT NULL,
   account_id TEXT NOT NULL REFERENCES accounts (id),
   action TEXT NOT NULL CHECK (action IN (
-    'expense-recorded', 'expense-edited', 'expense-deleted', 'settlement-paid', 'settlement-refunded', 'balance-passed'
+    'expense-recorded', 'expense-edited', 'expense-deleted', 'settlement-paid', 'settlement-refunded', 'balance-passed',
+    'settlement-contested'
   )),
   subject_id TEXT NOT NULL,
   amount BIGINT NOT NULL
 );
 CREATE INDEX audit_entries_group ON audit_entries (group_id, seq);
+
+-- What the administrators decided on the settlements contested: the administrators' log, which nothing changes or removes.
+CREATE TABLE admin_log (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
+  id TEXT PRIMARY KEY,
+  at TEXT NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  action TEXT NOT NULL CHECK (action IN ('decided-paid', 'decided-annulled')),
+  subject_id TEXT NOT NULL REFERENCES settlements (id)
+);
 `;
 
 /**

@@ -13,6 +13,7 @@ export const AUDIT_ACTIONS = [
   'settlement-paid',
   'settlement-refunded',
   'balance-passed',
+  'settlement-contested',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

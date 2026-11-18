@@ -1,10 +1,12 @@
 import cors from '@fastify/cors';
 import Fastify, { FastifyError, FastifyInstance } from 'fastify';
 import { registerAccountRoutes } from './accounts';
+import { registerAdminRoutes, parseAdminEmails } from './admin';
 import { registerAuditRoutes } from './audit';
 import { registerArchiveRoutes } from './archive';
 import { registerBalanceRoutes } from './balances';
 import { registerBudgetRoutes } from './budgets';
+import { registerContestRoutes } from './contests';
 import { openDatabase, type Database } from './database';
 import { registerExpenseRoutes } from './expenses';
 import { registerGroupRoutes } from './groups';
@@ -50,6 +52,7 @@ function positiveNumber(value: string | undefined, fallback: number): number {
  * its webhooks are signed with `providerWebhookSecret`; `providerTimeoutMs` is how long it may take to answer.
  * The rates service is reached at `ratesUrl`, for `ratesTimeoutMs` at most; without it, no rate is offered.
  * The receipts store is reached at `receiptsUrl`, for `receiptsTimeoutMs` at most; without it, no receipt is kept.
+ * The administrators are the accounts whose emails are `adminEmails` (`ADMIN_EMAILS`, separated by commas), whatever their case.
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
@@ -65,6 +68,7 @@ export async function createApplication({
   receiptsTimeoutMs = 5000,
   jobsIntervalSeconds = positiveNumber(process.env.JOBS_INTERVAL_SECONDS, 60),
   reminderPeriodSeconds = positiveNumber(process.env.REMINDER_PERIOD_SECONDS, DEFAULT_REMINDER_PERIOD_SECONDS),
+  adminEmails = parseAdminEmails(process.env.ADMIN_EMAILS),
 }: {
   apiPrefix?: string;
   port?: number;
@@ -79,7 +83,9 @@ export async function createApplication({
   receiptsTimeoutMs?: number;
   jobsIntervalSeconds?: number;
   reminderPeriodSeconds?: number;
+  adminEmails?: string[];
 } = {}): Promise<Application> {
+  const administrators: ReadonlySet<string> = new Set(adminEmails.map(email => email.trim().toLowerCase()));
   const provider: ProviderConfig = {
     url: providerUrl,
     webhookSecret: providerWebhookSecret,
@@ -123,6 +129,8 @@ export async function createApplication({
       registerProviderWebhookRoutes(instance, db, provider);
       registerNoticeRoutes(instance, db);
       registerAuditRoutes(instance, db);
+      registerContestRoutes(instance, db, administrators);
+      registerAdminRoutes(instance, db, administrators);
       registerOperationRoutes(instance, db);
     },
     { prefix: `/${apiPrefix}` },

@@ -16,8 +16,12 @@ import {
 } from './provider';
 import { requireCaller } from './sessions';
 
-/** The status of a settlement: `pending`, `paid` or `failed` for one through the provider, and `refunding` or `refunded` once paid. */
-export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+/**
+ * The status of a settlement: `pending`, `paid` or `failed` for one through the provider, and `refunding` or `refunded` once paid.
+ * A paid one through the provider is `contested` when its payee says the money did not arrive, until an administrator decides it:
+ * `paid` again when it did, `annulled` when it did not (see `contests.ts`).
+ */
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
 
 /**
  * How a settlement is made: `cash` is recorded by its payee, `provider` is paid through the payment provider, and `net`
@@ -278,6 +282,11 @@ export async function applyPaymentDecision(db: Database, paymentId: string, stat
   const decided = decisionOf(status);
   if (decided === undefined) return;
   await db.transaction(async tx => {
+    // A settlement contested is held until an administrator decides it: a webhook about its payment changes nothing meanwhile.
+    const contested = await tx.get("SELECT 1 FROM settlements WHERE provider_id = ? AND status = 'contested'", [
+      paymentId,
+    ]);
+    if (contested !== undefined) return;
     // The moment Tally learns the decision: the status it makes a settlement take is dated by it.
     const at = new Date().toISOString();
     const kept = await keptDecision(tx, paymentId);
@@ -327,12 +336,12 @@ async function applyKeptDecision(db: Queryable, paymentId: string): Promise<void
 
 /**
  * Whether a settlement waits at the provider for the account, as its payer or as its payee, in the group: one
- * whose payment is still pending, or whose refund the provider has not yet said is done. Either would move the
- * account's balance once the provider decides it.
+ * whose payment is still pending, or whose refund the provider has not yet said is done, or which is contested and not yet
+ * decided. Either would move the account's balance once the provider decides it.
  */
 export async function hasWaitingSettlement(db: Queryable, groupId: string, accountId: string): Promise<boolean> {
   const row = await db.get(
-    "SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?)",
+    "SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding', 'contested') AND (payer_id = ? OR payee_id = ?)",
     [groupId, accountId, accountId],
   );
   return row !== undefined;
@@ -370,6 +379,32 @@ export async function findSettlementOf(
     [settlementId, accountId],
   );
   return row && toSettlement(db, row);
+}
+
+/**
+ * The settlement as it is read by anyone, whatever its group: for the administrators, who decide on the settlements contested.
+ * Reading changes nothing.
+ */
+export async function findAnySettlement(db: Queryable, settlementId: string): Promise<Settlement | undefined> {
+  const row = await db.get<SettlementRow>(`SELECT ${settlementColumns} FROM settlements t WHERE t.id = ?`, [
+    settlementId,
+  ]);
+  return row && toSettlement(db, row);
+}
+
+/**
+ * The settlements contested now, the earliest contested first, each as `findAnySettlement` reads it. The moment a settlement
+ * was contested orders them, as it is the entry of its history that says so. Reading changes nothing.
+ */
+export async function listContestedSettlements(db: Queryable): Promise<Settlement[]> {
+  const rows = await db.all<SettlementRow>(
+    `SELECT ${settlementColumns} FROM settlements t
+     JOIN settlement_history h ON h.settlement_id = t.id AND h.status = 'contested'
+     WHERE t.status = 'contested' ORDER BY h.seq`,
+  );
+  const settlements: Settlement[] = [];
+  for (const row of rows) settlements.push(await toSettlement(db, row));
+  return settlements;
 }
 
 /**
@@ -462,7 +497,7 @@ const idSchema = {
   properties: { id: { type: 'string' } },
 };
 
-const settlementSchema = {
+export const settlementSchema = {
   type: 'object',
   required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
   properties: {
@@ -472,7 +507,7 @@ const settlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
     method: { enum: ['cash', 'provider', 'net'] },
-    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },
     history: {
@@ -482,7 +517,7 @@ const settlementSchema = {
         type: 'object',
         required: ['status', 'at'],
         properties: {
-          status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+          status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
           at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
         },
       },

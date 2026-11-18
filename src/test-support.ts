@@ -68,6 +68,7 @@ export async function startApplication(
     ratesTimeoutMs?: number;
     receiptsUrl?: string;
     receiptsTimeoutMs?: number;
+    adminEmails?: string[];
   } = {},
 ): Promise<Application> {
   await makeDatabase(databaseUrl);

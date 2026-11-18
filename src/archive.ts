@@ -5,10 +5,10 @@ import { findGroupOf, refuseIfArchived } from './groups';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
-/** Whether a payment or a refund through the provider waits in the group, whoever it is for. */
+/** Whether a payment, a refund or a contest through the provider waits in the group, whoever it is for. */
 export async function hasProviderWaiting(db: Queryable, groupId: string): Promise<boolean> {
   const row = await db.get(
-    "SELECT 1 FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')",
+    "SELECT 1 FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding', 'contested')",
     [groupId],
   );
   return row !== undefined;
@@ -16,7 +16,8 @@ export async function hasProviderWaiting(db: Queryable, groupId: string): Promis
 
 /**
  * Archives the group, which is then read only, for good. Only its owner may, and only once every member's balance is 0
- * and no payment or refund through the provider is `pending` or `refunding`; otherwise it is refused and nothing changes.
+ * and no payment, refund or contest through the provider is `pending`, `refunding` or `contested`; otherwise it is refused and
+ * nothing changes.
  * Archiving it again is refused with `GroupArchived`, as every other change to an archived group is. For an account that
  * is not a member, the group does not exist. The checks and the archiving are one write transaction, so a settlement or
  * an expense recorded meanwhile is seen, or waits until the group is archived and is refused.
