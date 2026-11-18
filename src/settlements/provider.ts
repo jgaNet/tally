@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { type Database, inTransaction } from '../database';
-import { requireMembership } from '../groups/groups';
+import { requireMembership, requireNotArchived } from '../groups/groups';
 import { payoutAccountOf } from '../payouts/payout-accounts';
 import { Refusal } from '../refusal';
 import { type StatusEntry, recordStatus } from './history';
@@ -36,6 +36,7 @@ export async function requestProviderSettlement(
 ): Promise<string> {
   const held = inTransaction(db, () => {
     const group = requireMembership(db, groupId, payerId);
+    requireNotArchived(db, groupId);
     if (provider.url === '') {
       throw new Refusal(409, 'ProviderNotConfigured', 'Payment through the provider is not set up on this server.');
     }
@@ -171,11 +172,14 @@ function setProviderStatus(
     // `from` is written here, never from a request: only its placeholders are built from it.
     const settlements = db
       .prepare(
-        `SELECT id FROM settlements
-          WHERE provider_payment_id = ? AND method = 'provider' AND status IN (${from.map(() => '?').join(', ')})`,
+        `SELECT settlements.id, settlements.group_id FROM settlements
+          WHERE settlements.provider_payment_id = ? AND settlements.method = 'provider'
+            AND settlements.status IN (${from.map(() => '?').join(', ')})`,
       )
-      .all(paymentId, ...from) as { id: string }[];
-    for (const { id } of settlements) {
+      .all(paymentId, ...from) as { id: string; group_id: string }[];
+    for (const { id, group_id } of settlements) {
+      // An archived group is read only: the provider's word cannot change its settlement, so it is refused.
+      requireNotArchived(db, group_id);
       db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(status, id);
       recordStatus(db, id, status);
     }

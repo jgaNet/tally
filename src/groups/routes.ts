@@ -2,7 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import { requireAccount } from '../auth';
 import type { Database } from '../database';
 import { Refusal } from '../refusal';
-import { createGroup, groupForMember, groupsOfMember, leaveGroup, membersOf, requireMembership } from './groups';
+import {
+  archiveGroup,
+  createGroup,
+  groupForMember,
+  groupsOfMember,
+  leaveGroup,
+  membersOf,
+  requireMembership,
+} from './groups';
 import { CURRENCIES } from './validation';
 
 const memberSchema = {
@@ -24,6 +32,8 @@ const groupSchema = {
     name: { type: 'string' },
     currency: { type: 'string', enum: [...CURRENCIES] },
     ownerId: { type: 'string' },
+    // Present only once the group is archived.
+    archivedAt: { type: 'string' },
   },
 };
 
@@ -89,6 +99,20 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
       const account = requireAccount(db, request);
       requireMembership(db, request.params.id, account.id);
       return membersOf(db, request.params.id);
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/groups/:id/archive',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      },
+    },
+    async (request, reply) => {
+      const account = requireAccount(db, request);
+      archiveGroup(db, request.params.id, account.id, new Date());
+      return reply.code(204).send();
     },
   );
 

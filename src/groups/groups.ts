@@ -9,6 +9,8 @@ export interface Group {
   name: string;
   currency: Currency;
   ownerId: string;
+  /** When the group was archived. Present only once it is: an archived group is read only. */
+  archivedAt?: string;
 }
 
 interface GroupRow {
@@ -16,6 +18,7 @@ interface GroupRow {
   name: string;
   currency: Currency;
   owner_id: string;
+  archived_at: string | null;
 }
 
 const toGroup = (row: GroupRow): Group => ({
@@ -23,7 +26,29 @@ const toGroup = (row: GroupRow): Group => ({
   name: row.name,
   currency: row.currency,
   ownerId: row.owner_id,
+  ...(row.archived_at === null ? {} : { archivedAt: row.archived_at }),
 });
+
+/** The columns a `GroupRow` is read from, `groups` being the table they come from. */
+const GROUP_COLUMNS = 'groups.id, groups.name, groups.currency, groups.owner_id, groups.archived_at';
+
+/**
+ * Refuses a change to `groupId` once it is archived: an archived group is read only, so every request that would
+ * change something in it is refused by this one rule, and changes nothing. Called after the group has been found
+ * for the caller, and inside the transaction of the change, so an archiving that lands first is seen.
+ */
+export function requireNotArchived(db: Database, groupId: string): void {
+  if (isArchived(db, groupId)) {
+    throw new Refusal(409, 'GroupArchived', 'The group is archived: nothing in it changes any more.');
+  }
+}
+
+/** Whether `groupId` is archived. Reading it changes nothing. */
+export function isArchived(db: Database, groupId: string): boolean {
+  const row = db.prepare('SELECT archived_at FROM groups WHERE id = ?').get(groupId) as
+    { archived_at: string | null } | undefined;
+  return row?.archived_at != null;
+}
 
 /**
  * Creates a group owned by `ownerId`, whose first member its owner is. The group and that
@@ -53,7 +78,7 @@ export function createGroup(db: Database, ownerId: string, input: GroupInput): s
 export function groupForMember(db: Database, groupId: string, accountId: string): Group | undefined {
   const row = db
     .prepare(
-      `SELECT groups.id, groups.name, groups.currency, groups.owner_id
+      `SELECT ${GROUP_COLUMNS}
          FROM groups JOIN memberships ON memberships.group_id = groups.id
         WHERE groups.id = ? AND memberships.account_id = ?`,
     )
@@ -65,7 +90,7 @@ export function groupForMember(db: Database, groupId: string, accountId: string)
 export function groupsOfMember(db: Database, accountId: string): Group[] {
   const rows = db
     .prepare(
-      `SELECT groups.id, groups.name, groups.currency, groups.owner_id
+      `SELECT ${GROUP_COLUMNS}
          FROM groups JOIN memberships ON memberships.group_id = groups.id
         WHERE memberships.account_id = ?
         ORDER BY groups.created_at DESC, groups.rowid DESC`,
@@ -152,6 +177,7 @@ export function joinGroup(db: Database, groupId: string, accountId: string): voi
 export function leaveGroup(db: Database, groupId: string, accountId: string): void {
   inTransaction(db, () => {
     const group = requireMembership(db, groupId, accountId);
+    requireNotArchived(db, groupId);
     if (group.ownerId === accountId) {
       throw new Refusal(403, 'OwnerCannotLeave', 'The owner cannot leave the group they created.');
     }
@@ -187,6 +213,40 @@ export function leaveGroup(db: Database, groupId: string, accountId: string): vo
       `INSERT INTO former_members (group_id, account_id, left_at) VALUES (?, ?, ?)
        ON CONFLICT (group_id, account_id) DO UPDATE SET left_at = excluded.left_at`,
     ).run(groupId, accountId, new Date().toISOString());
+  });
+}
+
+/**
+ * Archives `groupId`, by its owner, once the trip is over: every member's balance is 0 and no payment through the
+ * provider is pending or being refunded. The owner is the only one who may; a member who is not the owner is refused
+ * with `403`, and anyone outside the group with `404`. An archived group is refused with `GroupArchived`, so
+ * archiving it again is too. The checks and the write are one transaction, so a settlement cannot land between them.
+ */
+export function archiveGroup(db: Database, groupId: string, accountId: string, at: Date): void {
+  inTransaction(db, () => {
+    const group = requireMembership(db, groupId, accountId);
+    requireNotArchived(db, groupId);
+    if (group.ownerId !== accountId) {
+      throw new Refusal(403, 'NotPermitted', 'Only the owner of the group may archive it.');
+    }
+    if (balancesOf(db, groupId).some(entry => entry.balance !== 0)) {
+      throw new Refusal(
+        409,
+        'BalancesNotSettled',
+        'The balance of every member must be 0 before the group is archived.',
+      );
+    }
+    const waiting = db
+      .prepare(`SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding')`)
+      .get(groupId);
+    if (waiting) {
+      throw new Refusal(
+        409,
+        'PaymentPending',
+        'A payment or a refund through the provider is waiting: it must end first.',
+      );
+    }
+    db.prepare('UPDATE groups SET archived_at = ? WHERE id = ?').run(at.toISOString(), groupId);
   });
 }
 

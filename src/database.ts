@@ -369,6 +369,11 @@ const migrations: readonly string[] = [
     attached_at TEXT NOT NULL
   );
   `,
+  `
+  -- A group is archived once its trip is over: its owner archives it, and from then on nothing in it changes. The
+  -- time it was archived is kept as \`archived_at\`; a group not archived has none.
+  ALTER TABLE groups ADD COLUMN archived_at TEXT;
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

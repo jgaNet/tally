@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { type Database, inTransaction } from '../database';
-import { joinGroup, requireMembership } from '../groups/groups';
+import { joinGroup, requireMembership, requireNotArchived } from '../groups/groups';
 import { Refusal } from '../refusal';
 
 export interface Invitation {
@@ -27,6 +27,7 @@ const keyOf = (invitationId: string): string => createHash('sha256').update(invi
  */
 export function createInvitation(db: Database, groupId: string, accountId: string): string {
   requireMembership(db, groupId, accountId);
+  requireNotArchived(db, groupId);
   const id = randomBytes(32).toString('base64url');
   db.prepare('INSERT INTO invitations (id_hash, group_id, invited_by, created_at) VALUES (?, ?, ?, ?)').run(
     keyOf(id),
@@ -65,6 +66,7 @@ export function acceptInvitation(db: Database, invitationId: string, accountId: 
     if (!invitation) {
       throw new Refusal(404, 'NotFound', 'There is no such invitation.');
     }
+    requireNotArchived(db, invitation.groupId);
     joinGroup(db, invitation.groupId, accountId);
     return invitation.groupId;
   });

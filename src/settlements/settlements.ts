@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
-import { requireMembership } from '../groups/groups';
+import { requireMembership, requireNotArchived } from '../groups/groups';
 import { Refusal } from '../refusal';
 import { type StatusEntry, historyOf, recordStatus } from './history';
 
@@ -44,6 +44,7 @@ export function checkNewSettlement(
   amount: number,
 ): void {
   requireMembership(db, groupId, payeeId);
+  requireNotArchived(db, groupId);
 
   const balances = balancesWithPendingOf(db, groupId);
   const payer = balances.find(entry => entry.memberId === payerId);

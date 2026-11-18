@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SplitInput } from '../expenses/validation';
 import { type Database, inTransaction } from '../database';
-import { type Group, requireMembership } from '../groups/groups';
+import { type Group, requireMembership, requireNotArchived } from '../groups/groups';
 import { Refusal } from '../refusal';
 import { charLength } from '../text';
 
@@ -91,6 +91,7 @@ function requireNameFree(db: Database, groupId: string, nameKey: string, exceptI
 export function createTemplate(db: Database, groupId: string, accountId: string, input: TemplateInput): string {
   return inTransaction(db, () => {
     requireMembership(db, groupId, accountId);
+    requireNotArchived(db, groupId);
     const checked = validateTemplate(input, membersOfGroup(db, groupId));
     requireNameFree(db, groupId, checked.nameKey, '');
     const id = randomUUID();
@@ -157,6 +158,7 @@ function requireTemplate(db: Database, id: string, accountId: string): { templat
  */
 function requireTemplateEditor(db: Database, id: string, accountId: string): SplitTemplate {
   const { template, createdBy } = requireTemplate(db, id, accountId);
+  requireNotArchived(db, template.groupId);
   if (createdBy !== accountId) {
     const group: Group = requireMembership(db, template.groupId, accountId);
     if (group.ownerId !== accountId) {

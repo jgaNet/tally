@@ -1,5 +1,5 @@
 import { type Database, inTransaction } from '../database';
-import { requireMembership } from '../groups/groups';
+import { requireMembership, requireNotArchived } from '../groups/groups';
 import { MAX_AMOUNT } from '../expenses/validation';
 import { recordBudgetNotices } from '../notices/notices';
 import { Refusal } from '../refusal';
@@ -33,6 +33,7 @@ export function spentIn(db: Database, groupId: string, category: Category, month
 /** The owner of the group, for a member of it: any other member is refused, and anyone outside as if there were no group. */
 function requireOwner(db: Database, groupId: string, accountId: string): void {
   const group = requireMembership(db, groupId, accountId);
+  requireNotArchived(db, groupId);
   if (group.ownerId !== accountId) {
     throw new Refusal(403, 'NotPermitted', 'Only the owner of the group may set or remove its budgets.');
   }

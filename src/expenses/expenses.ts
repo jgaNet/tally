@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { noticeIfPassed } from '../budgets/budgets';
 import type { Category } from '../budgets/categories';
 import { type Database, inTransaction } from '../database';
-import { currencyOfGroup, leftMembersAmong, requireMembership } from '../groups/groups';
+import { currencyOfGroup, leftMembersAmong, requireMembership, requireNotArchived } from '../groups/groups';
 import type { Currency } from '../groups/validation';
 import { recordExpenseNotices } from '../notices/notices';
 import { type RatesConfig, offeredRate } from '../rates/rates';
@@ -135,9 +135,11 @@ export async function createExpense(
   input: ExpenseRequest,
 ): Promise<string> {
   const { currency } = requireMembership(db, groupId, payerId);
+  requireNotArchived(db, groupId);
   const offer = await rateOfferFor(rates, currency, input.money, input.date);
   return inTransaction(db, () => {
     const group = requireMembership(db, groupId, payerId);
+    requireNotArchived(db, groupId);
     const expense = validateExpense(
       { ...input, split: splitFor(db, groupId, input.split) },
       memberIdsOf(db, groupId),
@@ -323,6 +325,7 @@ export function requireExpense(db: Database, expenseId: string, accountId: strin
  */
 export function requireEditor(db: Database, expenseId: string, accountId: string): Expense {
   const expense = requireExpense(db, expenseId, accountId);
+  requireNotArchived(db, expense.groupId);
   if (expense.paidBy !== accountId) {
     const group = requireMembership(db, expense.groupId, accountId);
     if (group.ownerId !== accountId) {

@@ -1,5 +1,5 @@
 import { type Database, inTransaction } from '../database';
-import { leftMembersAmong } from '../groups/groups';
+import { leftMembersAmong, requireNotArchived } from '../groups/groups';
 import { Refusal } from '../refusal';
 import type { ProviderConfig } from './provider';
 import { recordStatus } from './history';
@@ -26,6 +26,7 @@ export async function requestRefund(
 ): Promise<void> {
   const held = inTransaction(db, () => {
     const settlement = requireSettlement(db, settlementId, accountId);
+    requireNotArchived(db, settlement.groupId);
     if (settlement.to !== accountId) {
       throw new Refusal(403, 'NotPayee', 'Only the member who was paid can refund a settlement.');
     }

@@ -9,7 +9,7 @@ import {
   todayInUtc,
   validateExpense,
 } from '../expenses/validation';
-import { requireMembership } from '../groups/groups';
+import { isArchived, requireMembership, requireNotArchived } from '../groups/groups';
 import { Refusal } from '../refusal';
 
 /** How many days before or after today `startsOn` may be. */
@@ -107,6 +107,7 @@ function toRecurring(row: RecurringRow): Recurring {
 export function createRecurring(db: Database, groupId: string, payerId: string, input: RecurringInput): string {
   return inTransaction(db, () => {
     const group = requireMembership(db, groupId, payerId);
+    requireNotArchived(db, groupId);
     // The same rules as an expense's description, amount and split; the day is checked as startsOn below.
     const checked = validateExpense(
       {
@@ -170,6 +171,7 @@ export function recurringOfGroup(db: Database, groupId: string): Recurring[] {
 export function stopRecurring(db: Database, id: string, accountId: string): void {
   inTransaction(db, () => {
     const recurring = requireRecurring(db, id, accountId);
+    requireNotArchived(db, recurring.groupId);
     if (recurring.paidBy !== accountId && requireMembership(db, recurring.groupId, accountId).ownerId !== accountId) {
       throw new Refusal(
         403,
@@ -191,7 +193,11 @@ export function stopRecurring(db: Database, id: string, accountId: string): void
 export function recordRecurring(db: Database, at: Date): void {
   const today = at.toISOString().slice(0, 10);
   const due = db
-    .prepare('SELECT id FROM recurring WHERE next_on <= ? ORDER BY created_at, rowid')
+    .prepare(
+      `SELECT recurring.id FROM recurring JOIN groups ON groups.id = recurring.group_id
+        WHERE recurring.next_on <= ? AND groups.archived_at IS NULL
+        ORDER BY recurring.created_at, recurring.rowid`,
+    )
     .all(today) as unknown as { id: string }[];
   for (const { id } of due) {
     for (let more = true; more;) {
@@ -204,6 +210,10 @@ export function recordRecurring(db: Database, at: Date): void {
 function recordNextDay(db: Database, id: string, today: string, at: Date): boolean {
   const row = db.prepare(`SELECT ${COLUMNS} FROM recurring WHERE id = ?`).get(id) as RecurringRow | undefined;
   if (row === undefined || row.next_on > today) {
+    return false;
+  }
+  // The group may have been archived since the run began: an archived group records nothing.
+  if (isArchived(db, row.group_id)) {
     return false;
   }
   const recurring = toRecurring(row);
