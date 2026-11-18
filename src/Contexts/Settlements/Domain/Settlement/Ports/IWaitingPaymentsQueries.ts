@@ -7,4 +7,6 @@ export interface IWaitingPaymentsQueries {
   isWaitingFor(groupId: string, memberId: string): Promise<boolean>;
   /** Whether any payment in the group is pending, or being refunded, at the provider: read when the group is archived (request 27). */
   isWaitingIn(groupId: string): Promise<boolean>;
+  /** Whether any payment the account pays or receives, in any group, is pending, being refunded or contested: read when the account is deleted (request 35). */
+  isWaitingForAccount(accountId: string): Promise<boolean>;
 }

@@ -31,3 +31,17 @@ export class InvalidCredentials extends AccountException {
     super('InvalidCredentials', 'The email or the password is wrong');
   }
 }
+
+/** An account that owns a group another member is in is not deleted: the group would be left with an owner who is no one (request 35). */
+export class OwnsAGroupWithOtherMembers extends AccountException {
+  constructor() {
+    super('OwnsAGroupWithOtherMembers', 'An account that owns a group with other members cannot be deleted');
+  }
+}
+
+/** An account with a payment through the provider pending, being refunded or contested is not deleted: it would change a balance once it lands (request 35). */
+export class PaymentWaitingAtTheProvider extends AccountException {
+  constructor() {
+    super('PaymentWaitingAtTheProvider', 'An account with a payment waiting at the provider cannot be deleted');
+  }
+}

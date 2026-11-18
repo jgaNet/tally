@@ -5,6 +5,7 @@ import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
 import {
+  DeleteAccountCommandEvent,
   ReinstateAccountCommandEvent,
   SignUpCommandEvent,
   SuspendAccountCommandEvent,
@@ -41,6 +42,11 @@ export class FastifyAccountController {
     const result = await this.#module.getQuery(GetMyAccountQueryHandler).handle(undefined, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  // Answered later: the caller deletes their own account (request 35); the refusal is the operation's.
+  async deleteMyAccount(req: FastifyRequest, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, DeleteAccountCommandEvent.set({}));
   }
 
   // Answered later: an administrator suspends an account (request 34); the refusal is the operation's.

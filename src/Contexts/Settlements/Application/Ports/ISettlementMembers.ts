@@ -18,6 +18,11 @@ export interface ISettlementMembers {
    * takes no lock; the command refuses by AccountSuspended. Groups decides it and answers.
    */
   suspendedOf(accountId: string): Promise<boolean>;
+  /**
+   * Whether the person deleted the account (request 35): read by the commands that start a payment through the provider or a netting with it,
+   * inside their transaction, so it takes no lock; the command refuses by AccountDeleted. Groups decides it and answers.
+   */
+  deletedOf(accountId: string): Promise<boolean>;
   /** The group's currency, or null when there is no such group. */
   currencyOf(groupId: string): Promise<string | null>;
   /**

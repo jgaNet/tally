@@ -11,6 +11,8 @@ import {
   CreateGroupCommandHandler,
   CreateInvitationCommandEvent,
   CreateInvitationCommandHandler,
+  DeleteAccountCommandEvent,
+  DeleteAccountCommandHandler,
   LeaveGroupCommandEvent,
   ReinstateAccountCommandEvent,
   ReinstateAccountCommandHandler,
@@ -48,6 +50,7 @@ import {
 } from '@Contexts/Settlements/module.local';
 import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsFromSettlements';
 import { AdministratorDecisionsFromSettlements } from '@Contexts/Groups/Infrastructure/AdministratorDecisionsFromSettlements';
+import { PostgresAccountTraces } from '@Contexts/Groups/Infrastructure/PostgresAccountTraces';
 import { PostgresAdministratorLog } from '@Contexts/Groups/Infrastructure/PostgresAdministratorLog';
 import { administratorsIn } from '@Contexts/Groups/Domain/Account/AdministratorRole';
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
@@ -103,7 +106,7 @@ const administratorDecisions = new AdministratorDecisionsFromSettlements(
 );
 
 /** Says who is calling, for the transport: the account a bearer token names. */
-export const authenticate = authenticateWithToken(tokens, systemClock);
+export const authenticate = authenticateWithToken(tokens, systemClock, id => accountReadModels.isDeleted(id));
 
 /** The Groups context: who someone is (ADR 1: accounts live here), and the groups they are in, and how they join. */
 export const localGroupsModule = new Module({
@@ -130,6 +133,12 @@ export const localGroupsModule = new Module({
     {
       event: MergeGroupsCommandEvent,
       handlers: [new MergeGroupsCommandHandler(groups, waiting, systemClock)],
+    },
+    {
+      event: DeleteAccountCommandEvent,
+      handlers: [
+        new DeleteAccountCommandHandler(accounts, groups, waiting, new PostgresAccountTraces(database), systemClock),
+      ],
     },
     {
       event: SuspendAccountCommandEvent,

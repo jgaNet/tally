@@ -35,6 +35,12 @@ export class InMemoryGroupRepository implements IGroupRepository {
     return Result.ok();
   }
 
+  async countOwnedWithOtherMembers(ownerId: Id): Promise<number> {
+    return [...this.store.values()].filter(
+      group => group.ownerId === ownerId.value && group.members.some(member => member.accountId !== group.ownerId),
+    ).length;
+  }
+
   async saveMerged(kept: Group, merged: Group): Promise<IResult> {
     const mergedSnapshot = merged.toSnapshot();
     const current = this.store.get(mergedSnapshot.id);
@@ -91,6 +97,10 @@ export class InMemoryWaitingPayments implements IWaitingPayments {
 
   async waitingOf(groupId: string, accountId: Id): Promise<boolean> {
     return this.waiting.has(`${groupId}/${accountId.value}`);
+  }
+
+  async waitingForAccount(accountId: Id): Promise<boolean> {
+    return [...this.waiting].some(key => key.endsWith(`/${accountId.value}`));
   }
 
   async waitingIn(groupId: string): Promise<boolean> {

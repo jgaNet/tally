@@ -31,6 +31,12 @@ export interface IGroupMembersQueries {
    * each owns, inside the command deciding it, so it takes no lock; the command refuses by AccountSuspended.
    */
   isSuspendedOf(accountId: string): Promise<boolean>;
+  /**
+   * Which of these accounts their person deleted (request 35), in the order given: read by the other contexts, through the port each owns, inside
+   * the command deciding a split, a payment or a netting, so it takes no lock. A deleted account stays a member of its groups, with its balance,
+   * but nothing new is done with it: the command refuses by AccountDeleted, or leaves it out of what it tells.
+   */
+  deletedAmong(accountIds: string[]): Promise<string[]>;
   /** The group's currency, fixed when it was created; null when there is no such group. Read by a command that prices a payment. */
   currencyOf(groupId: string): Promise<string | null>;
   /**
@@ -40,7 +46,7 @@ export interface IGroupMembersQueries {
   groupsSharedBy(firstAccountId: string, secondAccountId: string, currency: string): Promise<string[]>;
   /**
    * Every group that has a current member, each with its current members in join order: read by a query outside any
-   * transaction, to say what every member still owes (ADR 10). A group with none is not listed.
+   * transaction, to say what every member still owes (ADR 10). A group with none is not listed; a deleted account is left out of them (request 35).
    */
   membersOfEveryGroup(): Promise<{ groupId: string; memberIds: string[] }[]>;
   /**

@@ -14,9 +14,28 @@ const as = (role: Role, subjectId = '') =>
 const store = new Map([
   [
     'alice',
-    { id: 'alice', email: 'alice@example.com', name: 'Alice', passwordHash: 'secret', suspendedAt: null, version: 1 },
+    {
+      id: 'alice',
+      email: 'alice@example.com',
+      name: 'Alice',
+      passwordHash: 'secret',
+      suspendedAt: null,
+      deletedAt: null,
+      version: 1,
+    },
   ],
-  ['bob', { id: 'bob', email: 'bob@example.com', name: 'Bob', passwordHash: 'secret', suspendedAt: null, version: 1 }],
+  [
+    'bob',
+    {
+      id: 'bob',
+      email: 'bob@example.com',
+      name: 'Bob',
+      passwordHash: 'secret',
+      suspendedAt: null,
+      deletedAt: null,
+      version: 1,
+    },
+  ],
 ]);
 const handler = new GetMyAccountQueryHandler(new InMemoryAccountReadModels(store));
 

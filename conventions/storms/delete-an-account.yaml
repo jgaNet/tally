@@ -5,7 +5,7 @@ feature: delete-an-account
 intent: >-
   A person deletes their account; their name and email are erased from everything Tally keeps, their id stays where it is, and in every group they stay a member, anonymous, with their balance.
 
-done: false
+done: true
 
 hotSpots:
   - question: Who decides a deletion, and what does it refuse?

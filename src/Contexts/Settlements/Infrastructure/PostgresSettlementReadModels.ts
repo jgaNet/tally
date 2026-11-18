@@ -140,6 +140,19 @@ export class PostgresSettlementReadModels
     });
   }
 
+  /** Whether any payment the account pays or receives waits at the provider, in any group, read inside the command deleting the account (request 35). */
+  async isWaitingForAccount(accountId: string): Promise<boolean> {
+    return (
+      (await this.database.get<{ found: number }>(
+        `SELECT 1 AS found FROM settlements
+         WHERE method = 'provider' AND status IN ('pending', 'refunding', 'contested') AND (payer = ? OR payee = ?)
+         LIMIT 1`,
+        accountId,
+        accountId,
+      )) !== undefined
+    );
+  }
+
   /** Whether any payment in the group waits at the provider, read inside the command archiving the group (request 27). */
   async isWaitingIn(groupId: string): Promise<boolean> {
     return (

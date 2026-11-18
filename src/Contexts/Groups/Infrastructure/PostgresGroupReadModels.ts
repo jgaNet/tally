@@ -72,7 +72,9 @@ export class PostgresGroupReadModels implements IGroupQueries, IGroupMembersQuer
     return this.database.exclusive(async () => {
       const members = new Map<string, string[]>();
       for (const row of await this.database.all<{ group_id: string; account_id: string }>(
-        'SELECT group_id, account_id FROM group_members WHERE left_at IS NULL ORDER BY group_id, position',
+        `SELECT m.group_id, m.account_id FROM group_members m
+         WHERE m.left_at IS NULL AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id = m.account_id AND a.deleted_at IS NOT NULL)
+         ORDER BY m.group_id, m.position`,
       )) {
         members.set(row.group_id, [...(members.get(row.group_id) ?? []), row.account_id]);
       }
@@ -127,6 +129,18 @@ export class PostgresGroupReadModels implements IGroupQueries, IGroupMembersQuer
       accountId,
     );
     return row?.suspended_at != null;
+  }
+
+  async deletedAmong(accountIds: string[]): Promise<string[]> {
+    const deleted: string[] = [];
+    for (const accountId of accountIds) {
+      const row = await this.database.get<{ deleted_at: string | null }>(
+        'SELECT deleted_at FROM accounts WHERE id = ?',
+        accountId,
+      );
+      if (row?.deleted_at != null) deleted.push(accountId);
+    }
+    return deleted;
   }
 
   async isArchivedOf(groupId: string): Promise<boolean> {

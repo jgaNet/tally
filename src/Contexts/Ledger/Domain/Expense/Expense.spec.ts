@@ -20,6 +20,7 @@ const recordExpense = (overrides: Partial<Parameters<typeof Expense.create>[0]> 
     paidBy: alice,
     archived: false,
     suspended: false,
+    deleted: [],
     description: 'Groceries',
     money: { amount: 1000 },
     date: '2026-03-10',

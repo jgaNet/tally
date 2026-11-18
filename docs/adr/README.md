@@ -30,6 +30,7 @@ why, what it costs, and when to revisit it.
 | [23](0023-a-merged-group-is-removed-in-the-write-that-keeps-the-other-and-a-move-keeps-its-version.md) | A merged group is removed in the write that keeps the other, and a move keeps the version it was read at |
 | [24](0024-a-contest-is-held-by-the-book-and-the-administrators-log-is-written-by-settlements.md) | Administrators are a role given at sign-in, a contest is held by the settlement's book, and the administrators' log is written by Settlements and read by Groups through a port Groups owns |
 | [25](0025-an-account-is-suspended-by-an-administrator-and-every-start-it-makes-is-refused-by-one-name.md) | An account is suspended by an administrator on the Account in Groups, and what a suspended account starts is refused by one name, decided by each context through the port it owns |
+| [26](0026-an-account-is-deleted-by-its-person-and-stays-as-a-placeholder-the-other-contexts-refuse-by-one-name.md) | An account is deleted by its person on the Account in Groups, and stays as a placeholder; what would start something new with it is refused by one name, decided by each context through the port it owns |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

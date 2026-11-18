@@ -28,7 +28,10 @@ export class InMemoryAccountRepository implements IAccountRepository {
 
   async save(account: Account): Promise<IResult> {
     const snapshot = account.toSnapshot();
-    if ([...this.store.values()].some(other => other.id !== snapshot.id && other.email === snapshot.email)) {
+    if (
+      snapshot.email !== null &&
+      [...this.store.values()].some(other => other.id !== snapshot.id && other.email === snapshot.email)
+    ) {
       return Result.fail(new EmailAlreadyUsed());
     }
     if ((this.store.get(snapshot.id)?.version ?? 0) !== snapshot.version) {
@@ -44,7 +47,13 @@ export class InMemoryAccountReadModels implements IAccountQueries, IAccountCrede
 
   async findById(id: string): Promise<AccountReadModel | null> {
     const snapshot = this.store.get(id);
-    return snapshot ? { id: snapshot.id, email: snapshot.email, name: snapshot.name } : null;
+    return snapshot && snapshot.email !== null && snapshot.deletedAt === null
+      ? { id: snapshot.id, email: snapshot.email, name: snapshot.name }
+      : null;
+  }
+
+  async isDeleted(id: string): Promise<boolean> {
+    return this.store.get(id)?.deletedAt != null;
   }
 
   async findByEmail(email: string): Promise<CredentialsReadModel | null> {

@@ -74,6 +74,8 @@ contexts:
         meaning: a signed-in account whose email the server was started with (ADMIN_EMAILS), given the role at sign-in; the only one who decides a contested settlement or reads the administrators' log.
       - term: Suspension
         meaning: an administrator's hold on an account, until it is reinstated (ADR 25). What the account starts is refused by one name in every group, and nothing in any group changes.
+      - term: Deleted account
+        meaning: an account its person deleted (ADR 26). Its email and name are erased, its id stays and means no one; it stays a member of its groups, named `Deleted account`, with its balance, and nothing new is done with it.
   - id: Ledger
     purpose: >-
       The expenses of each group, how each is split between its members, and what each member owes or is owed:

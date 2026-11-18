@@ -49,6 +49,8 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
       payeeBalance: await this.balances.balanceOf(payload.groupId, caller.data.value),
       archived: await this.members.archivedOf(payload.groupId),
       suspended: await this.members.suspendedOf(caller.data.value),
+      // A deleted payer's cash is still recorded, by its payee, so that the group can be brought back to even (request 35).
+      counterpartyDeleted: false,
       now,
     });
     if (recorded.isFailure()) return recorded;

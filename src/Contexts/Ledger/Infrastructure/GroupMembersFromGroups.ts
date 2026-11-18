@@ -23,6 +23,10 @@ export class GroupMembersFromGroups implements IGroupMembers {
     return this.groups().isSuspendedOf(accountId.value);
   }
 
+  async deletedAmong(accountIds: Id[]): Promise<Id[]> {
+    return (await this.groups().deletedAmong(accountIds.map(id => id.value))).map(id => new Id(id));
+  }
+
   async isMember(groupId: string, accountId: Id): Promise<boolean> {
     return this.groups().isMemberOf(groupId, accountId.value);
   }

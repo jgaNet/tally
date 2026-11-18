@@ -1,4 +1,4 @@
-import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
+import { AccountDeleted, AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { SettlementBookMergedEvent } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
 import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
@@ -59,6 +59,12 @@ export interface Decision {
   archived: boolean;
   /** Whether the account that starts the settlement is suspended, read by the handler: it starts none (request 34). */
   suspended: boolean;
+  /**
+   * Whether the other party of the settlement is an account its person deleted, read by the handler (request 35): none is paid through the
+   * provider or netted with. The payee of a settlement in cash is the caller, who is not deleted, and its payer may be: the others may still
+   * record in cash what they received from a deleted account, so that the group can be brought back to even.
+   */
+  counterpartyDeleted: boolean;
 }
 
 /**
@@ -502,10 +508,21 @@ export class SettlementBook extends AggregateRoot {
    * provider (a waiting payment from the payer lowers what they owe; one to the payee lowers what they are owed).
    */
   private decide(decision: Decision): IResult<void> {
-    const { payer, payee, amount, payerIsMember, payeeIsMember, payerBalance, payeeBalance, archived, suspended } =
-      decision;
+    const {
+      payer,
+      payee,
+      amount,
+      payerIsMember,
+      payeeIsMember,
+      payerBalance,
+      payeeBalance,
+      archived,
+      suspended,
+      counterpartyDeleted,
+    } = decision;
     if (archived) return Result.fail(new GroupArchived('Settlements'));
     if (suspended) return Result.fail(new AccountSuspended('Settlements'));
+    if (counterpartyDeleted) return Result.fail(new AccountDeleted('Settlements'));
     if (!Number.isInteger(amount) || amount < 1) return Result.fail(new InvalidSettlementAmount());
     if (!payerIsMember) return Result.fail(new PayerNotAMember());
     if (!payeeIsMember) return Result.fail(new PayeeNotAMember());

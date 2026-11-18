@@ -26,6 +26,11 @@ export interface IGroupMembers {
    * no lock; the command refuses by AccountSuspended. Groups decides it and answers.
    */
   suspendedOf(accountId: Id): Promise<boolean>;
+  /**
+   * Which of these accounts their person deleted (request 35), read by each command that splits with them, inside its transaction, so it takes
+   * no lock; the command refuses by AccountDeleted, or ends the recurring expense they are in. Groups decides it and answers.
+   */
+  deletedAmong(accountIds: Id[]): Promise<Id[]>;
   /** The group's current members in join order, none when there is no such group: read by the command deciding a split. */
   membersOf(groupId: string): Promise<Id[]>;
   /** Whether the account is a current member of the group: read by a query, outside any transaction. */

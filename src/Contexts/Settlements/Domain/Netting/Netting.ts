@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { AccountDeleted } from '@SharedKernel/Domain';
 import { CURRENCIES } from '@SharedKernel/Domain/Currency';
 
 import { NettingRecordedEvent } from '@Contexts/Settlements/Domain/Netting/Events/NettingEvents';
@@ -25,9 +26,23 @@ export class Netting extends AggregateRoot {
     super(id, 0);
   }
 
-  /** A request to net is refused before anything is read: with oneself, or in a currency Tally does not keep. */
-  static checkRequest({ by, withAccount, currency }: { by: Id; withAccount: Id; currency: string }): IResult {
+  /**
+   * A request to net is refused before anything is read: with oneself, with an account its person deleted (`withDeleted`, read by the handler,
+   * request 35), or in a currency Tally does not keep.
+   */
+  static checkRequest({
+    by,
+    withAccount,
+    currency,
+    withDeleted,
+  }: {
+    by: Id;
+    withAccount: Id;
+    currency: string;
+    withDeleted: boolean;
+  }): IResult {
     if (by.value === withAccount.value) return Result.fail(new NettingWithSelf());
+    if (withDeleted) return Result.fail(new AccountDeleted('Settlements'));
     if (!(CURRENCIES as readonly string[]).includes(currency)) return Result.fail(new CurrencyNotSupported());
     return Result.ok();
   }
@@ -49,7 +64,7 @@ export class Netting extends AggregateRoot {
     amount: number;
     settlementIds: Id[];
   }): IResult<Netting> {
-    const request = Netting.checkRequest({ by, withAccount, currency });
+    const request = Netting.checkRequest({ by, withAccount, currency, withDeleted: false });
     if (request.isFailure()) return request;
     if (!Number.isInteger(amount) || amount < 1) return Result.fail(new NothingToNet());
 

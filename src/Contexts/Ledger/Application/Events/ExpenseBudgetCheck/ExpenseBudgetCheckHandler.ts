@@ -36,7 +36,14 @@ export class ExpenseBudgetCheckHandler extends EventHandler<ExpenseRecordedEvent
 
     const month = expense.spentOn.value.slice(0, 7);
     const spent = await this.spending.spentIn(expense.groupId.value, expense.category.value, month);
-    const decided = budget.pass({ month, spent, members: await this.groupMembers.membersOf(expense.groupId.value) });
+    // A deleted account is told nothing any more (request 35): it is left out of the members the budget's notice is for.
+    const members = await this.groupMembers.membersOf(expense.groupId.value);
+    const deleted = await this.groupMembers.deletedAmong(members);
+    const decided = budget.pass({
+      month,
+      spent,
+      members: members.filter(member => !deleted.some(gone => gone.value === member.value)),
+    });
     if (decided === budget) return Result.ok();
 
     const saved = await this.budgets.save(decided);

@@ -15,6 +15,7 @@ const setUp = (overrides: Partial<Parameters<typeof RecurringExpense.setUp>[0]> 
     groupId: group,
     archived: false,
     suspended: false,
+    deleted: [],
     paidBy: new Id('alice'),
     description: 'Rent',
     amount: 90000,

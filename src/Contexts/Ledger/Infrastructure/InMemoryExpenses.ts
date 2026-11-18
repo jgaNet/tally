@@ -104,6 +104,7 @@ export class InMemoryGroupMembers implements IGroupMembers {
     private members: Map<string, string[]>,
     private archived: Set<string> = new Set(),
     private suspended: Set<string> = new Set(),
+    private deleted: Set<string> = new Set(),
   ) {}
 
   /** The test archives a group: every change in it is then refused by GroupArchived. */
@@ -113,6 +114,10 @@ export class InMemoryGroupMembers implements IGroupMembers {
 
   async suspendedOf(accountId: Id): Promise<boolean> {
     return this.suspended.has(accountId.value);
+  }
+
+  async deletedAmong(accountIds: Id[]): Promise<Id[]> {
+    return accountIds.filter(id => this.deleted.has(id.value));
   }
 
   async archivedOf(groupId: string): Promise<boolean> {

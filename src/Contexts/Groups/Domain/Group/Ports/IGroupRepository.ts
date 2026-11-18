@@ -17,4 +17,9 @@ export interface IGroupRepository {
    * ConcurrencyConflictException when either group is no longer at the version it was read at.
    */
   saveMerged(kept: Group, merged: Group): Promise<IResult>;
+  /**
+   * How many groups the account owns in which another account is a current member: the fact a deletion of the account depends on (request 35).
+   * Read in the command's transaction.
+   */
+  countOwnedWithOtherMembers(ownerId: Id): Promise<number>;
 }

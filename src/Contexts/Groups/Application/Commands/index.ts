@@ -16,3 +16,5 @@ export { SuspendAccountCommandEvent } from '@Contexts/Groups/Application/Command
 export { SuspendAccountCommandHandler } from '@Contexts/Groups/Application/Commands/SuspendAccount/SuspendAccountCommandHandler';
 export { ReinstateAccountCommandEvent } from '@Contexts/Groups/Application/Commands/ReinstateAccount/ReinstateAccountCommandEvent';
 export { ReinstateAccountCommandHandler } from '@Contexts/Groups/Application/Commands/ReinstateAccount/ReinstateAccountCommandHandler';
+export { DeleteAccountCommandEvent } from '@Contexts/Groups/Application/Commands/DeleteAccount/DeleteAccountCommandEvent';
+export { DeleteAccountCommandHandler } from '@Contexts/Groups/Application/Commands/DeleteAccount/DeleteAccountCommandHandler';

@@ -50,6 +50,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
       offer: null,
       archived: await this.groupMembers.archivedOf(payload.groupId),
       suspended: await this.groupMembers.suspendedOf(new Id(payload.paidBy)),
+      deleted: await this.groupMembers.deletedAmong(payload.members.map(member => new Id(member))),
       now,
     });
     if (expense.isFailure()) return expense;

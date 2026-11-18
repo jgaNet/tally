@@ -1,4 +1,4 @@
-import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
+import { AccountDeleted, AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 import { CurrencyCode } from '@SharedKernel/Domain/Currency';
 
@@ -81,6 +81,7 @@ export class Expense extends AggregateRoot {
     offer,
     archived,
     suspended,
+    deleted,
     now,
   }: {
     /** The id the expense is born with: given when a recurring expense's day already named it (ADR 14); otherwise generated. */
@@ -101,6 +102,8 @@ export class Expense extends AggregateRoot {
     archived: boolean;
     /** Whether the account that records it is suspended, read by the handler: a suspended account records no expense (request 34). */
     suspended: boolean;
+    /** The accounts among the group's members that their person deleted, read by the handler: none of them may be in the split of a new expense (request 35). */
+    deleted: Id[];
     now: Date;
   }): IResult<Expense> {
     if (archived) return Result.fail(new GroupArchived('Ledger'));
@@ -118,6 +121,9 @@ export class Expense extends AggregateRoot {
       now,
     });
     if (decided.isFailure()) return decided;
+    if (decided.data.shares.some(share => deleted.some(account => account.value === share.memberId.value))) {
+      return Result.fail(new AccountDeleted('Ledger'));
+    }
 
     const { description: text, amount: value, original, spentOn, splitKind, shares, category: kind } = decided.data;
     const expense = new Expense(

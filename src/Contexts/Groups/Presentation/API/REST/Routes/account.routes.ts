@@ -39,6 +39,13 @@ export const accountRoutes = function (
     controller.getMyAccount.bind(controller),
   );
 
+  // Answered later: the caller deletes their own account, its name and email erased and its places in the groups kept (request 35).
+  fastify.delete(
+    '/accounts/me',
+    { schema: { tags: ['accounts'], response: LaterCommandResSchema } },
+    controller.deleteMyAccount.bind(controller),
+  );
+
   // Answered later: an administrator suspends an account, so nothing it starts is done until it is reinstated (request 34).
   fastify.put(
     '/admin/accounts/:id/suspension',

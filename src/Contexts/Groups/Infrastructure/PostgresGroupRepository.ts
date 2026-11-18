@@ -148,6 +148,15 @@ export class PostgresGroupRepository implements IGroupRepository {
    * group's row is removed at its version, with its members and invitations; its passages are the kept group's now, and its audit entries
    * are kept under the kept group's id.
    */
+  async countOwnedWithOtherMembers(ownerId: Id): Promise<number> {
+    const row = await this.database.get<{ owned: number | string }>(
+      `SELECT COUNT(*) AS owned FROM groups g WHERE g.owner_id = ? AND EXISTS (
+         SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.account_id <> g.owner_id AND m.left_at IS NULL)`,
+      ownerId.value,
+    );
+    return Number(row?.owned ?? 0);
+  }
+
   async saveMerged(kept: Group, merged: Group): Promise<IResult> {
     const mergedSnapshot = merged.toSnapshot();
     const saved = await this.save(kept);

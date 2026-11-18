@@ -14,9 +14,21 @@ export class PostgresAccountReadModels implements IAccountQueries, IAccountCrede
 
   async findById(id: string): Promise<AccountReadModel | null> {
     const row = await this.database.exclusive(
-      async () => await this.database.get<AccountReadModel>('SELECT id, email, name FROM accounts WHERE id = ?', id),
+      async () =>
+        await this.database.get<AccountReadModel>(
+          'SELECT id, email, name FROM accounts WHERE id = ? AND deleted_at IS NULL',
+          id,
+        ),
     );
     return row ?? null;
+  }
+
+  async isDeleted(id: string): Promise<boolean> {
+    const row = await this.database.exclusive(
+      async () =>
+        await this.database.get<{ deleted_at: string | null }>('SELECT deleted_at FROM accounts WHERE id = ?', id),
+    );
+    return row?.deleted_at != null;
   }
 
   async findByEmail(email: string): Promise<CredentialsReadModel | null> {

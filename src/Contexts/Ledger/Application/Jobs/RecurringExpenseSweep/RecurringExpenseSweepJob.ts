@@ -63,10 +63,12 @@ export class RecurringExpenseSweepJob {
     const recurring = await this.recurringExpenses.findById(id);
     if (!recurring || !recurring.dayHasCome(today)) return Result.ok('stop');
 
+    // A deleted account is no longer a member for what is recorded in its name: the day ends the recurring expense it is in (request 35).
     const members = await this.groupMembers.membersOf(recurring.groupId.value);
+    const deleted = await this.groupMembers.deletedAmong(members);
     const decided = recurring.recordDay({
       today,
-      groupMembers: members,
+      groupMembers: members.filter(member => !deleted.some(gone => gone.value === member.value)),
       archived: await this.groupMembers.archivedOf(recurring.groupId.value),
       suspended: await this.groupMembers.suspendedOf(recurring.paidBy),
     });

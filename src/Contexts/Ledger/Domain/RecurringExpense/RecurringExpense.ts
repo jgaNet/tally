@@ -1,4 +1,4 @@
-import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
+import { AccountDeleted, AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
@@ -77,6 +77,7 @@ export class RecurringExpense extends AggregateRoot {
     groupMembers,
     archived,
     suspended,
+    deleted,
     now,
   }: {
     groupId: Id;
@@ -92,6 +93,8 @@ export class RecurringExpense extends AggregateRoot {
     archived: boolean;
     /** Whether the payer, the caller, is suspended, read by the handler: a suspended account sets up none (request 34). */
     suspended: boolean;
+    /** The accounts among the group's members that their person deleted, read by the handler: none may be in the split of a new recurring expense (request 35). */
+    deleted: Id[];
     now: Date;
   }): IResult<RecurringExpense> {
     if (archived) return Result.fail(new GroupArchived('Ledger'));
@@ -110,6 +113,9 @@ export class RecurringExpense extends AggregateRoot {
     const isMember = (memberId: Id) => groupMembers.some(member => member.value === memberId.value);
     if (!isMember(paidBy) || !decided.data.shares.every(share => isMember(share.memberId))) {
       return Result.fail(new NotAMemberOfTheGroup());
+    }
+    if (decided.data.shares.some(share => deleted.some(account => account.value === share.memberId.value))) {
+      return Result.fail(new AccountDeleted('Ledger'));
     }
 
     const recurring = new RecurringExpense(
@@ -143,7 +149,8 @@ export class RecurringExpense extends AggregateRoot {
   /**
    * Decides the day that has come: when its payer and every member of its split are still in `groupMembers`, the day's expense
    * is to be recorded under a new id, carried by `RecurringExpenseDayCame`, and the next day is the same day of the next month;
-   * otherwise the recurring expense ends (`ended`), and records no expense. `today` is the day of the application's clock, read
+   * otherwise the recurring expense ends (`ended`), and records no expense. A deleted account is not in `groupMembers` (request 35): the day
+   * ends the recurring expense it pays or is in the split of, as it does for a member who left. `today` is the day of the application's clock, read
    * by the sweep. The returned aggregate keeps this version.
    */
   recordDay({
