@@ -16,4 +16,10 @@ export interface ISettlementBookRepository {
   /** The book holding the settlement with this id, or null when none holds it. */
   findBySettlementId(settlementId: string): Promise<SettlementBook | null>;
   save(book: SettlementBook): Promise<IResult>;
+  /**
+   * Stores the book kept, as `save()` does, and removes the book of the group merged in the same transaction, at the version it was read
+   * at; the audit entries of the group merged are the group kept's (request 31). A book no longer at its version is refused with a
+   * ConcurrencyConflictException (CONC-OPTIMISTIC).
+   */
+  absorb(kept: SettlementBook, merged: SettlementBook): Promise<IResult>;
 }

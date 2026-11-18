@@ -18,6 +18,7 @@ import {
   InvalidCategoryException,
   isCategory,
 } from '@Contexts/Ledger/Domain/Expense/Category';
+import { RecurringExpenseMovedEvent } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
 
 /**
  * RecurringExpense is the aggregate root of an expense its payer pays every month (request 23): what it is for, how much, the
@@ -31,7 +32,7 @@ import {
  * the same day cannot both record it. Its payer, or the group's owner, may stop it (RecurringExpenseStopped).
  */
 export class RecurringExpense extends AggregateRoot {
-  readonly #groupId: string;
+  #groupId: string;
   readonly #paidBy: string;
   readonly #currency: string;
   readonly #description: ExpenseDescription;
@@ -233,6 +234,16 @@ export class RecurringExpense extends AggregateRoot {
       category: this.#category,
       version: this.version,
     };
+  }
+
+  /**
+   * The recurring expense moves to the group it names, the group merged into the group kept (request 31): its id, its payer, its
+   * split, its version and its next day are kept, and RecurringExpenseMoved is recorded.
+   */
+  moveTo(groupId: string): void {
+    const from = this.#groupId;
+    this.#groupId = groupId;
+    this.record(RecurringExpenseMovedEvent.set({ recurringId: this._id.value, from, to: groupId }));
   }
 
   get groupId(): string {

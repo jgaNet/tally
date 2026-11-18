@@ -19,6 +19,7 @@ import {
 import {
   PaymentRequestedEvent,
   RefundRequestedEvent,
+  SettlementBookMergedEvent,
   SettlementFailedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
@@ -113,6 +114,8 @@ export class SettlementBook extends AggregateRoot {
   readonly #history: ISettlementStatusLine[] = [];
   /** The audit entries of the changes of money decided since the book was read (request 28). */
   readonly #audit: AuditEntry[] = [];
+  /** The ids of the settlements of a merged group this book took up since it was read, in the order it took them (request 31). */
+  readonly #moved: string[] = [];
 
   private constructor(id: Id, groupId: string, version: number, settlements: ISettlementSnapshot[]) {
     super(id, version);
@@ -281,6 +284,20 @@ export class SettlementBook extends AggregateRoot {
     return this.#audit;
   }
 
+  /**
+   * The book of the group merged becomes this group's (request 31): its settlements are this book's, each as it was, with its id,
+   * status, history and payment, and their group is this one. The group merged has no book from now on. Records SettlementBookMerged.
+   * The store writes the move at the version this book was read at, and removes the group merged's book in the same transaction.
+   */
+  absorb(merged: SettlementBook): void {
+    for (const settlement of merged.#settlements.values()) {
+      const moved: ISettlementSnapshot = { ...settlement, groupId: this.#groupId };
+      this.#settlements.set(moved._id, moved);
+      this.#moved.push(moved._id);
+    }
+    this.record(SettlementBookMergedEvent.set({ groupId: this.#groupId, mergedGroupId: merged.groupId }));
+  }
+
   /** The group the book is of: a settlement's group is the book's. */
   get groupId(): string {
     return this.#groupId;
@@ -320,9 +337,9 @@ export class SettlementBook extends AggregateRoot {
     return Result.ok({ ...settlement });
   }
 
-  /** Whether the book moved since it was read: a settlement decided, or a status the provider moved. */
+  /** Whether the book moved since it was read: a settlement decided, a status the provider moved, or settlements of a merged group taken up. */
   hasChanges(): boolean {
-    return this.#recorded.length > 0 || this.#changed.size > 0;
+    return this.#recorded.length > 0 || this.#changed.size > 0 || this.#moved.length > 0;
   }
 
   /** The book as the store writes it: what was decided or moved since it was read, with the version it was read at. */
@@ -335,6 +352,7 @@ export class SettlementBook extends AggregateRoot {
       recorded: this.#recorded.map(id => ({ ...this.#settlements.get(id)! })),
       changed: [...this.#changed].filter(id => !recordedIds.has(id)).map(id => ({ ...this.#settlements.get(id)! })),
       history: this.#history.map(line => ({ ...line })),
+      moved: this.#moved.map(id => ({ ...this.#settlements.get(id)! })),
     };
   }
 

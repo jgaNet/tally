@@ -15,6 +15,8 @@ import {
   LeaveGroupCommandHandler,
   ArchiveGroupCommandEvent,
   ArchiveGroupCommandHandler,
+  MergeGroupsCommandEvent,
+  MergeGroupsCommandHandler,
   SignUpCommandEvent,
   SignUpCommandHandler,
 } from '@Contexts/Groups/Application/Commands';
@@ -37,6 +39,8 @@ import { HmacAccessTokens } from '@Contexts/Groups/Infrastructure/Services/HmacA
 import { LedgerBalances } from '@Contexts/Groups/Infrastructure/Ledger/LedgerBalances';
 import { SettlementsWaitingPayments } from '@Contexts/Groups/Infrastructure/Settlements/SettlementsWaitingPayments';
 import { bearerAuthentication } from '@Contexts/Groups/Presentation/API/REST/Middlewares/BearerAuthentication';
+import { GroupsMergedHandler } from '@Contexts/Groups/Application/Events/GroupsMergedHandler';
+import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 
 /**
  * The Groups context (conventions/domain.yaml, ADR 1, ADR 2): accounts, groups and their invitations. Its state is in the
@@ -81,7 +85,12 @@ export const localGroupsModule = new Module({
       event: ArchiveGroupCommandEvent,
       handlers: [new ArchiveGroupCommandHandler(groups, memberBalances, waitingPayments, clock)],
     },
+    {
+      event: MergeGroupsCommandEvent,
+      handlers: [new MergeGroupsCommandHandler(groups, waitingPayments, clock)],
+    },
   ],
+  domainEvents: [{ event: GroupsMergedEvent, handlers: [new GroupsMergedHandler()] }],
   queries: [
     new GetMyAccountQueryHandler(accountQueries),
     new SignInQueryHandler(accountQueries, hasher, tokens),

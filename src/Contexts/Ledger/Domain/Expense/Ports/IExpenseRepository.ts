@@ -17,4 +17,10 @@ export interface IExpenseRepository {
    * version it was read at, or no longer stored, is refused with a ConcurrencyConflictException (CONC-OPTIMISTIC).
    */
   remove(expense: Expense): Promise<IResult>;
+  /**
+   * Moves the expense, with the balances it counts, to the group it now names, in the same transaction, at the version it was
+   * read at: the version is kept, so an edit from the version its author read still applies (request 31). An expense no longer
+   * stored at that version is refused with a ConcurrencyConflictException (CONC-OPTIMISTIC).
+   */
+  move(expense: Expense): Promise<IResult>;
 }

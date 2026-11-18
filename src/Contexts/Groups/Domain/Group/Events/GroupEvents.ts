@@ -17,3 +17,9 @@ export class BalancePassedEvent extends DomainEvent<{ groupId: string; from: str
 
 /** A group was archived by its owner: read only from now on (request 27). */
 export class GroupArchivedEvent extends DomainEvent<{ groupId: string; archivedAt: string }> {}
+
+/**
+ * The owner of two groups merged the group merged into the group kept (request 31): the group kept, and the group merged, which
+ * is gone from now on. Its members, passed balances and audit are the group kept's; the integration event tells Ledger and Settlements.
+ */
+export class GroupsMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string }> {}

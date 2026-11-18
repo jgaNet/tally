@@ -12,6 +12,8 @@ import {
   GetMyGroupsResSchema,
   ArchiveGroupResSchema,
   LeaveGroupResSchema,
+  MergeGroupReqBodySchema,
+  MergeGroupResSchema,
 } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes.schema';
 import { CreateGroupPayload } from '@Contexts/Groups/Application/Commands';
 
@@ -53,6 +55,12 @@ export const groupRoutes = function (fastify: FastifyInstance, { module }: { mod
     '/groups/:id/archive',
     { schema: { tags, response: ArchiveGroupResSchema } },
     controller.archiveGroup.bind(controller),
+  );
+
+  fastify.post<{ Params: { id: string }; Body: { from: string } }>(
+    '/groups/:id/merge',
+    { schema: { tags, body: MergeGroupReqBodySchema, response: MergeGroupResSchema } },
+    controller.mergeGroup.bind(controller),
   );
 
   fastify.get<{ Params: { id: string } }>(

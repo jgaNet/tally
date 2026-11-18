@@ -66,3 +66,36 @@ export class GroupNotSettledException extends ConflictException {
     });
   }
 }
+
+/** The two groups are one and the same: a group is not merged into itself (request 31). */
+export class GroupMergeIntoItselfException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'GroupMergeIntoItself',
+      message: 'A group cannot be merged into itself',
+    });
+  }
+}
+
+/** The two groups are not in the same currency: a merge keeps one currency, so the groups must share it (request 31). */
+export class CurrenciesDifferException extends ConflictException {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'CurrenciesDiffer',
+      message: 'Only groups in the same currency can be merged',
+    });
+  }
+}
+
+/** A payment through the provider in the group merged is still pending or refunding: the merge waits until it has ended (request 31). */
+export class GroupMergePaymentWaitingException extends ConflictException {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'GroupMergePaymentWaiting',
+      message: 'The group cannot be merged while a payment through the provider in it is pending or refunding',
+    });
+  }
+}

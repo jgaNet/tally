@@ -20,3 +20,6 @@ export class ExpenseEditedEvent extends DomainEvent<{
 }> {}
 /** An expense was deleted: its id and its group. It no longer exists, and counts in no balance. */
 export class ExpenseDeletedEvent extends DomainEvent<{ expenseId: string; groupId: string }> {}
+
+/** An expense moved from one group to another, the group merged into the group kept (request 31): its id, and the groups. */
+export class ExpenseMovedEvent extends DomainEvent<{ expenseId: string; from: string; to: string }> {}

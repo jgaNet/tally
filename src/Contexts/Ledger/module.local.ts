@@ -72,6 +72,9 @@ import { settlementQueries } from '@Contexts/Settlements/module.local';
 import { PostgresAuditQueries } from '@Contexts/Ledger/Infrastructure/Queries/PostgresAuditQueries';
 import { SettlementsSettlementAudit } from '@Contexts/Ledger/Infrastructure/Settlements/SettlementsSettlementAudit';
 import { GroupsPassedBalances } from '@Contexts/Ledger/Infrastructure/Groups/GroupsPassedBalances';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
+import { GroupsMergedIntegrationEventHandler } from '@Contexts/Ledger/Application/Events/GroupsMergedIntegrationEventHandler';
+import { PostgresAuditEntries } from '@Contexts/Ledger/Infrastructure/Repositories/PostgresAuditEntries';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3): the expenses of each group, kept in the application's
@@ -110,6 +113,8 @@ const budgetPolicy = new ExpenseBudgetPolicy(expenses, budgets, budgetQueries, g
 const auditQueries = new PostgresAuditQueries(database);
 const settlementAudit = new SettlementsSettlementAudit(settlementQueries);
 const passedBalances = new GroupsPassedBalances(groupQueries);
+/** The audit entries a merge moves to the group kept (request 31): the table the expenses keep. */
+const auditEntries = new PostgresAuditEntries(database);
 const clock = systemClock;
 
 /** The sweep of request 23: run by the composition root every JOBS_INTERVAL_SECONDS, recording each day that has come, once. */
@@ -178,6 +183,14 @@ export const localLedgerModule = new Module({
     new GetOfferedRateQueryHandler(offeredRates, groupCurrency, clock),
     new GetRecurringExpenseQueryHandler(recurringQueries, groupMembers),
     new GetGroupRecurringExpensesQueryHandler(recurringQueries, groupMembers),
+  ],
+  integrationEvents: [
+    {
+      event: GroupsMergedIntegrationEvent,
+      handlers: [
+        new GroupsMergedIntegrationEventHandler(expenseQueries, expenses, recurringQueries, recurring, auditEntries),
+      ],
+    },
   ],
   domainEvents: [
     {

@@ -113,3 +113,24 @@ export const ArchiveGroupResSchema = {
   404: RefusalSchema,
   409: RefusalSchema,
 } as const;
+
+/** Merging answers at once, as archiving does: the id of the group kept, or the refusal (request 31). */
+export const MergeGroupReqBodySchema = {
+  type: 'object',
+  required: ['from'],
+  properties: { from: { type: 'string', minLength: 1 } },
+} as const;
+
+export const MergeGroupResSchema = {
+  201: IdSchema,
+  202: {
+    type: 'object',
+    required: ['operationId'],
+    properties: { operationId: { type: 'string' } },
+  },
+  400: RefusalSchema,
+  401: RefusalSchema,
+  403: RefusalSchema,
+  404: RefusalSchema,
+  409: RefusalSchema,
+} as const;

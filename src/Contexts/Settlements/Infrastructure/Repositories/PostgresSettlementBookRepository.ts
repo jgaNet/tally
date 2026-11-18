@@ -147,6 +147,9 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
     }
 
     for (const settlement of snapshot.recorded) await this.insertSettlement(settlement);
+    for (const settlement of snapshot.moved) {
+      await this.database.run('UPDATE settlements SET group_id = ? WHERE id = ?', [settlement.groupId, settlement._id]);
+    }
     for (const settlement of snapshot.changed) {
       await this.database.run('UPDATE settlements SET status = ? WHERE id = ?', [settlement.status, settlement._id]);
     }
@@ -183,6 +186,26 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
         settlement.payUrl,
       ],
     );
+  }
+
+  /**
+   * The book kept is saved as `save()` saves it; the book of the group merged is then removed at the version it was read at, and
+   * its audit entries move to the group kept (request 31). Both are in the transaction of the merge.
+   */
+  async absorb(kept: SettlementBook, merged: SettlementBook): Promise<IResult> {
+    const saved = await this.save(kept);
+    if (saved.isFailure()) return saved;
+
+    const deleted = await this.database.run('DELETE FROM settlement_books WHERE group_id = ? AND version = ?', [
+      merged.groupId,
+      merged.version,
+    ]);
+    if (deleted.changes === 0) return conflict(merged.groupId);
+    await this.database.run('UPDATE settlement_audit SET group_id = ? WHERE group_id = ?', [
+      kept.groupId,
+      merged.groupId,
+    ]);
+    return Result.ok();
   }
 }
 

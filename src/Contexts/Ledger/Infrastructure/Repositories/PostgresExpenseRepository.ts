@@ -137,6 +137,24 @@ export class PostgresExpenseRepository implements IExpenseRepository {
     return Result.ok();
   }
 
+  /**
+   * The expense moved to its group, with its balance entries: the version it was read at is kept, and the row is updated only where
+   * it is still at that version (ADR 8). No entry of the audit is written: a move is no change of money (request 31).
+   */
+  async move(expense: Expense): Promise<IResult> {
+    const { _id: id, groupId, version } = expense.toSnapshot();
+    const moved = await this.database.run('UPDATE expenses SET group_id = ? WHERE id = ? AND version = ?', [
+      groupId,
+      id,
+      version,
+    ]);
+    if (moved.changes === 0) {
+      return Result.fail(new ConcurrencyConflictException('Ledger', 'The expense changed since it was read', { id }));
+    }
+    await this.database.run('UPDATE balance_entries SET group_id = ? WHERE expense_id = ?', [groupId, id]);
+    return Result.ok();
+  }
+
   /** The entries of the changes made, written in the transaction of the change; an entry is never changed (request 28). */
   private async writeAudit(entries: readonly AuditEntry[]): Promise<void> {
     for (const entry of entries) {

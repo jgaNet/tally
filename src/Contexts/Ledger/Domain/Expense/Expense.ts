@@ -17,6 +17,7 @@ import {
 import {
   ExpenseDeletedEvent,
   ExpenseEditedEvent,
+  ExpenseMovedEvent,
   ExpenseRecordedEvent,
 } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
@@ -42,7 +43,7 @@ import { recordAudit, AuditEntry } from '@Contexts/Ledger/Domain/Audit/AuditEntr
  * its split are still members of the group: an expense that concerns a member who left is kept as it was.
  */
 export class Expense extends AggregateRoot {
-  readonly #groupId: string;
+  #groupId: string;
   readonly #description: ExpenseDescription;
   readonly #amount: ExpenseAmount;
   readonly #date: ExpenseDate;
@@ -329,6 +330,16 @@ export class Expense extends AggregateRoot {
       category: this.#category,
       version: this.version,
     };
+  }
+
+  /**
+   * The expense moves to the group it names, the group merged into the group kept (request 31). Its id, payer, shares, version and
+   * category are kept: only its group changes, and ExpenseMoved is recorded. The store moves it at the version it was read at.
+   */
+  moveTo(groupId: string): void {
+    const from = this.#groupId;
+    this.#groupId = groupId;
+    this.record(ExpenseMovedEvent.set({ expenseId: this._id.value, from, to: groupId }));
   }
 
   get groupId(): string {

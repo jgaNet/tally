@@ -52,4 +52,6 @@ export interface ISettlementBookSnapshot {
   changed: ISettlementSnapshot[];
   /** The statuses the book gave settlements since it was read, in the order it gave them: the store adds them as history. */
   history: ISettlementStatusLine[];
+  /** The settlements of a merged group the book took up since it was read: the store moves them to this group (request 31). */
+  moved: ISettlementSnapshot[];
 }

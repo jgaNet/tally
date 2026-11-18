@@ -165,6 +165,29 @@ export class PostgresGroupRepository implements IGroupRepository {
     }
     return Result.ok();
   }
+
+  /**
+   * The group kept is saved as `save()` saves it. The group merged is then removed at the version it was read at, with its
+   * members, its former members and its passed balances, which the group kept now holds; its audit entries are moved to the group
+   * kept, in their order (request 31). Both are in the transaction of the merge, so the group merged is gone at once.
+   */
+  async absorb(kept: Group, merged: Group): Promise<IResult> {
+    const saved = await this.save(kept);
+    if (saved.isFailure()) return saved;
+
+    const { _id: mergedId, version } = merged.toSnapshot();
+    const deleted = await this.database.run('DELETE FROM groups WHERE id = ? AND version = ?', [mergedId, version]);
+    if (deleted.changes === 0) {
+      return Result.fail(
+        new ConcurrencyConflictException('Groups', 'The group changed since it was read', { id: mergedId }),
+      );
+    }
+    await this.database.run('DELETE FROM group_members WHERE group_id = ?', [mergedId]);
+    await this.database.run('DELETE FROM former_members WHERE group_id = ?', [mergedId]);
+    await this.database.run('DELETE FROM balance_passings WHERE group_id = ?', [mergedId]);
+    await this.database.run('UPDATE group_audit SET group_id = ? WHERE group_id = ?', [kept._id.value, mergedId]);
+    return Result.ok();
+  }
 }
 
 function toSnapshot(

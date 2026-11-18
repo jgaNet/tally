@@ -7,6 +7,9 @@ import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
   AlreadyMemberException,
+  CurrenciesDifferException,
+  GroupMergeIntoItselfException,
+  GroupMergePaymentWaitingException,
   GroupNotSettledException,
   OwnerCannotLeaveException,
   PaymentWaitingException,
@@ -15,6 +18,7 @@ import {
   BalancePassedEvent,
   GroupArchivedEvent,
   GroupCreatedEvent,
+  GroupsMergedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
 } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
@@ -217,6 +221,52 @@ export class Group extends AggregateRoot {
 
     this.#archivedAt = archivedAt;
     this.record(GroupArchivedEvent.set({ groupId: this._id.value, archivedAt: archivedAt.toISOString() }));
+    return Result.ok();
+  }
+
+  /**
+   * The owner of two groups merges `merged` into this one, the group kept (request 31). Refused in order: by GroupArchived when
+   * either group is archived (as any change in an archived group is), by GroupMergeIntoItself when they are one group, by NotAllowed
+   * when `askedBy` does not own both, by CurrenciesDiffer when their currencies differ, and by GroupMergePaymentWaiting when
+   * `paymentsWaiting` says a payment through the provider in the group merged is pending or refunding (read through its port).
+   *
+   * Otherwise each member of the group merged who is not one here joins, at `at`, after the members here, in the order they
+   * joined the group merged; a former member of it who is no member here is a former member here, and one who is a member
+   * already keeps its place. The balances passed on in the group merged are this group's from now on. GroupsMerged is recorded.
+   * The group merged itself is not changed here: the repository makes it gone, with the same transaction (`absorb`).
+   */
+  merge({
+    askedBy,
+    merged,
+    paymentsWaiting,
+    at,
+  }: {
+    askedBy: string;
+    merged: Group;
+    paymentsWaiting: boolean;
+    at: Date;
+  }): IResult<void> {
+    if (merged._id.value === this._id.value) return Result.fail(new GroupMergeIntoItselfException());
+    if (this.isArchived() || merged.isArchived()) return Result.fail(new GroupArchivedException());
+    if (askedBy !== this.#ownerId || askedBy !== merged.ownerId) {
+      return Result.fail(new NotAllowedException('Groups', 'Only the owner of both groups may merge them'));
+    }
+    if (this.#currency.value !== merged.currency.value) return Result.fail(new CurrenciesDifferException());
+    if (paymentsWaiting) return Result.fail(new GroupMergePaymentWaitingException());
+
+    for (const member of merged.members) {
+      if (this.isMember(member.accountId)) continue;
+      const former = this.#formerMembers.findIndex(other => other.accountId === member.accountId);
+      if (former >= 0) this.#formerMembers.splice(former, 1);
+      this.#members.push({ accountId: member.accountId, joinedAt: at });
+    }
+    for (const former of merged.formerMembers) {
+      if (this.isMember(former.accountId)) continue;
+      if (this.#formerMembers.some(other => other.accountId === former.accountId)) continue;
+      this.#formerMembers.push({ accountId: former.accountId, joinedAt: former.joinedAt });
+    }
+    this.#passings.push(...merged.passings.map(passing => ({ ...passing })));
+    this.record(GroupsMergedEvent.set({ groupId: this._id.value, mergedGroupId: merged._id.value }));
     return Result.ok();
   }
 

@@ -9,6 +9,9 @@ export class RecurringExpenseSetUpEvent extends DomainEvent<{ recurringId: strin
 /** A recurring expense was stopped by its payer or the owner: it no longer exists, and records no expense from then on. */
 export class RecurringExpenseStoppedEvent extends DomainEvent<{ recurringId: string; groupId: string }> {}
 
+/** A recurring expense moved from one group to another, the group merged into the group kept (request 31): its id, and the groups. */
+export class RecurringExpenseMovedEvent extends DomainEvent<{ recurringId: string; from: string; to: string }> {}
+
 /** A recurring expense ended because its payer or a member of its split left the group: it records no expense, and no longer exists. */
 export class RecurringExpenseEndedEvent extends DomainEvent<{ recurringId: string; groupId: string }> {}
 

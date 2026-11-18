@@ -3,6 +3,8 @@ import { applicationDatabase } from '@Architecture/Infrastructure/Postgres/Appli
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
 import { ledgerBalanceQueries } from '@Bootstrap/Fastify/readModels';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
+import { GroupsMergedIntegrationEventHandler } from '@Contexts/Settlements/Application/Events/GroupsMergedIntegrationEventHandler';
 import { groupQueries } from '@Contexts/Groups/module.local';
 import {
   GetGroupSettlementsQueryHandler,
@@ -86,6 +88,12 @@ export const localSettlementsModule = new Module({
     {
       event: SetPayoutAccountCommandEvent,
       handlers: [new SetPayoutAccountCommandHandler(payoutAccounts, paymentProvider)],
+    },
+  ],
+  integrationEvents: [
+    {
+      event: GroupsMergedIntegrationEvent,
+      handlers: [new GroupsMergedIntegrationEventHandler(books)],
     },
   ],
   queries: [

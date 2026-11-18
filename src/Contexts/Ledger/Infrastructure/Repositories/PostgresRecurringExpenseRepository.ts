@@ -88,6 +88,22 @@ export class PostgresRecurringExpenseRepository implements IRecurringExpenseRepo
     return snapshot.version === 0 ? this.insert(snapshot) : this.advance(snapshot);
   }
 
+  /** Moved to the group it names, at the version it was read at, which is kept: a move is no change of the recurring expense's day (request 31). */
+  async move(recurring: RecurringExpense): Promise<IResult> {
+    const { _id: id, groupId, version } = recurring.toSnapshot();
+    const moved = await this.database.run('UPDATE recurring_expenses SET group_id = ? WHERE id = ? AND version = ?', [
+      groupId,
+      id,
+      version,
+    ]);
+    if (moved.changes === 0) {
+      return Result.fail(
+        new ConcurrencyConflictException('Ledger', 'The recurring expense changed since it was read', { id }),
+      );
+    }
+    return Result.ok();
+  }
+
   /** Removed at the version it was read at; its split goes with it. */
   async remove(recurring: RecurringExpense): Promise<IResult> {
     const { _id: id, version } = recurring.toSnapshot();
