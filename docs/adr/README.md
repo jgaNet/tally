@@ -34,6 +34,7 @@ why, what it costs, and when to revisit it.
 | [27](0027-every-change-of-money-is-an-entry-of-its-groups-audit-written-with-it.md) | Every change of money is an entry of its group's audit, written with the change, and Ledger reads the audit through ports |
 | [28](0028-a-member-statement-counts-the-settlements-that-count-and-is-read-as-csv.md) | A member's statement lists the settlements that count, in the order of the moments, and is read as CSV |
 | [29](0029-the-application-keeps-its-state-in-postgresql-and-moves-its-sqlite-file-in-once.md) | The application keeps its state in PostgreSQL, and moves what its SQLite file held into it once |
+| [30](0030-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
