@@ -53,7 +53,7 @@ export type SweepOutcome = 'kept' | 'ended' | 'archived';
  * fact for each day that has come, and one that ends it. Its version is the one it was loaded at (AggregateRoot).
  */
 export class RecurringExpense extends AggregateRoot {
-  readonly #groupId: string;
+  #groupId: string;
   readonly #paidBy: string;
   readonly #description: string;
   readonly #amount: number;
@@ -219,6 +219,18 @@ export class RecurringExpense extends AggregateRoot {
     return 'kept';
   }
 
+  /**
+   * The recurring expense moves to another group (feature 31, request 31): the group merged's recurring expenses are the group kept's, with
+   * their next day and version as they were. Records RecurringExpenseMoved; pure.
+   */
+  moveTo(groupId: string, now: Date): void {
+    const fromGroupId = this.#groupId;
+    this.#groupId = groupId;
+    this.record(
+      RecurringExpenseMovedEvent.set({ recurringId: this._id.value, fromGroupId, groupId, at: now.toISOString() }),
+    );
+  }
+
   get groupId(): string {
     return this.#groupId;
   }
@@ -301,4 +313,12 @@ export class RecurringExpenseEndedEvent extends DomainEvent<RecurringExpenseEnde
  * The fact that a day of a recurring expense has come: the expense of that day is recorded by the policy that reacts to it (ADR 18),
  * on the id the fact carries. It is made durable with the recurring expense's new `next`, in the sweep's transaction.
  */
+export type RecurringExpenseMovedPayload = { recurringId: string; fromGroupId: string; groupId: string; at: string };
+
+/**
+ * The fact of a move (feature 31, request 31): a recurring expense of a merged group is the group kept's now. Made durable with the move,
+ * published after it commits; nothing subscribes to it (the sweep reads the recurring expense where it is).
+ */
+export class RecurringExpenseMovedEvent extends DomainEvent<RecurringExpenseMovedPayload> {}
+
 export class RecurringExpenseDayCameEvent extends DomainEvent<RecurringExpenseDayCamePayload> {}

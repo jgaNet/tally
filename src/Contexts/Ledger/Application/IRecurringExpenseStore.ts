@@ -35,6 +35,8 @@ export interface IRecurringExpenseStore {
   findById(recurringId: string): Promise<RecurringExpense | undefined>;
   save(recurring: RecurringExpense): Promise<void>;
   remove(recurring: RecurringExpense): Promise<void>;
+  /** Stores a recurring expense moved to another group (feature 31, request 31): its group changes, its version does not. */
+  move(recurring: RecurringExpense): Promise<void>;
   viewOf(recurringId: string): Promise<RecurringExpenseView | undefined>;
   listOf(groupId: string): Promise<RecurringExpenseView[]>;
   dueBy(day: string): Promise<RecurringExpense[]>;

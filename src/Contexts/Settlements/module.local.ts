@@ -1,5 +1,7 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
+import { MoveSettlementBookHandler } from '@Contexts/Settlements/Application/Events/MoveSettlementBookHandler';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
@@ -102,6 +104,12 @@ export function settlementsWiring(
 
   return new LiteModule({
     name: 'Settlements',
+    integrationEvents: [
+      {
+        event: GroupsMergedIntegrationEvent,
+        handlers: [new MoveSettlementBookHandler(store, systemClock)],
+      },
+    ],
     useCases: [
       getSuggestedSettlements(store, members, counted),
       recordCashSettlement(store, members, counted, audit, systemClock),

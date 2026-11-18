@@ -83,3 +83,46 @@ export class GroupNotSettledException extends Exception {
     });
   }
 }
+
+/** A member who is not the owner of both groups asks to merge them: `403`, the owner of both merges them (feature 31, request 31). */
+export class OnlyTheOwnerMergesException extends NotAllowedException {
+  constructor() {
+    super(SERVICE, 'Only the owner of both groups can merge them');
+  }
+}
+
+/** The owner asks to merge a group into itself: `422`, a rule (feature 31, request 31). */
+export class CannotMergeIntoItselfException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'CannotMergeIntoItself',
+      message: 'A group cannot be merged into itself',
+    });
+  }
+}
+
+/** Two groups of different currencies are merged: `422`, a rule. A group keeps its currency (request 2, feature 31). */
+export class CurrencyMismatchException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'CurrencyMismatch',
+      message: 'Only groups in the same currency can be merged',
+    });
+  }
+}
+
+/**
+ * A group is merged while a payment through the provider in it is pending or refunding: `422`, a rule. The merge waits for the payment to
+ * end, as a member's leave does (request 15, feature 31).
+ */
+export class MergePaymentWaitingException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'MergePaymentWaiting',
+      message: 'Groups are merged once the payments through the provider in the group merged have ended',
+    });
+  }
+}

@@ -43,4 +43,11 @@ export interface ISettlementStore {
   settlementOfPayment(paymentId: string): Promise<Settlement | undefined>;
   /** The settlement as the domain keeps it, with its provider's payment, or `undefined` when there is none (request 15). */
   settlementOf(settlementId: string): Promise<Settlement | undefined>;
+  /** The ids of the settlements of a group, in the order they were decided (feature 31). */
+  settlementIdsOf(groupId: string): Promise<string[]>;
+  /**
+   * Moves the settlements of the group merged into the group the book is of (feature 31, request 31), with their audit entries, in the
+   * transaction of the move: the book is stored at its next version, as a settlement is, and the merged group's book is gone.
+   */
+  absorb(book: SettlementBook, mergedGroupId: string): Promise<void>;
 }

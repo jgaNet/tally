@@ -108,6 +108,13 @@ export class PostgresRecurringExpenseStore implements IRecurringExpenseStore {
     if (changes === 0) this.#conflict();
   }
 
+  async move(recurring: RecurringExpense): Promise<void> {
+    const snapshot = recurring.toSnapshot();
+    await this.database.writer
+      .prepare('UPDATE recurring_expenses SET group_id = ? WHERE id = ?')
+      .run(snapshot.groupId, snapshot.id);
+  }
+
   async remove(recurring: RecurringExpense): Promise<void> {
     const snapshot = recurring.toSnapshot();
     await this.database.writer.prepare('DELETE FROM recurring_categories WHERE recurring_id = ?').run(snapshot.id);

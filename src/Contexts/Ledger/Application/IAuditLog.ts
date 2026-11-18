@@ -8,4 +8,6 @@ import { AuditEntry } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
 export interface IAuditLog {
   record(entry: AuditEntry): Promise<void>;
   entriesOf(groupId: string): Promise<AuditEntry[]>;
+  /** Moves the group merged's entries to the group kept, in the merge's reaction (feature 31, request 31): each entry keeps its id and its time. */
+  moveGroup(fromGroupId: string, toGroupId: string): Promise<void>;
 }

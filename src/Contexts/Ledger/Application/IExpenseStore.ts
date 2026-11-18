@@ -59,6 +59,10 @@ export interface IExpenseStore {
   findById(expenseId: string): Promise<Expense | undefined>;
   save(expense: Expense): Promise<void>;
   remove(expense: Expense): Promise<void>;
+  /**
+   * Stores an expense moved to another group (feature 31): its group, and its balances' group, change; its version does not (a move is no edit).
+   */
+  move(expense: Expense): Promise<void>;
   viewOf(expenseId: string): Promise<ExpenseView | undefined>;
   listOf(groupId: string): Promise<ExpenseView[]>;
   statementRowsOf(groupId: string, memberId: string): Promise<StatementRowView[]>;

@@ -11,6 +11,7 @@ import {
   getGroupMembers,
   getMyGroups,
   leaveGroup,
+  mergeGroups,
 } from '@Contexts/Groups/Application/Groups';
 
 /**
@@ -49,6 +50,21 @@ export const groupRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fasti
 
   fastify.post<{ Params: { id: string } }>('/groups/:id/leave', (req, reply) =>
     answerAtOnce(req, reply, module.useCase(leaveGroup), req.params.id),
+  );
+
+  fastify.post<{ Params: { id: string }; Body: { from: string } }>(
+    '/groups/:id/merge',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['from'],
+          properties: { from: { type: 'string' } },
+        },
+      },
+    },
+    (req, reply) =>
+      answerAtOnce(req, reply, module.useCase(mergeGroups), { groupId: req.params.id, from: req.body.from }),
   );
 
   fastify.post<{ Params: { id: string } }>('/groups/:id/archive', (req, reply) =>

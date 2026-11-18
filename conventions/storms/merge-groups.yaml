@@ -6,7 +6,7 @@ feature: merge-groups
 intent: >-
   The owner of two groups of one currency merges one into the other; the group merged is gone at once, and its members, expenses, settlements, recurring expenses and audit are the group kept's within seconds, every group's balances adding up to 0 at every moment.
 
-done: false
+done: true
 
 hotSpots:
   - question: Who decides a merge, and where?

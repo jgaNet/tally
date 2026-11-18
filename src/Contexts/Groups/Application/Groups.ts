@@ -161,3 +161,40 @@ export const archiveGroup = command(
       return Result.ok(undefined);
     },
 );
+
+/** The two groups a merge names: the group kept (the one merged into, by its id in the path) and the group merged (`from`). */
+export interface MergeGroupsInput {
+  readonly groupId: string;
+  readonly from: string;
+}
+
+/**
+ * The owner of two groups merges the group `from` into the group `groupId`, which is kept (feature 31, request 31). Both must be groups the
+ * signed-in person is a member of, so to anyone else either is not there (`404`); the decision is the group kept's (Group.merge): the same
+ * owner for both (`403`), not one group, one currency, neither archived (GroupArchived), and no payment through the provider waiting in the
+ * group merged (WaitingPayments, asked of each member of it, read in the merge's own transaction). The group merged is closed in the same
+ * write (IGroupStore.merge), and what it recorded (GroupsMerged) goes out with the commit, through the outbox. Answers nothing.
+ */
+export const mergeGroups = command(
+  'MergeGroups',
+  (groups: IGroupStore, waiting: IWaitingPayments, clock: Clock) =>
+    async (input: MergeGroupsInput, context): Promise<IResult<void>> => {
+      const caller = callerOf(context);
+      const kept = await groups.findById(input.groupId);
+      if (!kept || !kept.hasMember(caller)) return Result.fail(new GroupNotFoundException());
+      const merged = await groups.findById(input.from);
+      if (!merged || !merged.hasMember(caller)) return Result.fail(new GroupNotFoundException());
+
+      let paymentWaiting = false;
+      for (const member of merged.members()) {
+        if (await waiting.hasWaitingPayment(input.from, member.accountId)) paymentWaiting = true;
+      }
+      const now = clock();
+      const merging = kept.merge(merged, caller, { paymentWaiting }, now);
+      if (merging.isFailure()) return merging;
+
+      await groups.merge(kept, merged, now.toISOString());
+      await publishDomainEvents(kept, context);
+      return Result.ok(undefined);
+    },
+);

@@ -57,6 +57,19 @@ export type SettlementRecordedPayload = {
 /** A settlement was recorded in cash: the balances count it from now on, and nothing reacts to it yet. */
 export class SettlementRecordedEvent extends DomainEvent<SettlementRecordedPayload> {}
 
+export type SettlementBookMergedPayload = {
+  groupId: string;
+  mergedGroupId: string;
+  settlementIds: string[];
+  at: string;
+};
+
+/**
+ * The fact of a merge of books (feature 31, request 31): the settlements of the group merged are the group kept's now, by their ids. Made
+ * durable with the move, published after it commits; nothing subscribes to it.
+ */
+export class SettlementBookMergedEvent extends DomainEvent<SettlementBookMergedPayload> {}
+
 export type PaymentRequestedPayload = SettlementRecordedPayload;
 
 /** A payment through the provider was requested: pending, counted as paid for what is still owed, and not yet in the balances. */
@@ -126,6 +139,22 @@ export class SettlementBook extends AggregateRoot {
       [...members],
       balances.map(row => ({ ...row })),
       waiting.map(payment => ({ ...payment })),
+    );
+  }
+
+  /**
+   * The book takes in the settlements of the group merged (feature 31, request 31): each keeps its id, its status and its history, and is
+   * the group kept's from now on. Records SettlementBookMerged; pure. A merge is decided by the group kept, so the book needs no member
+   * or balance for it.
+   */
+  absorb(mergedGroupId: string, settlementIds: readonly string[], now: Date): void {
+    this.record(
+      SettlementBookMergedEvent.set({
+        groupId: this._id.value,
+        mergedGroupId,
+        settlementIds: [...settlementIds],
+        at: now.toISOString(),
+      }),
     );
   }
 

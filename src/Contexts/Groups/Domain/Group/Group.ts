@@ -5,9 +5,13 @@ import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
   AlreadyMemberException,
+  CannotMergeIntoItselfException,
+  CurrencyMismatchException,
   GroupNotFoundException,
   GroupNotSettledException,
+  MergePaymentWaitingException,
   OnlyTheOwnerArchivesException,
+  OnlyTheOwnerMergesException,
   OwnerCannotLeaveException,
   PaymentWaitingException,
 } from '@Contexts/Groups/Domain/Group/GroupExceptions';
@@ -61,6 +65,11 @@ export class Group extends AggregateRoot {
   /** The account that created the group. */
   get ownerId(): string {
     return this.#ownerId;
+  }
+
+  /** The currency the group is in, fixed at its creation (request 2). */
+  get currency(): string {
+    return this.#currency.value;
   }
 
   /** When the group was archived, or `undefined` while it is not (feature 27). */
@@ -197,6 +206,43 @@ export class Group extends AggregateRoot {
     return Result.ok(undefined);
   }
 
+  /**
+   * The group kept takes the group merged into it (feature 31, request 31), decided by the owner of both: the same account owns both,
+   * they are not one group, they are in one currency, neither is archived (GroupArchived, as any change), and no payment through the
+   * provider in the group merged waits (`reading`, read by the caller). The members of the group merged who are not members here join
+   * after the members, in the order they had joined the group merged, at the merge's time; a former member of the group merged is a
+   * former member here, unless they are a member or one already. The balances that passed in either group are both kept, the group
+   * merged's after this group's. Records GroupsMerged, which carries both ids; the group merged itself is closed by the store, in the
+   * same write. Pure: the time is `now`.
+   */
+  merge(merged: Group, accountId: string, reading: MergeReading, now: Date): IResult<void> {
+    const open = this.openForChanges();
+    if (open.isFailure()) return open;
+    const mergedOpen = merged.openForChanges();
+    if (mergedOpen.isFailure()) return mergedOpen;
+    if (merged.toSnapshot().id === this._id.value) return Result.fail(new CannotMergeIntoItselfException());
+    if (accountId !== this.#ownerId || accountId !== merged.ownerId)
+      return Result.fail(new OnlyTheOwnerMergesException());
+    if (merged.currency !== this.currency) return Result.fail(new CurrencyMismatchException());
+    if (reading.paymentWaiting) return Result.fail(new MergePaymentWaitingException());
+
+    const at = now.toISOString();
+    for (const member of merged.members()) {
+      if (this.hasMember(member.accountId)) continue;
+      const index = this.#formerMembers.findIndex(former => former.accountId === member.accountId);
+      if (index >= 0) this.#formerMembers.splice(index, 1);
+      this.#members.push({ accountId: member.accountId, joinedAt: at });
+    }
+    for (const former of merged.formerMembers()) {
+      if (this.hasMember(former.accountId)) continue;
+      if (this.#formerMembers.some(member => member.accountId === former.accountId)) continue;
+      this.#formerMembers.push(former);
+    }
+    this.#passes.push(...merged.passes());
+    this.record(GroupsMergedEvent.set({ keptGroupId: this._id.value, mergedGroupId: merged.toSnapshot().id, at }));
+    return Result.ok(undefined);
+  }
+
   /** The group as the store keeps it. Records nothing; throws on a snapshot that is not a group the domain accepts. */
   static fromSnapshot(snapshot: GroupSnapshot): Group {
     const name = GroupName.create(snapshot.name);
@@ -240,6 +286,11 @@ export class Group extends AggregateRoot {
  */
 export interface ArchiveReading {
   readonly balancesCleared: boolean;
+  readonly paymentWaiting: boolean;
+}
+
+/** What a merge is decided on, read by the caller: whether a payment through the provider in the group merged is pending or refunding. */
+export interface MergeReading {
   readonly paymentWaiting: boolean;
 }
 
@@ -341,3 +392,11 @@ export type BalancePassedPayload = {
  * It is made durable with the group and published after the commit; nothing subscribes to it.
  */
 export class BalancePassedEvent extends DomainEvent<BalancePassedPayload> {}
+
+export type GroupsMergedPayload = { keptGroupId: string; mergedGroupId: string; at: string };
+
+/**
+ * The fact of a merge (feature 31, request 31): the group kept, the group merged into it, and when. It is made durable with the group
+ * kept and published after the commit: Groups tells Ledger and Settlements, which move what the group merged held (PublishGroupsMerged).
+ */
+export class GroupsMergedEvent extends DomainEvent<GroupsMergedPayload> {}

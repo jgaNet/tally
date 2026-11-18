@@ -26,6 +26,11 @@ export class InMemoryGroupStore implements IGroupStore {
     this.groups.set(snapshot.id, { ...snapshot, version: snapshot.version + 1 });
   }
 
+  async merge(kept: Group, merged: Group): Promise<void> {
+    await this.save(kept);
+    this.groups.delete(merged.toSnapshot().id);
+  }
+
   async viewFor(groupId: string, memberId: string): Promise<GroupView | undefined> {
     const group = this.groups.get(groupId);
     return group && isMember(group, memberId) ? toView(group) : undefined;

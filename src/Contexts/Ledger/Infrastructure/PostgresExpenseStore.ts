@@ -163,6 +163,20 @@ export class PostgresExpenseStore implements IExpenseStore {
     await this.#writeBalances(snapshot);
   }
 
+  /**
+   * Stores an expense moved to another group (feature 31, request 31): the group of the expense and of its balances change, in the move's
+   * transaction. The version does not: a move is no edit, so an edit made from the version the author read still applies after it.
+   */
+  async move(expense: Expense): Promise<void> {
+    const snapshot: ExpenseSnapshot = expense.toSnapshot();
+    await this.database.writer
+      .prepare('UPDATE expenses SET group_id = ? WHERE id = ?')
+      .run(snapshot.groupId, snapshot.id);
+    await this.database.writer
+      .prepare('UPDATE expense_balances SET group_id = ? WHERE expense_id = ?')
+      .run(snapshot.groupId, snapshot.id);
+  }
+
   async remove(expense: Expense): Promise<void> {
     const snapshot: ExpenseSnapshot = expense.toSnapshot();
     await this.#checkVersion(snapshot);

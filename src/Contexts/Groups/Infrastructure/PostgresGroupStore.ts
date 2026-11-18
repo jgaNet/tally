@@ -49,6 +49,13 @@ export const groupsTablesSchema = [
      at TEXT NOT NULL,
      PRIMARY KEY (group_id, position)
    )`,
+  // A group merged into another (feature 31, request 31) is closed by one row, written once with the merge: the group merged has no members
+  // left and is not found, and the group kept holds what it held. A row is never removed.
+  `CREATE TABLE IF NOT EXISTS group_merges (
+     group_id TEXT PRIMARY KEY REFERENCES groups(id),
+     into_group_id TEXT NOT NULL REFERENCES groups(id),
+     at TEXT NOT NULL
+   )`,
   // A group is archived (feature 27, request 27) by one row, written once and never removed: a group with a row is read only.
   `CREATE TABLE IF NOT EXISTS group_archives (
      group_id TEXT PRIMARY KEY REFERENCES groups(id),
@@ -79,6 +86,7 @@ export class PostgresGroupStore implements IGroupStore, IGroupRoster {
   }
 
   async findById(groupId: string): Promise<Group | undefined> {
+    if (await this.#isMerged(groupId)) return undefined;
     const row = (await this.database.read(db =>
       db.prepare('SELECT id, name, currency, owner_id, created_at, version FROM groups WHERE id = ?').get(groupId),
     )) as GroupRow | undefined;
@@ -129,6 +137,37 @@ export class PostgresGroupStore implements IGroupStore, IGroupRoster {
     await this.#saveArchive(snapshot);
   }
 
+  /**
+   * Closes the group merged into the group kept (feature 31): the group merged's version is checked, its balances that passed and its audit
+   * entries move to the group kept (their positions and ids are the kept group's from then on), its members are taken out, and it is
+   * recorded as merged. The group kept is then saved as the aggregate decided it: its members, former members and passes, at its version.
+   * All of it in the caller's transaction, so a change of the group merged that is not seen is refused, and nothing is half made.
+   */
+  async merge(kept: Group, merged: Group, at: string): Promise<void> {
+    const keptSnapshot = kept.toSnapshot();
+    const mergedSnapshot = merged.toSnapshot();
+    const { changes } = await this.database.writer
+      .prepare('UPDATE groups SET version = ? WHERE id = ? AND version = ?')
+      .run(mergedSnapshot.version + 1, mergedSnapshot.id, mergedSnapshot.version);
+    if (changes === 0) {
+      throw new ConcurrencyConflictException('Groups', 'The group merged changed since it was read: read it again');
+    }
+    // The group kept's passes come first: the merged group's are placed after them, in the order they were made.
+    const passesBefore = keptSnapshot.passes.length - mergedSnapshot.passes.length;
+    await this.database.writer
+      .prepare('UPDATE group_passes SET group_id = ?, position = position + ? WHERE group_id = ?')
+      .run(keptSnapshot.id, passesBefore, mergedSnapshot.id);
+    await this.database.writer
+      .prepare('UPDATE group_audit SET group_id = ? WHERE group_id = ?')
+      .run(keptSnapshot.id, mergedSnapshot.id);
+    await this.database.writer.prepare('DELETE FROM group_members WHERE group_id = ?').run(mergedSnapshot.id);
+    await this.database.writer.prepare('DELETE FROM group_former_members WHERE group_id = ?').run(mergedSnapshot.id);
+    await this.database.writer
+      .prepare('INSERT INTO group_merges (group_id, into_group_id, at) VALUES (?, ?, ?)')
+      .run(mergedSnapshot.id, keptSnapshot.id, at);
+    await this.save(kept);
+  }
+
   async viewFor(groupId: string, memberId: string): Promise<GroupView | undefined> {
     const row = (await this.database.read(db =>
       db
@@ -172,6 +211,7 @@ export class PostgresGroupStore implements IGroupStore, IGroupRoster {
   }
 
   async currencyOf(groupId: string): Promise<string | undefined> {
+    if (await this.#isMerged(groupId)) return undefined;
     const row = (await this.database.read(db =>
       db.prepare('SELECT currency FROM groups WHERE id = ?').get(groupId),
     )) as { currency: string } | undefined;
@@ -179,10 +219,20 @@ export class PostgresGroupStore implements IGroupStore, IGroupRoster {
   }
 
   async groupIds(): Promise<string[]> {
-    const rows = (await this.database.read(db => db.prepare('SELECT id FROM groups ORDER BY rowid').all())) as {
+    const rows = (await this.database.read(db =>
+      db.prepare('SELECT id FROM groups WHERE id NOT IN (SELECT group_id FROM group_merges) ORDER BY rowid').all(),
+    )) as {
       id: string;
     }[];
     return rows.map(row => row.id);
+  }
+
+  /** Whether the group was merged into another one (feature 31): it is gone, and nothing is read of it as a group. */
+  async #isMerged(groupId: string): Promise<boolean> {
+    const row = await this.database.read(db =>
+      db.prepare('SELECT 1 AS found FROM group_merges WHERE group_id = ?').get(groupId),
+    );
+    return row !== undefined;
   }
 
   async isArchived(groupId: string): Promise<boolean> {

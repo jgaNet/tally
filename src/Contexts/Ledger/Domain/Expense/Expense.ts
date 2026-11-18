@@ -89,7 +89,7 @@ export class Expense extends AggregateRoot {
   static readonly MAX_AMOUNT = 100_000_000;
   static readonly MAX_DESCRIPTION_LENGTH = 100;
 
-  readonly #groupId: string;
+  #groupId: string;
   #description: string;
   #amount: number;
   #date: string;
@@ -273,6 +273,16 @@ export class Expense extends AggregateRoot {
     );
   }
 
+  /**
+   * The expense moves to another group (feature 31, request 31): the group merged's expenses are the group kept's, each with its payer,
+   * shares, category and recording time as they were, and its version as it is (a move is no edit). Records ExpenseMoved; pure.
+   */
+  moveTo(groupId: string, now: Date): void {
+    const fromGroupId = this.#groupId;
+    this.#groupId = groupId;
+    this.record(ExpenseMovedEvent.set({ expenseId: this._id.value, fromGroupId, groupId, at: now.toISOString() }));
+  }
+
   toSnapshot(): ExpenseSnapshot {
     const original = this.#original;
     return {
@@ -402,6 +412,14 @@ export type ExpenseEditedPayload = {
   at: string;
 };
 export type ExpenseDeletedPayload = { expenseId: string; groupId: string; at: string };
+
+export type ExpenseMovedPayload = { expenseId: string; fromGroupId: string; groupId: string; at: string };
+
+/**
+ * The fact of a move (feature 31, request 31): an expense of a merged group is the group kept's now. It is made durable with the move and
+ * published after it commits; nothing subscribes to it (the balances and the lists read the expense where it is).
+ */
+export class ExpenseMovedEvent extends DomainEvent<ExpenseMovedPayload> {}
 
 /**
  * The fact of a recording: which expense, of which group, paid by whom, for how much, and when it was recorded. It is made

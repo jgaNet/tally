@@ -11,7 +11,10 @@ import {
   getGroupMembers,
   getMyGroups,
   leaveGroup,
+  mergeGroups,
 } from '@Contexts/Groups/Application/Groups';
+import { PublishGroupsMergedHandler } from '@Contexts/Groups/Application/Events/PublishGroupsMergedHandler';
+import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/Group';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { IGroupRoster } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
@@ -65,6 +68,7 @@ export async function groupsWiring(database: PostgresDatabase, balances: IMember
 
   const module = new LiteModule({
     name: 'Groups',
+    domainEvents: [{ event: GroupsMergedEvent, handlers: [new PublishGroupsMergedHandler()] }],
     useCases: [
       signUp(accounts, passwords, systemClock),
       signIn(accounts, passwords, tokens),
@@ -78,6 +82,7 @@ export async function groupsWiring(database: PostgresDatabase, balances: IMember
       getGroupMembers(groups, accounts),
       leaveGroup(groups, balances, waiting, audit, systemClock),
       archiveGroup(groups, balances, waiting, systemClock),
+      mergeGroups(groups, waiting, systemClock),
     ],
   });
   return { module, authenticate: authenticateWith(tokens), roster: groups };

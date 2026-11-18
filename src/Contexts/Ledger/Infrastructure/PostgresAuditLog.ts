@@ -45,6 +45,12 @@ export class PostgresAuditLog implements IAuditLog {
       .run(entry.id, entry.groupId, entry.at, entry.by, entry.action, entry.subjectId, entry.amount);
   }
 
+  async moveGroup(fromGroupId: string, toGroupId: string): Promise<void> {
+    await this.database.writer
+      .prepare('UPDATE ledger_audit SET group_id = ? WHERE group_id = ?')
+      .run(toGroupId, fromGroupId);
+  }
+
   async entriesOf(groupId: string): Promise<AuditEntry[]> {
     const rows = (await this.database.read(db =>
       db.prepare('SELECT * FROM ledger_audit WHERE group_id = ? ORDER BY at, seq').all(groupId),

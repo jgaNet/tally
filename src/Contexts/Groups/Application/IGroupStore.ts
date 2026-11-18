@@ -22,6 +22,12 @@ export interface IGroupStore {
   add(group: Group): Promise<void>;
   findById(groupId: string): Promise<Group | undefined>;
   save(group: Group): Promise<void>;
+  /**
+   * Closes the group merged into the group kept (feature 31, request 31), in the caller's transaction: the group kept is saved as the
+   * aggregate decided it, and the group merged is gone for everyone from then on. Its balances that passed and its audit entries are the
+   * group kept's, and it has no members, invitations that let anyone join included (`findById` no longer finds it).
+   */
+  merge(kept: Group, merged: Group, at: string): Promise<void>;
   viewFor(groupId: string, memberId: string): Promise<GroupView | undefined>;
   listFor(memberId: string): Promise<GroupView[]>;
 }

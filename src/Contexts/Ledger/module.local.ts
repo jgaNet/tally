@@ -7,6 +7,8 @@ import { getGroupExpenses, getMemberStatement, getMemberStatementCsv } from '@Co
 import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
 import { getOfferedRate } from '@Contexts/Ledger/Application/Rates';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
+import { MoveMergedGroupHandler } from '@Contexts/Ledger/Application/Events/MoveMergedGroupHandler';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
 import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { PassBudgetHandler } from '@Contexts/Ledger/Application/Events/PassBudgetHandler';
 import { PublishBudgetPassedHandler } from '@Contexts/Ledger/Application/Events/PublishBudgetPassedHandler';
@@ -118,6 +120,12 @@ export function ledgerWiring(
       {
         event: RecurringExpenseDayCameEvent,
         handlers: [new RecordRecurringExpenseHandler(expenses, groupMembers, groupCurrency, audit, systemClock)],
+      },
+    ],
+    integrationEvents: [
+      {
+        event: GroupsMergedIntegrationEvent,
+        handlers: [new MoveMergedGroupHandler(expenses, recurring, audit, systemClock)],
       },
     ],
     useCases: [

@@ -198,6 +198,24 @@ export class PostgresSettlementStore implements ISettlementStore {
     return row ? toSettlement(row) : undefined;
   }
 
+  async settlementIdsOf(groupId: string): Promise<string[]> {
+    const rows = (await this.database.read(db =>
+      db.prepare('SELECT id FROM settlements WHERE group_id = ? ORDER BY rowid').all(groupId),
+    )) as { id: string }[];
+    return rows.map(row => row.id);
+  }
+
+  async absorb(book: SettlementBook, mergedGroupId: string): Promise<void> {
+    await this.#checkVersion(book);
+    await this.database.writer
+      .prepare('UPDATE settlements SET group_id = ? WHERE group_id = ?')
+      .run(book.groupId, mergedGroupId);
+    await this.database.writer
+      .prepare('UPDATE settlement_audit SET group_id = ? WHERE group_id = ?')
+      .run(book.groupId, mergedGroupId);
+    await this.database.writer.prepare('DELETE FROM settlement_books WHERE group_id = ?').run(mergedGroupId);
+  }
+
   /** Stores the book at its version + 1, only if it is still at the version it was read at; the first settlement creates the row. */
   async #checkVersion(book: SettlementBook): Promise<void> {
     const writer = this.database.writer;
