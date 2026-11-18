@@ -28,13 +28,14 @@ export class RemoveBudgetCommandHandler extends CommandHandler<RemoveBudgetComma
     const category = categoryOf(payload.category);
     if (category.isFailure()) return category;
     const byOwner = (await this.groupMembers.roleOf(groupId, caller.data)) === 'owner';
+    const groupArchived = await this.groupMembers.isArchived(groupId);
     const at = this.clock();
 
     const existing = await this.budgets.findByCategory(groupId, category.data);
     if (!existing) {
       return byOwner ? Result.ok() : Result.fail(new NotAllowedToChangeBudget());
     }
-    const removed = existing.lift({ byOwner, at });
+    const removed = existing.lift({ byOwner, groupArchived, at });
     if (removed.isFailure()) return removed;
     if (removed.data === existing) return Result.ok();
 

@@ -46,7 +46,14 @@ describe('Receipt', () => {
   it('lets the payer and the owner attach, and refuses any other member by name', () => {
     const groupMembers = [payer, owner, other];
     const judge = (by: Id, byOwner: boolean) =>
-      Receipt.mayBeAttachedBy({ by, byOwner, payer, expenseMembers: [payer, other], groupMembers });
+      Receipt.mayBeAttachedBy({
+        by,
+        byOwner,
+        payer,
+        expenseMembers: [payer, other],
+        groupMembers,
+        groupArchived: false,
+      });
     expect(judge(payer, false).isFailure()).toBe(false);
     expect(judge(owner, true).isFailure()).toBe(false);
     expect(judge(other, false).error?.type).toBe('NotAllowedToAttachReceipt');
@@ -59,8 +66,50 @@ describe('Receipt', () => {
       payer,
       expenseMembers: [payer, other],
       groupMembers: [payer],
+      groupArchived: false,
     });
     expect(result.error?.type).toBe('FormerMemberInExpense');
+  });
+
+  it('refuses an attachment in an archived group by GroupArchived, before anything is kept', () => {
+    const judged = Receipt.mayBeAttachedBy({
+      by: owner,
+      byOwner: true,
+      payer,
+      expenseMembers: [payer, other],
+      groupMembers: [payer, owner, other],
+      groupArchived: true,
+    });
+    expect(judged.error?.type).toBe('GroupArchived');
+
+    const attached = Receipt.attach({
+      expenseId: new Id('expense'),
+      file: jpeg,
+      stored: { id: 'file-1', url: 'https://receipts.example/file-1' },
+      groupArchived: true,
+      at,
+    });
+    expect(attached.isFailure()).toBe(true);
+    expect(attached.error?.type).toBe('GroupArchived');
+
+    const stored = Receipt.fromSnapshot({
+      id: 'r',
+      expenseId: 'e',
+      type: 'image/png',
+      size: 5,
+      storedId: 'f',
+      url: 'https://receipts.example/f',
+      attachedAt: at.toISOString(),
+      version: 2,
+    });
+    const replaced = stored.replaceWith({
+      file: png,
+      stored: { id: 'file-2', url: 'https://receipts.example/file-2' },
+      groupArchived: true,
+      at,
+    });
+    expect(replaced.error?.type).toBe('GroupArchived');
+    expect(stored.toSnapshot()).toMatchObject({ storedId: 'f', version: 2 });
   });
 
   it('is created with an identity of its own, at version 0, recording ReceiptAttached', () => {
@@ -68,6 +117,7 @@ describe('Receipt', () => {
       expenseId: new Id('expense'),
       file: jpeg,
       stored: { id: 'file-1', url: 'https://receipts.example/file-1' },
+      groupArchived: false,
       at,
     }).data!;
     expect(receipt.version).toBe(0);
@@ -84,12 +134,14 @@ describe('Receipt', () => {
       expenseId: new Id('expense'),
       file: jpeg,
       stored: { id: 'file-1', url: 'https://receipts.example/file-1' },
+      groupArchived: false,
       at,
     }).data!;
     const stored = Receipt.fromSnapshot({ ...first.toSnapshot(), version: 3 });
     const replaced = stored.replaceWith({
       file: png,
       stored: { id: 'file-2', url: 'https://receipts.example/file-2' },
+      groupArchived: false,
       at,
     }).data!;
     expect(replaced._id.value).toBe(stored._id.value);
@@ -102,6 +154,7 @@ describe('Receipt', () => {
       expenseId: new Id('expense'),
       file: jpeg,
       stored: { id: '', url: 'https://receipts.example/x' },
+      groupArchived: false,
       at,
     });
     expect(result.error?.type).toBe('ReceiptStoreUnavailable');

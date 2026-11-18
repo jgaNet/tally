@@ -2,6 +2,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { Module } from '@Architecture/Application';
 import { acceptCommand } from '@Architecture/Presentation/AcceptCommand';
 import {
+  ArchiveGroupCommandEvent,
   CreateGroupCommandEvent,
   CreateInvitationCommandEvent,
   LeaveGroupCommandEvent,
@@ -42,6 +43,10 @@ export class FastifyGroupController {
 
   leaveGroup(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     return acceptCommand(req, reply, this.#module, LeaveGroupCommandEvent.set({ groupId: req.params.id }));
+  }
+
+  archiveGroup(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, ArchiveGroupCommandEvent.set({ groupId: req.params.id }));
   }
 
   async getMembers(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

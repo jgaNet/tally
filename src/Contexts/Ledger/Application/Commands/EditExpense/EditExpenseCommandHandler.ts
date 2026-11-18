@@ -44,6 +44,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (!expense) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     const role = await this.groupMembers.roleOf(expense.groupId, caller.data);
     if (role === null) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
+    const groupArchived = await this.groupMembers.isArchived(expense.groupId);
 
     const description = Description.create(payload.description);
     if (description.isFailure()) return description;
@@ -73,6 +74,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
       date: date.data,
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(expense.groupId),
+      groupArchived,
       at: now,
     });
     if (edited.isFailure()) return edited;

@@ -33,6 +33,11 @@ export const GROUP_STATEMENTS = [
      passed_at TEXT NOT NULL,
      PRIMARY KEY (group_id, position)
    )`,
+  // The moment a group was archived (request 27, ADR 20): a fact, written once, and never undone. A group without a row is open.
+  `CREATE TABLE IF NOT EXISTS group_archives (
+     group_id TEXT PRIMARY KEY,
+     archived_at TEXT NOT NULL
+   )`,
   `CREATE TABLE IF NOT EXISTS group_invitations (
      id TEXT PRIMARY KEY,
      group_id TEXT NOT NULL,

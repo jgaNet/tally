@@ -101,3 +101,59 @@ describe('Group', () => {
     expect(Group.fromSnapshot({ ...snapshot, version: 1 }).toSnapshot()).toEqual({ ...snapshot, version: 1 });
   });
 });
+
+describe('Group archived (request 27)', () => {
+  const later = new Date('2026-06-01T00:00:00.000Z');
+  const make = () =>
+    Group.create({
+      name: name('Flat').data as GroupName,
+      currency: currency('EUR').data as Currency,
+      ownerId: new Id('owner-1'),
+      at,
+    });
+  const archiveBy = (group: Group, accountId: string, balances: number[] = [0], paymentWaiting = false) =>
+    group.archive({ accountId: new Id(accountId), balances, paymentWaiting, at: later });
+
+  it('is archived by its owner once every balance is 0 and nothing waits, and records GroupArchived', () => {
+    const group = make();
+    group.join(new Id('bob'), at);
+    expect(archiveBy(group, 'owner-1', [0, 0]).isFailure()).toBe(false);
+    expect(group.archivedAt).toEqual(later);
+    expect(group.toSnapshot().archivedAt).toBe(later.toISOString());
+    expect(group.pullDomainEvents().map(event => event.constructor.name)).toContain('GroupArchivedEvent');
+  });
+
+  it('is refused for anyone but the owner, while a balance is not 0, and while a payment waits', () => {
+    const group = make();
+    group.join(new Id('bob'), at);
+    const byBob = archiveBy(group, 'bob');
+    expect(byBob.isFailure() && byBob.error.type).toBe('OnlyTheOwnerArchives');
+    const notOwner = archiveBy(group, 'owner-1', [0, 5]);
+    expect(notOwner.isFailure() && notOwner.error.type).toBe('GroupNotSettled');
+    const waiting = archiveBy(group, 'owner-1', [0], true);
+    expect(waiting.isFailure() && waiting.error.type).toBe('PaymentWaitingAtProvider');
+    expect(group.archivedAt).toBeNull();
+  });
+
+  it('refuses every change once archived, by GroupArchived, and is archived once', () => {
+    const group = make();
+    expect(archiveBy(group, 'owner-1').isFailure()).toBe(false);
+    const again = archiveBy(group, 'owner-1');
+    expect(again.isFailure() && again.error.type).toBe('GroupArchived');
+    const joined = group.join(new Id('carol'), later);
+    expect(joined.isFailure() && joined.error.type).toBe('GroupArchived');
+    const left = group.leave({ accountId: new Id('owner-1'), balance: 0, paymentWaiting: false, at: later });
+    expect(left.isFailure() && left.error.type).toBe('GroupArchived');
+    const invited = group.mayChange();
+    expect(invited.isFailure() && invited.error.type).toBe('GroupArchived');
+    expect(group.members.map(member => member.accountId.value)).toEqual(['owner-1']);
+  });
+
+  it('reads back its archive, and reads none when it was never archived', () => {
+    const group = make();
+    expect(group.toSnapshot().archivedAt).toBeNull();
+    archiveBy(group, 'owner-1');
+    const restored = Group.fromSnapshot({ ...group.toSnapshot(), version: 1 });
+    expect(restored.archivedAt).toEqual(later);
+  });
+});

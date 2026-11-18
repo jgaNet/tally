@@ -11,4 +11,8 @@ export class GroupsSettlementMembers implements ISettlementMembers {
   currentMembers(groupId: string): Promise<string[]> {
     return this.groups.listMemberIds(groupId);
   }
+
+  isArchived(groupId: string): Promise<boolean> {
+    return this.groups.isArchived(groupId);
+  }
 }

@@ -33,6 +33,7 @@ describe('RecurringExpense', () => {
       startsOn: '2030-03-05',
       request: { splitBetween: [payer.value, other.value] },
       groupMembers,
+      groupArchived: false,
       at: today,
     });
     expect(created.isFailure()).toBe(false);
@@ -58,7 +59,29 @@ describe('RecurringExpense', () => {
 
   test('a stop by someone who is neither its payer nor the owner is refused', () => {
     const recurring = setUp([payer, other]);
-    expect(recurring!.stop({ by: other, byOwner: false, at: today }).isFailure()).toBe(true);
-    expect(recurring!.stop({ by: payer, byOwner: false, at: today }).isFailure()).toBe(false);
+    expect(recurring!.stop({ by: other, byOwner: false, groupArchived: false, at: today }).isFailure()).toBe(true);
+    expect(recurring!.stop({ by: payer, byOwner: false, groupArchived: false, at: today }).isFailure()).toBe(false);
+  });
+
+  test('in an archived group, a set-up or a stop is refused by GroupArchived and changes nothing', () => {
+    const refused = RecurringExpense.setUp({
+      groupId: Id.generate(),
+      payer,
+      description: 'Rent',
+      amount: 90000,
+      startsOn: '2030-03-05',
+      request: { splitBetween: [payer.value, other.value] },
+      groupMembers: [payer, other],
+      groupArchived: true,
+      at: today,
+    });
+    expect(refused.isFailure()).toBe(true);
+    expect(refused.isFailure() && refused.error.type).toBe('GroupArchived');
+
+    const recurring = setUp([payer, other]);
+    const stopped = recurring!.stop({ by: payer, byOwner: true, groupArchived: true, at: today });
+    expect(stopped.isFailure()).toBe(true);
+    expect(stopped.isFailure() && stopped.error.type).toBe('GroupArchived');
+    expect(recurring!.isRemoved).toBe(false);
   });
 });

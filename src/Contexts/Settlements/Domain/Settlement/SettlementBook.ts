@@ -1,4 +1,5 @@
 import { AggregateRoot, Exception, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchived } from '@SharedKernel/Domain';
 import {
   PaymentRequestedEvent,
   RefundRequestedEvent,
@@ -110,7 +111,12 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /** A payee's payment in cash, decided now: recorded as paid, and SettlementRecorded. */
-  recordCash({ at, ...decision }: SettlementDecision & { at: Date }): IResult<Settlement> {
+  recordCash({
+    at,
+    groupArchived,
+    ...decision
+  }: SettlementDecision & { at: Date; groupArchived: boolean }): IResult<Settlement> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     const refusal = this.#refusal(decision);
     if (refusal) return Result.fail(refusal);
     const settlement = this.#keep({
@@ -144,8 +150,10 @@ export class SettlementBook extends AggregateRoot {
    */
   proposePayment({
     payeeAccount,
+    groupArchived,
     ...decision
-  }: SettlementDecision & { payeeAccount: string | undefined }): IResult<PaymentProposal> {
+  }: SettlementDecision & { payeeAccount: string | undefined; groupArchived: boolean }): IResult<PaymentProposal> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     const refusal = this.#refusal(decision);
     if (refusal) return Result.fail(refusal);
     if (payeeAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccount());
@@ -195,11 +203,14 @@ export class SettlementBook extends AggregateRoot {
     settlementId,
     caller,
     members,
+    groupArchived,
   }: {
     settlementId: Id;
     caller: Id;
     members: readonly string[];
+    groupArchived: boolean;
   }): IResult<RefundProposal> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     const settlement = this.#settlements.find(candidate => candidate.id.equals(settlementId));
     if (!settlement || !members.includes(caller.value)) {
       return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));

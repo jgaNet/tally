@@ -6,21 +6,57 @@ const groupId = Id.generate();
 const owner = Id.generate();
 
 function establish(amount = 100) {
-  const created = Budget.establish({ groupId, category: 'groceries', amount, byOwner: true, at });
+  const created = Budget.establish({ groupId, category: 'groceries', amount, byOwner: true, groupArchived: false, at });
   if (created.isFailure()) throw new Error('the budget was refused');
   return created.data;
 }
 
 describe('Budget (request 24)', () => {
   it('is set by the owner only, with an amount from 1 to 100 000 000', () => {
-    expect(Budget.establish({ groupId, category: 'rent', amount: 5, byOwner: false, at }).isFailure()).toBe(true);
-    expect(Budget.establish({ groupId, category: 'rent', amount: 0, byOwner: true, at }).isFailure()).toBe(true);
-    expect(Budget.establish({ groupId, category: 'rent', amount: MAX_BUDGET + 1, byOwner: true, at }).isFailure()).toBe(
-      true,
-    );
-    expect(Budget.establish({ groupId, category: 'rent', amount: MAX_BUDGET, byOwner: true, at }).isFailure()).toBe(
-      false,
-    );
+    expect(
+      Budget.establish({ groupId, category: 'rent', amount: 5, byOwner: false, groupArchived: false, at }).isFailure(),
+    ).toBe(true);
+    expect(
+      Budget.establish({ groupId, category: 'rent', amount: 0, byOwner: true, groupArchived: false, at }).isFailure(),
+    ).toBe(true);
+    expect(
+      Budget.establish({
+        groupId,
+        category: 'rent',
+        amount: MAX_BUDGET + 1,
+        byOwner: true,
+        groupArchived: false,
+        at,
+      }).isFailure(),
+    ).toBe(true);
+    expect(
+      Budget.establish({
+        groupId,
+        category: 'rent',
+        amount: MAX_BUDGET,
+        byOwner: true,
+        groupArchived: false,
+        at,
+      }).isFailure(),
+    ).toBe(false);
+  });
+
+  it('is refused in an archived group, and nothing is set (GroupArchived)', () => {
+    const refused = Budget.establish({ groupId, category: 'rent', amount: 50, byOwner: true, groupArchived: true, at });
+    expect(refused.isFailure()).toBe(true);
+    expect(refused.isFailure() && refused.error.type).toBe('GroupArchived');
+
+    const budget = establish(100);
+    const amended = budget.amend({ byOwner: true, groupArchived: true, amount: 50, at });
+    expect(amended.isFailure()).toBe(true);
+    expect(amended.isFailure() && amended.error.type).toBe('GroupArchived');
+    expect(budget.amount).toBe(100);
+    expect(budget.active).toBe(true);
+
+    const lifted = budget.lift({ byOwner: true, groupArchived: true, at });
+    expect(lifted.isFailure()).toBe(true);
+    expect(lifted.isFailure() && lifted.error.type).toBe('GroupArchived');
+    expect(budget.active).toBe(true);
   });
 
   it('passes a month once, only when its spending is more than the budget', () => {
@@ -39,12 +75,12 @@ describe('Budget (request 24)', () => {
 
   it('keeps the months it passed when removed, and is told of no month while removed', () => {
     const passed = establish(100).judge({ month: '2030-01', spent: 101, memberIds: [owner], at });
-    const removed = passed.lift({ byOwner: true, at });
+    const removed = passed.lift({ byOwner: true, groupArchived: false, at });
     if (removed.isFailure()) throw new Error('the budget was refused');
     expect(removed.data.active).toBe(false);
     expect(removed.data.judge({ month: '2030-02', spent: 999, memberIds: [owner], at })).toBe(removed.data);
 
-    const again = removed.data.amend({ byOwner: true, amount: 50, at });
+    const again = removed.data.amend({ byOwner: true, groupArchived: false, amount: 50, at });
     if (again.isFailure()) throw new Error('the budget was refused');
     expect(again.data.active).toBe(true);
     expect(again.data.passedMonths).toEqual(['2030-01']);

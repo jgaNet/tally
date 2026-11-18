@@ -26,8 +26,14 @@ export class RemoveTemplateCommandHandler extends CommandHandler<RemoveTemplateC
     if (!template) return Result.fail(new NotFoundException('Ledger', 'Template not found'));
     const role = await this.groupMembers.roleOf(template.groupId, caller.data);
     if (role === null) return Result.fail(new NotFoundException('Ledger', 'Template not found'));
+    const groupArchived = await this.groupMembers.isArchived(template.groupId);
 
-    const removed = template.retire({ by: caller.data, byOwner: role === 'owner', at: this.clock() });
+    const removed = template.retire({
+      by: caller.data,
+      byOwner: role === 'owner',
+      groupArchived,
+      at: this.clock(),
+    });
     if (removed.isFailure()) return removed;
 
     const saved = await this.templates.save(removed.data);

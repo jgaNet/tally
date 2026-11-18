@@ -17,14 +17,22 @@ const balances = new Map([
 
 function recordedInCash(): { book: SettlementBook; settlementId: Id } {
   const book = SettlementBook.open(Id.generate(), 0);
-  const recorded = book.recordCash({ payer, payee, amount: 30, balances, members, at: asked });
+  const recorded = book.recordCash({ groupArchived: false, payer, payee, amount: 30, balances, members, at: asked });
   if (recorded.isFailure()) throw new Error('the cash settlement must be recorded');
   return { book, settlementId: recorded.data.id };
 }
 
 function askedThroughProvider(): { book: SettlementBook; settlementId: Id } {
   const book = SettlementBook.open(Id.generate(), 0);
-  const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
+  const proposal = book.proposePayment({
+    groupArchived: false,
+    payer,
+    payee,
+    amount: 30,
+    balances,
+    members,
+    payeeAccount: 'acct-payee',
+  });
   if (proposal.isFailure()) throw new Error('the payment must be proposed');
   const kept = book.keepPayment(proposal.data, { id: 'prov-1', payUrl: 'https://pay.example/prov-1' }, asked);
   if (kept.isFailure()) throw new Error('the payment must be kept');
@@ -65,7 +73,12 @@ describe('SettlementBook: the history of a settlement (request 19)', () => {
   it('a refund of a paid settlement adds refunding, then refunded', () => {
     const { book, settlementId } = askedThroughProvider();
     book.receivePayment({ paymentId: 'prov-1', status: 'succeeded', at: heard });
-    const proposal = book.proposeRefund({ settlementId, caller: payee, members: ['payer', 'payee'] });
+    const proposal = book.proposeRefund({
+      groupArchived: false,
+      settlementId,
+      caller: payee,
+      members: ['payer', 'payee'],
+    });
     if (proposal.isFailure()) throw new Error('the refund must be proposed');
     book.keepRefund(proposal.data, later);
     book.receivePayment({ paymentId: 'prov-1', status: 'refunded', at: later });

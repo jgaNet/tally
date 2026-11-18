@@ -8,3 +8,5 @@ export * from '@Contexts/Groups/Application/Commands/AcceptInvitation/AcceptInvi
 export * from '@Contexts/Groups/Application/Commands/AcceptInvitation/AcceptInvitationCommandHandler';
 export * from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandEvent';
 export * from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandHandler';
+export * from '@Contexts/Groups/Application/Commands/ArchiveGroup/ArchiveGroupCommandEvent';
+export * from '@Contexts/Groups/Application/Commands/ArchiveGroup/ArchiveGroupCommandHandler';

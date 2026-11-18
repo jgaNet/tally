@@ -39,6 +39,13 @@ export class SqliteGroupMembership implements IGroupMembership {
     return rows.map(row => ({ ...row, amount: Number(row.amount) }));
   }
 
+  async isArchived(groupId: string): Promise<boolean> {
+    const row = this.database.connection
+      .prepare('SELECT 1 AS found FROM group_archives WHERE group_id = ?')
+      .get(groupId);
+    return row !== undefined;
+  }
+
   async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {
     const row = this.database.connection
       .prepare('SELECT 1 AS found FROM group_members WHERE group_id = ? AND account_id = ?')

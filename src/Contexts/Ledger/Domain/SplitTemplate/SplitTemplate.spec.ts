@@ -58,6 +58,7 @@ describe('SplitTemplate', () => {
       savedBy: ann,
       groupMembers: [ann, bob],
       sameNameAs: null,
+      groupArchived: false,
       at,
     });
     expect(saved.isSuccess()).toBe(true);
@@ -72,6 +73,7 @@ describe('SplitTemplate', () => {
       savedBy: ann,
       groupMembers: [ann],
       sameNameAs: bob,
+      groupArchived: false,
       at,
     });
     expect(taken.isFailure()).toBe(true);
@@ -83,9 +85,56 @@ describe('SplitTemplate', () => {
       savedBy: ann,
       groupMembers: [ann, bob],
       sameNameAs: null,
+      groupArchived: false,
       at,
     });
     expect(outsider.isFailure()).toBe(true);
+  });
+
+  it('is refused by GroupArchived in an archived group, and nothing is saved, revised or removed', () => {
+    const refused = SplitTemplate.draft({
+      groupId: group,
+      name: name('Flat'),
+      split: split([ann]),
+      savedBy: ann,
+      groupMembers: [ann, bob],
+      sameNameAs: null,
+      groupArchived: true,
+      at,
+    });
+    expect(refused.isFailure()).toBe(true);
+    expect(refused.isFailure() && refused.error.type).toBe('GroupArchived');
+
+    const saved = SplitTemplate.draft({
+      groupId: group,
+      name: name('Flat'),
+      split: split([ann]),
+      savedBy: ann,
+      groupMembers: [ann, bob],
+      sameNameAs: null,
+      groupArchived: false,
+      at,
+    });
+    const template = saved.data as SplitTemplate;
+
+    const revised = template.revise({
+      by: ann,
+      byOwner: true,
+      name: name('Other'),
+      split: split([ann]),
+      groupMembers: [ann, bob],
+      sameNameAs: null,
+      groupArchived: true,
+      at,
+    });
+    expect(revised.isFailure()).toBe(true);
+    expect(revised.isFailure() && revised.error.type).toBe('GroupArchived');
+    expect(template.name.key).toBe(name('Flat').key);
+
+    const retired = template.retire({ by: ann, byOwner: true, groupArchived: true, at });
+    expect(retired.isFailure()).toBe(true);
+    expect(retired.isFailure() && retired.error.type).toBe('GroupArchived');
+    expect(template.isRemoved).toBe(false);
   });
 
   it('may be revised or retired only by the member who saved it or the owner', () => {
@@ -96,6 +145,7 @@ describe('SplitTemplate', () => {
       savedBy: ann,
       groupMembers: [ann, bob],
       sameNameAs: null,
+      groupArchived: false,
       at,
     });
     const template = saved.data as SplitTemplate;
@@ -107,12 +157,13 @@ describe('SplitTemplate', () => {
       split: split([bob]),
       groupMembers: [ann, bob],
       sameNameAs: null,
+      groupArchived: false,
       at,
     });
     expect(byBob.isFailure()).toBe(true);
-    expect(template.retire({ by: bob, byOwner: false, at }).isFailure()).toBe(true);
+    expect(template.retire({ by: bob, byOwner: false, groupArchived: false, at }).isFailure()).toBe(true);
 
-    const byOwner = template.retire({ by: bob, byOwner: true, at });
+    const byOwner = template.retire({ by: bob, byOwner: true, groupArchived: false, at });
     expect(byOwner.isSuccess()).toBe(true);
     expect(byOwner.data?.isRemoved).toBe(true);
   });

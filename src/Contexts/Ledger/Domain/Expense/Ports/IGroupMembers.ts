@@ -20,4 +20,6 @@ export interface IGroupMembers {
    * nothing passed is absent (0). Ledger counts it in every balance it reads.
    */
   balancesPassed(groupId: Id): Promise<Map<string, number>>;
+  /** Whether the group is archived (request 27, ADR 20): a change in an archived group is refused by GroupArchived. */
+  isArchived(groupId: Id): Promise<boolean>;
 }

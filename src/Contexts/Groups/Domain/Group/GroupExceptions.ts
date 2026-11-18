@@ -42,3 +42,15 @@ export class PaymentWaitingAtProvider extends GroupException {
     super('PaymentWaitingAtProvider', 'A member leaves a group once no payment of theirs is waiting at the provider');
   }
 }
+
+export class OnlyTheOwnerArchives extends GroupException {
+  constructor() {
+    super('OnlyTheOwnerArchives', 'Only the owner of the group archives it');
+  }
+}
+
+export class GroupNotSettled extends GroupException {
+  constructor() {
+    super('GroupNotSettled', "A group is archived once every member's balance is 0");
+  }
+}

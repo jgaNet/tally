@@ -5,7 +5,14 @@ import { GroupReadModel } from '@Contexts/Groups/Application/ReadModel/GroupRead
 import { MemberReadModel } from '@Contexts/Groups/Application/ReadModel/MemberReadModel';
 import { GROUP_STATEMENTS } from '@Contexts/Groups/Infrastructure/groups.schema';
 
-const READ_MODEL = 'SELECT g.id, g.name, g.currency, g.owner_id AS ownerId FROM tally_groups g';
+const READ_MODEL =
+  'SELECT g.id, g.name, g.currency, g.owner_id AS ownerId, a.archived_at AS archivedAt FROM tally_groups g LEFT JOIN group_archives a ON a.group_id = g.id';
+
+/** A group as a read reads it: `archivedAt` is there once the group is archived, and only then (request 27). */
+function groupOf(row: GroupReadModel & { archivedAt: string | null }): GroupReadModel {
+  const { archivedAt, ...group } = row;
+  return archivedAt === null ? group : { ...group, archivedAt };
+}
 
 /**
  * What the screens read of the groups, from the SQLite file, outside any transaction. Membership is the join, and only
@@ -26,7 +33,8 @@ export class SqliteGroupQueries implements IGroupQueries, IGroupMembership {
           )
           .get(id, accountId) as unknown,
     );
-    return (row as GroupReadModel | undefined) ?? null;
+    const found = row as (GroupReadModel & { archivedAt: string | null }) | undefined;
+    return found ? groupOf(found) : null;
   }
 
   async listForMember(accountId: string): Promise<GroupReadModel[]> {
@@ -38,7 +46,7 @@ export class SqliteGroupQueries implements IGroupQueries, IGroupMembership {
           )
           .all(accountId) as unknown,
     );
-    return rows as GroupReadModel[];
+    return (rows as (GroupReadModel & { archivedAt: string | null })[]).map(groupOf);
   }
 
   async listMemberIds(groupId: string): Promise<string[]> {
@@ -73,6 +81,14 @@ export class SqliteGroupQueries implements IGroupQueries, IGroupMembership {
       ...row,
       amount: Number(row.amount),
     }));
+  }
+
+  async isArchived(groupId: string): Promise<boolean> {
+    const row = await this.database.exclusive(
+      connection =>
+        connection.prepare('SELECT 1 AS found FROM group_archives WHERE group_id = ?').get(groupId) as unknown,
+    );
+    return row !== undefined;
   }
 
   async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {

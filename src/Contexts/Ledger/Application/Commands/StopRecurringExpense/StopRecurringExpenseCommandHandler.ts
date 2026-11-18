@@ -31,7 +31,8 @@ export class StopRecurringExpenseCommandHandler extends CommandHandler<StopRecur
     const role = await this.groupMembers.roleOf(found.groupId, caller.data);
     if (role === null) return Result.fail(new NotFoundException('Ledger', 'Recurring expense not found'));
 
-    const stopped = found.stop({ by: caller.data, byOwner: role === 'owner', at: now });
+    const groupArchived = await this.groupMembers.isArchived(found.groupId);
+    const stopped = found.stop({ by: caller.data, byOwner: role === 'owner', groupArchived, at: now });
     if (stopped.isFailure()) return stopped;
 
     const saved = await this.recurring.save(stopped.data);

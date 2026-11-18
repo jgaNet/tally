@@ -28,12 +28,13 @@ export class SetBudgetCommandHandler extends CommandHandler<SetBudgetCommandEven
     const category = categoryOf(payload.category);
     if (category.isFailure()) return category;
     const byOwner = (await this.groupMembers.roleOf(groupId, caller.data)) === 'owner';
+    const groupArchived = await this.groupMembers.isArchived(groupId);
     const at = this.clock();
 
     const existing = await this.budgets.findByCategory(groupId, category.data);
     const budget = existing
-      ? existing.amend({ byOwner, amount: payload.amount, at })
-      : Budget.establish({ groupId, category: category.data, amount: payload.amount, byOwner, at });
+      ? existing.amend({ byOwner, groupArchived, amount: payload.amount, at })
+      : Budget.establish({ groupId, category: category.data, amount: payload.amount, byOwner, groupArchived, at });
     if (budget.isFailure()) return budget;
 
     const saved = await this.budgets.save(budget.data);

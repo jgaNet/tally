@@ -4,4 +4,6 @@ export interface GroupReadModel {
   name: string;
   currency: string;
   ownerId: string;
+  /** When the group was archived: present only once it is (request 27). */
+  archivedAt?: string;
 }

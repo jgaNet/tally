@@ -30,6 +30,7 @@ export class SaveTemplateCommandHandler extends CommandHandler<SaveTemplateComma
     if ((await this.groupMembers.roleOf(groupId, caller.data)) === null) {
       return Result.fail(new NotFoundException('Ledger', 'Group not found'));
     }
+    const groupArchived = await this.groupMembers.isArchived(groupId);
     const name = TemplateName.of(payload.name);
     if (name.isFailure()) return name;
     const split = templateSplitOf(payload);
@@ -43,6 +44,7 @@ export class SaveTemplateCommandHandler extends CommandHandler<SaveTemplateComma
       savedBy: caller.data,
       groupMembers: await this.groupMembers.currentMembers(groupId),
       sameNameAs: sameName ? sameName._id : null,
+      groupArchived,
       at: this.clock(),
     });
     if (template.isFailure()) return template;

@@ -1,15 +1,19 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchived } from '@SharedKernel/Domain';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import { GroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 import {
   AlreadyMember,
+  GroupNotSettled,
   NotAMember,
+  OnlyTheOwnerArchives,
   OwnerCannotLeave,
   PaymentWaitingAtProvider,
 } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 import {
   BalancePassedEvent,
+  GroupArchivedEvent,
   GroupCreatedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
@@ -38,7 +42,8 @@ export interface Membership {
  * A group: the people who share expenses in one currency. It is made by `create()`, which records the fact, and its
  * owner is its first member: the owner's membership is not a fact of its own (MemberJoined is for the members who
  * join later). The name and the currency are fixed when it is made; nothing here changes them. The owner never leaves,
- * and what a member who leaves owed or was owed passes to the owner (BalancePassed, request 20).
+ * and what a member who leaves owed or was owed passes to the owner (BalancePassed, request 20). Once archived (request 27),
+ * the group is read only: every change in it is refused by GroupArchived, and the archive is never undone.
  */
 export class Group extends AggregateRoot {
   private constructor(
@@ -50,6 +55,7 @@ export class Group extends AggregateRoot {
     private _memberships: Membership[],
     private _passed: PassedBalance[],
     readonly createdAt: Date,
+    private _archivedAt: Date | null = null,
   ) {
     super(id, version);
   }
@@ -88,11 +94,52 @@ export class Group extends AggregateRoot {
   }
 
   /**
+   * Refuses a change in the group once it is archived (request 27, ADR 20): every behaviour that would change something in
+   * the group asks this first, and answers its refusal by GroupArchived, the one rule's name.
+   */
+  mayChange(): IResult {
+    return this._archivedAt === null ? Result.ok() : Result.fail(new GroupArchived());
+  }
+
+  /**
+   * Archives the group (request 27): only its owner, once every member's balance is 0 and no payment of any member waits at
+   * the provider. The balances and whether a payment waits are read by the caller and given as plain values, in the same
+   * transaction. Once archived, the group is read only. Records GroupArchived.
+   */
+  archive({
+    accountId,
+    balances,
+    paymentWaiting,
+    at,
+  }: {
+    accountId: Id;
+    balances: readonly number[];
+    paymentWaiting: boolean;
+    at: Date;
+  }): IResult {
+    const open = this.mayChange();
+    if (open.isFailure()) return open;
+    if (!accountId.equals(this.ownerId)) return Result.fail(new OnlyTheOwnerArchives());
+    if (balances.some(balance => balance !== 0)) return Result.fail(new GroupNotSettled());
+    if (paymentWaiting) return Result.fail(new PaymentWaitingAtProvider());
+    this._archivedAt = at;
+    this.record(
+      GroupArchivedEvent.set({
+        groupId: this._id.value,
+        archivedAt: at.toISOString(),
+      }),
+    );
+    return Result.ok();
+  }
+
+  /**
    * Adds an account as a member, from now on. It is refused when the account is a member already: a group is joined
    * once per account, however many invitations lead to it. An account that left joins again last, from now on, with
    * the time of this join. Records MemberJoined.
    */
   join(accountId: Id, at: Date): IResult {
+    const open = this.mayChange();
+    if (open.isFailure()) return open;
     if (this.hasMember(accountId)) return Result.fail(new AlreadyMember());
     this._memberships = [
       ...this._memberships.filter(membership => !membership.accountId.equals(accountId)),
@@ -125,6 +172,8 @@ export class Group extends AggregateRoot {
     paymentWaiting: boolean;
     at: Date;
   }): IResult {
+    const open = this.mayChange();
+    if (open.isFailure()) return open;
     if (accountId.equals(this.ownerId)) return Result.fail(new OwnerCannotLeave());
     if (!this.hasMember(accountId)) return Result.fail(new NotAMember());
     if (paymentWaiting) return Result.fail(new PaymentWaitingAtProvider());
@@ -184,7 +233,13 @@ export class Group extends AggregateRoot {
         passedAt: new Date(passed.passedAt),
       })),
       createdAt,
+      snapshot.archivedAt ? new Date(snapshot.archivedAt) : null,
     );
+  }
+
+  /** The archiving moment, null while the group is not archived. */
+  get archivedAt(): Date | null {
+    return this._archivedAt;
   }
 
   /** The members, the ones who have not left, in the order they joined, the owner first. */
@@ -225,6 +280,7 @@ export class Group extends AggregateRoot {
         passedAt: passed.passedAt.toISOString(),
       })),
       createdAt: this.createdAt.toISOString(),
+      archivedAt: this._archivedAt === null ? null : this._archivedAt.toISOString(),
       version: this.version,
     };
   }

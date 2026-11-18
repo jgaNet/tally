@@ -64,6 +64,8 @@ export class RecordRecurringExpensesJob {
   ): Promise<IResult<{ more: boolean }>> {
     const found = await this.recurring.findById(new Id(id));
     if (found === null || !found.isDue(today)) return Result.ok({ more: false });
+    // An archived group records nothing (request 27): the day is skipped, not refused, and the job moves on.
+    if (await this.groupMembers.isArchived(found.groupId)) return Result.ok({ more: false });
 
     const members = await this.groupMembers.currentMembers(found.groupId);
     const { recurring } = found.recordDay({ groupMembers: members, at });

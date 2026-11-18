@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchived } from '@SharedKernel/Domain';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { NotAGroupMember } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import {
@@ -64,6 +65,7 @@ export class SplitTemplate extends AggregateRoot {
     savedBy,
     groupMembers,
     sameNameAs,
+    groupArchived,
     at,
   }: {
     groupId: Id;
@@ -73,8 +75,10 @@ export class SplitTemplate extends AggregateRoot {
     groupMembers: readonly Id[];
     /** The template of the group that has this name already, or null when none has. */
     sameNameAs: Id | null;
+    groupArchived: boolean;
     at: Date;
   }): IResult<SplitTemplate> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (sameNameAs !== null) return Result.fail(new TemplateNameTaken());
     if (SplitTemplate.outsiders(split, groupMembers)) return Result.fail(new NotAGroupMember());
 
@@ -98,6 +102,7 @@ export class SplitTemplate extends AggregateRoot {
     split,
     groupMembers,
     sameNameAs,
+    groupArchived,
     at,
   }: {
     by: Id;
@@ -106,8 +111,10 @@ export class SplitTemplate extends AggregateRoot {
     split: TemplateSplit;
     groupMembers: readonly Id[];
     sameNameAs: Id | null;
+    groupArchived: boolean;
     at: Date;
   }): IResult<SplitTemplate> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!this.mayBeChangedBy(by, byOwner)) return Result.fail(new NotAllowedToChangeTemplate());
     if (sameNameAs !== null && !sameNameAs.equals(this._id)) return Result.fail(new TemplateNameTaken());
     if (SplitTemplate.outsiders(split, groupMembers)) return Result.fail(new NotAGroupMember());
@@ -125,7 +132,18 @@ export class SplitTemplate extends AggregateRoot {
   }
 
   /** Removes the template, as `retire()`. Only the member who saved it, or the owner, may. Records TemplateRemoved. */
-  retire({ by, byOwner, at }: { by: Id; byOwner: boolean; at: Date }): IResult<SplitTemplate> {
+  retire({
+    by,
+    byOwner,
+    groupArchived,
+    at,
+  }: {
+    by: Id;
+    byOwner: boolean;
+    groupArchived: boolean;
+    at: Date;
+  }): IResult<SplitTemplate> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!this.mayBeChangedBy(by, byOwner)) return Result.fail(new NotAllowedToChangeTemplate());
 
     const removed = new SplitTemplate(this._id, this.version, this.groupId, this.name, this.split, this.savedBy, true);

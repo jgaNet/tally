@@ -11,6 +11,7 @@ const GroupSchema = {
     name: { type: 'string' },
     currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
     ownerId: { type: 'string' },
+    archivedAt: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
   },
 } as const;
 
@@ -64,6 +65,11 @@ export const GetGroupMembersResSchema = {
 } as const;
 
 export const LeaveGroupResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  401: RefusedSchema,
+} as const;
+
+export const ArchiveGroupResSchema = {
   202: { type: 'object', properties: { operationId: { type: 'string' } } },
   401: RefusedSchema,
 } as const;

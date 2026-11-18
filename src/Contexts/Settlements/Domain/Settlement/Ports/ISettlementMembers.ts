@@ -6,4 +6,6 @@
 export interface ISettlementMembers {
   /** The account ids of the group's members now, in the order they joined, the earliest first; empty for a group that does not exist. */
   currentMembers(groupId: string): Promise<string[]>;
+  /** Whether the group is archived (request 27, ADR 20): a change in an archived group is refused by GroupArchived. */
+  isArchived(groupId: string): Promise<boolean>;
 }

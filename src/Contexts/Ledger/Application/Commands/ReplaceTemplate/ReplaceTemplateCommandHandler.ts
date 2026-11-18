@@ -28,6 +28,7 @@ export class ReplaceTemplateCommandHandler extends CommandHandler<ReplaceTemplat
     if (!template) return Result.fail(new NotFoundException('Ledger', 'Template not found'));
     const role = await this.groupMembers.roleOf(template.groupId, caller.data);
     if (role === null) return Result.fail(new NotFoundException('Ledger', 'Template not found'));
+    const groupArchived = await this.groupMembers.isArchived(template.groupId);
 
     const name = TemplateName.of(payload.name);
     if (name.isFailure()) return name;
@@ -42,6 +43,7 @@ export class ReplaceTemplateCommandHandler extends CommandHandler<ReplaceTemplat
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(template.groupId),
       sameNameAs: sameName ? sameName._id : null,
+      groupArchived,
       at: this.clock(),
     });
     if (replaced.isFailure()) return replaced;

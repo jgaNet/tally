@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchived } from '@SharedKernel/Domain';
 import { ReceiptFile, ReceiptType } from '@Contexts/Ledger/Domain/Receipt/ReceiptFile';
 import { NotAllowedToAttachReceipt, ReceiptStoreUnavailable } from '@Contexts/Ledger/Domain/Receipt/ReceiptExceptions';
 import { FormerMemberInExpense } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
@@ -53,13 +54,16 @@ export class Receipt extends AggregateRoot {
     payer,
     expenseMembers,
     groupMembers,
+    groupArchived,
   }: {
     by: Id;
     byOwner: boolean;
     payer: Id;
     expenseMembers: readonly Id[];
     groupMembers: readonly Id[];
+    groupArchived: boolean;
   }): IResult {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!byOwner && !payer.equals(by)) return Result.fail(new NotAllowedToAttachReceipt());
     const former = expenseMembers.some(member => !groupMembers.some(current => current.equals(member)));
     if (former) return Result.fail(new FormerMemberInExpense());
@@ -71,13 +75,16 @@ export class Receipt extends AggregateRoot {
     expenseId,
     file,
     stored,
+    groupArchived,
     at,
   }: {
     expenseId: Id;
     file: ReceiptFile;
     stored: StoredReceiptFile;
+    groupArchived: boolean;
     at: Date;
   }): IResult<Receipt> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!validLink(stored)) return Result.fail(new ReceiptStoreUnavailable());
     const receipt = new Receipt(Id.generate(), 0, expenseId, file.type, file.size, stored.id, stored.url, at);
     receipt.record(
@@ -93,7 +100,18 @@ export class Receipt extends AggregateRoot {
   }
 
   /** Replaces the receipt the expense had with `file`, at the version this one was read at; ReceiptAttached is recorded. */
-  replaceWith({ file, stored, at }: { file: ReceiptFile; stored: StoredReceiptFile; at: Date }): IResult<Receipt> {
+  replaceWith({
+    file,
+    stored,
+    groupArchived,
+    at,
+  }: {
+    file: ReceiptFile;
+    stored: StoredReceiptFile;
+    groupArchived: boolean;
+    at: Date;
+  }): IResult<Receipt> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!validLink(stored)) return Result.fail(new ReceiptStoreUnavailable());
     const replaced = new Receipt(
       this._id,

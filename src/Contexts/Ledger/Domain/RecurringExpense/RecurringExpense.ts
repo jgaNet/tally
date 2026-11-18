@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchived } from '@SharedKernel/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { SplitKind, SplitRequest } from '@Contexts/Ledger/Domain/Expense/DTOs';
@@ -96,6 +97,7 @@ export class RecurringExpense extends AggregateRoot {
     category = 'other',
     request,
     groupMembers,
+    groupArchived,
     at,
   }: {
     groupId: Id;
@@ -106,8 +108,10 @@ export class RecurringExpense extends AggregateRoot {
     category?: Category;
     request: SplitRequest;
     groupMembers: readonly Id[];
+    groupArchived: boolean;
     at: Date;
   }): IResult<RecurringExpense> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     const described = Description.create(description);
     if (described.isFailure()) return described;
     const paid = Amount.create(amount);
@@ -189,7 +193,18 @@ export class RecurringExpense extends AggregateRoot {
   }
 
   /** Stops it: only its payer or the owner of its group may (`by`, `byOwner`). Records RecurringExpenseStopped. */
-  stop({ by, byOwner, at }: { by: Id; byOwner: boolean; at: Date }): IResult<RecurringExpense> {
+  stop({
+    by,
+    byOwner,
+    groupArchived,
+    at,
+  }: {
+    by: Id;
+    byOwner: boolean;
+    groupArchived: boolean;
+    at: Date;
+  }): IResult<RecurringExpense> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!byOwner && !this.payer.equals(by)) return Result.fail(new NotAllowedToStopRecurringExpense());
     const stopped = this.moved({ removed: true });
     stopped.record(

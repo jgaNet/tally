@@ -33,6 +33,7 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
     if (!members.includes(payee.data.value)) {
       return Result.fail(new NotFoundException('Settlements', 'Group not found'));
     }
+    const groupArchived = await this.members.isArchived(payload.groupId);
 
     const book = await this.books.findByGroup(new Id(payload.groupId));
     const balances = await this.balances.balancesOf(payload.groupId);
@@ -42,6 +43,7 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
       amount: payload.amount,
       balances,
       members,
+      groupArchived,
       at: this.clock(),
     });
     if (recorded.isFailure()) return recorded;

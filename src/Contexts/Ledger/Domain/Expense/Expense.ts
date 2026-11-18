@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchived } from '@SharedKernel/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
@@ -69,6 +70,7 @@ export class Expense extends AggregateRoot {
     date,
     split,
     groupMembers,
+    groupArchived = false,
     at,
   }: {
     /** The identity the expense is given, when a recurring expense's day already gave one (request 23, ADR 16); generated otherwise. */
@@ -81,8 +83,14 @@ export class Expense extends AggregateRoot {
     date: ExpenseDate;
     split: Split;
     groupMembers: readonly Id[];
+    /**
+     * Whether the group is archived (request 27). Defaults to false only for the recurring expense's day, which the
+     * background job has already asked before it reaches here; every command passes what Groups answered.
+     */
+    groupArchived?: boolean;
     at: Date;
   }): IResult<Expense> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
     if (outsider) return Result.fail(new NotAGroupMember());
 
@@ -118,6 +126,7 @@ export class Expense extends AggregateRoot {
     date,
     split,
     groupMembers,
+    groupArchived,
     at,
   }: {
     by: Id;
@@ -130,8 +139,10 @@ export class Expense extends AggregateRoot {
     date: ExpenseDate;
     split: Split;
     groupMembers: readonly Id[];
+    groupArchived: boolean;
     at: Date;
   }): IResult<Expense> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!this.mayBeChangedBy(by, byOwner)) return Result.fail(new NotAllowedToChangeExpense());
     if (fromVersion !== this.version) return Result.fail(new ExpenseChanged());
     if (this.concernsFormerMember(groupMembers)) return Result.fail(new FormerMemberInExpense());
@@ -171,13 +182,16 @@ export class Expense extends AggregateRoot {
     by,
     byOwner,
     groupMembers,
+    groupArchived,
     at,
   }: {
     by: Id;
     byOwner: boolean;
     groupMembers: readonly Id[];
+    groupArchived: boolean;
     at: Date;
   }): IResult<Expense> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!this.mayBeChangedBy(by, byOwner)) return Result.fail(new NotAllowedToChangeExpense());
     if (this.concernsFormerMember(groupMembers)) return Result.fail(new FormerMemberInExpense());
 

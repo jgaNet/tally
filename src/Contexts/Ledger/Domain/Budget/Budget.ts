@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchived } from '@SharedKernel/Domain';
 import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import {
   BudgetPassedEvent,
@@ -48,14 +49,17 @@ export class Budget extends AggregateRoot {
     category,
     amount,
     byOwner,
+    groupArchived,
     at,
   }: {
     groupId: Id;
     category: Category;
     amount: number;
     byOwner: boolean;
+    groupArchived: boolean;
     at: Date;
   }): IResult<Budget> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!byOwner) return Result.fail(new NotAllowedToChangeBudget());
     if (!isAmount(amount)) return Result.fail(new InvalidBudgetAmount());
 
@@ -73,7 +77,18 @@ export class Budget extends AggregateRoot {
   }
 
   /** Sets the budget again, or sets it again after it was removed (its passed months are kept). Records BudgetSet. */
-  amend({ byOwner, amount, at }: { byOwner: boolean; amount: number; at: Date }): IResult<Budget> {
+  amend({
+    byOwner,
+    groupArchived,
+    amount,
+    at,
+  }: {
+    byOwner: boolean;
+    groupArchived: boolean;
+    amount: number;
+    at: Date;
+  }): IResult<Budget> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!byOwner) return Result.fail(new NotAllowedToChangeBudget());
     if (!isAmount(amount)) return Result.fail(new InvalidBudgetAmount());
 
@@ -91,7 +106,8 @@ export class Budget extends AggregateRoot {
   }
 
   /** Removes the budget: only the owner may. A budget already removed is answered as it is. Records BudgetRemoved. */
-  lift({ byOwner, at }: { byOwner: boolean; at: Date }): IResult<Budget> {
+  lift({ byOwner, groupArchived, at }: { byOwner: boolean; groupArchived: boolean; at: Date }): IResult<Budget> {
+    if (groupArchived) return Result.fail(new GroupArchived());
     if (!byOwner) return Result.fail(new NotAllowedToChangeBudget());
     if (!this.active) return Result.ok(this);
 

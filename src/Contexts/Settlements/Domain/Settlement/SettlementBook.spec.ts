@@ -22,6 +22,7 @@ function decide(amount: number, balances: Map<string, number>, overrides: { paye
     amount,
     balances,
     members: overrides.members ?? members,
+    groupArchived: false,
     at,
   });
   return { book, result };
@@ -102,6 +103,7 @@ describe('SettlementBook: a cash settlement is never more than is owed', () => {
       amount: 1,
       balances: new Map([['payer', -30]]),
       members,
+      groupArchived: false,
       at,
     });
     expect(same.isFailure() && same.error instanceof PayerIsPayee).toBe(true);
@@ -126,7 +128,7 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
   const decision = { payer, payee, balances, members, payeeAccount: 'acct-payee' as string | undefined };
 
   function kept(amount: number, book = SettlementBook.open(Id.generate(), 0)) {
-    const proposal = book.proposePayment({ ...decision, amount });
+    const proposal = book.proposePayment({ groupArchived: false, ...decision, amount });
     if (proposal.isFailure()) throw new Error('refused');
     const settlement = book.keepPayment(proposal.data, { id: `pay-${amount}`, payUrl: `https://pay/${amount}` }, at);
     return { book, settlement };
@@ -143,16 +145,16 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
 
   it('counts what is waiting as paid: asks for no more than is still owed', () => {
     const { book } = kept(20);
-    const again = book.proposePayment({ ...decision, amount: 15 });
+    const again = book.proposePayment({ groupArchived: false, ...decision, amount: 15 });
 
     expect(again.isFailure()).toBe(true);
     expect((again.error as { type?: string } | undefined)?.type).toBe('SettlementExceedsDebt');
-    expect(book.proposePayment({ ...decision, amount: 10 }).isSuccess()).toBe(true);
+    expect(book.proposePayment({ groupArchived: false, ...decision, amount: 10 }).isSuccess()).toBe(true);
   });
 
   it('refuses a payee with no payout account by name, before the provider is asked, and keeps nothing', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const proposal = book.proposePayment({ ...decision, payeeAccount: undefined, amount: 20 });
+    const proposal = book.proposePayment({ groupArchived: false, ...decision, payeeAccount: undefined, amount: 20 });
 
     expect(proposal.isFailure()).toBe(true);
     expect((proposal.error as { type?: string } | undefined)?.type).toBe('PayeeHasNoPayoutAccount');
@@ -161,7 +163,7 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
 
   it('asks a payment for the payee account it is given, and keeps the proposal with it', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const proposal = book.proposePayment({ ...decision, amount: 20 });
+    const proposal = book.proposePayment({ groupArchived: false, ...decision, amount: 20 });
 
     expect(proposal.isSuccess()).toBe(true);
     expect(proposal.data).toMatchObject({ payeeAccount: 'acct-payee', amount: 20 });
@@ -169,7 +171,7 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
 
   it('refuses a payee who is not a member of the group', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const proposal = book.proposePayment({ ...decision, payee: new Id('stranger'), amount: 5 });
+    const proposal = book.proposePayment({ groupArchived: false, ...decision, payee: new Id('stranger'), amount: 5 });
 
     expect(proposal.isFailure()).toBe(true);
     expect((proposal.error as { type?: string } | undefined)?.type).toBe('PayeeNotAMember');
@@ -189,7 +191,7 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
     book.receivePayment({ paymentId: 'pay-20', status: 'failed', at: NOW });
 
     expect(book.unsaved[0].status).toBe('failed');
-    expect(book.proposePayment({ ...decision, amount: 30 }).isSuccess()).toBe(true);
+    expect(book.proposePayment({ groupArchived: false, ...decision, amount: 30 }).isSuccess()).toBe(true);
   });
 
   it('changes nothing for a pending word, an unknown payment, a word it does not know, or a payment already ended', () => {
@@ -203,5 +205,48 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
     book.receivePayment({ paymentId: 'pay-20', status: 'failed', at: NOW });
     expect(book.unsaved[0].status).toBe('paid');
     expect(book.pullDomainEvents()).toHaveLength(2);
+  });
+});
+
+describe('SettlementBook: nothing changes in an archived group (request 27)', () => {
+  it('refuses a cash settlement by GroupArchived, even one that would be allowed, and records nothing', () => {
+    const book = SettlementBook.open(Id.generate(), 0);
+    const result = book.recordCash({
+      payer,
+      payee,
+      amount: 10,
+      balances: new Map([
+        ['payer', -30],
+        ['payee', 30],
+      ]),
+      members,
+      groupArchived: true,
+      at,
+    });
+
+    expect(result.isFailure()).toBe(true);
+    expect((result.error as { type?: string } | undefined)?.type).toBe('GroupArchived');
+    expect(book.unsaved).toHaveLength(0);
+    expect(book.pullDomainEvents()).toHaveLength(0);
+  });
+
+  it('refuses a payment through the provider by GroupArchived, before the provider is asked, and keeps nothing', () => {
+    const book = SettlementBook.open(Id.generate(), 0);
+    const proposal = book.proposePayment({
+      payer,
+      payee,
+      amount: 10,
+      balances: new Map([
+        ['payer', -30],
+        ['payee', 30],
+      ]),
+      members,
+      payeeAccount: undefined,
+      groupArchived: true,
+    });
+
+    expect(proposal.isFailure()).toBe(true);
+    expect((proposal.error as { type?: string } | undefined)?.type).toBe('GroupArchived');
+    expect(book.unsaved).toHaveLength(0);
   });
 });

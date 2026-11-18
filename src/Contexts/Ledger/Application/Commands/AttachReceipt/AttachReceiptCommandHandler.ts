@@ -37,6 +37,7 @@ export class AttachReceiptCommandHandler extends CommandHandler<AttachReceiptCom
     const groupId = new Id(expense.groupId);
     const role = await this.groupMembers.roleOf(groupId, caller.data);
     if (role === null) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
+    const groupArchived = await this.groupMembers.isArchived(groupId);
 
     const expenseId = new Id(expense.id);
     const mayAttach = Receipt.mayBeAttachedBy({
@@ -45,6 +46,7 @@ export class AttachReceiptCommandHandler extends CommandHandler<AttachReceiptCom
       payer: new Id(expense.paidBy),
       expenseMembers: expense.shares.map(share => new Id(share.memberId)),
       groupMembers: await this.groupMembers.currentMembers(groupId),
+      groupArchived,
     });
     if (mayAttach.isFailure()) return mayAttach;
 
@@ -55,8 +57,8 @@ export class AttachReceiptCommandHandler extends CommandHandler<AttachReceiptCom
 
     const existing = await this.receipts.findByExpense(expenseId);
     const attached = existing
-      ? existing.replaceWith({ file: file.data, stored: stored.data, at: now })
-      : Receipt.attach({ expenseId, file: file.data, stored: stored.data, at: now });
+      ? existing.replaceWith({ file: file.data, stored: stored.data, groupArchived, at: now })
+      : Receipt.attach({ expenseId, file: file.data, stored: stored.data, groupArchived, at: now });
     if (attached.isFailure()) return attached;
 
     const saved = await this.receipts.save(attached.data);

@@ -28,11 +28,13 @@ export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCom
     if (!expense) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     const role = await this.groupMembers.roleOf(expense.groupId, caller.data);
     if (role === null) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
+    const groupArchived = await this.groupMembers.isArchived(expense.groupId);
 
     const deleted = expense.delete({
       by: caller.data,
       byOwner: role === 'owner',
       groupMembers: await this.groupMembers.currentMembers(expense.groupId),
+      groupArchived,
       at: now,
     });
     if (deleted.isFailure()) return deleted;

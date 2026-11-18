@@ -27,7 +27,15 @@ const balances = new Map([
 /** A book with one settlement through the provider, kept pending and then paid by the provider's word. */
 function paidThroughProvider(): { book: SettlementBook; settlementId: Id } {
   const book = SettlementBook.open(Id.generate(), 0);
-  const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
+  const proposal = book.proposePayment({
+    groupArchived: false,
+    payer,
+    payee,
+    amount: 30,
+    balances,
+    members,
+    payeeAccount: 'acct-payee',
+  });
   if (proposal.isFailure()) throw new Error('the payment must be proposed');
   const kept = book.keepPayment(proposal.data, { id: 'prov-1', payUrl: 'https://pay.example/prov-1' }, at);
   if (kept.isFailure()) throw new Error('the payment must be kept');
@@ -45,7 +53,7 @@ describe('SettlementBook: the payee refunds a settlement paid through the provid
   it('proposes the refund for the payee of a paid settlement, and keeps it refunding, still counted, with RefundRequested', () => {
     const { book, settlementId } = paidThroughProvider();
 
-    const proposal = book.proposeRefund({ settlementId, caller: payee, members });
+    const proposal = book.proposeRefund({ groupArchived: false, settlementId, caller: payee, members });
     if (proposal.isFailure()) throw new Error('the refund must be proposed');
     expect(proposal.data.paymentId).toBe('prov-1');
 
@@ -60,7 +68,7 @@ describe('SettlementBook: the payee refunds a settlement paid through the provid
   it('refuses a refund that is not the payee’s, and changes nothing', () => {
     const { book, settlementId } = paidThroughProvider();
 
-    const proposal = book.proposeRefund({ settlementId, caller: payer, members });
+    const proposal = book.proposeRefund({ groupArchived: false, settlementId, caller: payer, members });
     expect(proposal.isFailure() && proposal.error instanceof NotThePayee).toBe(true);
     expect(book.unsaved).toHaveLength(1);
     expect(statusOf(book, settlementId)).toBe('paid');
@@ -68,34 +76,47 @@ describe('SettlementBook: the payee refunds a settlement paid through the provid
 
   it('refuses a settlement in cash, which is not refunded through Tally', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const cash = book.recordCash({ payer, payee, amount: 30, balances, members, at });
+    const cash = book.recordCash({ groupArchived: false, payer, payee, amount: 30, balances, members, at });
     if (cash.isFailure()) throw new Error('the cash settlement must be recorded');
 
-    const proposal = book.proposeRefund({ settlementId: cash.data.id, caller: payee, members });
+    const proposal = book.proposeRefund({ groupArchived: false, settlementId: cash.data.id, caller: payee, members });
     expect(proposal.isFailure() && proposal.error instanceof CashSettlementNotRefundable).toBe(true);
   });
 
   it('refuses a settlement that is not paid, pending or already refunded', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
+    const proposal = book.proposePayment({
+      groupArchived: false,
+      payer,
+      payee,
+      amount: 30,
+      balances,
+      members,
+      payeeAccount: 'acct-payee',
+    });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
     book.keepPayment(proposal.data, { id: 'prov-2', payUrl: 'https://pay.example/prov-2' }, at);
 
-    const pending = book.proposeRefund({ settlementId: proposal.data.id, caller: payee, members });
+    const pending = book.proposeRefund({
+      groupArchived: false,
+      settlementId: proposal.data.id,
+      caller: payee,
+      members,
+    });
     expect(pending.isFailure() && pending.error instanceof SettlementNotPaid).toBe(true);
   });
 
   it('refuses a refund once the payer has left the group, so the balances still add up to 0', () => {
     const { book, settlementId } = paidThroughProvider();
 
-    const proposal = book.proposeRefund({ settlementId, caller: payee, members: ['payee'] });
+    const proposal = book.proposeRefund({ groupArchived: false, settlementId, caller: payee, members: ['payee'] });
     expect(proposal.isFailure() && proposal.error instanceof PayerNotAMember).toBe(true);
   });
 
   it('answers a settlement as not found to anyone who is not a member of the group', () => {
     const { book, settlementId } = paidThroughProvider();
 
-    const proposal = book.proposeRefund({ settlementId, caller: new Id('stranger'), members });
+    const proposal = book.proposeRefund({ groupArchived: false, settlementId, caller: new Id('stranger'), members });
     expect(proposal.isFailure() && proposal.error instanceof NotFoundException).toBe(true);
   });
 });
@@ -114,7 +135,7 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
 
   it('makes a refunding settlement refunded once the provider says so', () => {
     const { book, settlementId } = paidThroughProvider();
-    const proposal = book.proposeRefund({ settlementId, caller: payee, members });
+    const proposal = book.proposeRefund({ groupArchived: false, settlementId, caller: payee, members });
     if (proposal.isFailure()) throw new Error('the refund must be proposed');
     book.keepRefund(proposal.data, at);
 
@@ -135,7 +156,15 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
 
   it('ends a refund that overtakes the success of the same payment as refunded, never paid', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
+    const proposal = book.proposePayment({
+      groupArchived: false,
+      payer,
+      payee,
+      amount: 30,
+      balances,
+      members,
+      payeeAccount: 'acct-payee',
+    });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
     book.keepPayment(proposal.data, { id: 'prov-3', payUrl: 'https://pay.example/prov-3' }, at);
     book.pullDomainEvents();
@@ -149,6 +178,17 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
     expect(events).toHaveLength(1);
     expect(events[0]).toBeInstanceOf(SettlementRefundedEvent);
     expect(events.some(event => event instanceof SettlementPaidEvent)).toBe(false);
+  });
+
+  it('refuses a refund by GroupArchived, and changes nothing', () => {
+    const { book, settlementId } = paidThroughProvider();
+
+    const proposal = book.proposeRefund({ settlementId, caller: payee, members, groupArchived: true });
+
+    expect(proposal.isFailure()).toBe(true);
+    expect((proposal.error as { type?: string } | undefined)?.type).toBe('GroupArchived');
+    expect(statusOf(book, settlementId)).toBe('paid');
+    expect(book.pullDomainEvents()).toHaveLength(0);
   });
 
   it('changes nothing for a succeeded or pending word that arrives after a refund', () => {
@@ -165,7 +205,15 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
 
   it('does not refund a settlement the provider said failed', () => {
     const book = SettlementBook.open(Id.generate(), 0);
-    const proposal = book.proposePayment({ payer, payee, amount: 30, balances, members, payeeAccount: 'acct-payee' });
+    const proposal = book.proposePayment({
+      groupArchived: false,
+      payer,
+      payee,
+      amount: 30,
+      balances,
+      members,
+      payeeAccount: 'acct-payee',
+    });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
     book.keepPayment(proposal.data, { id: 'prov-4', payUrl: 'https://pay.example/prov-4' }, at);
     book.receivePayment({ paymentId: 'prov-4', status: 'failed', at: NOW });

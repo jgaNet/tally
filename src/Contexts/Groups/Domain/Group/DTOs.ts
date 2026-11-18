@@ -23,5 +23,7 @@ export interface GroupSnapshot {
   /** The balances that passed to the owner when a member left, the earliest first: facts, never changed. */
   passed: PassedBalanceSnapshot[];
   createdAt: string;
+  /** When the group was archived, absent or null while it is not (request 27). */
+  archivedAt?: string | null;
   version: number;
 }

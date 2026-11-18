@@ -19,6 +19,10 @@ export class GroupsMembers implements IGroupMembers {
     return this.groups.hasBeenMember(groupId.value, accountId.value);
   }
 
+  async isArchived(groupId: Id): Promise<boolean> {
+    return this.groups.isArchived(groupId.value);
+  }
+
   async balancesPassed(groupId: Id): Promise<Map<string, number>> {
     const passed = await this.groups.balancesPassed(groupId.value);
     const sums = new Map<string, number>();

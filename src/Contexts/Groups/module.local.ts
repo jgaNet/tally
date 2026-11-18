@@ -35,6 +35,7 @@ import { IGroupCurrency } from '@Contexts/Groups/Domain/Group/Ports/IGroupCurren
 import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
 import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPayments';
 import { LeaveGroupCommandEvent, LeaveGroupCommandHandler } from '@Contexts/Groups/Application/Commands';
+import { ArchiveGroupCommandEvent, ArchiveGroupCommandHandler } from '@Contexts/Groups/Application/Commands';
 
 /**
  * The Groups context (conventions/domain.yaml, ADR 1): accounts (signing up, signing in, reading one's own account)
@@ -99,6 +100,17 @@ export function groupsModuleWith(memberBalances: IMemberBalances, waitingPayment
           new AcceptInvitationCommandHandler(
             new SqliteInvitationRepository(database),
             new SqliteGroupRepository(database),
+            systemClock,
+          ),
+        ],
+      },
+      {
+        event: ArchiveGroupCommandEvent,
+        handlers: [
+          new ArchiveGroupCommandHandler(
+            new SqliteGroupRepository(database),
+            memberBalances,
+            waitingPayments,
             systemClock,
           ),
         ],

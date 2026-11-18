@@ -31,6 +31,9 @@ export class CreateInvitationCommandHandler extends CommandHandler<CreateInvitat
       return Result.fail(new NotFoundException('Groups', 'Group not found'));
     }
 
+    const open = group.mayChange();
+    if (open.isFailure()) return open;
+
     const invitation = Invitation.issue({ groupId: group._id, invitedBy: caller.data, at: this.clock() });
     const saved = await this.invitations.save(invitation);
     if (saved.isFailure()) return saved;

@@ -34,3 +34,9 @@ export class MemberLeftEvent extends DomainEvent<{
   accountId: string;
   leftAt: string;
 }> {}
+
+/** A group was archived, and when: it is read only from then on, and every change in it is refused (request 27, ADR 20). */
+export class GroupArchivedEvent extends DomainEvent<{
+  groupId: string;
+  archivedAt: string;
+}> {}

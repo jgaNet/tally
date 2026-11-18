@@ -32,8 +32,9 @@ export class RefundSettlementCommandHandler extends CommandHandler<RefundSettlem
     const book = await this.books.findBySettlement(settlementId);
     if (!book) return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));
 
+    const groupArchived = await this.members.isArchived(book._id.value);
     const members = await this.members.currentMembers(book._id.value);
-    const proposed = book.proposeRefund({ settlementId, caller: caller.data, members });
+    const proposed = book.proposeRefund({ settlementId, caller: caller.data, members, groupArchived });
     if (proposed.isFailure()) return proposed;
 
     const accepted = await this.provider.refundPayment({

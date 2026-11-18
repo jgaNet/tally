@@ -302,6 +302,7 @@ describe('Expense', () => {
       date: ExpenseDate.create('2026-05-10', NOW).data!,
       split: split(10, alice, between),
       groupMembers: members,
+      groupArchived: false,
       at: NOW,
     });
 
@@ -322,6 +323,47 @@ describe('Expense', () => {
   it('refuses a split with someone who is not a current member', () => {
     expect(create([alice]).error?.type).toBe('NotAGroupMember');
     expect(create([]).error?.type).toBe('NotAGroupMember');
+  });
+
+  it('is refused by GroupArchived in an archived group: a record, an edit and a delete change nothing', () => {
+    const recorded = Expense.create({
+      groupId: new Id('group'),
+      description: Description.create('Groceries').data!,
+      amount: amount(10),
+      date: ExpenseDate.create('2026-05-10', NOW).data!,
+      split: split(10, alice, [alice, bob]),
+      groupMembers: [alice, bob],
+      groupArchived: true,
+      at: NOW,
+    });
+    expect(recorded.isFailure()).toBe(true);
+    expect(recorded.error?.type).toBe('GroupArchived');
+
+    const expense = create([alice, bob]).data!;
+    const edited = expense.edit({
+      by: alice,
+      byOwner: true,
+      fromVersion: 0,
+      description: Description.create('Groceries').data!,
+      amount: amount(10),
+      date: ExpenseDate.create('2026-05-10', NOW).data!,
+      split: split(10, alice, [alice, bob]),
+      groupMembers: [alice, bob],
+      groupArchived: true,
+      at: NOW,
+    });
+    expect(edited.error?.type).toBe('GroupArchived');
+
+    const deleted = expense.delete({
+      by: alice,
+      byOwner: true,
+      groupMembers: [alice, bob],
+      groupArchived: true,
+      at: NOW,
+    });
+    expect(deleted.error?.type).toBe('GroupArchived');
+    expect(expense.isDeleted).toBe(false);
+    expect(expense.version).toBe(0);
   });
 
   it('is rebuilt from its snapshot, which records nothing', () => {

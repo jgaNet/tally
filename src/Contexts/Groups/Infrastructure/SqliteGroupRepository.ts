@@ -31,6 +31,8 @@ export class SqliteGroupRepository implements IGroupRepository {
         'SELECT from_id, to_id, amount, passed_at FROM group_balances_passed WHERE group_id = ? ORDER BY position',
       )
       .all(id.value) as { from_id: string; to_id: string; amount: number; passed_at: string }[];
+    const archive = connection.prepare('SELECT archived_at FROM group_archives WHERE group_id = ?').get(id.value) as
+      { archived_at: string } | undefined;
     return Group.fromSnapshot({
       id: row.id,
       name: row.name,
@@ -48,12 +50,13 @@ export class SqliteGroupRepository implements IGroupRepository {
         passedAt: fact.passed_at,
       })),
       createdAt: row.created_at,
+      archivedAt: archive?.archived_at ?? null,
       version: row.version,
     });
   }
 
   async save(group: Group): Promise<IResult> {
-    const { id, name, currency, ownerId, members, passed, createdAt, version } = group.toSnapshot();
+    const { id, name, currency, ownerId, members, passed, createdAt, archivedAt, version } = group.toSnapshot();
     const { connection } = this.database;
     if (version === 0) {
       connection
@@ -85,6 +88,12 @@ export class SqliteGroupRepository implements IGroupRepository {
         )
         .run(id, position, fact.fromId, fact.toId, fact.amount, fact.passedAt),
     );
+    // An archive is a fact: written once, and a group archived by another save is not archived twice (request 27).
+    if (archivedAt) {
+      connection
+        .prepare('INSERT OR IGNORE INTO group_archives (group_id, archived_at) VALUES (?, ?)')
+        .run(id, archivedAt);
+    }
     return Result.ok();
   }
 }
