@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-3",
+  "ref": "f3f6778cab7185abe9e03e589cc12951ca13f768",
+  "commit": "f3f6778cab7185abe9e03e589cc12951ca13f768",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "postgresql",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 3 passed, 4 total",
+        "failed": [
+          "storage on PostgreSQL › moves what the tree before it kept, and a payment waiting at the provider when it changed counts once"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● storage on PostgreSQL › moves what the tree before it kept, and a payment waiting at the provider when it changed counts once",
+          "Tests:       1 failed, 3 passed, 4 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "393bff2d26561e12e1ed2ee9fe5f9f57febeb608",
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 18008,
+  "workers": 1
+}
