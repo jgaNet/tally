@@ -122,6 +122,8 @@ describe('the database', () => {
         ALTER TABLE expenses DROP COLUMN original_rate;
         ALTER TABLE expenses DROP COLUMN original_amount;
         ALTER TABLE expenses DROP COLUMN original_currency;
+        DROP TABLE recurring_shares;
+        DROP TABLE recurring;
         PRAGMA user_version = 13;
       `);
     } finally {
@@ -130,7 +132,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
       expect(db.prepare('SELECT id FROM notices ORDER BY rowid').all()).toEqual([{ id: 'n1' }, { id: 'n2' }]);
       db.prepare(
         "INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('r', 'a', 'reminder', 'g', NULL, 2500, '2026-11-09T00:00:00.000Z')",
@@ -145,7 +147,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
     } finally {
       db.close();
     }
@@ -163,6 +165,8 @@ describe('the database', () => {
       before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
       before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
       before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
+      before.exec('DROP TABLE recurring_shares');
+      before.exec('DROP TABLE recurring');
       before.exec('PRAGMA user_version = 12');
     } finally {
       before.close();
@@ -170,7 +174,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
       expect(db.prepare('SELECT COUNT(*) AS count FROM notices').get()).toEqual({ count: 0 });
       expect(() =>
         db.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
@@ -214,6 +218,8 @@ describe('the database', () => {
       before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
       before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
       before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
+      before.exec('DROP TABLE recurring_shares');
+      before.exec('DROP TABLE recurring');
       before.exec('PRAGMA user_version = 5');
     } finally {
       before.close();
@@ -255,6 +261,8 @@ describe('the database', () => {
       before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
       before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
       before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
+      before.exec('DROP TABLE recurring_shares');
+      before.exec('DROP TABLE recurring');
       before.exec('PRAGMA user_version = 6');
     } finally {
       before.close();
@@ -299,6 +307,8 @@ describe('the database', () => {
       before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
       before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
       before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
+      before.exec('DROP TABLE recurring_shares');
+      before.exec('DROP TABLE recurring');
       before.exec('PRAGMA user_version = 7');
     } finally {
       before.close();
@@ -349,6 +359,8 @@ describe('the database', () => {
         ALTER TABLE expenses DROP COLUMN original_rate;
         ALTER TABLE expenses DROP COLUMN original_amount;
         ALTER TABLE expenses DROP COLUMN original_currency;
+        DROP TABLE recurring_shares;
+        DROP TABLE recurring;
         PRAGMA user_version = 8;
       `);
     } finally {
@@ -357,7 +369,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -412,6 +424,8 @@ describe('the database', () => {
         ALTER TABLE expenses DROP COLUMN original_rate;
         ALTER TABLE expenses DROP COLUMN original_amount;
         ALTER TABLE expenses DROP COLUMN original_currency;
+        DROP TABLE recurring_shares;
+        DROP TABLE recurring;
         PRAGMA user_version = 10;
       `);
     } finally {
@@ -420,7 +434,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
       expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
         { id: 's', status: 'paid', provider_id: 'pay_9' },
       ]);
@@ -460,6 +474,8 @@ describe('the database', () => {
         ALTER TABLE expenses DROP COLUMN original_rate;
         ALTER TABLE expenses DROP COLUMN original_amount;
         ALTER TABLE expenses DROP COLUMN original_currency;
+        DROP TABLE recurring_shares;
+        DROP TABLE recurring;
         PRAGMA user_version = 11;
       `);
     } finally {
@@ -468,7 +484,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
       expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
       db.exec(
         "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
@@ -510,6 +526,8 @@ describe('the database', () => {
         ALTER TABLE expenses DROP COLUMN original_rate;
         ALTER TABLE expenses DROP COLUMN original_amount;
         ALTER TABLE expenses DROP COLUMN original_currency;
+        DROP TABLE recurring_shares;
+        DROP TABLE recurring;
         PRAGMA user_version = 14;
       `);
     } finally {
@@ -518,7 +536,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 18 });
       const history = (id: string) =>
         db.prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq').all(id);
       expect(history('cash')).toEqual([{ status: 'paid', at: '2026-11-02T00:00:00.000Z' }]);
@@ -576,7 +594,9 @@ describe('the database', () => {
       before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
       before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
       before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
-      before.exec(`PRAGMA user_version = ${current - 1}`);
+      before.exec('DROP TABLE recurring_shares');
+      before.exec('DROP TABLE recurring');
+      before.exec(`PRAGMA user_version = ${current - 2}`);
     } finally {
       before.close();
     }
