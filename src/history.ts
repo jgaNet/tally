@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { type Expense, type ExpenseRow, expenseOf, expenseSchema } from './expenses';
 import { findGroupOf } from './groups';
@@ -12,15 +12,28 @@ interface GroupExpenseRow extends ExpenseRow {
   share_amount: number;
 }
 
-/** One entry of a statement: what a member paid for an expense, their share of it, and their balance after it. */
-export interface StatementEntry {
+/** What an entry of a statement says of an expense: its id, its date and description, what the member paid and their share. */
+interface ExpenseEntryBody {
+  kind: 'expense';
   expenseId: string;
   date: string;
   description: string;
   paid: number;
   share: number;
-  balance: number;
 }
+
+/** What an entry of a statement says of a settlement the balances count, the same way as an expense's. */
+interface SettlementEntryBody {
+  kind: 'settlement';
+  settlementId: string;
+  date: string;
+  description: string;
+  paid: number;
+  share: number;
+}
+
+/** One entry of a statement, with the member's balance once it is counted. */
+export type StatementEntry = (ExpenseEntryBody | SettlementEntryBody) & { balance: number };
 
 export interface Statement {
   memberId: string;
@@ -34,6 +47,22 @@ interface StatementRow {
   description: string;
   paid: number;
   share: number;
+  recorded_at: string;
+}
+
+interface SettlementStatementRow {
+  settlement_id: string;
+  method: 'cash' | 'provider';
+  payer_id: string;
+  amount: number;
+  counted_at: string;
+}
+
+/** An entry as the statement orders it: by its date, then by the moment it was recorded or the balances counted it. */
+interface Ordered {
+  date: string;
+  moment: string;
+  body: ExpenseEntryBody | SettlementEntryBody;
 }
 
 /**
@@ -66,17 +95,24 @@ export function listExpenses(db: DatabaseSync, groupId: string): Expense[] {
   return expenses;
 }
 
+const SETTLEMENT_DESCRIPTIONS = {
+  cash: 'Settlement in cash',
+  provider: 'Settlement through the provider',
+} as const;
+
 /**
- * The statement of a member of the group: every expense of the group that is not deleted and that the
- * member paid or is in the split of, the earliest date first; on the same date, the earliest recorded
- * first. Each entry's balance is the one before it plus what the member paid minus their share, starting
- * from 0. The statement's balance is the last entry's, or 0 when it has none. One statement reads the
- * entries, so they are of one snapshot of the database. A read changes nothing.
+ * The statement of a member of the group: every expense of the group that is not deleted and that the member
+ * paid or is in the split of, and every settlement the member paid or received that the balances count, the
+ * earliest date first; on the same date, the earliest first, an expense by when it was recorded and a settlement
+ * by when the balances started to count it. A settlement is dated by the day, in UTC, the balances started to
+ * count it. Each entry's balance is the one before it plus what the member paid minus their share, starting from
+ * 0. The statement's balance is the last entry's, or 0 when it has none. One statement reads the entries, so
+ * they are of one snapshot of the database. A read changes nothing.
  */
 export function statementOf(db: DatabaseSync, groupId: string, memberId: string): Statement {
-  const rows = db
+  const expenseRows = db
     .prepare(
-      `SELECT e.id AS expense_id, e.date, e.description,
+      `SELECT e.id AS expense_id, e.date, e.description, e.created_at AS recorded_at,
          CASE WHEN e.paid_by = ? THEN e.amount ELSE 0 END AS paid,
          COALESCE((SELECT s.amount FROM expense_shares s
                    WHERE s.expense_id = e.id AND s.account_id = ?), 0) AS share
@@ -87,26 +123,95 @@ export function statementOf(db: DatabaseSync, groupId: string, memberId: string)
        ORDER BY e.date ASC, e.created_at ASC, e.rowid ASC`,
     )
     .all(memberId, memberId, groupId, memberId, memberId) as unknown as StatementRow[];
-  let balance = 0;
-  const entries = rows.map(row => {
-    balance += row.paid - row.share;
-    return {
-      expenseId: row.expense_id,
+  // The settlements the balances count: paid, or being refunded. The moment they started to count is the first
+  // history entry that counts them, which a cash settlement has from when it is recorded.
+  const settlementRows = db
+    .prepare(
+      `SELECT t.id AS settlement_id, t.method, t.payer_id, t.amount,
+         COALESCE((SELECT h.at FROM settlement_history h
+                   WHERE h.settlement_id = t.id AND h.status IN ('paid', 'refunding')
+                   ORDER BY h.seq LIMIT 1), t.created_at) AS counted_at
+       FROM settlements t
+       WHERE t.group_id = ? AND t.status IN ('paid', 'refunding') AND (t.payer_id = ? OR t.payee_id = ?)`,
+    )
+    .all(groupId, memberId, memberId) as unknown as SettlementStatementRow[];
+  const ordered: Ordered[] = [
+    ...expenseRows.map(row => ({
       date: row.date,
-      description: row.description,
-      paid: row.paid,
-      share: row.share,
-      balance,
-    };
+      moment: row.recorded_at,
+      body: {
+        kind: 'expense' as const,
+        expenseId: row.expense_id,
+        date: row.date,
+        description: row.description,
+        paid: row.paid,
+        share: row.share,
+      },
+    })),
+    ...settlementRows.map(row => {
+      const paid = row.payer_id === memberId;
+      return {
+        date: row.counted_at.slice(0, 10),
+        moment: row.counted_at,
+        body: {
+          kind: 'settlement' as const,
+          settlementId: row.settlement_id,
+          date: row.counted_at.slice(0, 10),
+          description: SETTLEMENT_DESCRIPTIONS[row.method],
+          paid: paid ? row.amount : 0,
+          share: paid ? 0 : row.amount,
+        },
+      };
+    }),
+  ];
+  // The sort is stable: on a tie, the expenses come first, in the order the query gave them.
+  ordered.sort((a, b) => compareText(a.date, b.date) || compareText(a.moment, b.moment));
+  let balance = 0;
+  const entries = ordered.map(({ body }): StatementEntry => {
+    balance += body.paid - body.share;
+    return { ...body, balance };
   });
   return { memberId, balance: entries.at(-1)?.balance ?? 0, entries };
 }
 
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** The header line of the statement as CSV: its columns, in the order they are written. */
+const CSV_HEADER = 'date,kind,id,description,paid,share,balance';
+
+/** A CSV field: written between double quotes, each double quote doubled, when it holds a comma, a quote or a line break. */
+function csvField(value: string | number): string {
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/** The statement as CSV: a header line, then a line for each entry, in the order of the statement, each ending in CRLF. */
+export function statementCsv(statement: Statement): string {
+  const lines = statement.entries.map(entry =>
+    [
+      entry.date,
+      entry.kind,
+      entry.kind === 'expense' ? entry.expenseId : entry.settlementId,
+      entry.description,
+      entry.paid,
+      entry.share,
+      entry.balance,
+    ]
+      .map(csvField)
+      .join(','),
+  );
+  return [CSV_HEADER, ...lines].map(line => `${line}\r\n`).join('');
+}
+
 const entrySchema = {
   type: 'object',
-  required: ['expenseId', 'date', 'description', 'paid', 'share', 'balance'],
+  required: ['kind', 'date', 'description', 'paid', 'share', 'balance'],
   properties: {
+    kind: { type: 'string', enum: ['expense', 'settlement'] },
     expenseId: { type: 'string' },
+    settlementId: { type: 'string' },
     date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
     description: { type: 'string' },
     paid: { type: 'integer' },
@@ -141,17 +246,24 @@ export function registerHistoryRoutes(app: FastifyInstance, db: DatabaseSync): v
     },
   );
 
+  const statementRoute = (db: DatabaseSync, request: FastifyRequest<{ Params: { id: string; memberId: string } }>) => {
+    const accountId = requireCaller(db, request);
+    const groupId = request.params.id;
+    if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    if (!hasBeenMember(db, groupId, request.params.memberId)) {
+      throw new Refusal(404, 'NotFound', 'There is no such member of the group.');
+    }
+    return statementOf(db, groupId, request.params.memberId);
+  };
+
   app.get<{ Params: { id: string; memberId: string } }>(
     '/groups/:id/members/:memberId/statement',
     { schema: { response: { 200: statementSchema } } },
-    request => {
-      const accountId = requireCaller(db, request);
-      const groupId = request.params.id;
-      if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
-      if (!hasBeenMember(db, groupId, request.params.memberId)) {
-        throw new Refusal(404, 'NotFound', 'There is no such member of the group.');
-      }
-      return statementOf(db, groupId, request.params.memberId);
-    },
+    request => statementRoute(db, request),
+  );
+
+  app.get<{ Params: { id: string; memberId: string } }>(
+    '/groups/:id/members/:memberId/statement.csv',
+    (request, reply) => reply.type('text/csv').send(statementCsv(statementRoute(db, request))),
   );
 }

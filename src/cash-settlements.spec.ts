@@ -328,14 +328,23 @@ describe('settling up in cash', () => {
       expect(await balancesOf()).toEqual({ [adaId]: 0, [linusId]: 0 });
     });
 
-    it("leaves a member's statement on its expenses alone: its balance is what the expenses give", async () => {
+    it("lists a cash settlement in a member's statement, after the expense, and its balance is the balances' one", async () => {
       await oneExpenseBetweenAdaAndGrace();
       await settle({ from: graceId, amount: 300 }, adaToken);
       const statement = (
         await call(app, 'GET', `/groups/${groupId}/members/${graceId}/statement`, { token: graceToken })
       ).body;
-      expect(statement.balance).toBe(-500);
-      expect(statement.entries).toEqual([expect.objectContaining({ paid: 0, share: 500, balance: -500 })]);
+      expect(statement.balance).toBe(-200);
+      expect(statement.entries).toEqual([
+        expect.objectContaining({ kind: 'expense', paid: 0, share: 500, balance: -500 }),
+        expect.objectContaining({
+          kind: 'settlement',
+          description: 'Settlement in cash',
+          paid: 300,
+          share: 0,
+          balance: -200,
+        }),
+      ]);
       expect((await balancesOf(graceToken, app))[graceId]).toBe(-200);
     });
 

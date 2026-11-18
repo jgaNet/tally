@@ -228,8 +228,16 @@ describe('history', () => {
           memberId: graceId,
           balance: 0,
           entries: [
-            { expenseId: e2, date: DAY_1, description: 'Expense', paid: 600, share: 300, balance: 300 },
-            { expenseId: e1, date: DAY_2, description: 'Expense', paid: 0, share: 300, balance: 0 },
+            {
+              kind: 'expense',
+              expenseId: e2,
+              date: DAY_1,
+              description: 'Expense',
+              paid: 600,
+              share: 300,
+              balance: 300,
+            },
+            { kind: 'expense', expenseId: e1, date: DAY_2, description: 'Expense', paid: 0, share: 300, balance: 0 },
           ],
         },
       });
@@ -237,9 +245,9 @@ describe('history', () => {
         memberId: linusId,
         balance: -600,
         entries: [
-          { expenseId: e2, date: DAY_1, description: 'Expense', paid: 0, share: 300, balance: -300 },
-          { expenseId: e1, date: DAY_2, description: 'Expense', paid: 0, share: 300, balance: -600 },
-          { expenseId: e3, date: DAY_2, description: 'Expense', paid: 100, share: 100, balance: -600 },
+          { kind: 'expense', expenseId: e2, date: DAY_1, description: 'Expense', paid: 0, share: 300, balance: -300 },
+          { kind: 'expense', expenseId: e1, date: DAY_2, description: 'Expense', paid: 0, share: 300, balance: -600 },
+          { kind: 'expense', expenseId: e3, date: DAY_2, description: 'Expense', paid: 100, share: 100, balance: -600 },
         ],
       });
     });
@@ -251,6 +259,7 @@ describe('history', () => {
         balance: 600,
         entries: [
           {
+            kind: 'expense',
             expenseId: e1,
             date: DAY_2,
             description: 'Expense',
@@ -279,7 +288,17 @@ describe('history', () => {
       expect((await statement(graceId)).body).toEqual({
         memberId: graceId,
         balance: 0,
-        entries: [{ expenseId: exact.body.id, date: DAY_1, description: 'Exact', paid: 0, share: 0, balance: 0 }],
+        entries: [
+          {
+            kind: 'expense',
+            expenseId: exact.body.id,
+            date: DAY_1,
+            description: 'Exact',
+            paid: 0,
+            share: 0,
+            balance: 0,
+          },
+        ],
       });
     });
 
@@ -297,7 +316,9 @@ describe('history', () => {
       expect((await statement(graceId)).body).toEqual({
         memberId: graceId,
         balance: -300,
-        entries: [{ expenseId: e1, date: DAY_2, description: 'Expense', paid: 0, share: 300, balance: -300 }],
+        entries: [
+          { kind: 'expense', expenseId: e1, date: DAY_2, description: 'Expense', paid: 0, share: 300, balance: -300 },
+        ],
       });
     });
 
@@ -323,8 +344,16 @@ describe('history', () => {
           memberId: graceId,
           balance: 200,
           entries: [
-            { expenseId: e1, date: DAY_2, description: 'Expense', paid: 0, share: 100, balance: -100 },
-            { expenseId: e2, date: DAY_2, description: 'Expense', paid: 600, share: 300, balance: 200 },
+            { kind: 'expense', expenseId: e1, date: DAY_2, description: 'Expense', paid: 0, share: 100, balance: -100 },
+            {
+              kind: 'expense',
+              expenseId: e2,
+              date: DAY_2,
+              description: 'Expense',
+              paid: 600,
+              share: 300,
+              balance: 200,
+            },
           ],
         },
       });
