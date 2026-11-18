@@ -10,6 +10,7 @@ import {
   SignUpBodySchema,
   SignUpResSchema,
 } from '@Contexts/Groups/Presentation/API/REST/Routes/account.routes.schema';
+import { GetAdministratorsLogResSchema } from '@Contexts/Groups/Presentation/API/REST/Routes/admin.routes.schema';
 
 export const accountRoutes = function (
   fastify: FastifyInstance,
@@ -35,6 +36,13 @@ export const accountRoutes = function (
     '/accounts/me',
     { schema: { tags: ['accounts'], response: GetMyAccountResSchema } },
     controller.getMyAccount.bind(controller),
+  );
+
+  // The administrators' log: every decision an administrator made, the oldest first (request 33). Only an administrator reads it.
+  fastify.get(
+    '/admin/log',
+    { schema: { tags: ['administration'], response: GetAdministratorsLogResSchema } },
+    controller.getAdministratorsLog.bind(controller),
   );
 
   done();

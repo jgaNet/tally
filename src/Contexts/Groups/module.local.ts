@@ -24,6 +24,7 @@ import {
   GetInvitationQueryHandler,
   GetMyAccountQueryHandler,
   GetMyGroupsQueryHandler,
+  GetAdministratorsLogQueryHandler,
   LoginQueryHandler,
 } from '@Contexts/Groups/Application/Queries';
 import { HmacTokenIssuer } from '@Contexts/Groups/Infrastructure/HmacTokenIssuer';
@@ -37,8 +38,13 @@ import { PostgresInvitationRepository } from '@Contexts/Groups/Infrastructure/Po
 import { authenticateWithToken } from '@Contexts/Groups/Presentation/API/REST/authenticate';
 import { BalancesFromLedger } from '@Contexts/Groups/Infrastructure/BalancesFromLedger';
 import { memberBalances as ledgerMemberBalances } from '@Contexts/Ledger/module.local';
-import { waitingPayments as settlementsWaitingPayments } from '@Contexts/Settlements/module.local';
+import {
+  administratorDecisions as settlementsAdministratorDecisions,
+  waitingPayments as settlementsWaitingPayments,
+} from '@Contexts/Settlements/module.local';
 import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsFromSettlements';
+import { AdministratorDecisionsFromSettlements } from '@Contexts/Groups/Infrastructure/AdministratorDecisionsFromSettlements';
+import { administratorsIn } from '@Contexts/Groups/Domain/Account/AdministratorRole';
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
 import { IGroupAuditQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupAuditQueries';
 import { PostgresGroupAuditLog } from '@Contexts/Groups/Infrastructure/PostgresGroupAuditLog';
@@ -54,6 +60,9 @@ const invitations = new PostgresInvitationRepository(database);
 const invitationReadModels = new PostgresInvitationReadModels(database);
 const passwordHasher = new ScryptPasswordHasher();
 const tokens = HmacTokenIssuer.inDatabase(database);
+
+/** The emails the server was started with as administrators (ADMIN_EMAILS, request 33), read when a sign-in is asked. */
+const administrators = (): string[] => administratorsIn(process.env.ADMIN_EMAILS ?? '');
 
 /**
  * The membership Ledger splits expenses with (ADR 3): a read-model adapter, exported for the Ledger's wiring to take up
@@ -78,6 +87,9 @@ const balances = new BalancesFromLedger(() => ledgerMemberBalances);
  * asked, not while this file is evaluated.
  */
 const waiting = new WaitingPaymentsFromSettlements(() => settlementsWaitingPayments);
+
+/** The administrators' log, read from Settlements' read model when it is asked (request 33): the same wiring, read when asked. */
+const administratorDecisions = new AdministratorDecisionsFromSettlements(() => settlementsAdministratorDecisions);
 
 /** Says who is calling, for the transport: the account a bearer token names. */
 export const authenticate = authenticateWithToken(tokens, systemClock);
@@ -112,10 +124,11 @@ export const localGroupsModule = new Module({
   domainEvents: [{ event: GroupsMergedEvent, handlers: [new GroupsMergedHandler()] }],
   queries: [
     new GetMyAccountQueryHandler(accountReadModels),
-    new LoginQueryHandler(accountReadModels, passwordHasher, tokens, systemClock),
+    new LoginQueryHandler(accountReadModels, passwordHasher, tokens, systemClock, administrators),
     new GetGroupQueryHandler(groupReadModels),
     new GetMyGroupsQueryHandler(groupReadModels),
     new GetInvitationQueryHandler(invitationReadModels),
     new GetGroupMembersQueryHandler(groupReadModels),
+    new GetAdministratorsLogQueryHandler(administratorDecisions),
   ],
 });

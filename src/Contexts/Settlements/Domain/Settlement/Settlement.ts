@@ -8,7 +8,7 @@ export type SettlementMethod = 'cash' | 'provider' | 'net';
  * settlement through the provider may be `refunding` (Tally asked the provider to refund it, the money is not back yet) and then
  * `refunded`, or be `refunded` straight from `pending` when the provider's refund overtakes its success (request 15).
  */
-export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
 
 /** What the provider's webhook says a payment became, which the settlement moves to. */
 export type PaymentOutcome = 'paid' | 'failed' | 'refunded';
@@ -65,6 +65,16 @@ export class Settlement {
   /** The provider has said how the payment ended: it is no longer waiting, or it was refunded. The book decides the move. */
   end(outcome: PaymentOutcome, learnedAt: Date): SettlementLine {
     return this.learn(outcome, learnedAt);
+  }
+
+  /** The payee says the money did not arrive: the settlement waits, held, until an administrator decides it (request 33). */
+  contest(learnedAt: Date): SettlementLine {
+    return this.learn('contested', learnedAt);
+  }
+
+  /** An administrator decided the contested settlement: it was paid, and counts again, or it was not, and is annulled (request 33). */
+  decide(paid: boolean, learnedAt: Date): SettlementLine {
+    return this.learn(paid ? 'paid' : 'annulled', learnedAt);
   }
 
   /** Tally asked the provider to refund the paid payment: the money has not gone back yet, so the settlement still counts. */

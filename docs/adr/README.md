@@ -28,6 +28,7 @@ why, what it costs, and when to revisit it.
 | [21](0021-the-application-keeps-its-state-in-postgresql-and-moves-its-sqlite-file-into-it-once.md) | The application keeps its state in PostgreSQL, and moves what its SQLite file held into it once |
 | [22](0022-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
 | [23](0023-a-merged-group-is-removed-in-the-write-that-keeps-the-other-and-a-move-keeps-its-version.md) | A merged group is removed in the write that keeps the other, and a move keeps the version it was read at |
+| [24](0024-a-contest-is-held-by-the-book-and-the-administrators-log-is-written-by-settlements.md) | Administrators are a role given at sign-in, a contest is held by the settlement's book, and the administrators' log is written by Settlements and read by Groups through a port Groups owns |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

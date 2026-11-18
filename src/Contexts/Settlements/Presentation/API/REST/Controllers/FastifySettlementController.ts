@@ -9,7 +9,10 @@ import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Applica
 import { NetDebtsCommandEvent } from '@Contexts/Settlements/Application/Commands/NetDebts';
 import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RecordCashSettlement';
 import { RefundSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
+import { ContestSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/ContestSettlement';
+import { DecideContestCommandEvent } from '@Contexts/Settlements/Application/Commands/DecideContest';
 import {
+  GetContestsQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetSettlementQueryHandler,
@@ -96,6 +99,26 @@ export class FastifySettlementController {
     const result = await this.#module
       .getQuery(GetSettlementQueryHandler)
       .handle({ id: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  async contest(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, ContestSettlementCommandEvent.set({ settlementId: req.params.id }));
+  }
+
+  async decideContest(req: FastifyRequest<{ Params: { id: string }; Body: { paid: boolean } }>, reply: FastifyReply) {
+    const { paid } = req.body;
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      DecideContestCommandEvent.set({ settlementId: req.params.id, paid }),
+    );
+  }
+
+  async getContests(req: FastifyRequest, reply: FastifyReply) {
+    const result = await this.#module.getQuery(GetContestsQueryHandler).handle(undefined, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }

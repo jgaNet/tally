@@ -7,8 +7,13 @@ import {
   ExceedsWhatIsOwed,
   ExceedsWhatIsOwedToPayee,
   InvalidSettlementAmount,
+  OnlyAContestedSettlementIsDecided,
+  OnlyAPaidSettlementIsContested,
   OnlyAPaidSettlementIsRefunded,
+  OnlyAProviderSettlementIsContested,
+  OnlyThePayeeMayContest,
   OnlyThePayeeMayRefund,
+  SettlementAlreadyContested,
   PaidToSelf,
   PayeeHasNoPayoutAccount,
   PayeeNotAMember,
@@ -19,6 +24,8 @@ import {
 import {
   PaymentRequestedEvent,
   RefundRequestedEvent,
+  SettlementAnnulledEvent,
+  SettlementContestedEvent,
   SettlementFailedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
@@ -84,10 +91,24 @@ export interface PaymentLink {
  * when the provider says it is refunded, and only if it was counted before). Audited by the handler, in its transaction (request 28).
  */
 export interface MoneyMoved {
-  action: 'settlement-paid' | 'settlement-refunded';
+  action: 'settlement-paid' | 'settlement-refunded' | 'settlement-contested';
   by: Id;
   settlement: Settlement;
 }
+
+/** A decision an administrator made about a contested settlement, kept in the administrators' log (request 33). */
+export interface AdministratorDecided {
+  readonly action: 'decided-paid' | 'decided-annulled';
+  readonly by: Id;
+  readonly settlement: Settlement;
+}
+
+/**
+ * The id an audit entry is kept under: the change's action and its settlement, and the place the change holds in the settlement's history,
+ * so that a settlement paid by the provider and then paid again by an administrator is audited twice (request 33).
+ */
+export const auditIdOf = (move: MoneyMoved): string =>
+  `${move.action}:${move.settlement.id.value}:${move.settlement.history.length}`;
 
 /**
  * The one place every settlement of a group is decided in (the storm's T7): a book per group, with a version, so that two writers
@@ -100,6 +121,7 @@ export class SettlementBook extends AggregateRoot {
   private readonly made: Settlement[] = [];
   private readonly statusChanged: Settlement[] = [];
   private readonly moneyMoved: MoneyMoved[] = [];
+  private readonly decisions: AdministratorDecided[] = [];
   /** The lines learned on settlements that were read (a settlement recorded here keeps its lines in `made`). */
   private readonly learned: LearnedLine[] = [];
 
@@ -182,9 +204,14 @@ export class SettlementBook extends AggregateRoot {
     return this.moneyMoved;
   }
 
-  /** The settlements of the group whose payment is waiting at the provider. */
+  /** The decisions administrators made about contested settlements since the book was read, in the order they were made (request 33). */
+  get administratorDecisionsSinceRead(): readonly AdministratorDecided[] {
+    return this.decisions;
+  }
+
+  /** The settlements of the group whose payment is waiting at the provider, or held by a contest until an administrator decides (request 33). */
   private get waiting(): Settlement[] {
-    return this.settlements.filter(settlement => settlement.status === 'pending');
+    return this.settlements.filter(settlement => settlement.status === 'pending' || settlement.status === 'contested');
   }
 
   /**
@@ -383,6 +410,89 @@ export class SettlementBook extends AggregateRoot {
       }),
     );
     return Result.ok(settlement);
+  }
+
+  /**
+   * The payee of a settlement paid through the provider says the money did not reach them (request 33): the settlement is contested, and
+   * it waits, held, until an administrator decides. Only its payee contests it, only through the provider, only once, only while it is paid,
+   * and only while its payer and its payee are members of the group; the group is not archived. `now` is when Tally learned it, the clock's.
+   */
+  contest({
+    settlementId,
+    caller,
+    members,
+    archived,
+    now,
+  }: {
+    settlementId: Id;
+    caller: Id;
+    members: string[];
+    archived: boolean;
+    now: Date;
+  }): IResult {
+    if (archived) return Result.fail(new GroupArchived('Settlements'));
+    const settlement = this.findSettlement(settlementId);
+    if (!settlement)
+      return Result.fail(new NotFoundException('Settlements', 'Settlement not found', { id: settlementId.value }));
+    if (settlement.payee.value !== caller.value) return Result.fail(new OnlyThePayeeMayContest());
+    if (settlement.method !== 'provider') return Result.fail(new OnlyAProviderSettlementIsContested());
+    if (settlement.history.some(line => line.status === 'contested'))
+      return Result.fail(new SettlementAlreadyContested());
+    if (settlement.status !== 'paid') return Result.fail(new OnlyAPaidSettlementIsContested());
+    if (!members.includes(settlement.payer.value)) return Result.fail(new PayerNotAMember());
+    if (!members.includes(settlement.payee.value)) return Result.fail(new PayeeNotAMember());
+
+    this.learn(settlement, settlement.contest(now));
+    this.statusChanged.push(settlement);
+    this.moneyMoved.push({ action: 'settlement-contested', by: caller, settlement });
+    this.record(SettlementContestedEvent.set(this.payloadOf(settlement)));
+    return Result.ok();
+  }
+
+  /**
+   * An administrator decides a contested settlement (request 33): `paid` when the money arrived, so that it counts as it did before it was
+   * contested; otherwise it is annulled, and what was owed is owed again. Only a contested settlement is decided, once.
+   */
+  decideContest({
+    settlementId,
+    administrator,
+    paid,
+    now,
+  }: {
+    settlementId: Id;
+    administrator: Id;
+    paid: boolean;
+    now: Date;
+  }): IResult {
+    const settlement = this.findSettlement(settlementId);
+    if (!settlement)
+      return Result.fail(new NotFoundException('Settlements', 'Settlement not found', { id: settlementId.value }));
+    if (settlement.status !== 'contested') return Result.fail(new OnlyAContestedSettlementIsDecided());
+
+    this.learn(settlement, settlement.decide(paid, now));
+    this.statusChanged.push(settlement);
+    if (paid) {
+      this.moneyMoved.push({ action: 'settlement-paid', by: administrator, settlement });
+      this.record(SettlementPaidEvent.set(this.payloadOf(settlement)));
+    } else {
+      this.record(SettlementAnnulledEvent.set(this.payloadOf(settlement)));
+    }
+    this.decisions.push({
+      action: paid ? 'decided-paid' : 'decided-annulled',
+      by: administrator,
+      settlement,
+    });
+    return Result.ok();
+  }
+
+  private payloadOf(settlement: Settlement) {
+    return {
+      settlementId: settlement.id.value,
+      groupId: this.groupId.value,
+      payer: settlement.payer.value,
+      payee: settlement.payee.value,
+      amount: settlement.amount,
+    };
   }
 
   /**

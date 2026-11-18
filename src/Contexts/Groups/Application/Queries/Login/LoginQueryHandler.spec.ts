@@ -17,7 +17,20 @@ const now = new Date('2026-03-01T10:00:00Z');
 const store = new Map();
 const hasher = new ScryptPasswordHasher();
 const tokens = new HmacTokenIssuer('a secret');
-const login = new LoginQueryHandler(new InMemoryAccountReadModels(store), hasher, tokens, () => now);
+const login = new LoginQueryHandler(
+  new InMemoryAccountReadModels(store),
+  hasher,
+  tokens,
+  () => now,
+  () => [],
+);
+const adminLogin = new LoginQueryHandler(
+  new InMemoryAccountReadModels(store),
+  hasher,
+  tokens,
+  () => now,
+  () => ['alice@example.com'],
+);
 let accountId: string;
 
 beforeAll(async () => {
@@ -33,7 +46,13 @@ describe('Login', () => {
   it('answers a token naming the account, for the right password, whatever the email case', async () => {
     const result = await login.execute({ email: 'Alice@Example.COM', password: 'correct horse' }, context);
 
-    expect(tokens.verify(result.data as string, now)).toBe(accountId);
+    expect(tokens.verify(result.data as string, now)).toEqual({ accountId, role: Role.USER });
+  });
+
+  it('gives an administrator the administrator role at sign-in, whatever the case of the email', async () => {
+    const result = await adminLogin.execute({ email: 'ALICE@example.com', password: 'correct horse' }, context);
+
+    expect(tokens.verify(result.data as string, now)).toEqual({ accountId, role: Role.ADMIN });
   });
 
   it('refuses a wrong password and an unknown email with the same refusal', async () => {
@@ -50,11 +69,13 @@ describe('Login', () => {
 
 describe('the token', () => {
   it('proves nothing once altered, signed by another secret, or expired', () => {
-    const token = tokens.issue('someone', now);
+    const token = tokens.issue('someone', Role.USER, now);
 
-    expect(tokens.verify(token, now)).toBe('someone');
+    expect(tokens.verify(token, now)).toEqual({ accountId: 'someone', role: Role.USER });
     expect(tokens.verify(`${token}x`, now)).toBeNull();
-    expect(tokens.verify(tokens.issue('someone', now).replace(/^[^.]+/, 'eyJzdWIiOiJvdGhlciJ9'), now)).toBeNull();
+    expect(
+      tokens.verify(tokens.issue('someone', Role.USER, now).replace(/^[^.]+/, 'eyJzdWIiOiJvdGhlciJ9'), now),
+    ).toBeNull();
     expect(new HmacTokenIssuer('another secret').verify(token, now)).toBeNull();
     expect(tokens.verify(token, new Date(now.getTime() + HmacTokenIssuer.LIFETIME_MS + 1))).toBeNull();
     expect(tokens.verify('garbage', now)).toBeNull();

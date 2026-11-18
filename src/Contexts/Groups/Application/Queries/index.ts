@@ -4,3 +4,4 @@ export { GetGroupQueryHandler } from '@Contexts/Groups/Application/Queries/GetGr
 export { GetMyGroupsQueryHandler } from '@Contexts/Groups/Application/Queries/GetMyGroups/GetMyGroupsQueryHandler';
 export { GetInvitationQueryHandler } from '@Contexts/Groups/Application/Queries/GetInvitation/GetInvitationQueryHandler';
 export { GetGroupMembersQueryHandler } from '@Contexts/Groups/Application/Queries/GetGroupMembers/GetGroupMembersQueryHandler';
+export { GetAdministratorsLogQueryHandler } from '@Contexts/Groups/Application/Queries/GetAdministratorsLog/GetAdministratorsLogQueryHandler';

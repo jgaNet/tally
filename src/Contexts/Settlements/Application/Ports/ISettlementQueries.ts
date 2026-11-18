@@ -8,4 +8,6 @@ export interface ISettlementQueries {
    * caller may read them, and orders them as its query says.
    */
   ofGroup(groupId: string): Promise<SettlementReadModel[]>;
+  /** Every settlement contested now, the earliest contested first, each with its history (request 33). */
+  contested(): Promise<SettlementReadModel[]>;
 }

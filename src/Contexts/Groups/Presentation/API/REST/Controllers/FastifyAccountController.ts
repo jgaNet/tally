@@ -5,7 +5,11 @@ import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
 import { SignUpCommandEvent } from '@Contexts/Groups/Application/Commands';
-import { GetMyAccountQueryHandler, LoginQueryHandler } from '@Contexts/Groups/Application/Queries';
+import {
+  GetAdministratorsLogQueryHandler,
+  GetMyAccountQueryHandler,
+  LoginQueryHandler,
+} from '@Contexts/Groups/Application/Queries';
 
 export class FastifyAccountController {
   #module: Module;
@@ -31,6 +35,14 @@ export class FastifyAccountController {
 
   async getMyAccount(req: FastifyRequest, reply: FastifyReply) {
     const result = await this.#module.getQuery(GetMyAccountQueryHandler).handle(undefined, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  async getAdministratorsLog(req: FastifyRequest, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetAdministratorsLogQueryHandler)
+      .handle(undefined, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }

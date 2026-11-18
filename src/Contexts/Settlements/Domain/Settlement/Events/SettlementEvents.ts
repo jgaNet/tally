@@ -54,5 +54,23 @@ export class SettlementRefundedEvent extends DomainEvent<{
   amount: number;
 }> {}
 
+/** The payee said the money did not arrive: the settlement is contested, and held until an administrator decides it (request 33). */
+export class SettlementContestedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}
+
+/** An administrator decided the money did not arrive: the settlement is annulled, and what was owed is owed again (request 33). */
+export class SettlementAnnulledEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}
+
 /** The book of the group merged into this one (request 31) is taken up: its settlements are this group's from the save on. */
 export class SettlementBookMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string }> {}

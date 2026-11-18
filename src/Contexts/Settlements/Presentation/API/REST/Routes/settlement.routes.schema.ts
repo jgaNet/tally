@@ -39,7 +39,7 @@ const SettlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
     method: { enum: ['cash', 'provider', 'net'] },
-    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string' },
     payUrl: { type: 'string', minLength: 1 },
     history: {
@@ -49,7 +49,7 @@ const SettlementSchema = {
         type: 'object',
         required: ['status', 'at'],
         properties: {
-          status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+          status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
           at: { type: 'string' },
         },
       },
@@ -66,6 +66,20 @@ export const GetSettlementResSchema = {
 
 /** A read: the group's settlements, the most recently recorded first, to a member of the group only; anyone else is told it does not exist. */
 export const GetGroupSettlementsResSchema = {
+  200: { description: 'Success', type: 'array', items: SettlementSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;
+
+/** The shape of a body only: whether the money arrived is the administrator's to say, behind the 202 (request 33). */
+export const DecideContestBodySchema = {
+  type: 'object',
+  required: ['paid'],
+  properties: { paid: { type: 'boolean' } },
+} as const;
+
+/** A read: the settlements contested now, the earliest contested first, to an administrator only; anyone else is told it does not exist. */
+export const GetContestsResSchema = {
   200: { description: 'Success', type: 'array', items: SettlementSchema },
   401: RefusedSchema,
   404: RefusedSchema,

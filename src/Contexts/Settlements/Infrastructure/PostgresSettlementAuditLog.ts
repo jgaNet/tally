@@ -11,7 +11,7 @@ interface AuditRow {
   id: string;
   at: string;
   by_account: string;
-  action: 'settlement-paid' | 'settlement-refunded';
+  action: 'settlement-paid' | 'settlement-refunded' | 'settlement-contested';
   subject_id: string;
   amount: number;
 }

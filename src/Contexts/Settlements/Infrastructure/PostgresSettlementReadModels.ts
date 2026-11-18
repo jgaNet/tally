@@ -96,7 +96,7 @@ export class PostgresSettlementReadModels
   }
 
   async pendingEffectOf(groupId: string): Promise<SettledAmountOf[]> {
-    return this.effectOf(groupId, ['pending']);
+    return this.effectOf(groupId, ['pending', 'contested']);
   }
 
   /**
@@ -107,7 +107,7 @@ export class PostgresSettlementReadModels
     return (
       (await this.database.get<{ found: number }>(
         `SELECT 1 AS found FROM settlements
-         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding') AND (payer = ? OR payee = ?)
+         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding', 'contested') AND (payer = ? OR payee = ?)
          LIMIT 1`,
         groupId,
         memberId,
@@ -116,12 +116,36 @@ export class PostgresSettlementReadModels
     );
   }
 
+  /**
+   * Every settlement contested now, the earliest contested first (request 33): the time of the contest's own line in its history, the
+   * recording order breaking a tie. Read outside any transaction, so it waits for the one in progress.
+   */
+  async contested(): Promise<SettlementReadModel[]> {
+    return this.database.exclusive(async () => {
+      const rows = await this.database.all<SettlementRow>(
+        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
+         FROM settlements WHERE status = 'contested' ORDER BY seq`,
+      );
+      const historyByGroup = new Map<string, Map<string, SettlementLine[]>>();
+      const contested: Array<{ at: string; model: SettlementReadModel }> = [];
+      for (const row of rows) {
+        if (!historyByGroup.has(row.group_id)) {
+          historyByGroup.set(row.group_id, await historyOfGroup(this.database, row.group_id));
+        }
+        const history = historyByGroup.get(row.group_id)?.get(row.id) ?? [];
+        const since = history.find(line => line.status === 'contested');
+        contested.push({ at: since ? since.at.toISOString() : row.recorded_at, model: toReadModel(row, history) });
+      }
+      return contested.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).map(({ model }) => model);
+    });
+  }
+
   /** Whether any payment in the group waits at the provider, read inside the command archiving the group (request 27). */
   async isWaitingIn(groupId: string): Promise<boolean> {
     return (
       (await this.database.get<{ found: number }>(
         `SELECT 1 AS found FROM settlements
-         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')
+         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding', 'contested')
          LIMIT 1`,
         groupId,
       )) !== undefined

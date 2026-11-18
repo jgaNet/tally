@@ -4,7 +4,7 @@ export interface SettlementAuditEntry {
   at: string;
   by: string;
   /** `settlement-paid` when the balances start to count the settlement, `settlement-refunded` when they stop counting it. */
-  action: 'settlement-paid' | 'settlement-refunded';
+  action: 'settlement-paid' | 'settlement-refunded' | 'settlement-contested';
   subjectId: string;
   amount: number;
 }

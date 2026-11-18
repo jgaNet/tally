@@ -52,6 +52,16 @@ export function createSettlementsTables(database: PostgresDatabase): void {
     amount INTEGER NOT NULL
   )`);
   database.declare('CREATE INDEX IF NOT EXISTS settlement_audit_by_group ON settlement_audit_entries (group_id)');
+  // The administrators' log (request 33): one row per decision an administrator made about a contested settlement, written in the
+  // decision's transaction and never changed. `seq` keeps the order they were made in.
+  database.declare(`CREATE TABLE IF NOT EXISTS settlement_administrator_decisions (
+    seq BIGSERIAL,
+    id TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    by_account TEXT NOT NULL,
+    action TEXT NOT NULL,
+    subject_id TEXT NOT NULL
+  )`);
   // What two people netted across their groups (request 32): one row per netting, written once, and its settlements in the order they
   // were made (`position` counts from 1). A netting's settlements are the settlements of its groups' books, stored in the same transaction.
   database.declare(`CREATE TABLE IF NOT EXISTS nettings (

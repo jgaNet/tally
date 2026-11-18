@@ -22,6 +22,7 @@ import {
   RefundSettlementCommandHandler,
 } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
 import {
+  GetContestsQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetSettlementQueryHandler,
@@ -49,6 +50,16 @@ import { PostgresSettlementBookRepository } from '@Contexts/Settlements/Infrastr
 import { PostgresSettlementReadModels } from '@Contexts/Settlements/Infrastructure/PostgresSettlementReadModels';
 import { PostgresSettlementAuditLog } from '@Contexts/Settlements/Infrastructure/PostgresSettlementAuditLog';
 import { ISettlementAuditQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementAuditQueries';
+import { IAdministratorDecisionQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/IAdministratorDecisionQueries';
+import { PostgresAdministratorDecisionLog } from '@Contexts/Settlements/Infrastructure/PostgresAdministratorDecisionLog';
+import {
+  ContestSettlementCommandEvent,
+  ContestSettlementCommandHandler,
+} from '@Contexts/Settlements/Application/Commands/ContestSettlement';
+import {
+  DecideContestCommandEvent,
+  DecideContestCommandHandler,
+} from '@Contexts/Settlements/Application/Commands/DecideContest';
 import { GroupsMergedIntegrationEventHandler } from '@Contexts/Settlements/Application/Events/GroupsMerged/GroupsMergedIntegrationEventHandler';
 import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupsIntegrationEvents';
 
@@ -63,6 +74,8 @@ const books = new PostgresSettlementBookRepository(database);
 const readModels = new PostgresSettlementReadModels(database);
 /** The audit of the money the settlements move (request 28), written in each change's transaction and read by Ledger's audit (ADR 19). */
 const audit = new PostgresSettlementAuditLog(database);
+/** The administrators' log (request 33), written in each decision's transaction and read by Groups through its own port. */
+const administratorLog = new PostgresAdministratorDecisionLog(database);
 const payoutAccounts = new PostgresPayoutAccountRepository(database);
 const payoutAccountReadModels = new PostgresPayoutAccountReadModels(database);
 const nettings = new PostgresNettingRepository(database);
@@ -76,6 +89,9 @@ export const settlementAudit: ISettlementAuditQueries = audit;
 
 /** The payments waiting at the provider, which keep a member in the group until they end (request 20): Settlements' read model, exported. */
 export const waitingPayments: IWaitingPaymentsQueries = readModels;
+
+/** The administrators' log, which Groups reads when an administrator asks for it (request 33): Settlements' log, exported. */
+export const administratorDecisions: IAdministratorDecisionQueries = administratorLog;
 
 /** The signature of the provider's webhooks, checked by the transport before a webhook is decided (request 13). */
 export const webhookSignatures: IWebhookSignatures = new HmacWebhookSignatures();
@@ -127,6 +143,14 @@ export const localSettlementsModule = new Module({
       event: SetPayoutAccountCommandEvent,
       handlers: [new SetPayoutAccountCommandHandler(payoutAccounts, provider)],
     },
+    {
+      event: ContestSettlementCommandEvent,
+      handlers: [new ContestSettlementCommandHandler(books, members, systemClock, audit)],
+    },
+    {
+      event: DecideContestCommandEvent,
+      handlers: [new DecideContestCommandHandler(books, systemClock, audit, administratorLog)],
+    },
   ],
   integrationEvents: [
     {
@@ -140,5 +164,6 @@ export const localSettlementsModule = new Module({
     new GetSettlementQueryHandler(readModels, members),
     new GetPayoutAccountQueryHandler(payoutAccountReadModels),
     new GetNettingQueryHandler(nettingReadModels),
+    new GetContestsQueryHandler(readModels),
   ],
 });

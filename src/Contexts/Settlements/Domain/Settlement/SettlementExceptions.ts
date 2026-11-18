@@ -84,6 +84,41 @@ export class PayeeHasNoPayoutAccount extends SettlementsException {
   }
 }
 
+/** A contest is asked by the payee of the settlement, and no one else. */
+export class OnlyThePayeeMayContest extends SettlementsException {
+  constructor() {
+    super('OnlyThePayeeMayContest', 'Only the payee of a settlement may contest it');
+  }
+}
+
+/** Only a settlement paid through the provider is contested: one paid in cash or by netting is not. */
+export class OnlyAProviderSettlementIsContested extends SettlementsException {
+  constructor() {
+    super('OnlyAProviderSettlementIsContested', 'Only a settlement paid through the provider can be contested');
+  }
+}
+
+/** A settlement is contested once: a contest decided as paid does not open another. */
+export class SettlementAlreadyContested extends SettlementsException {
+  constructor() {
+    super('SettlementAlreadyContested', 'A settlement is contested once');
+  }
+}
+
+/** Only a settlement that is paid is contested: a pending, contested, annulled or refunded one is not. */
+export class OnlyAPaidSettlementIsContested extends SettlementsException {
+  constructor() {
+    super('OnlyAPaidSettlementIsContested', 'Only a settlement that is paid can be contested');
+  }
+}
+
+/** Only a contested settlement is decided, and once: a settlement that is not contested is not decided by an administrator. */
+export class OnlyAContestedSettlementIsDecided extends SettlementsException {
+  constructor() {
+    super('OnlyAContestedSettlementIsDecided', 'Only a contested settlement is decided');
+  }
+}
+
 /** A refund needs the provider to accept it; when it does not, nothing changes. */
 export class ProviderRefundUnavailable extends SettlementsException {
   constructor() {
