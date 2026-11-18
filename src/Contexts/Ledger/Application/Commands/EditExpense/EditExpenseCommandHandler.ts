@@ -1,12 +1,13 @@
 import { Clock, CommandHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
-import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
+import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
+import { priceExpense } from '@Contexts/Ledger/Application/Commands/priceExpense';
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense/EditExpenseCommandEvent';
 
 /**
@@ -20,6 +21,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
   constructor(
     private readonly expenses: IExpenseRepository,
     private readonly groupMembers: IGroupMembers,
+    private readonly groupCurrency: IGroupCurrency,
     private readonly clock: Clock,
   ) {
     super();
@@ -37,11 +39,11 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
 
     const description = Description.create(payload.description);
     if (description.isFailure()) return description;
-    const amount = Amount.create(payload.amount);
-    if (amount.isFailure()) return amount;
+    const priced = await priceExpense(payload, expense.groupId, this.groupCurrency);
+    if (priced.isFailure()) return priced;
     const date = ExpenseDate.create(payload.date, now);
     if (date.isFailure()) return date;
-    const split = Split.fromRequest({ amount: amount.data, payer: expense.payer, request: payload });
+    const split = Split.fromRequest({ amount: priced.data.amount, payer: expense.payer, request: payload });
     if (split.isFailure()) return split;
 
     const edited = expense.edit({
@@ -49,7 +51,8 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
       byOwner: role === 'owner',
       fromVersion: payload.version,
       description: description.data,
-      amount: amount.data,
+      amount: priced.data.amount,
+      original: priced.data.original,
       date: date.data,
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(expense.groupId),

@@ -30,6 +30,17 @@ const SharesShareSchema = {
   },
 } as const;
 
+/** What an expense was paid in another currency: its currency, its amount in hundredths, and its rate as given (request 21). */
+const OriginalSchema = {
+  type: 'object',
+  required: ['currency', 'amount', 'rate'],
+  properties: {
+    currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+    amount: { type: 'integer', minimum: 1 },
+    rate: { type: 'string', pattern: '^\\d+(\\.\\d{1,6})?$' },
+  },
+} as const;
+
 const ExpenseSchema = {
   type: 'object',
   required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'splitKind', 'shares', 'version'],
@@ -38,6 +49,7 @@ const ExpenseSchema = {
     groupId: { type: 'string' },
     description: { type: 'string' },
     amount: { type: 'integer' },
+    original: OriginalSchema,
     date: { type: 'string' },
     paidBy: { type: 'string' },
     splitKind: { enum: ['equal', 'exact', 'shares'] },
@@ -62,17 +74,36 @@ const ExactlyOneOfTheSplits = [
   { required: ['splitByShares'] },
 ] as const;
 
+/*
+ * The amount: `amount`, in the group's currency, or `original`, what was paid in another one, never both and never neither
+ * (request 21). What `original` holds is the domain's to decide, as the amount is: the transport sees its shape only.
+ */
+const AmountFields = {
+  amount: { type: 'integer' },
+  original: {
+    type: 'object',
+    required: ['currency', 'amount', 'rate'],
+    properties: {
+      currency: { type: 'string' },
+      amount: { type: 'integer' },
+      rate: { type: 'string' },
+    },
+  },
+} as const;
+
+const ExactlyOneAmount = [{ required: ['amount'] }, { required: ['original'] }] as const;
+
 /** The shape of each body: a field missing or of the wrong type is a 400; whether a value is allowed is the domain's. */
 export const RecordExpenseBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date'],
+  required: ['description', 'date'],
   properties: {
     description: { type: 'string' },
-    amount: { type: 'integer' },
     date: { type: 'string' },
+    ...AmountFields,
     ...SplitFields,
   },
-  oneOf: ExactlyOneOfTheSplits,
+  allOf: [{ oneOf: ExactlyOneOfTheSplits }, { oneOf: ExactlyOneAmount }],
 } as const;
 
 export const RecordExpenseResSchema = {
@@ -97,15 +128,15 @@ export const GetGroupExpensesResSchema = {
 /** The shape of an edit: the expense given again, whole, and the version it was read at. Whether the values are allowed is the domain's. */
 export const EditExpenseBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date', 'version'],
+  required: ['description', 'date', 'version'],
   properties: {
     description: { type: 'string' },
-    amount: { type: 'integer' },
     date: { type: 'string' },
+    ...AmountFields,
     ...SplitFields,
     version: { type: 'integer' },
   },
-  oneOf: ExactlyOneOfTheSplits,
+  allOf: [{ oneOf: ExactlyOneOfTheSplits }, { oneOf: ExactlyOneAmount }],
 } as const;
 
 export const EditExpenseResSchema = {

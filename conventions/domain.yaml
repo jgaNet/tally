@@ -74,7 +74,7 @@ contexts:
       recorded as decided, never computed again at a read, the balances summing to zero by construction.
     language:
       - term: Expense
-        meaning: an amount a member paid for some members of the group, with its split, kept as it was recorded.
+        meaning: an amount a member paid for some members of the group, with its split, kept as it was recorded; in the group's currency, or in another one at the rate its payer gave, kept with it (request 21).
       - term: Split
         meaning: how an expense's amount is shared, equally, by exact amounts or by shares, the remainder to a stated member.
       - term: Share
@@ -128,7 +128,10 @@ relationships:
       which role, and who has ever been one, and what a member who left passed to the owner. Ledger asks in its own
       words, through a port it owns (GroupMembers), when it decides or reads a balance, so that a member who has just
       joined can be in a split at once (T3) and the balances count what passed (ADR 13). Carried since request 4, its
-      answer read over Groups' read model that Groups' wiring exports (ADR 3).
+      answer read over Groups' read model that Groups' wiring exports (ADR 3). An expense paid in another currency is
+      converted into the group's, so Ledger also asks for the group's currency, through a port it owns (GroupCurrency),
+      when it decides such an expense: the currency Groups made the group in, read inside the command's transaction
+      (ADR 14).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]

@@ -1,6 +1,10 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { IExpenseQueries } from '@Contexts/Ledger/Application/Ports/IExpenseQueries';
-import { ExpenseReadModel, ShareReadModel } from '@Contexts/Ledger/Application/ReadModel/ExpenseReadModel';
+import {
+  ExpenseReadModel,
+  OriginalReadModel,
+  ShareReadModel,
+} from '@Contexts/Ledger/Application/ReadModel/ExpenseReadModel';
 import { EXPENSE_STATEMENTS } from '@Contexts/Ledger/Infrastructure/expenses.schema';
 
 /** What the screens read of the expenses, from the SQLite file, outside any transaction. */
@@ -25,7 +29,10 @@ export class SqliteExpenseQueries implements IExpenseQueries {
           'SELECT member_id AS memberId, amount FROM ledger_expense_shares WHERE expense_id = ? ORDER BY position',
         )
         .all(id) as unknown as ShareReadModel[];
-      return { ...row, shares };
+      const original = connection
+        .prepare('SELECT currency, amount, rate FROM ledger_expense_originals WHERE expense_id = ?')
+        .get(id) as OriginalReadModel | undefined;
+      return original ? { ...row, shares, original } : { ...row, shares };
     });
   }
 
@@ -40,7 +47,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
             WHERE e.group_id = ?
             ORDER BY e.date DESC, e.recorded_at DESC, e.rowid DESC`,
         )
-        .all(groupId) as Omit<ExpenseReadModel, 'shares'>[];
+        .all(groupId) as unknown as Omit<ExpenseReadModel, 'shares'>[];
       const shareRows = connection
         .prepare(
           `SELECT s.expense_id AS expenseId, s.member_id AS memberId, s.amount
@@ -55,7 +62,22 @@ export class SqliteExpenseQueries implements IExpenseQueries {
         shares.push({ memberId, amount });
         sharesOf.set(expenseId, shares);
       }
-      return rows.map(row => ({ ...row, shares: sharesOf.get(row.id) ?? [] }));
+      const originalsOf = new Map<string, OriginalReadModel>(
+        (
+          connection
+            .prepare(
+              `SELECT o.expense_id AS expenseId, o.currency, o.amount, o.rate
+                 FROM ledger_expense_originals o JOIN ledger_expenses e ON e.id = o.expense_id
+                WHERE e.group_id = ?`,
+            )
+            .all(groupId) as unknown as (OriginalReadModel & { expenseId: string })[]
+        ).map(({ expenseId, currency, amount, rate }) => [expenseId, { currency, amount, rate }]),
+      );
+      return rows.map(row => {
+        const original = originalsOf.get(row.id);
+        const shares = sharesOf.get(row.id) ?? [];
+        return original ? { ...row, shares, original } : { ...row, shares };
+      });
     });
   }
 }

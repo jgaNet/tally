@@ -1,8 +1,9 @@
 /**
  * The ledger's tables in the SQLite file (ADR 2). An expense is a row of `ledger_expenses`, at its version (1 when it is
  * recorded, one more at each edit); its shares are its rows of `ledger_expense_shares`, in the order of the split
- * (`position`); how it is split (`equal`, `exact` or `shares`) is its row of `ledger_expense_splits`. `recorded_at` is when
- * it was recorded. A deleted expense has no rows here, nor in the balances.
+ * (`position`); how it is split (`equal`, `exact` or `shares`) is its row of `ledger_expense_splits`; what it was paid in,
+ * when it was another currency than the group's, is its row of `ledger_expense_originals` (request 21). `recorded_at` is
+ * when it was recorded. A deleted expense has no rows here, nor in the balances.
  */
 export const EXPENSE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS ledger_expenses (
@@ -27,6 +28,17 @@ export const EXPENSE_STATEMENTS = [
    )`,
   `INSERT OR IGNORE INTO ledger_expense_splits (expense_id, split_kind)
    SELECT id, 'equal' FROM ledger_expenses`,
+  /*
+   * What an expense was paid in, when it was not paid in the group's currency (request 21): its currency, its amount in
+   * hundredths, and its rate as the payer wrote it, kept as the string given. One row per expense in another currency; an
+   * expense in the group's currency has none, and reads as before.
+   */
+  `CREATE TABLE IF NOT EXISTS ledger_expense_originals (
+     expense_id TEXT PRIMARY KEY,
+     currency TEXT NOT NULL,
+     amount INTEGER NOT NULL,
+     rate TEXT NOT NULL
+   )`,
   `CREATE TABLE IF NOT EXISTS ledger_expense_shares (
      expense_id TEXT NOT NULL,
      position INTEGER NOT NULL,

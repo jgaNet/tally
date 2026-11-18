@@ -1,7 +1,7 @@
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
+import { groupCurrencyInCommand, groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
 import { settlementEffects, settlementEffectsInCommand } from '@Contexts/Settlements/module.local';
 import { IMemberBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalanceSums';
 import { SqliteMemberBalanceSums } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalanceSums';
@@ -25,6 +25,7 @@ import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/SqliteBala
 import { SqliteGroupBalanceSumsInCommand } from '@Contexts/Ledger/Infrastructure/SqliteGroupBalanceSumsInCommand';
 import { SettlementsSettledAmounts } from '@Contexts/Ledger/Infrastructure/SettlementsSettledAmounts';
 import { GroupsMembers } from '@Contexts/Ledger/Infrastructure/GroupsMembers';
+import { GroupsGroupCurrency } from '@Contexts/Ledger/Infrastructure/GroupsGroupCurrency';
 import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/SqliteStatementQueries';
 import { IGroupBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupBalanceSums';
 import { ExpenseRecordedEventHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedEventHandler';
@@ -86,6 +87,7 @@ export const localLedgerModule = new Module({
         new RecordExpenseCommandHandler(
           new SqliteExpenseRepository(database),
           new GroupsMembers(groupMembershipInCommand),
+          new GroupsGroupCurrency(groupCurrencyInCommand),
           systemClock,
         ),
       ],
@@ -96,6 +98,7 @@ export const localLedgerModule = new Module({
         new EditExpenseCommandHandler(
           new SqliteExpenseRepository(database),
           new GroupsMembers(groupMembershipInCommand),
+          new GroupsGroupCurrency(groupCurrencyInCommand),
           systemClock,
         ),
       ],

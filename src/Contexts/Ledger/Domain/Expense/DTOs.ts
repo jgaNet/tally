@@ -21,6 +21,14 @@ export interface SplitRequest {
   splitByShares?: readonly { memberId: string; shares: number }[];
 }
 
+/** What an expense was paid in another currency, as a command gives it: the currency, the amount in its hundredths, and the rate. */
+export interface OriginalRequest {
+  currency: string;
+  amount: number;
+  /** What one of that currency is worth in the group's currency, written as a decimal string, as the payer states it. */
+  rate: string;
+}
+
 /** An expense as it is stored and reconstituted: plain values, its shares in the order of the split, its version included. */
 export interface ExpenseSnapshot {
   id: string;
@@ -31,6 +39,8 @@ export interface ExpenseSnapshot {
   paidBy: string;
   splitKind: SplitKind;
   shares: ShareSnapshot[];
+  /** What it was paid in, when it was not in the group's currency; null otherwise. */
+  original: { currency: string; amount: number; rate: string } | null;
   recordedAt: string;
   version: number;
 }

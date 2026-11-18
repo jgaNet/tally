@@ -1,13 +1,14 @@
 import { Clock, CommandHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { Id, IResult, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
-import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
+import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
+import { priceExpense } from '@Contexts/Ledger/Application/Commands/priceExpense';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandEvent';
 
 /**
@@ -19,6 +20,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
   constructor(
     private readonly expenses: IExpenseRepository,
     private readonly groupMembers: IGroupMembers,
+    private readonly groupCurrency: IGroupCurrency,
     private readonly clock: Clock,
   ) {
     super();
@@ -31,18 +33,19 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     const now = this.clock();
     const description = Description.create(payload.description);
     if (description.isFailure()) return description;
-    const amount = Amount.create(payload.amount);
-    if (amount.isFailure()) return amount;
+    const groupId = new Id(payload.groupId);
+    const priced = await priceExpense(payload, groupId, this.groupCurrency);
+    if (priced.isFailure()) return priced;
     const date = ExpenseDate.create(payload.date, now);
     if (date.isFailure()) return date;
-    const split = Split.fromRequest({ amount: amount.data, payer: payer.data, request: payload });
+    const split = Split.fromRequest({ amount: priced.data.amount, payer: payer.data, request: payload });
     if (split.isFailure()) return split;
 
-    const groupId = new Id(payload.groupId);
     const expense = Expense.create({
       groupId,
       description: description.data,
-      amount: amount.data,
+      amount: priced.data.amount,
+      original: priced.data.original,
       date: date.data,
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(groupId),

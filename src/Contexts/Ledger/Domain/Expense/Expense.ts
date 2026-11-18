@@ -2,6 +2,7 @@ import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
+import { OriginalAmount } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import {
   ExpenseChanged,
   FormerMemberInExpense,
@@ -31,6 +32,8 @@ export class Expense extends AggregateRoot {
     readonly groupId: Id,
     readonly description: Description,
     readonly amount: Amount,
+    /** What it was paid in, when it was not paid in the group's currency (request 21); `amount` is then its amount in the group's. */
+    readonly original: OriginalAmount | null,
     readonly date: ExpenseDate,
     readonly split: Split,
     readonly recordedAt: Date,
@@ -57,6 +60,7 @@ export class Expense extends AggregateRoot {
     groupId,
     description,
     amount,
+    original = null,
     date,
     split,
     groupMembers,
@@ -65,6 +69,7 @@ export class Expense extends AggregateRoot {
     groupId: Id;
     description: Description;
     amount: Amount;
+    original?: OriginalAmount | null;
     date: ExpenseDate;
     split: Split;
     groupMembers: readonly Id[];
@@ -73,7 +78,7 @@ export class Expense extends AggregateRoot {
     const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
     if (outsider) return Result.fail(new NotAGroupMember());
 
-    const expense = new Expense(Id.generate(), 0, groupId, description, amount, date, split, at);
+    const expense = new Expense(Id.generate(), 0, groupId, description, amount, original, date, split, at);
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: expense._id.value,
@@ -100,6 +105,7 @@ export class Expense extends AggregateRoot {
     fromVersion,
     description,
     amount,
+    original = null,
     date,
     split,
     groupMembers,
@@ -110,6 +116,7 @@ export class Expense extends AggregateRoot {
     fromVersion: number;
     description: Description;
     amount: Amount;
+    original?: OriginalAmount | null;
     date: ExpenseDate;
     split: Split;
     groupMembers: readonly Id[];
@@ -121,7 +128,17 @@ export class Expense extends AggregateRoot {
     const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
     if (outsider) return Result.fail(new NotAGroupMember());
 
-    const edited = new Expense(this._id, this.version, this.groupId, description, amount, date, split, this.recordedAt);
+    const edited = new Expense(
+      this._id,
+      this.version,
+      this.groupId,
+      description,
+      amount,
+      original,
+      date,
+      split,
+      this.recordedAt,
+    );
     edited.record(
       ExpenseEditedEvent.set({
         expenseId: this._id.value,
@@ -159,6 +176,7 @@ export class Expense extends AggregateRoot {
       this.groupId,
       this.description,
       this.amount,
+      this.original,
       this.date,
       this.split,
       this.recordedAt,
@@ -211,6 +229,7 @@ export class Expense extends AggregateRoot {
       new Id(snapshot.groupId),
       description.data,
       amount.data,
+      snapshot.original ? OriginalAmount.fromSnapshot(snapshot.original) : null,
       date.data,
       split,
       recordedAt,
@@ -223,6 +242,9 @@ export class Expense extends AggregateRoot {
       groupId: this.groupId.value,
       description: this.description.value,
       amount: this.amount.value,
+      original: this.original
+        ? { currency: this.original.currency, amount: this.original.amount, rate: this.original.rate }
+        : null,
       date: this.date.value,
       paidBy: this.split.payer.value,
       splitKind: this.split.kind,

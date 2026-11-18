@@ -36,7 +36,11 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     const shares = connection
       .prepare('SELECT member_id, amount FROM ledger_expense_shares WHERE expense_id = ? ORDER BY position')
       .all(id.value) as { member_id: string; amount: number }[];
+    const original = connection
+      .prepare('SELECT currency, amount, rate FROM ledger_expense_originals WHERE expense_id = ?')
+      .get(id.value) as { currency: string; amount: number; rate: string } | undefined;
     return Expense.fromSnapshot({
+      original: original ? { currency: original.currency, amount: original.amount, rate: original.rate } : null,
       id: row.id,
       groupId: row.group_id,
       description: row.description,
@@ -51,7 +55,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
   }
 
   async save(expense: Expense): Promise<IResult> {
-    const { id, groupId, description, amount, date, paidBy, splitKind, shares, recordedAt, version } =
+    const { id, groupId, description, amount, original, date, paidBy, splitKind, shares, recordedAt, version } =
       expense.toSnapshot();
     const { connection } = this.database;
     const conflict = () =>
@@ -64,6 +68,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       if (changes === 0) return conflict();
       connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
       connection.prepare('DELETE FROM ledger_expense_splits WHERE expense_id = ?').run(id);
+      connection.prepare('DELETE FROM ledger_expense_originals WHERE expense_id = ?').run(id);
       connection.prepare('DELETE FROM ledger_balance_entries WHERE expense_id = ?').run(id);
       return Result.ok();
     }
@@ -87,6 +92,15 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     connection
       .prepare('INSERT OR REPLACE INTO ledger_expense_splits (expense_id, split_kind) VALUES (?, ?)')
       .run(id, splitKind);
+    if (original) {
+      connection
+        .prepare(
+          'INSERT OR REPLACE INTO ledger_expense_originals (expense_id, currency, amount, rate) VALUES (?, ?, ?, ?)',
+        )
+        .run(id, original.currency, original.amount, original.rate);
+    } else {
+      connection.prepare('DELETE FROM ledger_expense_originals WHERE expense_id = ?').run(id);
+    }
     connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
     shares.forEach(({ memberId, amount: share }, position) =>
       connection

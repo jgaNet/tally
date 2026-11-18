@@ -90,3 +90,33 @@ export class ExpenseChanged extends ExpenseException {
     super('ExpenseChanged', 'The expense changed since it was read: read it again, and decide again');
   }
 }
+
+export class InvalidOriginalCurrency extends ExpenseException {
+  constructor(currencies: readonly string[]) {
+    super('InvalidOriginalCurrency', `The currency paid in must be one of ${currencies.join(', ')}`);
+  }
+}
+
+export class SameCurrencyAsGroup extends ExpenseException {
+  constructor() {
+    super(
+      'SameCurrencyAsGroup',
+      "An expense paid in the group's own currency is given as its amount, not in another currency",
+    );
+  }
+}
+
+export class InvalidOriginalAmount extends ExpenseException {
+  constructor(max: number) {
+    super(
+      'InvalidOriginalAmount',
+      `The amount paid in another currency must be a whole number of hundredths from 1 to ${max}`,
+    );
+  }
+}
+
+export class InvalidRate extends ExpenseException {
+  constructor() {
+    super('InvalidRate', 'The rate must be a decimal number greater than 0, with at most 6 digits after the point');
+  }
+}

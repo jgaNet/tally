@@ -1,5 +1,5 @@
 import { CommandEvent } from '@Architecture/Domain';
-import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { OriginalRequest, SplitRequest } from '@Contexts/Ledger/Domain/Expense/DTOs';
 
 /**
  * The expense a member gives again, whole: what it is for, what it cost, its date, how it is split (exactly one of the
@@ -9,7 +9,9 @@ export class EditExpenseCommandEvent extends CommandEvent<
   {
     expenseId: string;
     description: string;
-    amount: number;
+    /** The amount in the group's currency, or `original` what was paid in another one (exactly one of the two, request 21). */
+    amount?: number;
+    original?: OriginalRequest;
     date: string;
     version: number;
   } & SplitRequest
