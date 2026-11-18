@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Querier } from './database';
 import type { Category } from './categories';
+import { turnedOffAmong } from './notice-preferences';
 
 /**
  * What a notice tells its recipient. An `expense` notice: an expense of a group, and their share of it. A
@@ -66,9 +67,15 @@ export async function noticeExpense(
     `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
      VALUES (?, ?, 'expense', ?, ?, ?, ?)`,
   );
+  // A member who turned expense notices off is not told of their share, from the moment they turned them off.
+  const off = await turnedOffAmong(
+    db,
+    shares.map(share => share.memberId),
+    'expense',
+  );
   for (const share of shares) {
     // The payer recorded the expense: they get no notice of it.
-    if (share.memberId === payerId) continue;
+    if (share.memberId === payerId || off.has(share.memberId)) continue;
     await insert.run(randomUUID(), share.memberId, groupId, expenseId, share.amount, at);
   }
 }

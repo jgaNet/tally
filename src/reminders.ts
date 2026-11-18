@@ -2,6 +2,7 @@ import type { Database } from './database';
 import { deletedAmong } from './accounts';
 import { balancesOfGroup } from './balances';
 import { noticeReminder } from './notices';
+import { turnedOffAmong } from './notice-preferences';
 import { inTransaction } from './transactions';
 
 /** A member is reminded when they still owe more than this in a group (20.00 in its currency). */
@@ -24,7 +25,8 @@ interface LastingDebtRow {
  *   never noted: it is told nothing.
  * - A member owing that much or less, or no longer a member, is no longer noted: a debt that comes back is noted
  *   again from the run that sees it.
- * - A member noted for `periodMs` or more, and not reminded in the last `periodMs`, is reminded at `now`.
+ * - A member noted for `periodMs` or more, and not reminded in the last `periodMs`, is reminded at `now`, unless they turned
+ *   reminders off: then nothing is made, and it does not count as made, so the next run that would remind them does.
  *
  * The run is one write transaction, under the write lock: servers sharing the database run it one after the other, and
  * each sees what the one before it noted and reminded, so a member is reminded at most once a period for a group.
@@ -56,6 +58,9 @@ export async function sweepReminders(db: Database, now: Date, periodMs: number):
       for (const accountId of watched.keys()) {
         if (!owing.has(accountId)) await forget.run(group.id, accountId);
       }
+      // A member who turned reminders off is not reminded, and a reminder not made does not count as made: they are
+      // reminded at the first run that reminds them once they turn them on again.
+      const offReminders = await turnedOffAmong(tx, [...owing.keys()], 'reminder');
       for (const [accountId, amount] of owing) {
         const debt = watched.get(accountId);
         if (!debt) {
@@ -64,7 +69,7 @@ export async function sweepReminders(db: Database, now: Date, periodMs: number):
         }
         const lasted = nowMs - Date.parse(debt.noted_at) >= periodMs;
         const remindedLately = debt.last_reminded_at !== null && nowMs - Date.parse(debt.last_reminded_at) < periodMs;
-        if (lasted && !remindedLately) {
+        if (lasted && !remindedLately && !offReminders.has(accountId)) {
           await noticeReminder(tx, { recipientId: accountId, groupId: group.id, amount, at });
           await markReminded.run(at, group.id, accountId);
           reminded += 1;

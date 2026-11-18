@@ -385,6 +385,16 @@ const SCHEMA = `
   /* A database created before the merge of groups kept a foreign key on notices.group_id: it goes, as above. */
   ALTER TABLE notices DROP CONSTRAINT IF EXISTS notices_group_id_fkey;
   CREATE INDEX IF NOT EXISTS notices_by_recipient ON notices (recipient_id, created_at);
+  /*
+   * The notice preferences of a person: one row per kind of notice they turned off or on again. A kind with no row is on, so
+   * every kind is on until its person turns it off. Written in a write transaction, which the notices made read it under.
+   */
+  CREATE TABLE IF NOT EXISTS notice_preferences (
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind       TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
+    enabled    BOOLEAN NOT NULL,
+    PRIMARY KEY (account_id, kind)
+  );
   CREATE INDEX IF NOT EXISTS expenses_by_category ON expenses (group_id, category, spent_on);
   /* One expense per day of a recurring expense, whatever servers share the database. */
   CREATE UNIQUE INDEX IF NOT EXISTS expenses_by_recurring_day ON expenses (recurring_id, recurring_day)

@@ -170,6 +170,73 @@ describe('reminders', () => {
     expect(await remindersOf(cy.token)).toMatchObject([{ amount: 2500, at: new Date(now).toISOString() }]);
   });
 
+  it('makes no reminder to a member who turned them off, and reminds them at the first run that does once they are on again', async () => {
+    const { bob, cy, groupId } = await groupOfBobAndCy();
+    await cyOwesBob(bob, cy, groupId, 2500);
+    await app.runJobs(); // noted from START
+    const off = await send(app, 'PUT', '/accounts/me/notice-preferences/reminder', {
+      token: cy.token,
+      body: { enabled: false },
+    });
+    expect(off.status).toBe(204);
+
+    // A week on, the debt has lasted, but Cy has reminders off: nothing is made, and nothing counts as made.
+    now += WEEK_MS;
+    await app.runJobs();
+    expect(await remindersOf(cy.token)).toEqual([]);
+    expect(await storedReminders()).toBe(0);
+
+    // On again a day later, still owing: the run that sees it reminds Cy at once, not a week after.
+    now += DAY_MS;
+    const on = await send(app, 'PUT', '/accounts/me/notice-preferences/reminder', {
+      token: cy.token,
+      body: { enabled: true },
+    });
+    expect(on.status).toBe(204);
+    await app.runJobs();
+    expect(await remindersOf(cy.token)).toEqual([
+      { id: expect.any(String), kind: 'reminder', groupId, amount: 2500, at: new Date(now).toISOString() },
+    ]);
+  });
+
+  it('reminds the others of the group as before while one member has reminders off', async () => {
+    const { bob, cy, groupId } = await groupOfBobAndCy();
+    const di = await signedUpAccount(app, { email: 'di@example.com', name: 'Di' });
+    const invitation = await send(app, 'POST', `/groups/${groupId}/invitations`, { token: bob.token });
+    const accepted = await send(app, 'POST', `/invitations/${(invitation.body as { id: string }).id}/accept`, {
+      token: di.token,
+    });
+    expect(accepted.status).toBe(204);
+    await cyOwesBob(bob, cy, groupId, 2500);
+    const diReply = await send(app, 'POST', `/groups/${groupId}/expenses`, {
+      token: bob.token,
+      body: {
+        description: 'Tickets',
+        amount: 2500,
+        date: '2026-11-01',
+        splitExactly: [
+          { memberId: bob.id, amount: 0 },
+          { memberId: di.id, amount: 2500 },
+        ],
+      },
+    });
+    expect(diReply.status).toBe(201);
+    expect(
+      (
+        await send(app, 'PUT', '/accounts/me/notice-preferences/reminder', {
+          token: cy.token,
+          body: { enabled: false },
+        })
+      ).status,
+    ).toBe(204);
+
+    await app.runJobs();
+    now += WEEK_MS;
+    await app.runJobs();
+    expect(await remindersOf(cy.token)).toEqual([]);
+    expect(await remindersOf(di.token)).toMatchObject([{ kind: 'reminder', groupId, amount: 2500 }]);
+  });
+
   it('makes nothing because someone read something: a read answers what is kept', async () => {
     const { bob, cy, groupId } = await groupOfBobAndCy();
     await cyOwesBob(bob, cy, groupId, 2500);

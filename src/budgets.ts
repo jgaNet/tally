@@ -3,6 +3,7 @@ import { CATEGORIES, isCategory, type Category } from './categories';
 import { deletedAmong } from './accounts';
 import { assertNotArchived, findGroupOfMember, membersOfGroup, type Group } from './groups';
 import { noticeBudget } from './notices';
+import { turnedOffAmong } from './notice-preferences';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
 
@@ -170,12 +171,14 @@ export async function noticeBudgetPassed(
   await db
     .prepare('INSERT INTO budget_months_passed (group_id, category, month, passed_at) VALUES (?, ?, ?, ?)')
     .run(groupId, category, month, at);
-  // A deleted account is told nothing: the notices go to the members who are not deleted.
+  // A deleted account is told nothing, nor is a member who turned budget notices off: the month is passed for the others
+  // all the same, and was written above, so it is told once.
   const members = await membersOfGroup(db, groupId);
   const memberIds = members.map(member => member.memberId);
   const deleted = await deletedAmong(db, memberIds);
+  const off = await turnedOffAmong(db, memberIds, 'budget');
   for (const member of members) {
-    if (deleted.has(member.memberId)) continue;
+    if (deleted.has(member.memberId) || off.has(member.memberId)) continue;
     await noticeBudget(db, {
       recipientId: member.memberId,
       groupId,

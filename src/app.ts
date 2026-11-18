@@ -15,6 +15,7 @@ import { registerExpenseRoutes } from './routes/expenses';
 import { registerGroupRoutes } from './routes/groups';
 import { registerInvitationRoutes } from './routes/invitations';
 import { registerNoticeRoutes } from './routes/notices';
+import { registerNoticePreferenceRoutes } from './routes/notice-preferences';
 import { registerNettingRoutes } from './routes/nettings';
 import { registerOperationRoutes } from './routes/operations';
 import { registerPayoutAccountRoutes } from './routes/payout-accounts';
@@ -148,6 +149,7 @@ export async function createApplication({
       registerProviderRoutes(api, db, provider);
       registerPayoutAccountRoutes(api, db, provider);
       registerNoticeRoutes(api, db);
+      registerNoticePreferenceRoutes(api, db);
       registerTemplateRoutes(api, db);
       registerOperationRoutes(api, db);
       registerAuditRoutes(api, db);
