@@ -321,7 +321,7 @@ export function requireExpense(db: Database, expenseId: string, accountId: strin
  * it is kept as it was, so that member's balance stays 0. Runs inside `inTransaction`, so the check
  * and the write cannot be split.
  */
-function requireEditor(db: Database, expenseId: string, accountId: string): Expense {
+export function requireEditor(db: Database, expenseId: string, accountId: string): Expense {
   const expense = requireExpense(db, expenseId, accountId);
   if (expense.paidBy !== accountId) {
     const group = requireMembership(db, expense.groupId, accountId);
@@ -406,6 +406,7 @@ export async function updateExpense(
 export function deleteExpense(db: Database, expenseId: string, accountId: string): void {
   inTransaction(db, () => {
     requireEditor(db, expenseId, accountId);
+    db.prepare('DELETE FROM receipts WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
   });

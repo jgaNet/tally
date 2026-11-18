@@ -11,6 +11,7 @@ import { registerNoticeRoutes } from './notices/routes';
 import { registerOperationRoutes } from './operations/routes';
 import { registerPayoutAccountRoutes } from './payouts/routes';
 import { registerRateRoutes } from './rates/routes';
+import { registerReceiptRoutes } from './receipts/routes';
 import { registerRecurringRoutes } from './recurring/routes';
 import { recordRecurring } from './recurring/recurring';
 import { Refusal } from './refusal';
@@ -44,7 +45,8 @@ export interface Application {
  * service at `ratesUrl` (`RATES_URL`), which is given up after `ratesTimeoutMs` (5 seconds); without it no
  * rate is offered, and a rate an expense states is taken whatever it is. The background job runs every
  * `jobsIntervalSeconds` (`JOBS_INTERVAL_SECONDS`, 60), and a week of debt is `reminderPeriodSeconds`
- * (`REMINDER_PERIOD_SECONDS`, 604800).
+ * (`REMINDER_PERIOD_SECONDS`, 604800). Receipts are kept in the receipts store at `receiptsUrl` (`RECEIPTS_URL`),
+ * which is given up after `receiptsTimeoutMs` (5 seconds); without it a receipt is refused.
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
@@ -55,6 +57,8 @@ export async function createApplication({
   providerTimeoutMs = 5000,
   ratesUrl = process.env.RATES_URL || '',
   ratesTimeoutMs = 5000,
+  receiptsUrl = process.env.RECEIPTS_URL || '',
+  receiptsTimeoutMs = 5000,
   jobsIntervalSeconds = Number(process.env.JOBS_INTERVAL_SECONDS || 60),
   reminderPeriodSeconds = Number(process.env.REMINDER_PERIOD_SECONDS || 604800),
 }: {
@@ -66,6 +70,8 @@ export async function createApplication({
   providerTimeoutMs?: number;
   ratesUrl?: string;
   ratesTimeoutMs?: number;
+  receiptsUrl?: string;
+  receiptsTimeoutMs?: number;
   jobsIntervalSeconds?: number;
   reminderPeriodSeconds?: number;
 } = {}): Promise<Application> {
@@ -80,6 +86,10 @@ export async function createApplication({
   const rates = {
     url: ratesUrl.replace(/\/+$/, ''),
     timeoutMs: ratesTimeoutMs,
+  };
+  const receipts = {
+    url: receiptsUrl.replace(/\/+$/, ''),
+    timeoutMs: receiptsTimeoutMs,
   };
   server.addHook('onClose', async () => {
     db.close();
@@ -107,6 +117,7 @@ export async function createApplication({
       registerInvitationRoutes(routes, db);
       registerExpenseRoutes(routes, db, rates);
       registerTemplateRoutes(routes, db);
+      registerReceiptRoutes(routes, db, receipts);
       registerRateRoutes(routes, db, rates);
       registerBudgetRoutes(routes, db);
       registerRecurringRoutes(routes, db);

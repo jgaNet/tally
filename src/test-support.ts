@@ -286,3 +286,57 @@ export async function startFakeRatesService(): Promise<FakeRatesService> {
     });
   return service;
 }
+
+/** How the fake receipts store answers a request for a file: `accept` (`201 { id, url }`), or as its mode says. */
+export type ReceiptsStoreMode = 'accept' | 'refuse' | 'malformed' | 'hang';
+
+export interface FakeReceiptsStore {
+  /** The base URL, as `RECEIPTS_URL` gives it: no trailing slash. */
+  url: string;
+  /** Every request for a file, in the order received: its content type and its bytes. */
+  requests: { contentType: string | undefined; bytes: Buffer }[];
+  /** How it answers the next requests: `accept`, `refuse` (a `500`), `malformed` (`201` without a link) or `hang`. */
+  mode: ReceiptsStoreMode;
+  close(): Promise<void>;
+}
+
+/** A receipts store on the loopback interface, answering `POST /files` as `mode` says. */
+export async function startFakeReceiptsStore(): Promise<FakeReceiptsStore> {
+  const requests: { contentType: string | undefined; bytes: Buffer }[] = [];
+  const store = { requests, mode: 'accept' } as FakeReceiptsStore;
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on('data', chunk => chunks.push(chunk));
+    request.on('end', () => {
+      if (request.method !== 'POST' || request.url !== '/files') {
+        response.writeHead(404).end();
+        return;
+      }
+      requests.push({ contentType: request.headers['content-type'], bytes: Buffer.concat(chunks) });
+      const id = `file-${requests.length}`;
+      if (store.mode === 'hang') {
+        return;
+      }
+      if (store.mode === 'refuse') {
+        response.writeHead(500).end('{}');
+        return;
+      }
+      if (store.mode === 'malformed') {
+        response.writeHead(201, { 'content-type': 'application/json' }).end(JSON.stringify({ id }));
+        return;
+      }
+      response
+        .writeHead(201, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ id, url: `https://files.example.test/${id}` }));
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as { port: number };
+  store.url = `http://127.0.0.1:${port}`;
+  store.close = () =>
+    new Promise<void>(resolve => {
+      server.closeAllConnections();
+      server.close(() => resolve());
+    });
+  return store;
+}

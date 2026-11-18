@@ -254,11 +254,12 @@ describe('an expense in another currency', () => {
       });
       await app.stop();
 
-      // Takes the schema back to before this step, and the categories, budgets and split templates after it, with the
-      // expense in it, and brings it up to date again.
+      // Takes the schema back to before this step, and the categories, budgets, split templates and receipts after it,
+      // with the expense in it, and brings it up to date again.
       const db = new DatabaseSync(databasePath);
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
       db.exec(`
+        DROP TABLE receipts;
         DROP TABLE split_templates;
         DROP TABLE budget_passings;
         DROP TABLE budgets;
@@ -267,7 +268,7 @@ describe('an expense in another currency', () => {
         ALTER TABLE expenses DROP COLUMN original_currency;
         ALTER TABLE expenses DROP COLUMN original_amount;
         ALTER TABLE expenses DROP COLUMN original_rate;
-        PRAGMA user_version = ${version - 4};
+        PRAGMA user_version = ${version - 5};
       `);
       db.close();
       app = await createApplication({ databasePath });

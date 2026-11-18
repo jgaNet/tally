@@ -356,6 +356,19 @@ const migrations: readonly string[] = [
     UNIQUE (group_id, name_key)
   );
   `,
+  `
+  -- An expense's receipt: a JPEG or a PNG kept in the receipts store, which Tally keeps only the id and the link
+  -- of. One per expense: attaching another replaces it, and it is kept with the expense, so it goes when the
+  -- expense does. Attaching a receipt does not change the expense's version.
+  CREATE TABLE receipts (
+    expense_id  TEXT PRIMARY KEY REFERENCES expenses (id),
+    type        TEXT NOT NULL CHECK (type IN ('image/jpeg', 'image/png')),
+    size        INTEGER NOT NULL CHECK (size BETWEEN 1 AND 2097152),
+    url         TEXT NOT NULL CHECK (url <> ''),
+    store_id    TEXT NOT NULL CHECK (store_id <> ''),
+    attached_at TEXT NOT NULL
+  );
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */
