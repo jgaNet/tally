@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Database } from './database';
 import { listBalancesIncludingWaiting } from './balances';
 import { isDeleted } from './accounts';
+import { isNoticeOn } from './notice-preferences';
 
 /** A member owing more than this, in hundredths of the group's currency, is noted, and reminded when it lasts. */
 export const REMINDER_THRESHOLD = 2000;
@@ -48,7 +49,9 @@ export async function runReminders(db: Database, periodMs: number, now: Date = n
       known.add(key);
       const notedLongEnough = nowMs - Date.parse(row.noted_at) >= periodMs;
       const recentlyReminded = row.reminded_at !== null && nowMs - Date.parse(row.reminded_at) < periodMs;
-      if (notedLongEnough && !recentlyReminded) {
+      // A reminder not made because reminders are off does not count as made: it is not kept as reminded, so the first run
+      // that finds the member owing after they are on again reminds them.
+      if (notedLongEnough && !recentlyReminded && (await isNoticeOn(tx, row.account_id, 'reminder'))) {
         await tx.run(
           `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
            VALUES (?, ?, 'reminder', ?, NULL, ?, ?)`,

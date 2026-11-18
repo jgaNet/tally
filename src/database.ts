@@ -304,6 +304,14 @@ CREATE TABLE suspensions (
   account_id TEXT PRIMARY KEY REFERENCES accounts (id),
   suspended_at TEXT NOT NULL
 );
+
+-- The kinds of notice a person has set on or off. A kind without a row is on: every kind is on until its person turns it off.
+CREATE TABLE notice_preferences (
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
+  enabled BOOLEAN NOT NULL,
+  PRIMARY KEY (account_id, kind)
+);
 `;
 
 /**

@@ -16,6 +16,7 @@ import { registerLeaveRoutes } from './leaving';
 import { registerMergeRoutes } from './merge';
 import { registerNettingRoutes } from './nettings';
 import { registerNoticeRoutes } from './notices';
+import { registerNoticePreferenceRoutes } from './notice-preferences';
 import { registerOperationRoutes } from './operations';
 import { registerPayoutAccountRoutes } from './payout-accounts';
 import { registerRateRoutes, type RatesConfig } from './rates';
@@ -129,6 +130,7 @@ export async function createApplication({
       registerNettingRoutes(instance, db);
       registerProviderWebhookRoutes(instance, db, provider);
       registerNoticeRoutes(instance, db);
+      registerNoticePreferenceRoutes(instance, db);
       registerAuditRoutes(instance, db);
       registerContestRoutes(instance, db, administrators);
       registerAdminRoutes(instance, db, administrators);

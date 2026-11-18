@@ -4,6 +4,7 @@ import { CATEGORIES, isCategory, type Category } from './categories';
 import type { Database, Queryable } from './database';
 import { todayUtc } from './days';
 import { findGroupOf, refuseIfArchived } from './groups';
+import { isNoticeOn } from './notice-preferences';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
@@ -62,13 +63,15 @@ export async function writeBudgetPassing(
     [groupId, category, month],
   );
   if (noted.changes === 0) return;
-  // A deleted account is told nothing any more.
+  // A deleted account is told nothing any more, and one who turned budget notices off is not told: the month is noted all the same,
+  // so what they missed is not made later.
   const members = await db.all<{ account_id: string }>(
     `SELECT m.account_id FROM group_members m JOIN accounts a ON a.id = m.account_id
      WHERE m.group_id = ? AND m.left_at IS NULL AND a.deleted_at IS NULL`,
     [groupId],
   );
   for (const member of members) {
+    if (!(await isNoticeOn(db, member.account_id, 'budget'))) continue;
     await db.run(
       `INSERT INTO notices (id, account_id, kind, group_id, expense_id, category, month, budget, amount, created_at)
        VALUES (?, ?, 'budget', ?, NULL, ?, ?, ?, ?, ?)`,

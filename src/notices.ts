@@ -4,6 +4,7 @@ import type { Queryable } from './database';
 import { CATEGORIES, type Category } from './categories';
 import { isDeleted } from './accounts';
 import { requireCaller } from './sessions';
+import { isNoticeOn } from './notice-preferences';
 import type { Database } from './database';
 
 /**
@@ -38,7 +39,7 @@ interface NoticeRow {
 /**
  * Writes one notice for each member of the split but the payer, each with their share. It is called inside the
  * write transaction that records the expense, so a notice exists exactly when its expense does. The payer gets
- * none: they recorded it.
+ * none: they recorded it. A member who has turned expense notices off is given none.
  */
 export async function writeExpenseNotices(
   db: Queryable,
@@ -47,6 +48,7 @@ export async function writeExpenseNotices(
 ): Promise<void> {
   for (const share of shares) {
     if (share.memberId === expense.paidBy || (await isDeleted(db, share.memberId))) continue;
+    if (!(await isNoticeOn(db, share.memberId, 'expense'))) continue;
     await db.run(
       `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
        VALUES (?, ?, 'expense', ?, ?, ?, ?)`,
