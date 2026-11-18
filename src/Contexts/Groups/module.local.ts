@@ -6,7 +6,14 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ledgerReadModel, waitingPaymentsOfSettlements } from '@Bootstrap/Fastify/readModels';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
-import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
+import {
+  archiveGroup,
+  createGroup,
+  getGroup,
+  getGroupMembers,
+  getMyGroups,
+  leaveGroup,
+} from '@Contexts/Groups/Application/Groups';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { SqliteAccountRepository } from '@Contexts/Groups/Infrastructure/SqliteAccountRepository';
 import { SqliteAccountQueries } from '@Contexts/Groups/Infrastructure/SqliteAccountQueries';
@@ -52,6 +59,7 @@ export const localGroupsModule = new LiteModule({
     acceptInvitation(invitations, groups, systemClock),
     getInvitation(invitationQueries),
     leaveGroup(groups, memberBalances, waitingPaymentsOfSettlements, systemClock),
+    archiveGroup(groups, memberBalances, waitingPaymentsOfSettlements, systemClock),
   ],
 });
 

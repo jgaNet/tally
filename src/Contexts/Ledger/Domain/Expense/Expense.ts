@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import {
   ExpenseSnapshot,
@@ -90,6 +91,7 @@ export class Expense extends AggregateRoot {
     split,
     members,
     category,
+    archived,
     at,
     ...money
   }: {
@@ -102,8 +104,11 @@ export class Expense extends AggregateRoot {
     members: string[];
     /** What the expense is for (request 24); left out, it is `other`. */
     category?: string;
+    /** Whether the group is archived, as Groups says it now (request 27): an archived group takes no expense. */
+    archived: boolean;
     at: Date;
   } & AmountInput): IResult<Expense> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     const checked = checkExpense({ description, date, paidBy, split, members, category, at, ...money });
     if (checked.isFailure()) return checked;
 
@@ -146,6 +151,7 @@ export class Expense extends AggregateRoot {
     date,
     split,
     category,
+    archived,
     at,
     ...money
   }: {
@@ -157,8 +163,11 @@ export class Expense extends AggregateRoot {
     split: SplitInput;
     /** What the expense is for (request 24): left out, it is `other`, as the expense is given whole. */
     category?: string;
+    /** Whether the group is archived, as Groups says it now (request 27): an archived group changes no expense. */
+    archived: boolean;
     at: Date;
   } & AmountInput): IResult<Expense> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
     if (!this.concernsOnlyCurrentMembers(members)) return Result.fail(new ExpenseOfFormerMemberException());
     if (version !== this.version) return Result.fail(new ExpenseChangedException());
@@ -203,7 +212,8 @@ export class Expense extends AggregateRoot {
    * Removes the expense, for its payer or the group's owner (request 6). A deleted expense is gone from every read and
    * counts in no balance: the store removes it and its shares with it, in the same transaction.
    */
-  remove({ by, members }: { by: string; members: GroupMember[] }): IResult<Expense> {
+  remove({ by, members, archived }: { by: string; members: GroupMember[]; archived: boolean }): IResult<Expense> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
     if (!this.concernsOnlyCurrentMembers(members)) return Result.fail(new ExpenseOfFormerMemberException());
     this.record(ExpenseDeletedEvent.set({ expenseId: this._id.value, groupId: this.#groupId, paidBy: this.#paidBy }));

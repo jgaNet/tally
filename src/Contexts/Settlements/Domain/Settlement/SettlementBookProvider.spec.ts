@@ -12,6 +12,7 @@ const request = (overrides: Partial<RequestProviderPaymentCommand> = {}): Reques
   balances: { payer: -30, payee: 30 },
   payoutAccount: 'ann-at-the-provider',
   at,
+  archived: false,
   ...overrides,
 });
 

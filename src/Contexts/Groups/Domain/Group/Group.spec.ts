@@ -9,10 +9,12 @@ import {
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import {
   BalancePassedEvent,
+  GroupArchivedEvent,
   GroupCreatedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
 } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import { BalancesNotZeroException, PaymentsWaitingException } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 
 const AT = new Date('2026-05-01T10:00:00.000Z');
 
@@ -215,5 +217,72 @@ describe('Group leaving (request 9)', () => {
       { accountId: 'bob', role: 'member', joinedAt: AGAIN.toISOString() },
     ]);
     expect(group.toSnapshot().members.filter(member => member.accountId === 'bob')).toHaveLength(1);
+  });
+});
+
+describe('Group archiving (request 27)', () => {
+  const create = () => Group.register({ name: 'Lisbon', currency: 'EUR', ownerId: 'ada', at: AT }).data!;
+  const LATER = new Date('2026-05-09T12:00:00.000Z');
+
+  it('is archived by its owner once every balance is 0 and no payment waits, and records GroupArchived', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: AT });
+    group.pullDomainEvents();
+
+    expect(group.archive({ by: 'ada', balances: [0, 0], paymentWaiting: false, at: LATER }).isSuccess()).toBe(true);
+
+    expect(group.isArchived).toBe(true);
+    expect(group.archivedAt).toBe(LATER.toISOString());
+    const [event] = group.pullDomainEvents();
+    expect(event).toBeInstanceOf(GroupArchivedEvent);
+    expect(event.payload).toEqual({ groupId: group.id });
+  });
+
+  it('refuses another member, a balance that is not 0, and a payment waiting, and records nothing', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: AT });
+    group.pullDomainEvents();
+
+    expect(group.archive({ by: 'bob', balances: [0, 0], paymentWaiting: false, at: LATER }).error?.type).toBe(
+      'NotAllowed',
+    );
+    expect(group.archive({ by: 'ada', balances: [0, -5], paymentWaiting: false, at: LATER }).error).toBeInstanceOf(
+      BalancesNotZeroException,
+    );
+    expect(group.archive({ by: 'ada', balances: [0, 0], paymentWaiting: true, at: LATER }).error).toBeInstanceOf(
+      PaymentsWaitingException,
+    );
+    expect(group.isArchived).toBe(false);
+    expect(group.pullDomainEvents()).toEqual([]);
+  });
+
+  it('stays archived: archiving again, joining and leaving are refused by GroupArchived, and change nothing', () => {
+    const group = create();
+    group.join({ accountId: 'bob', at: AT });
+    group.archive({ by: 'ada', balances: [0, 0], paymentWaiting: false, at: LATER });
+    group.pullDomainEvents();
+
+    expect(group.archive({ by: 'ada', balances: [0, 0], paymentWaiting: false, at: LATER }).error?.type).toBe(
+      'GroupArchived',
+    );
+    expect(group.join({ accountId: 'cy', at: LATER }).error?.type).toBe('GroupArchived');
+    expect(group.leave({ accountId: 'bob', balance: 0, waitingPayment: false, at: LATER }).error?.type).toBe(
+      'GroupArchived',
+    );
+    expect(group.isMember('cy')).toBe(false);
+    expect(group.isMember('bob')).toBe(true);
+    expect(group.pullDomainEvents()).toEqual([]);
+  });
+
+  it('reads archivedAt back from its snapshot, and has none while it is not archived', () => {
+    const group = create();
+    expect(group.toSnapshot()).not.toHaveProperty('archivedAt');
+
+    group.archive({ by: 'ada', balances: [0], paymentWaiting: false, at: LATER });
+    const read = Group.fromSnapshot(group.toSnapshot());
+
+    expect(read.isArchived).toBe(true);
+    expect(read.toSnapshot()).toEqual(group.toSnapshot());
+    expect(read.toSnapshot()).toHaveProperty('archivedAt', LATER.toISOString());
   });
 });

@@ -39,6 +39,7 @@ export const recordCashSettlement = command(
         amount,
         members: group.members.map(member => member.memberId),
         balances: { payer: balanceOf(from), payee: balanceOf(by) },
+        archived: group.archived,
         at: clock(),
       });
       if (recorded.isFailure()) return recorded;

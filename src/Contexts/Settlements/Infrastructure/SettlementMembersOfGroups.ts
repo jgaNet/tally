@@ -17,6 +17,7 @@ export class SettlementMembersOfGroups implements ISettlementMembers {
     return {
       currency: group.currency,
       members: members.map(({ memberId }) => ({ memberId })),
+      archived: group.archivedAt !== undefined,
     };
   }
 }

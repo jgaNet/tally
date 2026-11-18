@@ -9,6 +9,7 @@ import {
 import { InvalidBudgetAmountException } from '@Contexts/Ledger/Domain/Budget/BudgetExceptions';
 import { CATEGORIES, Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 /** The largest budget: the same bound an expense's amount has (request 24). */
 export const MAX_BUDGET_AMOUNT = 100_000_000;
@@ -54,7 +55,18 @@ export class Budget extends AggregateRoot {
   /**
    * Sets the category's budget to `amount` for the group's owner (request 24). The months it was passed in are kept.
    */
-  setAmount({ by, members, amount }: { by: string; members: GroupMember[]; amount: number }): IResult<Budget> {
+  setAmount({
+    by,
+    members,
+    amount,
+    archived,
+  }: {
+    by: string;
+    members: GroupMember[];
+    amount: number;
+    archived: boolean;
+  }): IResult<Budget> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     if (!isOwner(by, members)) return Result.fail(notAllowedToChange());
     if (!Number.isInteger(amount) || amount < 1 || amount > MAX_BUDGET_AMOUNT) {
       return Result.fail(new InvalidBudgetAmountException());
@@ -67,7 +79,8 @@ export class Budget extends AggregateRoot {
   }
 
   /** Removes the category's budget for the group's owner (request 24). It is refused when none is set. */
-  unset({ by, members }: { by: string; members: GroupMember[] }): IResult<Budget> {
+  unset({ by, members, archived }: { by: string; members: GroupMember[]; archived: boolean }): IResult<Budget> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     if (!isOwner(by, members)) return Result.fail(notAllowedToChange());
     if (this.#amount === undefined) return Result.fail(new NotFoundException('Ledger', 'There is no such budget'));
     const removed = this.copy({ amount: undefined });

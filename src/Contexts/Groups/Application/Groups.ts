@@ -48,6 +48,36 @@ export const getGroupMembers = query(
 );
 
 /**
+ * Archives a group, for its owner (request 27, docs/adr/0026): once every current member's balance is 0 and no payment in it waits at
+ * the provider. The balances are asked of Ledger, and the payments of Settlements, through the ports Groups owns, when this decides, in
+ * this transaction. For anyone outside the group it does not exist; any other member is refused, and an archived group stays archived.
+ */
+export const archiveGroup = command(
+  'ArchiveGroup',
+  (groups: IGroupRepository, balances: IMemberBalances, payments: IWaitingPayments, clock: Clock) =>
+    async ({ groupId }: { groupId: string }, context) => {
+      const by = callerOf(context);
+      const group = await groups.findById(groupId);
+      if (!group || !group.isMember(by)) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
+
+      const current = group.members.map(member => member.accountId);
+      const owed: number[] = [];
+      const waiting: boolean[] = [];
+      for (const accountId of current) {
+        owed.push(await balances.balanceOf(groupId, accountId));
+        waiting.push(await payments.paymentWaitingOf(groupId, accountId));
+      }
+      const archived = group.archive({ by, balances: owed, paymentWaiting: waiting.some(Boolean), at: clock() });
+      if (archived.isFailure()) return archived;
+
+      const saved = await groups.save(group);
+      if (saved.isFailure()) return saved;
+      await publishDomainEvents(group, context);
+      return Result.ok(undefined);
+    },
+);
+
+/**
  * Takes the caller out of a group, at whatever its balance (request 20, docs/adr/0019; request 9, docs/adr/0009). Only a member may
  * leave: for anyone else the group does not exist. The owner never leaves, and not while a payment of the caller waits at the
  * provider. The balance is asked of Ledger when this decides, through MemberBalances, and what passes to the owner is stored with

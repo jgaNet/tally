@@ -125,7 +125,7 @@ export const localLedgerModule = new LiteModule({
     // A recurring expense's day came: its expense is recorded, once, with the id the fact carries (request 23, docs/adr/0022).
     {
       event: RecurringExpenseDayCameEvent,
-      handlers: [new RecurringExpenseDayCameHandler(expenses, systemClock)],
+      handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers, systemClock)],
     },
   ],
 });

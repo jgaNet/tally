@@ -30,6 +30,7 @@ why, what it costs, and when to revisit it.
 | [23](0023-a-month-that-passes-a-budget-is-told-once-to-each-member.md) | A month that passes a category's budget is an aggregate of Ledger, and each member is told once for it |
 | [24](0024-a-split-template-is-an-aggregate-of-ledger-that-an-expense-takes-the-split-of.md) | A split template is an aggregate of Ledger, and an expense takes the split of the template it names |
 | [25](0025-a-receipt-is-an-aggregate-of-ledger-kept-in-an-outside-store-behind-a-port.md) | A receipt is an aggregate of Ledger, kept in an outside store behind a port of Ledger |
+| [26](0026-a-group-is-archived-once-and-every-change-in-it-is-refused-by-one-rule.md) | A group is archived once every balance is 0, and every change in it is refused by one rule |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

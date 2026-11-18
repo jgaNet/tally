@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { Category, DEFAULT_CATEGORY, isCategory } from '@Contexts/Ledger/Domain/Expense/Category';
 import { dayOf, isRealDay } from '@Contexts/Ledger/Domain/Expense/Expense';
@@ -87,6 +88,7 @@ export class RecurringExpense extends AggregateRoot {
     split,
     members,
     category,
+    archived,
     at,
   }: {
     groupId: string;
@@ -98,8 +100,11 @@ export class RecurringExpense extends AggregateRoot {
     members: string[];
     /** What the expenses it records are for (request 24); left out, `other`. */
     category?: string;
+    /** Whether the group is archived, as Groups says it now (request 27): an archived group takes no recurring expense. */
+    archived: boolean;
     at: Date;
   }): IResult<RecurringExpense> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     const text = ExpenseDescription.create(description);
     if (text.isFailure()) return text;
     if (category !== undefined && !isCategory(category)) return Result.fail(new InvalidCategoryException());
@@ -131,7 +136,16 @@ export class RecurringExpense extends AggregateRoot {
    * Stops it, for its payer or the group's owner (request 23): it no longer exists, and no expense is recorded for it from then
    * on. The expenses it recorded stay. The caller's membership is asked by the use case, which passes the members with their roles.
    */
-  stop({ by, members }: { by: string; members: GroupMember[] }): IResult<RecurringExpense> {
+  stop({
+    by,
+    members,
+    archived,
+  }: {
+    by: string;
+    members: GroupMember[];
+    archived: boolean;
+  }): IResult<RecurringExpense> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     const mayStop = by === this.#paidBy || members.some(member => member.memberId === by && member.role === 'owner');
     if (!mayStop) {
       return Result.fail(

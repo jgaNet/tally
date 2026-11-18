@@ -42,7 +42,7 @@ describe('ReceiptFile: read from the bytes', () => {
 
 describe('Receipt', () => {
   it("may be attached by the payer, and by the group's owner, and by no other member", () => {
-    const attach = (by: string) => Receipt.check({ by, members, paidBy: 'bob', bytes: JPEG() });
+    const attach = (by: string) => Receipt.check({ archived: false, by, members, paidBy: 'bob', bytes: JPEG() });
     expect(attach('bob').isFailure()).toBe(false);
     expect(attach('ada').isFailure()).toBe(false);
     expect(attach('cy').error).toMatchObject({ type: 'NotAllowed' });
@@ -50,6 +50,7 @@ describe('Receipt', () => {
 
   it('is created with its type, its size and its link, and records ReceiptAttached once', () => {
     const created = Receipt.attach({
+      archived: false,
       expenseId: 'exp-1',
       groupId: 'flat',
       by: 'bob',
@@ -76,6 +77,7 @@ describe('Receipt', () => {
 
   it('is not created for a refused file, nor for a member who may not attach: nothing is recorded', () => {
     const refused = Receipt.attach({
+      archived: false,
       expenseId: 'exp-1',
       groupId: 'flat',
       by: 'bob',
@@ -86,6 +88,7 @@ describe('Receipt', () => {
     });
     expect(refused.error).toMatchObject({ type: 'ReceiptNotJpegOrPng' });
     const notAllowed = Receipt.attach({
+      archived: false,
       expenseId: 'exp-1',
       groupId: 'flat',
       by: 'cy',
@@ -99,6 +102,7 @@ describe('Receipt', () => {
 
   it('replaces the receipt it had: the same identity, the version it was read at, and a new file and link', () => {
     const first = Receipt.attach({
+      archived: false,
       expenseId: 'exp-1',
       groupId: 'flat',
       by: 'bob',
@@ -111,6 +115,7 @@ describe('Receipt', () => {
     expect(stored.pullDomainEvents()).toEqual([]);
 
     const replaced = stored.reattach({
+      archived: false,
       by: 'ada',
       members,
       paidBy: 'bob',

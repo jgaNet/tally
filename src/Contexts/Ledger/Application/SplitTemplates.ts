@@ -27,6 +27,7 @@ export const saveTemplate = command(
       const by = callerOf(context);
       const members = await groupMembers.membersOf(by, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      const archived = await groupMembers.isArchived(groupId);
 
       const sameName = await templates.findByName(groupId, name);
       const template = SplitTemplate.create({
@@ -36,6 +37,7 @@ export const saveTemplate = command(
         by,
         members,
         nameIsFree: sameName === undefined,
+        archived,
       });
       if (template.isFailure()) return template;
 
@@ -66,6 +68,7 @@ export const replaceTemplate = command(
       if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such template'));
       const members = await groupMembers.membersOf(by, stored.groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such template'));
+      const archived = await groupMembers.isArchived(stored.groupId);
 
       const sameName = await templates.findByName(stored.groupId, name);
       const replaced = stored.replace({
@@ -74,6 +77,7 @@ export const replaceTemplate = command(
         name,
         split,
         nameIsFree: sameName === undefined || sameName.id === stored.id,
+        archived,
       });
       if (replaced.isFailure()) return replaced;
 
@@ -97,8 +101,9 @@ export const removeTemplate = command(
       if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such template'));
       const members = await groupMembers.membersOf(by, stored.groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such template'));
+      const archived = await groupMembers.isArchived(stored.groupId);
 
-      const removed = stored.delete({ by, members });
+      const removed = stored.delete({ by, members, archived });
       if (removed.isFailure()) return removed;
       const saved = await templates.delete(removed.data);
       if (saved.isFailure()) return saved;

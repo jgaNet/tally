@@ -23,6 +23,7 @@ const stored = (amount: number | undefined, passedMonths: string[] = []) =>
 describe('Budget.setAmount', () => {
   it("is the group's owner's, and sets the amount, recording BudgetSet", () => {
     const set = Budget.open({ groupId: 'flat', category: 'groceries' }).setAmount({
+      archived: false,
       by: 'ada',
       members: MEMBERS,
       amount: 400,
@@ -36,28 +37,36 @@ describe('Budget.setAmount', () => {
   });
 
   it('refuses any other member, and an amount that is not from 1 to 100 000 000', () => {
-    expect(stored(undefined).setAmount({ by: 'ben', members: MEMBERS, amount: 400 }).isFailure()).toBe(true);
-    expect(stored(undefined).setAmount({ by: 'ada', members: MEMBERS, amount: 0 }).isFailure()).toBe(true);
-    expect(stored(undefined).setAmount({ by: 'ada', members: MEMBERS, amount: 100_000_001 }).isFailure()).toBe(true);
-    expect(stored(undefined).setAmount({ by: 'ada', members: MEMBERS, amount: 100_000_000 }).isSuccess()).toBe(true);
+    expect(stored(undefined).setAmount({ archived: false, by: 'ben', members: MEMBERS, amount: 400 }).isFailure()).toBe(
+      true,
+    );
+    expect(stored(undefined).setAmount({ archived: false, by: 'ada', members: MEMBERS, amount: 0 }).isFailure()).toBe(
+      true,
+    );
+    expect(
+      stored(undefined).setAmount({ archived: false, by: 'ada', members: MEMBERS, amount: 100_000_001 }).isFailure(),
+    ).toBe(true);
+    expect(
+      stored(undefined).setAmount({ archived: false, by: 'ada', members: MEMBERS, amount: 100_000_000 }).isSuccess(),
+    ).toBe(true);
   });
 
   it('keeps the months it was passed in, so setting it again tells nothing new', () => {
-    const changed = stored(300, ['2026-11']).setAmount({ by: 'ada', members: MEMBERS, amount: 500 });
+    const changed = stored(300, ['2026-11']).setAmount({ archived: false, by: 'ada', members: MEMBERS, amount: 500 });
     expect(changed.data?.toSnapshot().passedMonths).toEqual(['2026-11']);
   });
 });
 
 describe('Budget.unset', () => {
   it('removes the amount for the owner, keeps the months, and refuses when none is set', () => {
-    const removed = stored(300, ['2026-11']).unset({ by: 'ada', members: MEMBERS });
+    const removed = stored(300, ['2026-11']).unset({ archived: false, by: 'ada', members: MEMBERS });
     expect(removed.data?.amount).toBeUndefined();
     expect(removed.data?.toSnapshot().passedMonths).toEqual(['2026-11']);
     expect(removed.data?.pullDomainEvents()).toEqual([
       BudgetRemovedEvent.set({ budgetId: 'b1', groupId: 'flat', category: 'groceries' }),
     ]);
-    expect(stored(undefined).unset({ by: 'ada', members: MEMBERS }).isFailure()).toBe(true);
-    expect(stored(300).unset({ by: 'ben', members: MEMBERS }).isFailure()).toBe(true);
+    expect(stored(undefined).unset({ archived: false, by: 'ada', members: MEMBERS }).isFailure()).toBe(true);
+    expect(stored(300).unset({ archived: false, by: 'ben', members: MEMBERS }).isFailure()).toBe(true);
   });
 });
 

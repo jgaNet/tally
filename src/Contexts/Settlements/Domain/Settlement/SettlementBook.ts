@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { SettlementView } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
@@ -27,6 +28,8 @@ export interface RecordCashSettlementCommand {
   members: string[];
   /** The payer's and the payee's balances, as Ledger counts them now (settlements paid included): what each is owed, or owes. */
   balances: { payer: number; payee: number };
+  /** Whether the group is archived, as Groups says it now (request 27): an archived group takes no settlement. */
+  archived: boolean;
   at: Date;
 }
 
@@ -41,6 +44,8 @@ export interface RequestProviderPaymentCommand {
   members: string[];
   balances: { payer: number; payee: number };
   payoutAccount: string | undefined;
+  /** Whether the group is archived, as Groups says it now (request 27): an archived group asks no provider for a payment. */
+  archived: boolean;
   at: Date;
 }
 
@@ -55,6 +60,8 @@ export interface RefundSettlementCommand {
   by: string;
   settlementId: string;
   members: string[];
+  /** Whether the group is archived, as Groups says it now (request 27): an archived group refunds nothing. */
+  archived: boolean;
 }
 
 /** A settlement through the provider whose payment the provider has not ended yet: it waits for the provider's webhook (request 13). */
@@ -188,8 +195,16 @@ export class SettlementBook extends AggregateRoot {
     return this.#paid;
   }
 
-  recordCash({ by, from, amount, members, balances, at }: RecordCashSettlementCommand): IResult<SettlementView> {
-    const decided = this.#decide({ from, to: by, amount, members, balances });
+  recordCash({
+    by,
+    from,
+    amount,
+    members,
+    balances,
+    archived,
+    at,
+  }: RecordCashSettlementCommand): IResult<SettlementView> {
+    const decided = this.#decide({ from, to: by, amount, members, balances, archived });
     if (decided.isFailure()) return decided;
 
     const settlement: NewSettlement = {
@@ -333,8 +348,8 @@ export class SettlementBook extends AggregateRoot {
    * (request 16). Answers the payout account the provider is asked to pay.
    */
   #decideProvider(command: RequestProviderPaymentCommand): IResult<string> {
-    const { by, to, amount, members, balances, payoutAccount } = command;
-    const decided = this.#decide({ from: by, to, amount, members, balances });
+    const { by, to, amount, members, balances, payoutAccount, archived } = command;
+    const decided = this.#decide({ from: by, to, amount, members, balances, archived });
     if (decided.isFailure()) return decided;
     if (payoutAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccountException());
     return Result.ok(payoutAccount);
@@ -344,7 +359,8 @@ export class SettlementBook extends AggregateRoot {
    * The refund rules: the settlement is a paid one through the provider this book holds; the caller is its payee; and its payer and
    * payee are still members of the group, so that the balances of the group still add up to 0 (request 9).
    */
-  #decideRefund({ by, settlementId, members }: RefundSettlementCommand): IResult<PaidSettlement> {
+  #decideRefund({ by, settlementId, members, archived }: RefundSettlementCommand): IResult<PaidSettlement> {
+    if (archived) return Result.fail(new GroupArchivedException('Settlements'));
     const payment = this.#paid.find(each => each.id === settlementId && each.status === 'paid');
     if (!payment) return Result.fail(new SettlementNotRefundableException());
     if (payment.to !== by) {
@@ -367,13 +383,16 @@ export class SettlementBook extends AggregateRoot {
     amount,
     members,
     balances,
+    archived,
   }: {
     from: string;
     to: string;
     amount: number;
     members: string[];
     balances: { payer: number; payee: number };
+    archived: boolean;
   }): IResult<undefined> {
+    if (archived) return Result.fail(new GroupArchivedException('Settlements'));
     if (from === to) return Result.fail(new SettlementToSelfException());
     if (!members.includes(from) || !members.includes(to)) {
       return Result.fail(new NotFoundException('Settlements', 'There is no such member'));

@@ -58,6 +58,7 @@ async function recordPending(database: SqliteDatabase): Promise<void> {
   const book = SettlementBook.fromSnapshot({ groupId: GROUP, version: 0 });
   const recorded = book.recordProviderPayment(
     {
+      archived: false,
       by: PAYER,
       to: PAYEE,
       amount: 50,

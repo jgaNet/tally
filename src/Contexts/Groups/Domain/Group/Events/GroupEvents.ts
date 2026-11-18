@@ -28,3 +28,10 @@ export class MemberLeftEvent extends DomainEvent<{ groupId: string; accountId: s
  * (negative) or was owed, which the owner now carries. Recorded by `Group.leave()` beside MemberLeft, in the same step.
  */
 export class BalancePassedEvent extends DomainEvent<{ groupId: string; from: string; to: string; amount: number }> {}
+
+/**
+ * A group was archived by its owner, once every balance in it was 0 and no payment in it waited at the provider (request 27,
+ * docs/adr/0026). Recorded by `Group.archive()`, once the archiving is stored. No integration event carries it: the other contexts
+ * ask Groups whether a group is archived, through the ports they own.
+ */
+export class GroupArchivedEvent extends DomainEvent<{ groupId: string }> {}

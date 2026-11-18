@@ -52,6 +52,7 @@ export const payThroughProvider = command(
         members: group.members.map(member => member.memberId),
         balances: { payer: balanceOf(by), payee: balanceOf(to) },
         payoutAccount: payee.providerAccountId,
+        archived: group.archived,
         at: clock(),
       };
       const reserved = book.reserveProviderPayment(request);
@@ -102,7 +103,12 @@ export const refundSettlement = command(
       const group = await members.groupOf(by, book.groupId);
       if (!group) return Result.fail(new NotFoundException('Settlements', 'There is no such settlement'));
 
-      const request = { by, settlementId: id, members: group.members.map(member => member.memberId) };
+      const request = {
+        by,
+        settlementId: id,
+        members: group.members.map(member => member.memberId),
+        archived: group.archived,
+      };
       const reserved = book.reserveRefund(request);
       if (reserved.isFailure()) return reserved;
 

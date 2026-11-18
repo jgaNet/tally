@@ -14,6 +14,7 @@ const saved = (overrides: Partial<Parameters<typeof SplitTemplate.create>[0]> = 
     by: 'bob',
     members,
     nameIsFree: true,
+    archived: false,
     ...overrides,
   });
 
@@ -47,6 +48,7 @@ describe('SplitTemplate', () => {
   it('is replaced by its author or the owner only, and keeps its author', () => {
     const template = saved().data as SplitTemplate;
     const byOwner = template.replace({
+      archived: false,
       by: 'ada',
       members,
       name: 'Home',
@@ -59,6 +61,7 @@ describe('SplitTemplate', () => {
     expect(
       template
         .replace({
+          archived: false,
           by: 'ada',
           members: [
             { memberId: 'ada', role: 'member' },
@@ -74,10 +77,11 @@ describe('SplitTemplate', () => {
 
   it('is removed by its author or the owner only', () => {
     const template = saved().data as SplitTemplate;
-    expect(template.delete({ by: 'ada', members }).isFailure()).toBe(false);
+    expect(template.delete({ archived: false, by: 'ada', members }).isFailure()).toBe(false);
     expect(
       template
         .delete({
+          archived: false,
           by: 'ada',
           members: [
             { memberId: 'ada', role: 'member' },

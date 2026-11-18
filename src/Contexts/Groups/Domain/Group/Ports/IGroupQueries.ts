@@ -4,6 +4,8 @@ export interface GroupView {
   name: string;
   currency: string;
   ownerId: string;
+  /** ISO 8601, UTC: when the group was archived (request 27). Absent while the group is not archived. */
+  archivedAt?: string;
 }
 
 /** A member of a group as the members' list answers it: the account, its name, its role and when it joined. */
@@ -22,6 +24,11 @@ export interface IGroupQueries {
   listGroupsOf(memberId: string): Promise<GroupView[]>;
   /** The members of the group, in the order they joined, when this account is one of them: undefined otherwise. */
   listMembersOf(memberId: string, groupId: string): Promise<MemberView[] | undefined>;
+  /**
+   * Whether the group is archived (request 27, docs/adr/0026): nothing in it changes any more. False for a group that does not exist; a
+   * change asks the caller's membership first, through `findGroupOf` or `listMembersOf`.
+   */
+  isArchived(groupId: string): Promise<boolean>;
   /**
    * Whether the account is, or has been, a member of the group, current or former (docs/adr/0009). It does not check the
    * caller: a read that needs a caller asks the caller's membership first, through `listMembersOf`.

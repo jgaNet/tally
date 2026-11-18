@@ -22,6 +22,10 @@ export class GroupMembersOfGroups implements IGroupMembers {
     return this.groups.currentMemberIdsOf(groupId);
   }
 
+  async isArchived(groupId: string): Promise<boolean> {
+    return this.groups.isArchived(groupId);
+  }
+
   async passedBalancesOf(groupId: string): Promise<PassedBalances | undefined> {
     const passed = await this.groups.passedBalancesOf(groupId);
     return passed && { ownerId: passed.ownerId, members: passed.members.map(member => ({ ...member })) };

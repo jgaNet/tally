@@ -80,6 +80,7 @@ export const recordExpense = command(
       const paidBy = callerOf(context);
       const members = await groupMembers.membersOf(paidBy, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      const archived = await groupMembers.isArchived(groupId);
       const money = await amountGiven(groupCurrency, offeredRates, paidBy, groupId, date, { amount, original });
       if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
       const chosen = await splitGiven(templates, groupId, { split, template });
@@ -94,6 +95,7 @@ export const recordExpense = command(
         split: chosen.data,
         category,
         members: members.map(member => member.memberId),
+        archived,
         at: clock(),
       });
       if (expense.isFailure()) return expense;
@@ -159,6 +161,7 @@ export const editExpense = command(
       if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
       const members = await groupMembers.membersOf(by, stored.groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
+      const archived = await groupMembers.isArchived(stored.groupId);
 
       const money = await amountGiven(groupCurrency, offeredRates, by, stored.groupId, date, { amount, original });
       if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
@@ -167,6 +170,7 @@ export const editExpense = command(
       const edited = stored.edit({
         by,
         members,
+        archived,
         version,
         description,
         date,
@@ -196,8 +200,9 @@ export const deleteExpense = command(
       if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
       const members = await groupMembers.membersOf(by, stored.groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
+      const archived = await groupMembers.isArchived(stored.groupId);
 
-      const removed = stored.remove({ by, members });
+      const removed = stored.remove({ by, members, archived });
       if (removed.isFailure()) return removed;
       const saved = await expenses.remove(removed.data);
       if (saved.isFailure()) return saved;

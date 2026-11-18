@@ -43,3 +43,25 @@ export class PaymentWaitingException extends Exception {
     });
   }
 }
+
+/** A group is archived once every balance in it is 0: a member's balance is not, and the owner archives it no sooner (request 27). */
+export class BalancesNotZeroException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'BalancesNotZero',
+      message: 'A group is archived once every balance in it is 0',
+    });
+  }
+}
+
+/** A group is archived once no payment in it waits at the provider: pending or refunding (request 27, docs/adr/0026). */
+export class PaymentsWaitingException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'PaymentsWaiting',
+      message: 'A group is archived once no payment in it waits at the provider',
+    });
+  }
+}

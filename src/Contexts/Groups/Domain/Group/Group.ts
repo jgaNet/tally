@@ -1,12 +1,27 @@
-import { AggregateRoot, AlreadyExistsException, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
+import {
+  AggregateRoot,
+  AlreadyExistsException,
+  Id,
+  IResult,
+  NotAllowedException,
+  NotFoundException,
+  Result,
+} from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import {
   BalancePassedEvent,
+  GroupArchivedEvent,
   GroupCreatedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
 } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
-import { OwnerCannotLeaveException, PaymentWaitingException } from '@Contexts/Groups/Domain/Group/GroupExceptions';
+import {
+  BalancesNotZeroException,
+  OwnerCannotLeaveException,
+  PaymentsWaitingException,
+  PaymentWaitingException,
+} from '@Contexts/Groups/Domain/Group/GroupExceptions';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import { Currency, CurrencyCode } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupSnapshot, MemberSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
@@ -34,6 +49,7 @@ export class Group extends AggregateRoot {
   readonly #ownerId: string;
   readonly #createdAt: Date;
   readonly #members: MemberSnapshot[];
+  #archivedAt: Date | undefined;
 
   private constructor(
     id: Id,
@@ -42,6 +58,7 @@ export class Group extends AggregateRoot {
     ownerId: string,
     createdAt: Date,
     members: MemberSnapshot[],
+    archivedAt: Date | undefined,
     version: number,
   ) {
     super(id, version);
@@ -50,6 +67,7 @@ export class Group extends AggregateRoot {
     this.#ownerId = ownerId;
     this.#createdAt = createdAt;
     this.#members = members;
+    this.#archivedAt = archivedAt;
   }
 
   /**
@@ -80,6 +98,7 @@ export class Group extends AggregateRoot {
       ownerId,
       at,
       [{ accountId: ownerId, role: 'owner', joinedAt: at.toISOString() }],
+      undefined,
       0,
     );
     group.record(
@@ -113,6 +132,7 @@ export class Group extends AggregateRoot {
       snapshot.ownerId,
       createdAt,
       snapshot.members.map(member => ({ ...member })),
+      snapshot.archivedAt === undefined ? undefined : new Date(snapshot.archivedAt),
       snapshot.version,
     );
   }
@@ -125,6 +145,7 @@ export class Group extends AggregateRoot {
       ownerId: this.#ownerId,
       createdAt: this.#createdAt.toISOString(),
       members: this.#members.map(member => ({ ...member })),
+      ...(this.#archivedAt === undefined ? {} : { archivedAt: this.#archivedAt.toISOString() }),
       version: this.version,
     };
   }
@@ -136,6 +157,7 @@ export class Group extends AggregateRoot {
    * join is decided by the invitation, not here: the use case has checked it.
    */
   join({ accountId, at }: { accountId: string; at: Date }): IResult<undefined> {
+    if (this.#archivedAt !== undefined) return Result.fail(new GroupArchivedException('Groups'));
     if (this.isMember(accountId)) {
       return Result.fail(new AlreadyExistsException('Groups', 'You are already a member of this group'));
     }
@@ -167,6 +189,7 @@ export class Group extends AggregateRoot {
   }): IResult<undefined> {
     const member = this.#members.find(entry => entry.accountId === accountId && entry.leftAt === undefined);
     if (!member) return Result.fail(new NotFoundException('Groups', 'There is no such group'));
+    if (this.#archivedAt !== undefined) return Result.fail(new GroupArchivedException('Groups'));
     if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
     if (waitingPayment) return Result.fail(new PaymentWaitingException());
     member.leftAt = at.toISOString();
@@ -175,6 +198,35 @@ export class Group extends AggregateRoot {
       BalancePassedEvent.set({ groupId: this._id.value, from: accountId, to: this.#ownerId, amount: balance }),
     );
     this.record(MemberLeftEvent.set({ groupId: this._id.value, accountId }));
+    return Result.ok(undefined);
+  }
+
+  /**
+   * Archives the group, for its owner, once every balance in it is 0 and no payment in it waits at the provider (request 27,
+   * docs/adr/0026). `balances` are the current members' balances, as Ledger counts them now, and `paymentWaiting` says whether a payment
+   * of one of them waits at the provider; both are read by the use case in the same transaction. Refused, and nothing changes: an
+   * archived group (`GroupArchived`, archived again too); a `by` that is not the owner (`NotAllowed`); a balance that is not 0; a payment
+   * waiting. `at` is the one clock's now. Records GroupArchived, for the store to make durable with it.
+   */
+  archive({
+    by,
+    balances,
+    paymentWaiting,
+    at,
+  }: {
+    by: string;
+    balances: number[];
+    paymentWaiting: boolean;
+    at: Date;
+  }): IResult<undefined> {
+    if (this.#archivedAt !== undefined) return Result.fail(new GroupArchivedException('Groups'));
+    if (by !== this.#ownerId) {
+      return Result.fail(new NotAllowedException('Groups', 'Only the owner of a group may archive it'));
+    }
+    if (balances.some(balance => balance !== 0)) return Result.fail(new BalancesNotZeroException());
+    if (paymentWaiting) return Result.fail(new PaymentsWaitingException());
+    this.#archivedAt = at;
+    this.record(GroupArchivedEvent.set({ groupId: this._id.value }));
     return Result.ok(undefined);
   }
 
@@ -197,6 +249,16 @@ export class Group extends AggregateRoot {
 
   get ownerId(): string {
     return this.#ownerId;
+  }
+
+  /** Whether the group is archived (request 27): nothing in it changes any more. */
+  get isArchived(): boolean {
+    return this.#archivedAt !== undefined;
+  }
+
+  /** ISO 8601, UTC: when the group was archived, or `undefined` while it is not. */
+  get archivedAt(): string | undefined {
+    return this.#archivedAt?.toISOString();
   }
 
   /** The current members, in the order they joined: a former member is not among them. */

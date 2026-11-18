@@ -3,10 +3,14 @@ export interface SettlementMember {
   memberId: string;
 }
 
-/** A group as Settlements needs it to settle in it: its currency (fixed at its creation) and its current members, in the order they joined. */
+/**
+ * A group as Settlements needs it to settle in it: its currency (fixed at its creation), its current members, in the order they joined,
+ * and whether it is archived (request 27): an archived group takes no settlement.
+ */
 export interface SettlementGroup {
   currency: string;
   members: SettlementMember[];
+  archived: boolean;
 }
 
 /**

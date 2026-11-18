@@ -68,6 +68,12 @@ class MemoryMembers implements IGroupMembers {
     if (!this.current.includes(callerId)) return undefined;
     return this.current.map((memberId, index) => ({ memberId, role: index === 0 ? 'owner' : 'member' }));
   }
+
+  /** Whether the group is archived: the spec's group never is, unless the spec says so (request 27). */
+  archived = false;
+  async isArchived(): Promise<boolean> {
+    return this.archived;
+  }
   async currentMemberIds(): Promise<string[]> {
     this.currentAsked += 1;
     return [...this.current];

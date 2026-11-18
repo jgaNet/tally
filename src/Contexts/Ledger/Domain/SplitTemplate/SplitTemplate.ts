@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
@@ -57,6 +58,7 @@ export class SplitTemplate extends AggregateRoot {
     by,
     members,
     nameIsFree,
+    archived,
   }: {
     groupId: string;
     name: string;
@@ -64,7 +66,9 @@ export class SplitTemplate extends AggregateRoot {
     by: string;
     members: GroupMember[];
     nameIsFree: boolean;
+    archived: boolean;
   }): IResult<SplitTemplate> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     const checked = checkTemplate({ name, split, members, nameIsFree });
     if (checked.isFailure()) return checked;
 
@@ -88,13 +92,16 @@ export class SplitTemplate extends AggregateRoot {
     name,
     split,
     nameIsFree,
+    archived,
   }: {
     by: string;
     members: GroupMember[];
     name: string;
     split: TemplateSplit;
     nameIsFree: boolean;
+    archived: boolean;
   }): IResult<SplitTemplate> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
     const checked = checkTemplate({ name, split, members, nameIsFree });
     if (checked.isFailure()) return checked;
@@ -118,7 +125,8 @@ export class SplitTemplate extends AggregateRoot {
   }
 
   /** Removes the template, for the member who saved it or the group's owner; any other member is refused (request 25). */
-  delete({ by, members }: { by: string; members: GroupMember[] }): IResult<SplitTemplate> {
+  delete({ by, members, archived }: { by: string; members: GroupMember[]; archived: boolean }): IResult<SplitTemplate> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
     this.record(TemplateRemovedEvent.set({ templateId: this._id.value, groupId: this.#groupId }));
     return Result.ok(this);

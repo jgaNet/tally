@@ -9,7 +9,7 @@ import {
   PassedMemberView,
 } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
 
-type GroupRow = { id: string; name: string; currency: string; owner_id: string };
+type GroupRow = { id: string; name: string; currency: string; owner_id: string; archived_at: string | null };
 type MemberRow = { member_id: string; name: string; role: string; joined_at: string };
 
 const toView = (row: GroupRow): GroupView => ({
@@ -17,6 +17,7 @@ const toView = (row: GroupRow): GroupView => ({
   name: String(row.name),
   currency: String(row.currency),
   ownerId: String(row.owner_id),
+  ...(row.archived_at === null ? {} : { archivedAt: String(row.archived_at) }),
 });
 
 /**
@@ -33,7 +34,7 @@ export class SqliteGroupQueries implements IGroupQueries {
     return this.database.exclusive(() => {
       const row = this.database.connection
         .prepare(
-          'SELECT g.id, g.name, g.currency, g.owner_id FROM groups g JOIN group_members m ON m.group_id = g.id WHERE g.id = ? AND m.account_id = ? AND m.left_at IS NULL',
+          'SELECT g.id, g.name, g.currency, g.owner_id, g.archived_at FROM groups g JOIN group_members m ON m.group_id = g.id WHERE g.id = ? AND m.account_id = ? AND m.left_at IS NULL',
         )
         .get(groupId, memberId) as GroupRow | undefined;
       return row ? toView(row) : undefined;
@@ -44,7 +45,7 @@ export class SqliteGroupQueries implements IGroupQueries {
     return this.database.exclusive(() => {
       const rows = this.database.connection
         .prepare(
-          'SELECT g.id, g.name, g.currency, g.owner_id FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.account_id = ? AND m.left_at IS NULL ORDER BY g.created_at DESC, g.rowid DESC',
+          'SELECT g.id, g.name, g.currency, g.owner_id, g.archived_at FROM groups g JOIN group_members m ON m.group_id = g.id WHERE m.account_id = ? AND m.left_at IS NULL ORDER BY g.created_at DESC, g.rowid DESC',
         )
         .all(memberId) as GroupRow[];
       return rows.map(toView);
@@ -105,6 +106,13 @@ export class SqliteGroupQueries implements IGroupQueries {
     );
   }
 
+  async isArchived(groupId: string): Promise<boolean> {
+    return this.database.exclusive(() => {
+      const row = this.database.connection.prepare('SELECT archived_at FROM groups WHERE id = ?').get(groupId) as
+        { archived_at: string | null } | undefined;
+      return row !== undefined && row.archived_at !== null;
+    });
+  }
   async everMemberOf(accountId: string, groupId: string): Promise<boolean> {
     return this.database.exclusive(() => {
       const row = this.database.connection

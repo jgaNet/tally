@@ -31,15 +31,16 @@ export const attachReceipt = command(
       if (!expense) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
       const members = await groupMembers.membersOf(by, expense.groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
+      const archived = await groupMembers.isArchived(expense.groupId);
 
-      const checked = Receipt.check({ by, members, paidBy: expense.paidBy, bytes });
+      const checked = Receipt.check({ by, members, paidBy: expense.paidBy, bytes, archived });
       if (checked.isFailure()) return checked;
       const kept = await store.keep({ bytes, type: checked.data.type });
       if (kept.isFailure()) return kept;
 
       const stored = await receipts.findByExpense(expenseId);
       const receipt = stored
-        ? stored.reattach({ by, members, paidBy: expense.paidBy, bytes, url: kept.data })
+        ? stored.reattach({ by, members, paidBy: expense.paidBy, bytes, url: kept.data, archived })
         : Receipt.attach({
             expenseId,
             groupId: expense.groupId,
@@ -48,6 +49,7 @@ export const attachReceipt = command(
             paidBy: expense.paidBy,
             bytes,
             url: kept.data,
+            archived,
           });
       if (receipt.isFailure()) return receipt;
 

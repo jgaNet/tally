@@ -190,3 +190,73 @@ describe('leaving a group (request 9)', () => {
     expect(await getGroup(id, bob.token)).toMatchObject({ status: 200 });
   });
 });
+
+describe('archiving a group (request 27)', () => {
+  const archive = (id: string, token?: string) => http.request('POST', `${api}/groups/${id}/archive`, { token });
+  const leave = (id: string, token?: string) => http.request('POST', `${api}/groups/${id}/leave`, { token });
+  const invite = (id: string, token: string) => http.request('POST', `${api}/groups/${id}/invitations`, { token });
+  const accept = (invitationId: string, token: string) =>
+    http.request('POST', `${api}/invitations/${invitationId}/accept`, { token });
+  const members = (id: string, token: string) => http.request('GET', `${api}/groups/${id}/members`, { token });
+  const record = (id: string, token: string, body: unknown) =>
+    http.request('POST', `${api}/groups/${id}/expenses`, { body, token });
+
+  /** A group whose owner has invited the joiner, who has joined it. */
+  async function groupWithJoiner(tag: string) {
+    const ada = await signedIn(`archive-ada-${tag}@example.com`, 'Ada');
+    const bob = await signedIn(`archive-bob-${tag}@example.com`, 'Bob');
+    const { id } = (await createGroup(ada.token, { name: 'Flat', currency: 'EUR' })).body as { id: string };
+    const invitation = await invite(id, ada.token);
+    await accept((invitation.body as { id: string }).id, bob.token);
+    return { ada, bob, id };
+  }
+
+  it('is archived by its owner, answering 204, and reads archivedAt; another member is refused 403', async () => {
+    const { ada, bob, id } = await groupWithJoiner('ok');
+
+    expect(await archive(id, bob.token)).toMatchObject({ status: 403, body: { type: 'NotAllowed' } });
+    expect((await archive(id, ada.token)).status).toBe(204);
+
+    const read = (await getGroup(id, ada.token)).body as { archivedAt?: string };
+    expect(read.archivedAt).toEqual(expect.any(String));
+    expect((await myGroups(bob.token)).body).toContainEqual(
+      expect.objectContaining({ id, archivedAt: read.archivedAt }),
+    );
+  });
+
+  it('refuses to archive while a balance is not 0, and answers a non-member as if the group did not exist', async () => {
+    const { ada, bob, id } = await groupWithJoiner('balance');
+    const cy = await signedIn('archive-cy-balance@example.com', 'Cy');
+    await record(id, ada.token, {
+      description: 'Dinner',
+      amount: 1000,
+      date: '2026-01-15',
+      splitBetween: [ada.id, bob.id],
+    });
+
+    expect(await archive(id, ada.token)).toMatchObject({ status: 422, body: { type: 'BalancesNotZero' } });
+    expect(await archive(id, cy.token)).toMatchObject({ status: 404, body: { type: 'NotFound' } });
+    expect((await getGroup(id, ada.token)).body).not.toHaveProperty('archivedAt');
+  });
+
+  it('refuses every change in an archived group by GroupArchived, and still answers its members', async () => {
+    const { ada, bob, id } = await groupWithJoiner('read-only');
+    const cy = await signedIn('archive-cy-read-only@example.com', 'Cy');
+    const invitation = (await invite(id, ada.token)).body as { id: string };
+    expect((await archive(id, ada.token)).status).toBe(204);
+
+    expect(await archive(id, ada.token)).toMatchObject({ status: 422, body: { type: 'GroupArchived' } });
+    expect(await accept(invitation.id, cy.token)).toMatchObject({ status: 422, body: { type: 'GroupArchived' } });
+    expect(await invite(id, ada.token)).toMatchObject({ status: 422, body: { type: 'GroupArchived' } });
+    expect(await leave(id, bob.token)).toMatchObject({ status: 422, body: { type: 'GroupArchived' } });
+    expect(
+      await record(id, ada.token, { description: 'Late', amount: 500, date: '2026-01-16', splitBetween: [ada.id] }),
+    ).toMatchObject({ status: 422, body: { type: 'GroupArchived' } });
+
+    expect((await members(id, bob.token)).body).toEqual([
+      expect.objectContaining({ memberId: ada.id, role: 'owner' }),
+      expect.objectContaining({ memberId: bob.id, role: 'member' }),
+    ]);
+    expect(await getGroup(id, bob.token)).toMatchObject({ status: 200 });
+  });
+});

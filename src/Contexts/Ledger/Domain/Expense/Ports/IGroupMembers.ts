@@ -32,6 +32,12 @@ export interface IGroupMembers {
    * empty list for a group that does not exist.
    */
   currentMemberIds(groupId: string): Promise<string[]>;
+  /**
+   * Whether the group is archived (request 27, docs/adr/0026): nothing in it changes any more, so an expense, a budget, a template, a
+   * receipt or a recurring expense is refused by GroupArchived. Groups answers it; a change asks the caller's membership first, through
+   * `membersOf`.
+   */
+  isArchived(groupId: string): Promise<boolean>;
 }
 
 /** A member whose leaves passed a balance to the owner, as Ledger's balances count it (docs/adr/0019). */

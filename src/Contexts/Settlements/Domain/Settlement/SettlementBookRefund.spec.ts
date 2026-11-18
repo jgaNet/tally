@@ -24,6 +24,7 @@ const refund = (overrides: Partial<RefundSettlementCommand> = {}): RefundSettlem
   by: 'ann',
   settlementId: 'settlement-1',
   members: ['ann', 'bob', 'cy'],
+  archived: false,
   ...overrides,
 });
 

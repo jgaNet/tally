@@ -30,11 +30,12 @@ export const setBudget = command(
       const by = callerOf(context);
       const members = await groupMembers.membersOf(by, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      const archived = await groupMembers.isArchived(groupId);
       if (!isCategory(category)) return Result.fail(new InvalidCategoryException());
 
       const stored = await budgets.get(groupId, category);
       const budget = stored ?? Budget.open({ groupId, category });
-      const set = budget.setAmount({ by, members, amount });
+      const set = budget.setAmount({ by, members, amount, archived });
       if (set.isFailure()) return set;
       const saved = await budgets.save(set.data);
       if (saved.isFailure()) return saved;
@@ -60,11 +61,12 @@ export const removeBudget = command(
       const by = callerOf(context);
       const members = await groupMembers.membersOf(by, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      const archived = await groupMembers.isArchived(groupId);
       if (!isCategory(category)) return Result.fail(new InvalidCategoryException());
 
       const stored = await budgets.get(groupId, category);
       if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such budget'));
-      const removed = stored.unset({ by, members });
+      const removed = stored.unset({ by, members, archived });
       if (removed.isFailure()) return removed;
       const saved = await budgets.save(removed.data);
       if (saved.isFailure()) return saved;

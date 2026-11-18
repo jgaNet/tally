@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { ReceiptSnapshot } from '@Contexts/Ledger/Domain/Receipt/DTOs';
 import { ReceiptAttachedEvent } from '@Contexts/Ledger/Domain/Receipt/Events/ReceiptEvents';
@@ -51,12 +52,15 @@ export class Receipt extends AggregateRoot {
     members,
     paidBy,
     bytes,
+    archived,
   }: {
     by: string;
     members: GroupMember[];
     paidBy: string;
     bytes: Uint8Array;
+    archived: boolean;
   }): IResult<ReceiptFile> {
+    if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     if (!mayAttach(by, members, paidBy)) return Result.fail(notAllowedToAttach());
     return ReceiptFile.of(bytes);
   }
@@ -70,6 +74,7 @@ export class Receipt extends AggregateRoot {
     paidBy,
     bytes,
     url,
+    archived,
   }: {
     expenseId: string;
     groupId: string;
@@ -78,8 +83,9 @@ export class Receipt extends AggregateRoot {
     paidBy: string;
     bytes: Uint8Array;
     url: string;
+    archived: boolean;
   }): IResult<Receipt> {
-    const checked = Receipt.check({ by, members, paidBy, bytes });
+    const checked = Receipt.check({ by, members, paidBy, bytes, archived });
     if (checked.isFailure()) return checked;
     if (url.length === 0) throw new Error('The receipts store gave a receipt with no link');
 
@@ -96,14 +102,16 @@ export class Receipt extends AggregateRoot {
     paidBy,
     bytes,
     url,
+    archived,
   }: {
     by: string;
     members: GroupMember[];
     paidBy: string;
     bytes: Uint8Array;
     url: string;
+    archived: boolean;
   }): IResult<Receipt> {
-    const checked = Receipt.check({ by, members, paidBy, bytes });
+    const checked = Receipt.check({ by, members, paidBy, bytes, archived });
     if (checked.isFailure()) return checked;
     if (url.length === 0) throw new Error('The receipts store gave a receipt with no link');
 

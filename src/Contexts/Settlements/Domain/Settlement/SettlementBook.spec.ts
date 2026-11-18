@@ -11,6 +11,7 @@ const cash = (overrides: Partial<Parameters<SettlementBook['recordCash']>[0]> = 
   members: ['ann', 'bob', 'cy'],
   balances: { payer: -30, payee: 30 },
   at,
+  archived: false,
   ...overrides,
 });
 
@@ -107,5 +108,25 @@ describe('a settlement book', () => {
     expect(ids[0]).toEqual(expect.any(String));
     expect(ids[0]).not.toBe(ids[1]);
     expect(settled.recorded.map(each => each.id)).toEqual(ids);
+  });
+});
+
+describe('an archived group takes no settlement (request 27)', () => {
+  it('refuses a cash settlement and a payment through the provider by GroupArchived, and records nothing', () => {
+    const empty = book();
+
+    expect(empty.recordCash(cash({ archived: true })).error?.type).toBe('GroupArchived');
+    const payment = {
+      by: 'bob',
+      to: 'ann',
+      amount: 30,
+      members: ['ann', 'bob', 'cy'],
+      balances: { payer: -30, payee: 30 },
+      payoutAccount: 'ann-at-the-provider',
+      archived: true,
+      at,
+    };
+    expect(empty.reserveProviderPayment(payment).error?.type).toBe('GroupArchived');
+    expect(empty.pullDomainEvents()).toEqual([]);
   });
 });

@@ -12,6 +12,7 @@ const valid = {
   paidBy: 'ada',
   split: { kind: 'equal' as const, between: ['ada', 'bob', 'cy'] },
   members,
+  archived: false,
   at: NOW,
 };
 
@@ -149,6 +150,7 @@ describe('Expense.edit and Expense.remove', () => {
       date: '2026-11-16',
       split: { kind: 'equal' as const, between: ['bob', 'ada'] },
       at: NOW,
+      archived: false,
       ...overrides,
     });
 
@@ -198,12 +200,12 @@ describe('Expense.edit and Expense.remove', () => {
   });
 
   it('removes the expense for its payer or the owner, and records ExpenseDeleted; another member is refused', () => {
-    const removed = stored().remove({ by: 'bob', members: roles });
+    const removed = stored().remove({ archived: false, by: 'bob', members: roles });
     expect(removed.isSuccess()).toBe(true);
     expect(removed.data?.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseDeletedEvent']);
 
-    expect(stored().remove({ by: 'ada', members: roles }).isSuccess()).toBe(true);
-    expect(stored().remove({ by: 'cy', members: roles }).error?.type).toBe('NotAllowed');
+    expect(stored().remove({ archived: false, by: 'ada', members: roles }).isSuccess()).toBe(true);
+    expect(stored().remove({ archived: false, by: 'cy', members: roles }).error?.type).toBe('NotAllowed');
   });
 });
 
@@ -217,6 +219,7 @@ describe('an expense of a former member (request 9)', () => {
   const recorded = () => Expense.register(valid).data!;
   const edited = (expense: Expense, members = current) =>
     expense.edit({
+      archived: false,
       by: 'ada',
       members,
       version: 0,
@@ -233,7 +236,9 @@ describe('an expense of a former member (request 9)', () => {
 
   it('refuses an edit once a member of its split has left, and a delete too', () => {
     expect(edited(recorded()).error?.type).toBe('ExpenseOfFormerMember');
-    expect(recorded().remove({ by: 'ada', members: current }).error?.type).toBe('ExpenseOfFormerMember');
+    expect(recorded().remove({ archived: false, by: 'ada', members: current }).error?.type).toBe(
+      'ExpenseOfFormerMember',
+    );
   });
 
   it('refuses an edit or a delete once its payer has left, whoever asks', () => {
@@ -241,6 +246,7 @@ describe('an expense of a former member (request 9)', () => {
 
     expect(
       paidByBob.edit({
+        archived: false,
         by: 'bob',
         members: [{ memberId: 'ada', role: 'owner' }],
         version: 0,
@@ -251,5 +257,18 @@ describe('an expense of a former member (request 9)', () => {
         at: NOW,
       }).error?.type,
     ).toBe('ExpenseOfFormerMember');
+  });
+});
+
+describe('an archived group takes no expense (request 27)', () => {
+  it('refuses a new expense, an edit and a delete by GroupArchived, and records nothing', () => {
+    expect(Expense.register({ ...valid, archived: true }).error?.type).toBe('GroupArchived');
+
+    const stored = Expense.register({ ...valid, archived: false }).data!;
+    stored.pullDomainEvents();
+    const removed = stored.remove({ by: 'ada', members: [{ memberId: 'ada', role: 'owner' }], archived: true });
+
+    expect(removed.error?.type).toBe('GroupArchived');
+    expect(stored.pullDomainEvents()).toEqual([]);
   });
 });

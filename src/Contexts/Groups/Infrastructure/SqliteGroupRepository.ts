@@ -26,6 +26,11 @@ export const GROUPS_SCHEMA = [
  */
 export function prepareGroupsSchema(connection: DatabaseSync): void {
   connection.exec(GROUPS_SCHEMA);
+  // Before a group could be archived (request 27, docs/adr/0026): there, no group is archived.
+  const groupColumns = (connection.prepare('PRAGMA table_info(groups)').all() as Array<{ name: string }>).map(
+    column => column.name,
+  );
+  if (!groupColumns.includes('archived_at')) connection.exec('ALTER TABLE groups ADD COLUMN archived_at TEXT');
   const columns = (connection.prepare('PRAGMA table_info(group_members)').all() as Array<{ name: string }>).map(
     column => column.name,
   );
@@ -40,7 +45,15 @@ export function prepareGroupsSchema(connection: DatabaseSync): void {
     connection.exec('ALTER TABLE group_members ADD COLUMN passed INTEGER NOT NULL DEFAULT 0');
 }
 
-type GroupRow = { id: string; name: string; currency: string; owner_id: string; created_at: string; version: number };
+type GroupRow = {
+  id: string;
+  name: string;
+  currency: string;
+  owner_id: string;
+  created_at: string;
+  archived_at: string | null;
+  version: number;
+};
 type MemberRow = { account_id: string; role: string; joined_at: string; left_at: string | null; passed: number };
 
 /** The groups' store over SQLite (docs/adr/0001). Its methods run inside a transaction: the use case's. */
@@ -52,7 +65,7 @@ export class SqliteGroupRepository implements IGroupRepository {
   async findById(id: string): Promise<Group | undefined> {
     const connection = this.database.connection;
     const row = connection
-      .prepare('SELECT id, name, currency, owner_id, created_at, version FROM groups WHERE id = ?')
+      .prepare('SELECT id, name, currency, owner_id, created_at, archived_at, version FROM groups WHERE id = ?')
       .get(id) as GroupRow | undefined;
     if (!row) return undefined;
     const members = connection
@@ -66,6 +79,7 @@ export class SqliteGroupRepository implements IGroupRepository {
       currency: String(row.currency) as CurrencyCode,
       ownerId: String(row.owner_id),
       createdAt: String(row.created_at),
+      ...(row.archived_at === null ? {} : { archivedAt: String(row.archived_at) }),
       members: members.map((member): MemberSnapshot => ({
         accountId: String(member.account_id),
         role: member.role === 'owner' ? 'owner' : 'member',
@@ -87,8 +101,18 @@ export class SqliteGroupRepository implements IGroupRepository {
         .run(snapshot.id, snapshot.name, snapshot.currency, snapshot.ownerId, snapshot.createdAt, snapshot.version + 1);
     } else {
       const { changes } = connection
-        .prepare('UPDATE groups SET name = ?, currency = ?, owner_id = ?, version = ? WHERE id = ? AND version = ?')
-        .run(snapshot.name, snapshot.currency, snapshot.ownerId, snapshot.version + 1, snapshot.id, snapshot.version);
+        .prepare(
+          'UPDATE groups SET name = ?, currency = ?, owner_id = ?, archived_at = ?, version = ? WHERE id = ? AND version = ?',
+        )
+        .run(
+          snapshot.name,
+          snapshot.currency,
+          snapshot.ownerId,
+          snapshot.archivedAt ?? null,
+          snapshot.version + 1,
+          snapshot.id,
+          snapshot.version,
+        );
       if (changes === 0) {
         return Result.fail(new ConcurrencyConflictException('Groups', 'The group changed since it was read'));
       }

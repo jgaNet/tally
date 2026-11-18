@@ -35,6 +35,7 @@ export const setUpRecurringExpense = command(
       const members = await groupMembers.membersOf(paidBy, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
 
+      const archived = await groupMembers.isArchived(groupId);
       const set = RecurringExpense.setUp({
         groupId,
         paidBy,
@@ -44,6 +45,7 @@ export const setUpRecurringExpense = command(
         split,
         category,
         members: members.map(member => member.memberId),
+        archived,
         at: clock(),
       });
       if (set.isFailure()) return set;
@@ -74,7 +76,8 @@ export const stopRecurringExpense = command(
       const members = await groupMembers.membersOf(by, stored.groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such recurring expense'));
 
-      const stopped = stored.stop({ by, members });
+      const archived = await groupMembers.isArchived(stored.groupId);
+      const stopped = stored.stop({ by, members, archived });
       if (stopped.isFailure()) return stopped;
       const deleted = await recurring.delete(stopped.data);
       if (deleted.isFailure()) return deleted;
@@ -113,7 +116,7 @@ export const getGroupRecurringExpenses = query(
 /**
  * What one step of the background job did with a recurring expense on its day: `recorded` (the day's expense is to be recorded by
  * the reaction to its fact, and the next day is the job's to come to), `ended` (it no longer exists), or `idle` (its day has not come,
- * or it is gone).
+ * it is gone, or its group is archived and records nothing: request 27).
  */
 export type DayStep = 'idle' | 'recorded' | 'ended';
 
@@ -130,6 +133,8 @@ export const recordRecurringDay = command(
       const stored = await recurring.get(id);
       const now = clock();
       if (!stored || !stored.isDue(now)) return Result.ok('idle');
+      // An archived group records nothing by itself (request 27): its day is not recorded, and the job has nothing to step on.
+      if (await groupMembers.isArchived(stored.groupId)) return Result.ok('idle');
 
       const run = stored.runDay(await groupMembers.currentMemberIds(stored.groupId));
       if (run.kind === 'ended') {

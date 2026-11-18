@@ -27,6 +27,11 @@ export interface GroupSnapshot {
   /** ISO 8601, UTC: when the group was created. */
   createdAt: string;
   members: MemberSnapshot[];
+  /**
+   * ISO 8601, UTC: when the group was archived, when it has been (request 27, docs/adr/0026). Absent for a group that is not archived,
+   * and once set it never changes.
+   */
+  archivedAt?: string;
   /** The version the group was read at: the store stores version + 1 on every save. */
   version: number;
 }

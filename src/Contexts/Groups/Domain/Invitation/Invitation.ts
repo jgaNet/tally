@@ -1,4 +1,5 @@
 import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
 import { InvitationSnapshot } from '@Contexts/Groups/Domain/Invitation/DTOs';
@@ -31,6 +32,7 @@ export class Invitation extends AggregateRoot {
     if (!group.isMember(invitedBy)) {
       return Result.fail(new NotFoundException('Groups', 'There is no such group'));
     }
+    if (group.isArchived) return Result.fail(new GroupArchivedException('Groups'));
     const id = Id.generate();
     const invitation = new Invitation(id, group.id, invitedBy, at, 0);
     invitation.record(InvitationCreatedEvent.set({ invitationId: id.value, groupId: group.id, invitedBy }));
