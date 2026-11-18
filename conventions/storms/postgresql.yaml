@@ -6,7 +6,7 @@ feature: postgresql
 intent: >-
   The application keeps its state in PostgreSQL, and moves into it, once, what its SQLite file held; nothing a client sees changes.
 
-done: false
+done: true
 
 hotSpots:
   - question: How, for the contexts?
