@@ -15,10 +15,12 @@ export async function openBook(
   groupId: string,
 ): Promise<SettlementBook | undefined> {
   const memberIds = await members.membersOf(groupId);
-  if (!memberIds) return undefined;
+  const currency = await members.currencyOf(groupId);
+  if (!memberIds || !currency) return undefined;
   const counted = new Map((await balances.balancesOf(groupId)).map(row => [row.memberId, row.balance]));
   return SettlementBook.open({
     groupId,
+    currency,
     version: await store.versionOf(groupId),
     members: memberIds,
     balances: memberIds.map(memberId => ({ memberId, balance: counted.get(memberId) ?? 0 })),

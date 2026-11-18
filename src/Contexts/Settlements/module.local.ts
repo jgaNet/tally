@@ -30,6 +30,7 @@ import { PostgresWaitingPaymentRoster } from '@Contexts/Settlements/Infrastructu
 import { BalanceRoster, BalancesFromLedger } from '@Contexts/Settlements/Infrastructure/BalancesFromLedger';
 import { GroupRoster, MembersFromGroups } from '@Contexts/Settlements/Infrastructure/MembersFromGroups';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
+import { HttpSettlementRates } from '@Contexts/Settlements/Infrastructure/HttpSettlementRates';
 import { HmacWebhookSignature } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignature';
 import { PostgresSettlementRoster } from '@Contexts/Settlements/Infrastructure/PostgresSettlementRoster';
 import { OutstandingDebtRoster } from '@Contexts/Settlements/Infrastructure/OutstandingDebtRoster';
@@ -109,17 +110,23 @@ export function outstandingDebtRoster(
   return new OutstandingDebtRoster(database, roster, balances);
 }
 
+/**
+ * The Settlements context's wiring. `ratesUrl` is the base of the rates service's API (RATES_URL): a settlement in another currency is
+ * decided at the rate it offers on the day, and without it no rate is offered, so such a settlement is refused (request 39).
+ */
 export function settlementsWiring(
   database: PostgresDatabase,
   roster: GroupRoster,
   balances: BalanceRoster,
   payments: PaymentsConfig = {},
+  ratesUrl?: string,
 ): LiteModule {
   const store = new PostgresSettlementStore(database);
   const payouts = new PostgresPayoutAccountStore(database);
   const members = new MembersFromGroups(roster);
   const counted = new BalancesFromLedger(balances);
   const provider = new HttpPaymentProvider(payments.providerUrl);
+  const rates = new HttpSettlementRates(ratesUrl);
   const audit = new PostgresSettlementAuditLog(database);
   const nettings = new PostgresNettingStore(database);
   const administratorLog = new PostgresAdministratorLog(database);
@@ -129,13 +136,13 @@ export function settlementsWiring(
     integrationEvents: [
       {
         event: GroupsMergedIntegrationEvent,
-        handlers: [new MoveSettlementBookHandler(store, systemClock)],
+        handlers: [new MoveSettlementBookHandler(store, members, systemClock)],
       },
     ],
     useCases: [
       getSuggestedSettlements(store, members, counted),
-      recordCashSettlement(store, members, counted, audit, systemClock),
-      payThroughProvider(store, members, counted, payouts, provider, systemClock),
+      recordCashSettlement(store, members, counted, rates, audit, systemClock),
+      payThroughProvider(store, members, counted, payouts, provider, rates, systemClock),
       receivePaymentWebhook(
         store,
         members,

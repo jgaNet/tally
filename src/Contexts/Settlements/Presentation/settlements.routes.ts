@@ -17,11 +17,39 @@ import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Applic
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
 import { getNetting, netDebts } from '@Contexts/Settlements/Application/Nettings';
 
+/** What a settlement is paid in, as a body gives it: its amount in the group's currency, or what is paid in another (request 12, request 39). */
+type SettlementAmountBody = { readonly amount: number } | { readonly original: OriginalBody };
+
+/** What is paid in another currency: its currency and its amount in that currency's hundredths; no rate, which is the service's (request 39). */
+type OriginalBody = { readonly currency: string; readonly amount: number };
+
 /** The body of a cash settlement: its shape only; whether the amount is at least 1 and allowed is the domain's (request 12). */
-type RecordCashBody = { readonly from: string; readonly amount: number };
+type RecordCashBody = { readonly from: string } & SettlementAmountBody;
 
 /** The body of a payment through the provider: the payee and the amount, shape only (request 13). */
-type PayThroughProviderBody = { readonly to: string; readonly amount: number };
+type PayThroughProviderBody = { readonly to: string } & SettlementAmountBody;
+
+/**
+ * The schema of what a settlement is paid in (request 39): exactly one of `amount` and `original`, each of the shape it names. A body with
+ * neither, or with both, is `400`; whether the currency is one Tally knows, or the amount is allowed, is the domain's.
+ */
+const exactlyOneAmount = {
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
+};
+const amountProperties = {
+  amount: { type: 'integer' },
+  original: {
+    type: 'object',
+    required: ['currency', 'amount'],
+    properties: { currency: { type: 'string' }, amount: { type: 'integer' } },
+  },
+};
+
+/** What a body gives of the amount, in the domain's words: the amount, or the original it is paid in (without any rate it may carry). */
+const amountOf = (body: SettlementAmountBody): { amount?: number; original?: OriginalBody } =>
+  'amount' in body
+    ? { amount: body.amount }
+    : { original: { currency: body.original.currency, amount: body.original.amount } };
 
 /** The body of a netting: the other member, and the currency, shape only; whether they have anything to net is the domain's (request 32). */
 type NetDebtsBody = { readonly with: string; readonly currency: string };
@@ -75,8 +103,9 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
       schema: {
         body: {
           type: 'object',
-          required: ['from', 'amount'],
-          properties: { from: { type: 'string' }, amount: { type: 'integer' } },
+          required: ['from'],
+          properties: { from: { type: 'string' }, ...amountProperties },
+          ...exactlyOneAmount,
         },
       },
     },
@@ -85,7 +114,7 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
         req,
         reply,
         module.useCase(recordCashSettlement),
-        { groupId: req.params.id, from: req.body.from, amount: req.body.amount },
+        { groupId: req.params.id, from: req.body.from, ...amountOf(req.body) },
         { created: true },
       ),
   );
@@ -96,8 +125,9 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
       schema: {
         body: {
           type: 'object',
-          required: ['to', 'amount'],
-          properties: { to: { type: 'string' }, amount: { type: 'integer' } },
+          required: ['to'],
+          properties: { to: { type: 'string' }, ...amountProperties },
+          ...exactlyOneAmount,
         },
       },
     },
@@ -106,7 +136,7 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
         req,
         reply,
         module.useCase(payThroughProvider),
-        { groupId: req.params.id, to: req.body.to, amount: req.body.amount },
+        { groupId: req.params.id, to: req.body.to, ...amountOf(req.body) },
         { created: true },
       ),
   );

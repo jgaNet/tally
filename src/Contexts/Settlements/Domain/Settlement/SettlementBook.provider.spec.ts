@@ -28,6 +28,7 @@ const ANN_PAYOUT = PayoutAccount.fromSnapshot({
 /** Ann is owed 1000 by Bob; Cy owes 500 and Dan 500 (the balances add up to 0). Members in the order they joined. */
 const book = (waiting: { from: string; to: string; amount: number }[] = []) =>
   SettlementBook.open({
+    currency: 'EUR',
     groupId: 'group-1',
     version: 0,
     members: ['ann', 'bob', 'cy', 'dan'],

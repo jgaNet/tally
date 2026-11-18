@@ -14,6 +14,7 @@ import {
   SettlementStatus,
   settledAmountOf,
 } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { OriginalAmount } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
 import { DEFAULT_FEE_BEARER } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 
 /**
@@ -63,6 +64,11 @@ export const settlementsTablesSchema = [
      status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled')),
      learned_at TEXT NOT NULL
    )`,
+  // What a settlement in another currency was paid in, and the rate it was decided at (request 39): added once, as the table is. A
+  // settlement in the group's currency has none, and reads as before.
+  'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_currency TEXT',
+  'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_amount INTEGER',
+  'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_rate TEXT',
   'CREATE INDEX IF NOT EXISTS settlements_by_group ON settlements (group_id)',
   'CREATE INDEX IF NOT EXISTS settlement_history_by_settlement ON settlement_history (settlement_id)',
 ];
@@ -92,6 +98,9 @@ interface SettlementRow {
   fee_amount: number | null;
   fee_borne_by: FeeBearer | null;
   settles: number;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 }
 
 /** A settlement row as the domain keeps it. */
@@ -108,6 +117,15 @@ const toSettlement = (row: SettlementRow): Settlement => ({
   ...(row.contested_at !== null && { contestedAt: row.contested_at }),
   ...(row.fee_amount !== null &&
     row.fee_borne_by !== null && { fee: { amount: row.fee_amount, borneBy: row.fee_borne_by } }),
+  ...(row.original_currency !== null &&
+    row.original_amount !== null &&
+    row.original_rate !== null && {
+      original: OriginalAmount.kept({
+        currency: row.original_currency,
+        amount: row.original_amount,
+        rate: row.original_rate,
+      }).toRecord(),
+    }),
 });
 
 /** What a screen shows of a settlement: its history (request 19), and the link the payer pays at, through the provider only. */
@@ -123,6 +141,7 @@ const toView = (settlement: Settlement, history: SettlementStatusEntry[]): Settl
   history,
   ...(settlement.payment && { payUrl: settlement.payment.payUrl }),
   ...(settlement.fee && { fee: settlement.fee }),
+  ...(settlement.original && { original: settlement.original }),
 });
 
 const toEntry = (row: HistoryRow): SettlementStatusEntry => ({ status: row.status, at: row.learned_at });
@@ -171,8 +190,8 @@ export class PostgresSettlementStore implements ISettlementStore {
     await writer
       .prepare(
         `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, payment_id, pay_url, contested_at,
-           fee_amount, fee_borne_by, settles)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           fee_amount, fee_borne_by, settles, original_currency, original_amount, original_rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET status = excluded.status, contested_at = excluded.contested_at`,
       )
       .run(
@@ -190,6 +209,9 @@ export class PostgresSettlementStore implements ISettlementStore {
         settlement.fee?.amount ?? null,
         settlement.fee?.borneBy ?? null,
         settledAmountOf(settlement),
+        settlement.original?.currency ?? null,
+        settlement.original?.amount ?? null,
+        settlement.original?.rate ?? null,
       );
     await writer
       .prepare('INSERT INTO settlement_history (settlement_id, status, learned_at) VALUES (?, ?, ?)')

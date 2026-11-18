@@ -1,6 +1,7 @@
 import { IResult, Result } from '@Architecture/Domain';
 import { Clock, EventHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 
+import { ISettlementMembers } from '@Contexts/Settlements/Application/ISettlementMembers';
 import { ISettlementStore } from '@Contexts/Settlements/Application/ISettlementStore';
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
@@ -14,6 +15,7 @@ import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/Integrat
 export class MoveSettlementBookHandler extends EventHandler<GroupsMergedIntegrationEvent> {
   constructor(
     private readonly store: ISettlementStore,
+    private readonly members: ISettlementMembers,
     private readonly clock: Clock,
   ) {
     super();
@@ -24,8 +26,12 @@ export class MoveSettlementBookHandler extends EventHandler<GroupsMergedIntegrat
     const settlementIds = await this.store.settlementIdsOf(mergedGroupId);
     if (settlementIds.length === 0) return Result.ok(undefined);
 
+    // The group kept is the one the book is of, and it has the currency the merge kept (request 2, request 31): a book is opened in it.
+    const currency = await this.members.currencyOf(keptGroupId);
+    if (currency === undefined) throw new Error(`The group kept by a merge is not there: ${keptGroupId}`);
     const book = SettlementBook.open({
       groupId: keptGroupId,
+      currency,
       version: await this.store.versionOf(keptGroupId),
       members: [],
       balances: [],

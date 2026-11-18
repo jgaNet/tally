@@ -4,6 +4,8 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 import { AccountDeletedException } from '@SharedKernel/Domain';
 
 import { IGroupBalances } from '@Contexts/Settlements/Application/IGroupBalances';
+import { ISettlementRates } from '@Contexts/Settlements/Application/ISettlementRates';
+import { OriginalRequest, originalDraftOf } from '@Contexts/Settlements/Application/OfferedDraft';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/IPaymentProvider';
 import { IPayoutAccountStore } from '@Contexts/Settlements/Application/IPayoutAccountStore';
 import { ISettlementMembers } from '@Contexts/Settlements/Application/ISettlementMembers';
@@ -20,11 +22,15 @@ import {
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 import { FeeBearer, settledAmountOf } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
-/** A cash settlement as the request carries it: the group it is in, the payer's account, and the amount; the payee is the caller. */
+/**
+ * A cash settlement as the request carries it: the group it is in, the payer's account, and the amount, in the group's currency, or what is
+ * paid in another currency (request 39); the payee is the caller.
+ */
 export interface RecordCashSettlementInput {
   readonly groupId: string;
   readonly from: string;
-  readonly amount: number;
+  readonly amount?: number;
+  readonly original?: OriginalRequest;
 }
 
 /**
@@ -41,17 +47,20 @@ export const recordCashSettlement = command(
     store: ISettlementStore,
     members: ISettlementMembers,
     balances: IGroupBalances,
+    rates: ISettlementRates,
     audit: ISettlementAuditLog,
     clock: Clock,
   ) =>
-    async ({ groupId, from, amount }: RecordCashSettlementInput, context): Promise<IResult<string>> => {
+    async ({ groupId, from, amount, original }: RecordCashSettlementInput, context): Promise<IResult<string>> => {
       const payeeId = callerOf(context);
       const book = await openBook(store, members, balances, groupId);
       if (!book || !book.hasMember(payeeId)) return Result.fail(new GroupNotFoundException());
 
+      const now = clock();
       const archived = await members.isArchived(groupId);
       const payeeSuspended = await members.isSuspended(payeeId);
-      const recorded = book.recordCash({ from, to: payeeId, amount }, archived, payeeSuspended, clock());
+      const offered = await originalDraftOf(rates, book.currency, original, now);
+      const recorded = book.recordCash({ from, to: payeeId, amount, original: offered }, archived, payeeSuspended, now);
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
       const settlement = recorded.data;
@@ -71,11 +80,15 @@ export const recordCashSettlement = command(
     },
 );
 
-/** A payment through the provider as the request carries it: the group it is in, the payee's account, and the amount; the payer is the caller. */
+/**
+ * A payment through the provider as the request carries it: the group it is in, the payee's account, and the amount, in the group's currency,
+ * or what is paid in another currency (request 39); the payer is the caller.
+ */
 export interface PayThroughProviderInput {
   readonly groupId: string;
   readonly to: string;
-  readonly amount: number;
+  readonly amount?: number;
+  readonly original?: OriginalRequest;
 }
 
 /**
@@ -97,32 +110,35 @@ export const payThroughProvider = command(
     balances: IGroupBalances,
     payouts: IPayoutAccountStore,
     provider: IPaymentProvider,
+    rates: ISettlementRates,
     clock: Clock,
   ) =>
-    async ({ groupId, to, amount }: PayThroughProviderInput, context): Promise<IResult<string>> => {
+    async ({ groupId, to, amount, original }: PayThroughProviderInput, context): Promise<IResult<string>> => {
       const payerId = callerOf(context);
       const book = await openBook(store, members, balances, groupId);
       if (!book || !book.hasMember(payerId)) return Result.fail(new GroupNotFoundException());
 
+      const now = clock();
       const archived = await members.isArchived(groupId);
       const payerSuspended = await members.isSuspended(payerId);
       // A deleted payee is paid through no provider (feature 35, request 35): refused by name, before the book is asked.
       if (await members.isDeleted(to)) return Result.fail(new AccountDeletedException());
+      const offered = await originalDraftOf(rates, book.currency, original, now);
       const proposed = book.proposePayment(
-        { from: payerId, to, amount },
+        { from: payerId, to, amount, original: offered },
         await payouts.payoutAccountOf(to),
         archived,
         payerSuspended,
-        clock(),
+        now,
       );
       if (proposed.isFailure()) return Result.fail(proposed.error);
 
-      const currency = await members.currencyOf(groupId);
-      if (!currency) return Result.fail(new GroupNotFoundException());
+      // The provider is asked for what the payer pays: the amount and the currency it is paid in (request 39), the group's when it is not another.
+      const paidIn = proposed.data.original?.toRecord() ?? { amount: proposed.data.amount, currency: book.currency };
       const link = await provider.requestPayment({
         reference: proposed.data.id,
-        amount,
-        currency,
+        amount: paidIn.amount,
+        currency: paidIn.currency,
         payee: proposed.data.payee,
       });
       // A payment id the provider already gave another settlement is no link for this one: refused, as any answer Tally cannot keep.

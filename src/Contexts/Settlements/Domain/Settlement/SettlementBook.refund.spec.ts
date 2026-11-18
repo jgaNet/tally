@@ -20,6 +20,7 @@ import { Settlement, SettlementStatus } from '@Contexts/Settlements/Domain/Settl
 /** Ann is owed 1000 by Bob; Cy owes 1000 and Dan is level (the balances add up to 0). Members in the order they joined. */
 const book = (members = ['ann', 'bob', 'cy', 'dan']) =>
   SettlementBook.open({
+    currency: 'EUR',
     groupId: 'group-1',
     version: 0,
     members,

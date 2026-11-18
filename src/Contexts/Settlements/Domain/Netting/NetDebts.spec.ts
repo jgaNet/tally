@@ -11,6 +11,7 @@ const group = (groupId: string, balances: Record<string, number>, archived = fal
   groupId,
   archived,
   book: SettlementBook.open({
+    currency: 'EUR',
     groupId,
     version: 0,
     members: Object.keys(balances),
@@ -57,6 +58,7 @@ describe('planNetting (request 32, the storm’s NetDebts decision)', () => {
 
   it('counts a payment waiting at the provider as paid, so it is not netted again', () => {
     const waiting = SettlementBook.open({
+      currency: 'EUR',
       groupId: 'flat',
       version: 1,
       members: [ANN, BOB],

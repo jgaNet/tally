@@ -10,6 +10,7 @@ const NOW = new Date('2026-03-01T10:00:00.000Z');
 /** Ann is owed 1000 by Bob; Cy owes 500 and Dan 500. Members in the order they joined. */
 const book = () =>
   SettlementBook.open({
+    currency: 'EUR',
     groupId: 'group-1',
     version: 0,
     members: ['ann', 'bob', 'cy', 'dan'],

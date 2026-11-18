@@ -213,3 +213,50 @@ export class SettlementNotContestedException extends Exception {
     });
   }
 }
+
+/** The currency of a settlement in another currency is not one Tally knows: refused by name, nothing kept, `422` (request 39). */
+export class InvalidOriginalCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'InvalidOriginalCurrency',
+      message: 'The currency of a settlement is one of the currencies Tally knows',
+    });
+  }
+}
+
+/** The currency of a settlement in another currency is the group's own: `422` (request 39). */
+export class OriginalCurrencyIsGroupCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'OriginalCurrencyIsGroupCurrency',
+      message: 'A settlement in another currency is in a currency other than the group’s',
+    });
+  }
+}
+
+/** The original amount of a settlement in another currency is not a whole number from 1 to 100 000 000: `422` (request 39). */
+export class InvalidOriginalAmountException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'InvalidOriginalAmount',
+      message: 'The original amount is a whole number from 1 to 100000000, in the hundredths of its currency',
+    });
+  }
+}
+
+/**
+ * No rate is offered for the currency on the day the settlement is decided, so it cannot be made in it: refused by name, nothing kept, and
+ * the provider is not asked (request 39).
+ */
+export class NoRateOfferedException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'NoRateOffered',
+      message: 'No rate is offered for this currency on this day, so the settlement cannot be made in it',
+    });
+  }
+}

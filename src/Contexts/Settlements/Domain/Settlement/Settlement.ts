@@ -1,3 +1,5 @@
+import type { OriginalRecord } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
+
 /**
  * How a settlement is paid: in cash, recorded by its payee (request 12), through the payment provider (request 13), or by netting two
  * members' debts across their groups (request 32), which moves no money and counts at once.
@@ -80,4 +82,9 @@ export interface Settlement {
    * when an administrator has since decided it was paid.
    */
   readonly contestedAt?: string;
+  /**
+   * What it was paid in, when it is paid in another currency (request 39): its currency, its amount, and the rate the rates service offered
+   * when it was decided. `amount` is then the group's currency's amount of it, which is what it settles. Absent in the group's currency.
+   */
+  readonly original?: OriginalRecord;
 }

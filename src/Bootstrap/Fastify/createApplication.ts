@@ -159,10 +159,14 @@ export async function createApplication({
   );
   // The suggested settlements read the members of a group from Groups' roster and its balances from Ledger's read model (ADR 9).
   // Paying through the provider (request 13) is asked of PROVIDER_URL, and its webhooks are checked with PROVIDER_WEBHOOK_SECRET.
-  const settlements = settlementsWiring(database, groups.roster, balances, {
-    providerUrl,
-    webhookSecret: providerWebhookSecret,
-  });
+  // A settlement in another currency is decided at the rate RATES_URL offers (request 39), through a port Settlements owns.
+  const settlements = settlementsWiring(
+    database,
+    groups.roster,
+    balances,
+    { providerUrl, webhookSecret: providerWebhookSecret },
+    ratesUrl,
+  );
   // What every member still owes is read from Settlements' read model, which counts the payments waiting at the provider as paid, and
   // Notifications' sweep asks it through its own port (request 18, ADR 14). The sweep runs below, every JOBS_INTERVAL_SECONDS.
   const debts = outstandingDebtRoster(database, groups.roster, balances);

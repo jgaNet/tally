@@ -15,6 +15,7 @@ const NOW = new Date('2026-03-01T10:00:00.000Z');
 /** Ann is owed 1000 by Bob; Cy owes 500 and Dan 500 (the balances add up to 0). Members in the order they joined. */
 const book = (version = 0) =>
   SettlementBook.open({
+    currency: 'EUR',
     groupId: 'group-1',
     version,
     members: ['ann', 'bob', 'cy', 'dan'],
@@ -96,6 +97,7 @@ describe('a cash settlement, decided by its payee', () => {
   it('refuses more than the payee is owed, though the payer owes it', () => {
     // Bob owes 1000 and Ann is owed 1000; after Cy's 500 is settled to Ann, Ann is owed 500 and Bob still owes 1000.
     const afterCy = SettlementBook.open({
+      currency: 'EUR',
       groupId: 'group-1',
       version: 1,
       members: ['ann', 'bob', 'cy'],

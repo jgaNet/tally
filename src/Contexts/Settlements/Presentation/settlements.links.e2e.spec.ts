@@ -1,3 +1,5 @@
+import { createServer, IncomingMessage, Server, ServerResponse } from 'node:http';
+import { AddressInfo } from 'node:net';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -14,6 +16,7 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
  * context map is named by its title, so that the gate can see the test that holds it.
  */
 let directory: string;
+let rates: Server;
 let app: FastifyApplication;
 let http: ReturnType<typeof apiClient>;
 let api: string;
@@ -24,8 +27,15 @@ const PAST_DAY = '2020-01-15';
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-settlement-links-'));
+  rates = ratesServer();
+  await new Promise<void>(resolve => rates.listen(0, '127.0.0.1', resolve));
   // No payment provider here: paying through one is refused for want of a link, and nothing is kept (request 13).
-  app = await createApplication({ databaseUrl: await freshDatabase(), logger: silent, providerUrl: '' });
+  app = await createApplication({
+    databaseUrl: await freshDatabase(),
+    logger: silent,
+    providerUrl: '',
+    ratesUrl: `http://127.0.0.1:${(rates.address() as AddressInfo).port}`,
+  });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
@@ -35,6 +45,8 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await app.stop();
+  rates.closeAllConnections();
+  await new Promise(resolve => rates.close(resolve));
   rmSync(directory, { recursive: true, force: true });
 });
 
@@ -86,7 +98,56 @@ async function groupOf(owner: { token: string }, other: { token: string }, name:
   return groupId;
 }
 
+/** The rates the fake rates service offers, per `FROM/TO` (request 22): a settlement in another currency is decided at one of them. */
+const OFFERED: Record<string, string> = { 'CHF/USD': '1.25', 'CHF/EUR': '1.0625' };
+/** A fake rates service on a local port, answering `200 { rate }` for an offered pair and `404` for any other. */
+const ratesServer = () =>
+  createServer((req: IncomingMessage, res: ServerResponse) => {
+    const match = /^\/rates\/([^/]+)\/([^/]+)$/.exec(new URL(req.url ?? '/', 'http://localhost').pathname);
+    const rate = match && OFFERED[`${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`];
+    res.statusCode = rate ? 200 : 404;
+    res.setHeader('content-type', 'application/json');
+    res.end(rate ? JSON.stringify({ rate }) : '{}');
+  });
+
 describe('Groups → Settlements (SettlementMembers)', () => {
+  it('a settlement in another currency is converted in the currency of the group Groups made, and found by the id its recording answered (request 39)', async () => {
+    const created = await http.request('POST', `${api}/groups`, {
+      token: ann.token,
+      body: { name: 'Trip in dollars', currency: 'USD' },
+    });
+    const groupId = (created.body as { id: string }).id;
+    const invitation = await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ann.token });
+    await http.request('POST', `${api}/invitations/${(invitation.body as { id: string }).id}/accept`, {
+      token: bob.token,
+    });
+    const owed = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Dinner', amount: 1000, date: PAST_DAY, splitBetween: [ann.id, bob.id] },
+    });
+    expect(owed.status).toBe(201);
+
+    // Bob owes Ann 500 dollars: 400 Swiss francs at the offered 1.25 is exactly that, counted in the group's currency.
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      token: ann.token,
+      body: { from: bob.id, original: { currency: 'CHF', amount: 400 } },
+    });
+    expect(recorded.status).toBe(201);
+    const settlementId = (recorded.body as { id: string }).id;
+
+    const read = await http.request('GET', `${api}/settlements/${settlementId}`, { token: bob.token });
+    expect(read.body).toMatchObject({
+      id: settlementId,
+      groupId,
+      amount: 500,
+      method: 'cash',
+      status: 'paid',
+      original: { currency: 'CHF', amount: 400, rate: '1.25' },
+    });
+    // Eve is not in the group Groups made: to her the settlement does not exist.
+    expect((await http.request('GET', `${api}/settlements/${settlementId}`, { token: eve.token })).status).toBe(404);
+  });
+
   it('the settlements of the group Groups made are listed by the id its creation answered, each with its history (request 19)', async () => {
     const groupId = await groupWithBob();
     const paid = await http.request('POST', `${api}/groups/${groupId}/expenses`, {

@@ -6,6 +6,7 @@ import {
   SettlementMethod,
   SettlementStatus,
 } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { OriginalRecord } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
 
 /** A status a settlement has had, and when Tally learned it (request 19): one line of its history. */
 export interface SettlementStatusEntry {
@@ -29,6 +30,8 @@ export interface SettlementView {
   readonly payUrl?: string;
   /** The provider's fee and who bore it, when it was asked for with request 38 (a settlement through the provider only). */
   readonly fee?: ProviderFee;
+  /** What it was paid in, when it is paid in another currency, at the rate decided then (request 39). */
+  readonly original?: OriginalRecord;
 }
 
 /**

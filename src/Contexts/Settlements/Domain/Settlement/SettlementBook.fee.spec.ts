@@ -20,6 +20,7 @@ const ANN_PAYOUT = PayoutAccount.fromSnapshot({
 /** Bob owes Ann 1000 (Ann is owed 1000): the balances add up to 0, members in the order they joined. */
 const book = (feePolicy?: 'payer' | 'payee' | 'shared') =>
   SettlementBook.open({
+    currency: 'EUR',
     groupId: 'group-1',
     version: 3,
     members: ['ann', 'bob'],

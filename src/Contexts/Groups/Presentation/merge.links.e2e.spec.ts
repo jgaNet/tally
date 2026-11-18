@@ -20,6 +20,7 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
 let directory: string;
 let provider: Server;
 let providerUrl: string;
+let rates: Server;
 let paymentsByReference: Map<string, string>;
 let nextPayment: number;
 let app: FastifyApplication;
@@ -60,12 +61,15 @@ beforeAll(async () => {
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
   providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+  rates = ratesServer();
+  await new Promise<void>(resolve => rates.listen(0, '127.0.0.1', resolve));
 
   app = await createApplication({
     databaseUrl: await freshDatabase(),
     logger: silent,
     providerUrl,
     providerWebhookSecret: SECRET,
+    ratesUrl: `http://127.0.0.1:${(rates.address() as AddressInfo).port}`,
   });
   await app.start(0);
   http = apiClient(app.address);
@@ -77,6 +81,8 @@ afterAll(async () => {
   await app.stop();
   provider.closeAllConnections();
   await new Promise(resolve => provider.close(resolve));
+  rates.closeAllConnections();
+  await new Promise(resolve => rates.close(resolve));
   rmSync(directory, { recursive: true, force: true });
 });
 
@@ -147,7 +153,64 @@ describe('Groups → Ledger (GroupsMerged)', () => {
   });
 });
 
+/** The rates the fake rates service offers, per `FROM/TO` (request 22): a settlement in another currency is decided at one of them. */
+const OFFERED: Record<string, string> = { 'CHF/USD': '1.25', 'CHF/EUR': '1.0625' };
+/** A fake rates service on a local port, answering `200 { rate }` for an offered pair and `404` for any other. */
+const ratesServer = () =>
+  createServer((req: IncomingMessage, res: ServerResponse) => {
+    const match = /^\/rates\/([^/]+)\/([^/]+)$/.exec(new URL(req.url ?? '/', 'http://localhost').pathname);
+    const rate = match && OFFERED[`${decodeURIComponent(match[1])}/${decodeURIComponent(match[2])}`];
+    res.statusCode = rate ? 200 : 404;
+    res.setHeader('content-type', 'application/json');
+    res.end(rate ? JSON.stringify({ rate }) : '{}');
+  });
+
 describe('Groups → Settlements (GroupsMerged)', () => {
+  it('a settlement in another currency made in the group kept, after its merge, is decided there and found by the id it answered (request 39)', async () => {
+    const kept = await createGroup('Kept in another currency');
+    await joinGroup(kept, bob);
+    await http.request('POST', `${api}/groups/${kept}/expenses`, {
+      token: ann.token,
+      body: { description: 'Hotel', amount: 1000, date: PAST_DAY, splitBetween: [ann.id, bob.id] },
+    });
+    const merged = await createGroup('Merged in another currency');
+    await joinGroup(merged, bob);
+    await http.request('POST', `${api}/groups/${merged}/expenses`, {
+      token: ann.token,
+      body: { description: 'Train', amount: 1000, date: PAST_DAY, splitBetween: [ann.id, bob.id] },
+    });
+    // Bob pays Ann 100 in cash in the group merged, so the settlement moves with the group.
+    const cash = await http.request('POST', `${api}/groups/${merged}/settlements/cash`, {
+      token: ann.token,
+      body: { from: bob.id, amount: 100 },
+    });
+    expect(cash.status).toBe(201);
+    expect(await merge(ann.token, kept, merged)).toMatchObject({ status: 204 });
+
+    // Once the merged expenses have moved, Bob owes 900 hundredths in the group kept: 500 + 500 - 100.
+    const owedInKept = () =>
+      http
+        .request('GET', `${api}/groups/${kept}/balances`, { token: ann.token })
+        .then(
+          ({ body }) => (body as { memberId: string; balance: number }[]).find(row => row.memberId === bob.id)?.balance,
+        );
+    expect(await eventually(owedInKept, balance => balance === -900)).toBe(-900);
+
+    const paid = await http.request('POST', `${api}/groups/${kept}/settlements/cash`, {
+      token: ann.token,
+      body: { from: bob.id, original: { currency: 'CHF', amount: 400 } },
+    });
+    expect(paid.status).toBe(201);
+    const settlementId = (paid.body as { id: string }).id;
+    const read = await http.request('GET', `${api}/settlements/${settlementId}`, { token: ann.token });
+    expect(read.body).toMatchObject({
+      id: settlementId,
+      groupId: kept,
+      amount: 425,
+      original: { currency: 'CHF', amount: 400, rate: '1.0625' },
+    });
+  });
+
   it('moves the settlements of the group merged to the group kept, which Settlements lists by the id Groups answered', async () => {
     const kept = await createGroup('Kept settled');
     const merged = await createGroup('Merged settled');

@@ -27,6 +27,7 @@ const at = now.toISOString();
  */
 const book = (members = ['ann', 'bob', 'cy', 'dan'], waiting: WaitingPayment[] = []) =>
   SettlementBook.open({
+    currency: 'EUR',
     groupId: 'group-1',
     version: 0,
     members,

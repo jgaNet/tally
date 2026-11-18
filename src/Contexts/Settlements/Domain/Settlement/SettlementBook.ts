@@ -29,12 +29,18 @@ import {
   Settlement,
 } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 import { MemberBalance } from '@Contexts/Settlements/Domain/Settlement/SuggestedSettlements';
+import { OriginalAmount, OriginalDraft } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
 
-/** A settlement the payee records in cash, or a payer asks to pay through the provider: who pays whom, and how much. */
+/**
+ * A settlement the payee records in cash, or a payer asks to pay through the provider: who pays whom, and how much. It is given in the
+ * group's currency (`amount`, request 12), or in another one (`original`, request 39), whose amount in the group's currency the book
+ * decides at the rate offered; `original` wins when both are given (the transport lets only one through).
+ */
 export interface SettlementDraft {
   readonly from: string;
   readonly to: string;
-  readonly amount: number;
+  readonly amount?: number;
+  readonly original?: OriginalDraft;
 }
 
 /** A payment waiting at the provider: pending, so counted as paid for what is still owed (request 13). */
@@ -49,8 +55,14 @@ export interface WaitingPayment {
  * given, the provider's id of the payee's payout account the money goes to (request 16), and when it was decided. Nothing is kept
  * until the book records it with the link (`recordPayment`).
  */
-export interface PaymentProposal extends SettlementDraft {
+export interface PaymentProposal {
   readonly id: string;
+  readonly from: string;
+  readonly to: string;
+  /** The amount in the group's currency's hundredths, which the settlement settles. */
+  readonly amount: number;
+  /** What was paid in another currency and at which rate, when it is (request 39). */
+  readonly original?: OriginalAmount;
   readonly payee: string;
   readonly at: string;
 }
@@ -125,6 +137,8 @@ export class FeePolicySetEvent extends DomainEvent<FeePolicySetPayload> {}
 /** What a group's book is opened with: the group, the version it was read at, its members in join order, and their balances. */
 export interface SettlementBookSnapshot {
   readonly groupId: string;
+  /** The currency the group was created in: fixed, and the one every settlement's amount is in (request 2). */
+  readonly currency: string;
   readonly version: number;
   readonly members: readonly string[];
   /** What the ledger counts: the balances of the settlements already paid, and of the expenses. */
@@ -144,6 +158,7 @@ export interface SettlementBookSnapshot {
  * first one's balances.
  */
 export class SettlementBook extends AggregateRoot {
+  readonly #currency: string;
   readonly #members: readonly string[];
   readonly #balances: readonly MemberBalance[];
   readonly #waiting: readonly WaitingPayment[];
@@ -151,6 +166,7 @@ export class SettlementBook extends AggregateRoot {
 
   private constructor(
     id: Id,
+    currency: string,
     version: number,
     members: readonly string[],
     balances: readonly MemberBalance[],
@@ -158,6 +174,7 @@ export class SettlementBook extends AggregateRoot {
     feePolicy: FeeBearer,
   ) {
     super(id, version);
+    this.#currency = currency;
     this.#members = members;
     this.#balances = balances;
     this.#waiting = waiting;
@@ -169,9 +186,15 @@ export class SettlementBook extends AggregateRoot {
     return this._id.value;
   }
 
+  /** The currency of the group: what a settlement's amount is in, and what a settlement in another currency is converted to (request 39). */
+  get currency(): string {
+    return this.#currency;
+  }
+
   /** Opens the book as it was read. Records nothing: a book is read, not created (feature 12). */
   static open({
     groupId,
+    currency,
     version,
     members,
     balances,
@@ -180,6 +203,7 @@ export class SettlementBook extends AggregateRoot {
   }: SettlementBookSnapshot): SettlementBook {
     return new SettlementBook(
       new Id(groupId),
+      currency,
       version,
       [...members],
       balances.map(row => ({ ...row })),
@@ -255,7 +279,10 @@ export class SettlementBook extends AggregateRoot {
   recordCash(draft: SettlementDraft, archived: boolean, payeeSuspended: boolean, now: Date): IResult<Settlement> {
     if (archived) return Result.fail(new GroupArchivedException());
     if (payeeSuspended) return Result.fail(new AccountSuspendedException());
-    const refusal = this.#refusalOf(draft);
+    const paid = this.#paidIn(draft);
+    if (paid.isFailure()) return Result.fail(paid.error);
+    const { amount, original } = paid.data;
+    const refusal = this.#refusalOf({ from: draft.from, to: draft.to, amount });
     if (refusal) return Result.fail(refusal);
 
     const settlement: Settlement = {
@@ -263,10 +290,11 @@ export class SettlementBook extends AggregateRoot {
       groupId: this.groupId,
       from: draft.from,
       to: draft.to,
-      amount: draft.amount,
+      amount,
       method: 'cash',
       status: 'paid',
       at: now.toISOString(),
+      ...(original && { original: original.toRecord() }),
     };
     this.record(
       SettlementRecordedEvent.set({
@@ -287,7 +315,10 @@ export class SettlementBook extends AggregateRoot {
    * It is recorded as paid, `net`, at once, and SettlementRecorded is recorded with it. The planner never gives an archived group, so
    * this one checks no archive. The time is `now`.
    */
-  recordNet(draft: SettlementDraft, now: Date): IResult<Settlement> {
+  recordNet(
+    draft: { readonly from: string; readonly to: string; readonly amount: number },
+    now: Date,
+  ): IResult<Settlement> {
     const refusal = this.#refusalOf(draft);
     if (refusal) return Result.fail(refusal);
 
@@ -330,12 +361,18 @@ export class SettlementBook extends AggregateRoot {
   ): IResult<PaymentProposal> {
     if (archived) return Result.fail(new GroupArchivedException());
     if (payerSuspended) return Result.fail(new AccountSuspendedException());
-    const refusal = this.#refusalOf(draft);
+    const paid = this.#paidIn(draft);
+    if (paid.isFailure()) return Result.fail(paid.error);
+    const { amount, original } = paid.data;
+    const refusal = this.#refusalOf({ from: draft.from, to: draft.to, amount });
     if (refusal) return Result.fail(refusal);
     if (!payeeAccount) return Result.fail(new PayeeHasNoPayoutAccountException());
     return Result.ok({
       id: Id.generate().value,
-      ...draft,
+      from: draft.from,
+      to: draft.to,
+      amount,
+      ...(original && { original }),
       payee: payeeAccount.providerAccountId,
       at: now.toISOString(),
     });
@@ -358,10 +395,14 @@ export class SettlementBook extends AggregateRoot {
     const refusal = this.#refusalOf(proposal);
     if (refusal) return Result.fail(refusal);
     if (!link?.id || !link.payUrl) return Result.fail(new ProviderUnavailableException());
-    // An answer whose fee is not 0 or more, or not less than the amount, is no answer (request 38): refused, and nothing kept.
-    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= proposal.amount) {
+    // An answer whose fee is not 0 or more, or not less than the amount paid, is no answer (request 38): refused, and nothing kept. A fee
+    // in another currency is that currency's, and it is less than the amount in it, then converted at the settlement's rate (request 39).
+    const paidFee = link.fee;
+    if (!Number.isInteger(paidFee) || paidFee < 0) return Result.fail(new ProviderUnavailableException());
+    if (proposal.original && paidFee >= proposal.original.amount)
       return Result.fail(new ProviderUnavailableException());
-    }
+    const fee = proposal.original ? proposal.original.groupAmountOf(paidFee) : paidFee;
+    if (fee >= proposal.amount) return Result.fail(new ProviderUnavailableException());
 
     const settlement: Settlement = {
       id: proposal.id,
@@ -373,7 +414,8 @@ export class SettlementBook extends AggregateRoot {
       status: 'pending',
       at: proposal.at,
       payment: { id: link.id, payUrl: link.payUrl },
-      fee: { amount: link.fee, borneBy: this.#feePolicy },
+      fee: { amount: fee, borneBy: this.#feePolicy },
+      ...(proposal.original && { original: proposal.original.toRecord() }),
     };
     this.record(
       PaymentRequestedEvent.set({
@@ -505,11 +547,34 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /**
+   * What a draft settles in the group's currency (request 12, request 39): its `amount` when it is given in it, or, when it is paid in another
+   * currency, the original amount converted at the rate offered, which the book decides with (a currency that is not Tally's or the group's, an
+   * amount out of range, or no rate offered, is refused by name). A draft with neither is refused as an amount that is not one.
+   */
+  #paidIn({ amount, original }: SettlementDraft): IResult<{ amount: number; original?: OriginalAmount }> {
+    if (original) {
+      const decided = OriginalAmount.decide(original, this.#currency);
+      if (decided.isFailure()) return Result.fail(decided.error);
+      return Result.ok({ amount: decided.data.toGroupAmount(), original: decided.data });
+    }
+    if (amount === undefined) return Result.fail(new InvalidSettlementAmountException());
+    return Result.ok({ amount });
+  }
+
+  /**
    * The refusal of a settlement between two members, or `undefined` when it holds: the payee is a member of the group (else the
    * group's `404`), the amount is a whole number of 1 or more, the payer is a member and not the payee, the amount is no more than
    * the payer still owes, and no more than the payee is still owed.
    */
-  #refusalOf({ from, to, amount }: SettlementDraft): Exception | undefined {
+  #refusalOf({
+    from,
+    to,
+    amount,
+  }: {
+    readonly from: string;
+    readonly to: string;
+    readonly amount: number;
+  }): Exception | undefined {
     if (!this.hasMember(to)) return new GroupNotFoundException();
     if (!Number.isInteger(amount) || amount < 1) return new InvalidSettlementAmountException();
     if (from === to) return new PayeeIsPayerException();
