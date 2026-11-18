@@ -14,3 +14,5 @@ export * from '@Contexts/Settlements/Application/Commands/ContestSettlement/Cont
 export * from '@Contexts/Settlements/Application/Commands/ContestSettlement/ContestSettlementCommandHandler';
 export * from '@Contexts/Settlements/Application/Commands/DecideContest/DecideContestCommandEvent';
 export * from '@Contexts/Settlements/Application/Commands/DecideContest/DecideContestCommandHandler';
+export * from '@Contexts/Settlements/Application/Commands/SetFeePolicy/SetFeePolicyCommandEvent';
+export * from '@Contexts/Settlements/Application/Commands/SetFeePolicy/SetFeePolicyCommandHandler';

@@ -3,12 +3,15 @@ import { AggregateRoot, IResult, Id, NotAllowedException, NotFoundException, Res
 
 import {
   AdminLogEntry,
+  FeeBorneBy,
   ISettlementBookSnapshot,
   ISettlementSnapshot,
   ISettlementStatusLine,
   PaymentLink,
+  SettlementFee,
 } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
+  InvalidFeePolicyException,
   InvalidSettlementAmountException,
   PayeeHasNoPayoutAccountException,
   ProviderUnavailableException,
@@ -24,6 +27,7 @@ import {
   RefundRequestedEvent,
   SettlementAnnulledEvent,
   SettlementBookMergedEvent,
+  FeePolicySetEvent,
   SettlementContestedEvent,
   SettlementFailedEvent,
   SettlementPaidEvent,
@@ -46,6 +50,15 @@ export interface SettlementRequest {
   members: string[];
   balances: BalanceOfMember[];
 }
+
+/** Who bears the provider's fee, as the owner of a group decides it, asked of the book (request 38): the owner is the one who asks. */
+export interface FeePolicyRequest {
+  borneBy: string;
+  asker: string;
+  owner: string;
+}
+
+const FEE_BORNE_BY: readonly FeeBorneBy[] = ['payer', 'payee', 'shared'];
 
 /**
  * A refund asked of the book: the settlement, the member who asks for it, and the members of its group as the membership port
@@ -123,6 +136,11 @@ export interface PaymentProposal {
  * (`decideContest()`): paid again, or annulled, which counts for nothing and no longer waits (request 33). Every decision is an
  * entry of the administrators' log, and the audit says a settlement contested, and a settlement decided paid.
  *
+ * Who bears the provider's fee of a payment through the provider is the group's policy, which the owner decides (`setFeePolicy()`,
+ * request 38); until it does, the payee bears it. When the provider answers a payment link, `keepPayment()` keeps the fee it said
+ * and who bore it, and what the settlement settles: its amount less the part of the fee its payer bears (the whole fee for the
+ * payer, half of it, rounded down, for shared, none for the payee). What is counted, owed and audited is what it settles.
+ *
  * The book's version is the check (CONC-OPTIMISTIC): a save is refused when another writer saved first, and the command
  * handler re-reads the book and the balances and decides again. The book records what it decides and publishes nothing itself.
  */
@@ -142,31 +160,67 @@ export class SettlementBook extends AggregateRoot {
   readonly #moved: string[] = [];
   /** The decisions of administrators made since the book was read, in the order they were made (request 33). */
   readonly #decisions: AdminLogEntry[] = [];
+  /** Who bears the group's provider fee: the owner's decision, or the payee until it is made (request 38). */
+  #feeBorneBy: FeeBorneBy;
+  /** The owner's decision of who bears the fee, made since the book was read (request 38). */
+  #feePolicySet: FeeBorneBy | null = null;
 
-  private constructor(id: Id, groupId: string, version: number, settlements: ISettlementSnapshot[]) {
+  private constructor(
+    id: Id,
+    groupId: string,
+    version: number,
+    settlements: ISettlementSnapshot[],
+    feeBorneBy: FeeBorneBy,
+  ) {
     super(id, version);
     this.#groupId = groupId;
+    this.#feeBorneBy = feeBorneBy;
     for (const settlement of settlements) this.#settlements.set(settlement._id, { ...settlement });
   }
 
   /** The book of a group that has no settlement yet: at version 0, with the identity the domain generates. Records nothing. */
   static open(groupId: string): SettlementBook {
-    return new SettlementBook(Id.generate(), groupId, 0, []);
+    return new SettlementBook(Id.generate(), groupId, 0, [], 'payee');
   }
 
-  /** The book as the store holds it, at the version it was read at, with the settlements of its group. Records nothing. */
+  /** The book as the store holds it, at the version it was read at, with the settlements of its group and who bears its fee. Records nothing. */
   static fromSnapshot({
     _id,
     groupId,
     version,
     settlements,
+    feeBorneBy = 'payee',
   }: {
     _id: string;
     groupId: string;
     version: number;
     settlements: ISettlementSnapshot[];
+    feeBorneBy?: FeeBorneBy;
   }): SettlementBook {
-    return new SettlementBook(new Id(_id), groupId, version, settlements);
+    return new SettlementBook(new Id(_id), groupId, version, settlements, feeBorneBy);
+  }
+
+  /**
+   * The owner of the group decides who bears the provider's fee from now on (request 38): only the owner may, and what a settlement
+   * already asked for keeps its fee and who bore it. Records FeePolicySet.
+   */
+  setFeePolicy({ borneBy, asker, owner }: FeePolicyRequest): IResult<void> {
+    if (asker !== owner) {
+      return Result.fail(
+        new NotAllowedException('Settlements', 'Only the owner of the group decides who bears the fee'),
+      );
+    }
+    if (!isFeeBorneBy(borneBy)) return Result.fail(new InvalidFeePolicyException());
+
+    this.#feeBorneBy = borneBy;
+    this.#feePolicySet = borneBy;
+    this.record(FeePolicySetEvent.set({ groupId: this.#groupId, borneBy }));
+    return Result.ok();
+  }
+
+  /** Who bears the group's provider fee, as the book holds it now: the owner's decision, or the payee until it is made. */
+  get feeBorneBy(): FeeBorneBy {
+    return this.#feeBorneBy;
   }
 
   /**
@@ -242,11 +296,16 @@ export class SettlementBook extends AggregateRoot {
     if (decided.isFailure()) return Result.fail(decided.error);
 
     const { request } = proposal;
+    // The fee is less than the amount, or the answer is not an answer (request 38): nothing is kept.
+    if (link.fee >= request.amount) return Result.fail(new ProviderUnavailableException());
+    const fee: SettlementFee = { amount: link.fee, borneBy: this.#feeBorneBy };
     const settlement = this.keep({
       _id: proposal.settlementId,
       from: request.payer,
       to: request.payee,
       amount: request.amount,
+      settled: request.amount - payerPartOf(fee),
+      fee,
       at: request.at,
       method: 'provider',
       status: 'pending',
@@ -288,7 +347,7 @@ export class SettlementBook extends AggregateRoot {
           by: settlement.from,
           action: 'settlement-paid',
           subjectId: settlement._id,
-          amount: settlement.amount,
+          amount: settlement.settled,
         }),
       );
       this.record(SettlementPaidEvent.set(facts));
@@ -305,7 +364,7 @@ export class SettlementBook extends AggregateRoot {
             by: settlement.to,
             action: 'settlement-refunded',
             subjectId: settlement._id,
-            amount: settlement.amount,
+            amount: settlement.settled,
           }),
         );
       }
@@ -345,7 +404,7 @@ export class SettlementBook extends AggregateRoot {
         by: settlement.to,
         action: 'settlement-contested',
         subjectId: settlement._id,
-        amount: settlement.amount,
+        amount: settlement.settled,
       }),
     );
     this.record(SettlementContestedEvent.set(this.#factsOf(settlement)));
@@ -372,7 +431,7 @@ export class SettlementBook extends AggregateRoot {
           by: administrator,
           action: 'settlement-paid',
           subjectId: settlement._id,
-          amount: settlement.amount,
+          amount: settlement.settled,
         }),
       );
       this.record(SettlementPaidEvent.set(this.#factsOf(settlement)));
@@ -450,7 +509,13 @@ export class SettlementBook extends AggregateRoot {
 
   /** Whether the book moved since it was read: a settlement decided, a status the provider moved, or settlements of a merged group taken up. */
   hasChanges(): boolean {
-    return this.#recorded.length > 0 || this.#changed.size > 0 || this.#moved.length > 0 || this.#decisions.length > 0;
+    return (
+      this.#recorded.length > 0 ||
+      this.#changed.size > 0 ||
+      this.#moved.length > 0 ||
+      this.#decisions.length > 0 ||
+      this.#feePolicySet !== null
+    );
   }
 
   /** The book as the store writes it: what was decided or moved since it was read, with the version it was read at. */
@@ -464,6 +529,7 @@ export class SettlementBook extends AggregateRoot {
       changed: [...this.#changed].filter(id => !recordedIds.has(id)).map(id => ({ ...this.#settlements.get(id)! })),
       history: this.#history.map(line => ({ ...line })),
       moved: this.#moved.map(id => ({ ...this.#settlements.get(id)! })),
+      feeBorneBy: this.#feePolicySet,
       decisions: this.#decisions.map(decision => ({ ...decision })),
     };
   }
@@ -495,6 +561,8 @@ export class SettlementBook extends AggregateRoot {
       from: request.payer,
       to: request.payee,
       amount: request.amount,
+      settled: request.amount,
+      fee: null,
       at: request.at,
       method,
       status: 'paid',
@@ -508,7 +576,7 @@ export class SettlementBook extends AggregateRoot {
         by,
         action: 'settlement-paid',
         subjectId: settlement._id,
-        amount: settlement.amount,
+        amount: settlement.settled,
       }),
     );
     return settlement;
@@ -532,7 +600,7 @@ export class SettlementBook extends AggregateRoot {
         (settlement.status === 'pending' || settlement.status === 'contested') &&
         matches(settlement)
       ) {
-        total += settlement.amount;
+        total += settlement.settled;
       }
     }
     return total;
@@ -547,6 +615,8 @@ export class SettlementBook extends AggregateRoot {
       from: settlement.from,
       to: settlement.to,
       amount: settlement.amount,
+      settled: settlement.settled,
+      fee: settlement.fee,
       at: settlement.at.toISOString(),
       method: settlement.method,
       status: settlement.status,
@@ -583,6 +653,19 @@ function isLink(link: PaymentLink | null): link is PaymentLink {
     typeof link.id === 'string' &&
     link.id.length > 0 &&
     typeof link.payUrl === 'string' &&
-    link.payUrl.length > 0
+    link.payUrl.length > 0 &&
+    Number.isInteger(link.fee) &&
+    link.fee >= 0
   );
+}
+
+function isFeeBorneBy(borneBy: string): borneBy is FeeBorneBy {
+  return (FEE_BORNE_BY as readonly string[]).includes(borneBy);
+}
+
+/** The part of the provider's fee the payer bears: all of it, half of it rounded down when shared (the payee takes the extra), or none. */
+function payerPartOf({ amount, borneBy }: SettlementFee): number {
+  if (borneBy === 'payer') return amount;
+  if (borneBy === 'shared') return Math.floor(amount / 2);
+  return 0;
 }

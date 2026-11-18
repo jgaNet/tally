@@ -28,6 +28,8 @@ const nextPaymentId = (): string => {
   issued.push(`pay_${issuedCount}`);
   return issued[issued.length - 1];
 };
+/** The fee the fake provider says each payment costs, in the hundredths of its currency (request 38). */
+let providerFee = 0;
 /** What the fake provider answers its next refund request with: accepted, refused, or no answer in time (request 15). */
 let refundAnswer: 'accept' | 'refuse' | 'slow' = 'accept';
 /** What the fake provider answers a payout account asked of it with (request 16): known, unknown (`acct_unknown` is never known), refused, or no answer in time. */
@@ -76,7 +78,11 @@ beforeAll(async () => {
       if (answer === 'refuse') return void res.writeHead(500).end();
       const reply = () => {
         res.writeHead(201, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(((id: string) => ({ id, payUrl: `https://provider.test/pay/${id}` }))(nextPaymentId())));
+        res.end(
+          JSON.stringify(
+            ((id: string) => ({ id, payUrl: `https://provider.test/pay/${id}`, fee: providerFee }))(nextPaymentId()),
+          ),
+        );
       };
       if (answer === 'slow') setTimeout(reply, 5500);
       else reply();
@@ -100,6 +106,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   answer = 'link';
+  providerFee = 0;
   requested = [];
   issued = [];
   refundAnswer = 'accept';
@@ -715,6 +722,7 @@ describe('a group’s settlements, and each one’s history (request 19)', () =>
         status: 'paid',
         at: expect.any(String),
         payUrl: expect.any(String),
+        fee: { amount: 0, borneBy: 'payee' },
         history: [
           { status: 'pending', at: expect.any(String) },
           { status: 'paid', at: expect.any(String) },
@@ -730,6 +738,7 @@ describe('a group’s settlements, and each one’s history (request 19)', () =>
         status: 'failed',
         at: expect.any(String),
         payUrl: expect.any(String),
+        fee: { amount: 0, borneBy: 'payee' },
         history: [
           { status: 'pending', at: expect.any(String) },
           { status: 'failed', at: expect.any(String) },
@@ -745,6 +754,7 @@ describe('a group’s settlements, and each one’s history (request 19)', () =>
         status: 'refunded',
         at: expect.any(String),
         payUrl: expect.any(String),
+        fee: { amount: 0, borneBy: 'payee' },
         history: [
           { status: 'pending', at: expect.any(String) },
           { status: 'paid', at: expect.any(String) },
@@ -837,3 +847,70 @@ async function readHistory(settlementId: string, token: string): Promise<string[
   };
   return read.history.map(line => line.status);
 }
+
+describe('the provider’s fee (request 38)', () => {
+  it('is borne by the payee until the owner decides, only the owner may decide it, and a member reads it', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+
+    expect((await http.get(`/v1/groups/${groupId}/fee-policy`, { token: bob.token })).body).toEqual({
+      borneBy: 'payee',
+    });
+    expect(
+      (await http.request('PUT', `/v1/groups/${groupId}/fee-policy`, { body: { borneBy: 'payer' }, token: bob.token }))
+        .status,
+    ).toBe(403);
+    expect(
+      (await http.request('PUT', `/v1/groups/${groupId}/fee-policy`, { body: { borneBy: 'nobody' }, token: ann.token }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await http.request('PUT', `/v1/groups/${groupId}/fee-policy`, { body: { borneBy: 'payer' }, token: ann.token }))
+        .status,
+    ).toBeLessThan(300);
+    expect((await http.get(`/v1/groups/${groupId}/fee-policy`, { token: bob.token })).body).toEqual({
+      borneBy: 'payer',
+    });
+  });
+
+  it('settles a payment less the fee its payer bears, keeps the fee and who bore it, and counts what it settles', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    expect(
+      (await http.request('PUT', `/v1/groups/${groupId}/fee-policy`, { body: { borneBy: 'payer' }, token: ann.token }))
+        .status,
+    ).toBeLessThan(300);
+    providerFee = 7;
+
+    const id = ((await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 })).body as { id: string }).id;
+    expect((await http.get(`/v1/settlements/${id}`, { token: bob.token })).body).toMatchObject({
+      amount: 30,
+      fee: { amount: 7, borneBy: 'payer' },
+    });
+
+    // The owner changes who bears the fee: the settlement keeps the fee it was asked with.
+    expect(
+      (await http.request('PUT', `/v1/groups/${groupId}/fee-policy`, { body: { borneBy: 'payee' }, token: ann.token }))
+        .status,
+    ).toBeLessThan(300);
+    expectAcknowledged(await webhook({ paymentId: lastPayment(), status: 'succeeded' }));
+    expect((await http.get(`/v1/settlements/${id}`, { token: ann.token })).body).toMatchObject({
+      amount: 30,
+      fee: { amount: 7, borneBy: 'payer' },
+      status: 'paid',
+    });
+    // Bob bore the fee, so the payment settles 23: Ann is still owed 7, and Bob still owes 7.
+    expect(await balancesOf(groupId, ann.token)).toEqual([
+      { memberId: ann.id, balance: 7 },
+      { memberId: bob.id, balance: -7 },
+    ]);
+  });
+
+  it('is refused, and nothing is kept, when the provider gives a fee that is not less than the amount', async () => {
+    const { ann, bob, groupId } = await annAndBobOwing();
+    providerFee = 30;
+
+    const refused = await payThroughProvider(groupId, bob.token, { to: ann.id, amount: 30 });
+    expect(refused.status).toBe(400);
+    expect(refused.body).toEqual({ type: 'ProviderUnavailable', message: expect.any(String) });
+    expect(await suggestedOf(groupId, ann.token)).toEqual([{ from: bob.id, to: ann.id, amount: 30 }]);
+  });
+});

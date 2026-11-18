@@ -10,7 +10,8 @@ export const PROVIDER_ANSWER_DEADLINE_MS = 5000;
 
 /**
  * Settlements' adapter onto the payment provider over its HTTP API: `POST {PROVIDER_URL}/payments` with `{ reference, amount,
- * currency, payee }`, answered `201 { id, payUrl }`. Any other answer, an answer that is not a link, or no answer within 5 seconds gives
+ * currency, payee }`, answered `201 { id, payUrl, fee }`, the fee a whole number of at least 0 (request 38). Any other answer, an answer
+ * that is not a link with its fee, or no answer within 5 seconds gives
  * null, which the book refuses as ProviderUnavailable. Without a base URL nothing is asked and null is given. The base URL is read
  * when a payment is asked, so the wiring can be configured at start.
  *
@@ -33,9 +34,13 @@ export class HttpPaymentProvider implements IPaymentProvider {
       });
       if (response.status !== 201) return null;
 
-      const body = (await response.json()) as { id?: unknown; payUrl?: unknown };
-      return typeof body.id === 'string' && typeof body.payUrl === 'string'
-        ? { id: body.id, payUrl: body.payUrl }
+      const body = (await response.json()) as { id?: unknown; payUrl?: unknown; fee?: unknown };
+      return typeof body.id === 'string' &&
+        typeof body.payUrl === 'string' &&
+        typeof body.fee === 'number' &&
+        Number.isInteger(body.fee) &&
+        body.fee >= 0
+        ? { id: body.id, payUrl: body.payUrl, fee: body.fee }
         : null;
     } catch {
       return null;

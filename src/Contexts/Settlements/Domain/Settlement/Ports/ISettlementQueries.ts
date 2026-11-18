@@ -1,5 +1,10 @@
 import { AuditEntry } from '@Contexts/Settlements/Domain/Settlement/AuditEntry';
-import { AdminLogEntry, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import {
+  AdminLogEntry,
+  FeeBorneBy,
+  SettlementFee,
+  SettlementStatus,
+} from '@Contexts/Settlements/Domain/Settlement/DTOs';
 
 /** A settlement as a member reads it: the fields the API answers. `payUrl` is the link of a settlement through the provider only. */
 export interface SettlementView {
@@ -12,6 +17,8 @@ export interface SettlementView {
   status: SettlementStatus;
   at: string;
   payUrl?: string;
+  /** The provider's fee and who bore it, for a settlement through the provider asked from request 38 on (request 38). */
+  fee?: SettlementFee;
   /** Every status the settlement has had, the earliest first, each with when Tally learned it (request 19). */
   history: { status: SettlementStatus; at: string }[];
 }
@@ -61,8 +68,13 @@ export interface ISettlementQueries {
   listGroupSettlements(groupId: string): Promise<SettlementView[]>;
   /** The audit entries of the group's settlements, in the order they were written (request 28). */
   auditOf(groupId: string): Promise<AuditEntry[]>;
-  /** Every settlement of the group the balances count, in the order they were recorded: paid, or refunding (the money has not gone back yet). */
+  /**
+   * Every settlement of the group the balances count, in the order they were recorded: paid, or refunding (the money has not gone back yet).
+   * The amount of each is what it settles (request 38), which is its amount when its payer bears none of the fee.
+   */
   paidIn(groupId: string): Promise<PaidSettlement[]>;
+  /** Who bears the group's provider fee: the owner's decision, or the payee when none was made (request 38). */
+  feePolicyOf(groupId: string): Promise<FeeBorneBy>;
   /**
    * Every settlement of the group the balances count (paid, or refunding), in the order they were recorded, each with when the
    * balances started to count it (request 29). The time is the one of its line of history that made it paid.

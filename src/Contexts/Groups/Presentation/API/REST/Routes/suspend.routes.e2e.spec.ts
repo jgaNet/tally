@@ -31,7 +31,9 @@ beforeAll(async () => {
       }
       issued.push(`pay_suspend_${issued.length + 1}`);
       res.writeHead(201, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ id: issued[issued.length - 1], payUrl: `https://provider.test/pay/${issued.length}` }));
+      res.end(
+        JSON.stringify({ id: issued[issued.length - 1], payUrl: `https://provider.test/pay/${issued.length}`, fee: 0 }),
+      );
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));

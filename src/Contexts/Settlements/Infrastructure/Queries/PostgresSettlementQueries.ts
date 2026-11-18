@@ -5,7 +5,7 @@ import {
   createSettlementTables,
   SettlementRow,
 } from '@Contexts/Settlements/Infrastructure/Repositories/PostgresSettlementBookRepository';
-import { AdminLogEntry, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import { AdminLogEntry, FeeBorneBy, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
   CountedSettlement,
   ISettlementQueries,
@@ -86,11 +86,20 @@ export class PostgresSettlementQueries implements ISettlementQueries {
   }
 
   async paidIn(groupId: string): Promise<PaidSettlement[]> {
-    const rows = await this.database.all<{ payer: string; payee: string; amount: number }>(
-      "SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND status IN ('paid', 'refunding') ORDER BY recorded_seq",
+    const rows = await this.database.all<{ payer: string; payee: string; settled: number }>(
+      `SELECT payer, payee, COALESCE(settled_amount, amount) AS settled FROM settlements
+        WHERE group_id = ? AND status IN ('paid', 'refunding') ORDER BY recorded_seq`,
       [groupId],
     );
-    return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
+    return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.settled }));
+  }
+
+  async feePolicyOf(groupId: string): Promise<FeeBorneBy> {
+    const row = await this.database.get<{ fee_borne_by: FeeBorneBy }>(
+      'SELECT fee_borne_by FROM settlement_books WHERE group_id = ?',
+      [groupId],
+    );
+    return row ? row.fee_borne_by : 'payee';
   }
 
   async countedIn(groupId: string): Promise<CountedSettlement[]> {
@@ -102,7 +111,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
       method: 'cash' | 'provider' | 'net';
       counted_at: string;
     }>(
-      `SELECT s.id, s.payer, s.payee, s.amount, s.method,
+      `SELECT s.id, s.payer, s.payee, COALESCE(s.settled_amount, s.amount) AS amount, s.method,
               COALESCE((SELECT h.at FROM settlement_history h
                          WHERE h.settlement_id = s.id AND h.status = 'paid' ORDER BY h.seq LIMIT 1), s.at) AS counted_at
          FROM settlements s
@@ -165,11 +174,12 @@ export class PostgresSettlementQueries implements ISettlementQueries {
   }
 
   async waitingIn(groupId: string): Promise<WaitingSettlement[]> {
-    const rows = await this.database.all<{ payer: string; payee: string; amount: number }>(
-      "SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'contested') ORDER BY recorded_seq",
+    const rows = await this.database.all<{ payer: string; payee: string; settled: number }>(
+      `SELECT payer, payee, COALESCE(settled_amount, amount) AS settled FROM settlements
+        WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'contested') ORDER BY recorded_seq`,
       [groupId],
     );
-    return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
+    return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.settled }));
   }
 }
 
@@ -187,5 +197,8 @@ function viewOf(row: SettlementRow, lines: HistoryRow[]): SettlementView {
     history: lines.map(line => ({ status: line.status, at: line.at })),
   };
   if (row.method === 'provider' && row.pay_url) view.payUrl = row.pay_url;
+  if (row.fee_borne_by && row.fee_amount !== null) {
+    view.fee = { amount: row.fee_amount, borneBy: row.fee_borne_by };
+  }
   return view;
 }

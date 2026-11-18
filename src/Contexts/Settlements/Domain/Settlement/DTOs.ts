@@ -11,13 +11,30 @@ export type SettlementMethod = 'cash' | 'provider' | 'net';
  */
 export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
 
+/** Who bears the provider's fee of a group's payments (request 38): the payer, the payee, or both, shared. */
+export type FeeBorneBy = 'payer' | 'payee' | 'shared';
+
+/** The provider's fee of a settlement through the provider, and who bore it, both fixed when the payment was asked for (request 38). */
+export interface SettlementFee {
+  amount: number;
+  borneBy: FeeBorneBy;
+}
+
 /** A settlement as a book records it: the id the domain generated, the group, the payer, the payee, the amount and when. */
 export interface ISettlementSnapshot {
   _id: string;
   groupId: string;
   from: string;
   to: string;
+  /** The amount asked for: what the payer pays the payee, and what the provider is asked for (request 13). */
   amount: number;
+  /**
+   * What the settlement settles: its amount less the part of the provider's fee its payer bears (request 38). What the balances
+   * count, what is still owed while it waits, and what the audit says; the amount when the payer bears none of the fee.
+   */
+  settled: number;
+  /** The provider's fee and who bore it, for a settlement through the provider asked from request 38 on; null otherwise. */
+  fee: SettlementFee | null;
   at: string;
   method: SettlementMethod;
   status: SettlementStatus;
@@ -29,10 +46,14 @@ export interface ISettlementSnapshot {
   contested: boolean;
 }
 
-/** The payment link the provider answers for a payment: its id at the provider and where the payer pays. */
+/**
+ * The payment link the provider answers for a payment: its id at the provider, where the payer pays, and the provider's fee in the
+ * hundredths of the payment's currency (request 38).
+ */
 export interface PaymentLink {
   id: string;
   payUrl: string;
+  fee: number;
 }
 
 /**
@@ -58,6 +79,8 @@ export interface ISettlementBookSnapshot {
   history: ISettlementStatusLine[];
   /** The settlements of a merged group the book took up since it was read: the store moves them to this group (request 31). */
   moved: ISettlementSnapshot[];
+  /** Who bears the group's provider fee, when the owner set it since the book was read: the store writes it (request 38). */
+  feeBorneBy: FeeBorneBy | null;
   /** The administrators' decisions made since the book was read, in the order they were made: the store appends them to the log (request 33). */
   decisions: AdminLogEntry[];
 }

@@ -27,7 +27,11 @@ function bookWithPendingPayment(groupId: string, paymentId: string): SettlementB
   const book = SettlementBook.open(groupId);
   const proposal = book.proposePayment(REQUEST, 'acct_ann');
   if (proposal.isFailure()) throw new Error('the payment should be decided');
-  const kept = book.keepPayment(proposal.data, { id: paymentId, payUrl: `https://provider.example/pay/${paymentId}` });
+  const kept = book.keepPayment(proposal.data, {
+    id: paymentId,
+    payUrl: `https://provider.example/pay/${paymentId}`,
+    fee: 0,
+  });
   if (kept.isFailure()) throw new Error('the payment should be kept');
   return book;
 }

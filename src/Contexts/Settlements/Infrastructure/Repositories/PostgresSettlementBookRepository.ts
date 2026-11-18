@@ -1,7 +1,12 @@
 import { ConcurrencyConflictException, IResult, Result } from '@Architecture/Domain';
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
-import { ISettlementSnapshot, SettlementMethod, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import {
+  FeeBorneBy,
+  ISettlementSnapshot,
+  SettlementMethod,
+  SettlementStatus,
+} from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 
@@ -18,6 +23,7 @@ export function createSettlementTables(database: PostgresDatabase): void {
       book_id TEXT NOT NULL,
       version INTEGER NOT NULL
     );
+    ALTER TABLE settlement_books ADD COLUMN IF NOT EXISTS fee_borne_by TEXT NOT NULL DEFAULT 'payee';
     CREATE TABLE IF NOT EXISTS settlements (
       id TEXT PRIMARY KEY,
       group_id TEXT NOT NULL,
@@ -31,6 +37,9 @@ export function createSettlementTables(database: PostgresDatabase): void {
       pay_url TEXT,
       recorded_seq INTEGER NOT NULL
     );
+    ALTER TABLE settlements ADD COLUMN IF NOT EXISTS settled_amount INTEGER;
+    ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_amount INTEGER;
+    ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_borne_by TEXT;
     CREATE INDEX IF NOT EXISTS settlements_by_group ON settlements (group_id);
     CREATE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id);
     CREATE TABLE IF NOT EXISTS settlement_history (
@@ -74,6 +83,11 @@ export interface SettlementRow {
   at: string;
   provider_payment_id: string | null;
   pay_url: string | null;
+  /** What the settlement settles (request 38); null for one recorded before it, which settles its amount. */
+  settled_amount: number | null;
+  /** The provider's fee and who bore it, for a settlement through the provider asked from request 38 on; null otherwise. */
+  fee_amount: number | null;
+  fee_borne_by: FeeBorneBy | null;
 }
 
 /** A settlement row, as the domain's snapshot of it. */
@@ -84,6 +98,8 @@ export function settlementOf(row: SettlementRow, contested = false): ISettlement
     from: row.payer,
     to: row.payee,
     amount: row.amount,
+    settled: row.settled_amount ?? row.amount,
+    fee: row.fee_borne_by && row.fee_amount !== null ? { amount: row.fee_amount, borneBy: row.fee_borne_by } : null,
     at: row.at,
     method: row.method,
     status: row.status,
@@ -105,10 +121,12 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
   }
 
   async findByGroupId(groupId: string): Promise<SettlementBook | null> {
-    const row = await this.database.get<{ book_id: string; group_id: string; version: number }>(
-      'SELECT book_id, group_id, version FROM settlement_books WHERE group_id = ?',
-      [groupId],
-    );
+    const row = await this.database.get<{
+      book_id: string;
+      group_id: string;
+      version: number;
+      fee_borne_by: FeeBorneBy;
+    }>('SELECT book_id, group_id, version, fee_borne_by FROM settlement_books WHERE group_id = ?', [groupId]);
     if (!row) return null;
 
     const settlements = await this.database.all<SettlementRow>(
@@ -131,6 +149,7 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
       groupId: row.group_id,
       version: row.version,
       settlements: settlements.map(settlement => settlementOf(settlement, contested.has(settlement.id))),
+      feeBorneBy: row.fee_borne_by,
     });
   }
 
@@ -154,14 +173,14 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
 
     if (snapshot.version === 0) {
       const inserted = await this.database.run(
-        'INSERT INTO settlement_books (group_id, book_id, version) VALUES (?, ?, 1) ON CONFLICT (group_id) DO NOTHING',
-        [snapshot.groupId, snapshot._id],
+        'INSERT INTO settlement_books (group_id, book_id, version, fee_borne_by) VALUES (?, ?, 1, ?) ON CONFLICT (group_id) DO NOTHING',
+        [snapshot.groupId, snapshot._id, snapshot.feeBorneBy ?? 'payee'],
       );
       if (inserted.changes === 0) return conflict(snapshot.groupId);
     } else {
       const moved = await this.database.run(
-        'UPDATE settlement_books SET version = version + 1 WHERE group_id = ? AND version = ?',
-        [snapshot.groupId, snapshot.version],
+        'UPDATE settlement_books SET version = version + 1, fee_borne_by = COALESCE(?, fee_borne_by) WHERE group_id = ? AND version = ?',
+        [snapshot.feeBorneBy, snapshot.groupId, snapshot.version],
       );
       if (moved.changes === 0) return conflict(snapshot.groupId);
     }
@@ -199,7 +218,7 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
 
   private async insertSettlement(settlement: ISettlementSnapshot): Promise<void> {
     await this.database.run(
-      'INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, at, provider_payment_id, pay_url, recorded_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM settlements))',
+      'INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by, recorded_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM settlements))',
       [
         settlement._id,
         settlement.groupId,
@@ -211,6 +230,9 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
         settlement.at,
         settlement.providerPaymentId,
         settlement.payUrl,
+        settlement.settled,
+        settlement.fee?.amount ?? null,
+        settlement.fee?.borneBy ?? null,
       ],
     );
   }

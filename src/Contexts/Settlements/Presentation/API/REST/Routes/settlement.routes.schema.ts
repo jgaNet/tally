@@ -61,6 +61,11 @@ const SettlementSchema = {
     status: { enum: ['paid', 'pending', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },
+    fee: {
+      type: 'object',
+      required: ['amount', 'borneBy'],
+      properties: { amount: { type: 'integer', minimum: 0 }, borneBy: { enum: ['payer', 'payee', 'shared'] } },
+    },
     history: { type: 'array', minItems: 1, items: StatusLineSchema },
   },
 } as const;
@@ -222,6 +227,40 @@ const NettingSchema = {
 
 export const GetNettingResSchema = {
   200: NettingSchema,
+  401: RefusalSchema,
+  404: RefusalSchema,
+} as const;
+
+/** Who bears the group's provider fee, as the owner decides it (request 38). */
+export const FeePolicySchema = {
+  type: 'object',
+  required: ['borneBy'],
+  properties: { borneBy: { enum: ['payer', 'payee', 'shared'] } },
+} as const;
+
+/** The body of the owner's decision: who bears the fee. Whether the value is one of the three is the domain's to decide (request 38). */
+export interface SetFeePolicyBody {
+  borneBy: string;
+}
+
+export const SetFeePolicyReqBodySchema = {
+  type: 'object',
+  required: ['borneBy'],
+  properties: { borneBy: { type: 'string' } },
+} as const;
+
+export const SetFeePolicyResSchema = {
+  201: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+  202: { type: 'object', required: ['operationId'], properties: { operationId: { type: 'string' } } },
+  400: RefusalSchema,
+  401: RefusalSchema,
+  403: RefusalSchema,
+  404: RefusalSchema,
+  409: RefusalSchema,
+} as const;
+
+export const GetFeePolicyResSchema = {
+  200: FeePolicySchema,
   401: RefusalSchema,
   404: RefusalSchema,
 } as const;

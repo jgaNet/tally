@@ -99,3 +99,14 @@ export class SettlementNotContestedException extends Exception {
     });
   }
 }
+
+/** The provider's fee is borne by the payer, the payee or shared, and no other (request 38). */
+export class InvalidFeePolicyException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'InvalidFeePolicy',
+      message: 'The fee is borne by the payer, the payee or shared',
+    });
+  }
+}

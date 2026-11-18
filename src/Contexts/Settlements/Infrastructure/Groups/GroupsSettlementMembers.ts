@@ -17,6 +17,11 @@ export class GroupsSettlementMembers implements ISettlementMembers {
     return members ? members.map(({ memberId }) => ({ memberId })) : null;
   }
 
+  async ownerOf(groupId: string, askedBy: string): Promise<string | null> {
+    const group = await this.groups.findGroupOf(askedBy, groupId);
+    return group ? group.ownerId : null;
+  }
+
   async currencyOf(groupId: string, askedBy: string): Promise<string | null> {
     const group = await this.groups.findGroupOf(askedBy, groupId);
     return group ? group.currency : null;

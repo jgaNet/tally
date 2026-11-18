@@ -35,10 +35,11 @@ beforeAll(async () => {
     const chunks: Buffer[] = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => {
+      if (mode === 'fail') return void res.writeHead(500).end();
+      // The store keeps what it receives at once; a slow store only answers late, so nothing is kept after its test has ended.
+      stored.push({ contentType: req.headers['content-type'], bytes: Buffer.concat(chunks) });
+      const id = String(stored.length);
       const answered = () => {
-        if (mode === 'fail') return void res.writeHead(500).end();
-        stored.push({ contentType: req.headers['content-type'], bytes: Buffer.concat(chunks) });
-        const id = String(stored.length);
         res.writeHead(201, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ id, url: `${storeUrl}/files/${id}` }));
       };

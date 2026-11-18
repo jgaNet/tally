@@ -10,6 +10,7 @@ import {
   DecideContestReqBodySchema,
   DecideContestResSchema,
   GetContestsResSchema,
+  GetFeePolicyResSchema,
   GetGroupSettlementsResSchema,
   GetNettingResSchema,
   GetPayoutAccountResSchema,
@@ -28,6 +29,9 @@ import {
   RecordCashSettlementReqBodySchema,
   RecordCashSettlementResSchema,
   RefundSettlementResSchema,
+  SetFeePolicyBody,
+  SetFeePolicyReqBodySchema,
+  SetFeePolicyResSchema,
   SetPayoutAccountBody,
   SetPayoutAccountReqBodySchema,
   SetPayoutAccountResSchema,
@@ -142,6 +146,18 @@ export const settlementRoutes = function (
     '/accounts/me/payout-account',
     { schema: { tags, response: GetPayoutAccountResSchema } },
     controller.getPayoutAccount.bind(controller),
+  );
+
+  fastify.put<{ Params: { id: string }; Body: SetFeePolicyBody }>(
+    '/groups/:id/fee-policy',
+    { schema: { tags, body: SetFeePolicyReqBodySchema, response: SetFeePolicyResSchema } },
+    controller.setFeePolicy.bind(controller),
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    '/groups/:id/fee-policy',
+    { schema: { tags, response: GetFeePolicyResSchema } },
+    controller.getFeePolicy.bind(controller),
   );
 
   fastify.get<{ Params: { id: string } }>(

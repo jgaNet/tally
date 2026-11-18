@@ -36,6 +36,8 @@ describe('SettlementBook', () => {
       from: BOB,
       to: ANN,
       amount: 30,
+      settled: 30,
+      fee: null,
       at: '2026-11-17T10:00:00.000Z',
       method: 'cash',
       status: 'paid',
@@ -95,7 +97,7 @@ describe('SettlementBook', () => {
   });
 });
 
-const PAYMENT_LINK = { id: 'pay_1', payUrl: 'https://provider.example/pay/pay_1' };
+const PAYMENT_LINK = { id: 'pay_1', payUrl: 'https://provider.example/pay/pay_1', fee: 0 };
 const PAYEE_ACCOUNT = 'acct_ann';
 const proposePayment = (
   book: SettlementBook,
@@ -145,6 +147,8 @@ describe('SettlementBook, a payment through the provider (request 13)', () => {
       from: BOB,
       to: ANN,
       amount: 30,
+      settled: 30,
+      fee: { amount: 0, borneBy: 'payee' },
       at: '2026-11-17T10:00:00.000Z',
       method: 'provider',
       status: 'pending',
@@ -162,7 +166,11 @@ describe('SettlementBook, a payment through the provider (request 13)', () => {
   });
 
   it('keeps nothing, and is ProviderUnavailable, when the provider gave no link or a link that is not one', () => {
-    for (const link of [null, { id: '', payUrl: 'https://provider.example/pay' }, { id: 'pay_1', payUrl: '' }]) {
+    for (const link of [
+      null,
+      { id: '', payUrl: 'https://provider.example/pay', fee: 0 },
+      { id: 'pay_1', payUrl: '', fee: 0 },
+    ]) {
       const book = SettlementBook.open('group-1');
       const proposal = proposePayment(book);
       if (proposal.isFailure()) throw new Error('the proposal should be decided');
@@ -514,5 +522,61 @@ describe('SettlementBook, a contested settlement (request 33)', () => {
 
     book.decideContest({ settlementId, paid: false, administrator: 'root' }, LATER);
     expect(book.payable({ payer: BOB, payee: ANN, balances: BALANCES })).toBe(30);
+  });
+});
+
+describe('who bears the provider’s fee (request 38)', () => {
+  const OWNER_BALANCES = [
+    { memberId: BOB, balance: -300 },
+    { memberId: ANN, balance: 300 },
+  ];
+
+  it('is the payee until the owner decides, and only the owner decides it', () => {
+    const book = SettlementBook.open('group-1');
+    expect(book.feeBorneBy).toBe('payee');
+    expect(book.setFeePolicy({ borneBy: 'payer', asker: BOB, owner: ANN }).isFailure()).toBe(true);
+    expect(book.setFeePolicy({ borneBy: 'nobody', asker: ANN, owner: ANN }).isFailure()).toBe(true);
+    expect(book.setFeePolicy({ borneBy: 'shared', asker: ANN, owner: ANN }).isSuccess()).toBe(true);
+    expect(book.feeBorneBy).toBe('shared');
+    expect(book.pullDomainEvents().map(event => event.name)).toEqual(['FeePolicySetEvent']);
+  });
+
+  it('settles the shared fee with the payee bearing the extra hundredth: Bob bears 15 of a fee of 31, and it settles 285', () => {
+    const book = SettlementBook.open('group-1');
+    expect(book.setFeePolicy({ borneBy: 'shared', asker: ANN, owner: ANN }).isSuccess()).toBe(true);
+    const proposal = proposePayment(book, { amount: 300, balances: OWNER_BALANCES });
+    if (proposal.isFailure()) throw new Error('the proposal should be decided');
+
+    const kept = book.keepPayment(proposal.data, { ...PAYMENT_LINK, fee: 31 });
+    expect(kept.isSuccess() && kept.data).toMatchObject({
+      amount: 300,
+      settled: 285,
+      fee: { amount: 31, borneBy: 'shared' },
+    });
+  });
+
+  it('settles the whole amount when the payee bears the fee, and the amount less the fee when the payer does', () => {
+    const payeeBook = SettlementBook.open('group-1');
+    const payeeProposal = proposePayment(payeeBook, { amount: 300, balances: OWNER_BALANCES });
+    if (payeeProposal.isFailure()) throw new Error('the proposal should be decided');
+    expect(payeeBook.keepPayment(payeeProposal.data, { ...PAYMENT_LINK, fee: 31 })).toMatchObject({
+      data: { settled: 300, fee: { borneBy: 'payee' } },
+    });
+
+    const payerBook = SettlementBook.open('group-1');
+    payerBook.setFeePolicy({ borneBy: 'payer', asker: ANN, owner: ANN });
+    const payerProposal = proposePayment(payerBook, { amount: 300, balances: OWNER_BALANCES });
+    if (payerProposal.isFailure()) throw new Error('the proposal should be decided');
+    expect(payerBook.keepPayment(payerProposal.data, { ...PAYMENT_LINK, fee: 31 })).toMatchObject({
+      data: { settled: 269, fee: { amount: 31, borneBy: 'payer' } },
+    });
+  });
+
+  it('refuses a fee that is not less than the amount, and keeps nothing', () => {
+    const book = SettlementBook.open('group-1');
+    const proposal = proposePayment(book);
+    if (proposal.isFailure()) throw new Error('the proposal should be decided');
+    expect(book.keepPayment(proposal.data, { ...PAYMENT_LINK, fee: 30 }).isFailure()).toBe(true);
+    expect(book.pullDomainEvents()).toEqual([]);
   });
 });

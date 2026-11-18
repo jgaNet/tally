@@ -8,6 +8,7 @@ import { GroupsMergedIntegrationEventHandler } from '@Contexts/Settlements/Appli
 import { groupQueries } from '@Contexts/Groups/module.local';
 import {
   GetContestsQueryHandler,
+  GetFeePolicyQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetPayoutAccountQueryHandler,
@@ -29,6 +30,8 @@ import {
   RecordCashSettlementCommandHandler,
   RefundSettlementCommandEvent,
   RefundSettlementCommandHandler,
+  SetFeePolicyCommandEvent,
+  SetFeePolicyCommandHandler,
   SetPayoutAccountCommandEvent,
   SetPayoutAccountCommandHandler,
 } from '@Contexts/Settlements/Application/Commands';
@@ -113,6 +116,10 @@ export const localSettlementsModule = new Module({
       event: SetPayoutAccountCommandEvent,
       handlers: [new SetPayoutAccountCommandHandler(payoutAccounts, paymentProvider)],
     },
+    {
+      event: SetFeePolicyCommandEvent,
+      handlers: [new SetFeePolicyCommandHandler(settlementMembers, books)],
+    },
   ],
   integrationEvents: [
     {
@@ -127,5 +134,6 @@ export const localSettlementsModule = new Module({
     new GetPayoutAccountQueryHandler(payoutAccountQueries),
     new GetNettingQueryHandler(nettingQueries),
     new GetContestsQueryHandler(settlementQueries),
+    new GetFeePolicyQueryHandler(settlementQueries, settlementMembers),
   ],
 });

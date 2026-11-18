@@ -7,6 +7,7 @@ import { acceptCommandAtOnce, notAllowedStatus } from '@Architecture/Presentatio
 import {
   ContestSettlementCommandEvent,
   DecideContestCommandEvent,
+  SetFeePolicyCommandEvent,
   NetDebtsCommandEvent,
   PayThroughProviderCommandEvent,
   RecordCashSettlementCommandEvent,
@@ -16,6 +17,7 @@ import {
 import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook/ReceivePaymentWebhookCommandEvent';
 import {
   GetContestsQueryHandler,
+  GetFeePolicyQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetPayoutAccountQueryHandler,
@@ -28,6 +30,7 @@ import {
   PayThroughProviderBody,
   ProviderWebhookBody,
   RecordCashSettlementBody,
+  SetFeePolicyBody,
   SetPayoutAccountBody,
 } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
 
@@ -137,6 +140,24 @@ export class FastifySettlementController {
     const result = await this.#module
       .getQuery(GetNettingQueryHandler)
       .handle({ id: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  /** The owner of the group decides who bears its provider's fee, asked at once (request 38). */
+  setFeePolicy(req: FastifyRequest<{ Params: { id: string }; Body: SetFeePolicyBody }>, reply: FastifyReply) {
+    return acceptCommandAtOnce(
+      req,
+      reply,
+      this.#module,
+      SetFeePolicyCommandEvent.set({ groupId: req.params.id, borneBy: req.body.borneBy }),
+    );
+  }
+
+  async getFeePolicy(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetFeePolicyQueryHandler)
+      .handle({ groupId: req.params.id }, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }
