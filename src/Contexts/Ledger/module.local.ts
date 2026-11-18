@@ -18,6 +18,14 @@ import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/Expe
 import { ExpenseBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseBudgetHandler';
 import { BudgetPassedHandler } from '@Contexts/Ledger/Application/Events/BudgetPassedHandler';
 import { getGroupBudgets, removeBudget, setBudget } from '@Contexts/Ledger/Application/Budgets';
+import {
+  getGroupTemplates,
+  removeTemplate,
+  replaceTemplate,
+  saveTemplate,
+} from '@Contexts/Ledger/Application/SplitTemplates';
+import { SqliteSplitTemplateQueries } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateQueries';
+import { SqliteSplitTemplates } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplates';
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Events/BudgetEvents';
 import { ExpenseEditedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { SqliteBudgetQueries } from '@Contexts/Ledger/Infrastructure/SqliteBudgetQueries';
@@ -62,14 +70,17 @@ const recordDay = recordRecurringDay(recurring, groupMembers, systemClock);
 const budgets = new SqliteBudgets(sharedDatabase);
 const budgetQueries = new SqliteBudgetQueries(sharedDatabase);
 const spending = new SqliteMonthlySpending(sharedDatabase);
+// The split templates (request 25, docs/adr/0024): their own table; an expense split by one reads it inside its own transaction.
+const templates = new SqliteSplitTemplates(sharedDatabase);
+const templateQueries = new SqliteSplitTemplateQueries(sharedDatabase);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
   useCases: [
-    recordExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
+    recordExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock, templates),
     getExpense(expenseQueries, groupMembers),
     getGroupBalances(expenseQueries, groupMembers),
-    editExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
+    editExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock, templates),
     deleteExpense(expenses, groupMembers),
     getGroupExpenses(expenseQueries, groupMembers),
     getMemberStatement(expenseQueries, groupMembers),
@@ -82,6 +93,10 @@ export const localLedgerModule = new LiteModule({
     setBudget(budgets, groupMembers),
     removeBudget(budgets, groupMembers),
     getGroupBudgets(budgetQueries, groupMembers, systemClock),
+    saveTemplate(templates, groupMembers),
+    replaceTemplate(templates, groupMembers),
+    removeTemplate(templates, groupMembers),
+    getGroupTemplates(templateQueries, groupMembers),
   ],
   domainEvents: [
     // An expense recorded is told to the other contexts as the published fact (request 17, docs/adr/0017), and may pass its month's budget (request 24).

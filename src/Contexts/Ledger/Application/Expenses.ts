@@ -12,6 +12,8 @@ import { dayOf, Expense, isRealDay } from '@Contexts/Ledger/Domain/Expense/Expen
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 import { RateView, StatementView } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { CURRENCIES, CurrencyCode } from '@SharedKernel/Domain/Currency';
+import { ISplitTemplates } from '@Contexts/Ledger/Domain/SplitTemplate/Ports/ISplitTemplates';
+import { splitGiven } from '@Contexts/Ledger/Application/SplitTemplates';
 
 /** What a member asks to record: the group, and the expense as the member gives it, with how it is split. */
 export interface RecordExpenseInput {
@@ -22,7 +24,10 @@ export interface RecordExpenseInput {
   /** What was paid in another currency, at the rate the payer states or, left out, the rate offered on the date (request 22). */
   original?: OriginalAmountInput;
   date: string;
-  split: SplitInput;
+  /** How it is split, as given (request 4, request 7): exactly one of this and `template`. */
+  split?: SplitInput;
+  /** The template whose split it takes, in place of `split` (request 25): one of the group's templates. */
+  template?: string;
   /** What the expense is for (request 24): one of the categories, `other` when none is given. */
   category?: string;
 }
@@ -66,13 +71,19 @@ export const recordExpense = command(
     groupCurrency: IGroupCurrency,
     offeredRates: IOfferedRates,
     clock: Clock,
+    templates: ISplitTemplates,
   ) =>
-    async ({ groupId, description, amount, original, date, split, category }: RecordExpenseInput, context) => {
+    async (
+      { groupId, description, amount, original, date, split, template, category }: RecordExpenseInput,
+      context,
+    ) => {
       const paidBy = callerOf(context);
       const members = await groupMembers.membersOf(paidBy, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
       const money = await amountGiven(groupCurrency, offeredRates, paidBy, groupId, date, { amount, original });
       if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+      const chosen = await splitGiven(templates, groupId, { split, template });
+      if (chosen.isFailure()) return chosen;
 
       const expense = Expense.register({
         groupId,
@@ -80,7 +91,7 @@ export const recordExpense = command(
         ...money,
         date,
         paidBy,
-        split,
+        split: chosen.data,
         category,
         members: members.map(member => member.memberId),
         at: clock(),
@@ -115,7 +126,10 @@ export interface EditExpenseInput {
   amount?: number;
   original?: OriginalAmountInput;
   date: string;
-  split: SplitInput;
+  /** How it is split, as given (request 4, request 7): exactly one of this and `template`. */
+  split?: SplitInput;
+  /** The template whose split it takes, in place of `split` (request 25): one of the group's templates. */
+  template?: string;
   /** What the expense is for (request 24): left out, it is `other`, as the expense is given whole. */
   category?: string;
   version: number;
@@ -134,8 +148,12 @@ export const editExpense = command(
     groupCurrency: IGroupCurrency,
     offeredRates: IOfferedRates,
     clock: Clock,
+    templates: ISplitTemplates,
   ) =>
-    async ({ id, description, amount, original, date, split, version, category }: EditExpenseInput, context) => {
+    async (
+      { id, description, amount, original, date, split, template, version, category }: EditExpenseInput,
+      context,
+    ) => {
       const by = callerOf(context);
       const stored = await expenses.get(id);
       if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
@@ -144,7 +162,19 @@ export const editExpense = command(
 
       const money = await amountGiven(groupCurrency, offeredRates, by, stored.groupId, date, { amount, original });
       if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
-      const edited = stored.edit({ by, members, version, description, date, split, category, at: clock(), ...money });
+      const chosen = await splitGiven(templates, stored.groupId, { split, template });
+      if (chosen.isFailure()) return chosen;
+      const edited = stored.edit({
+        by,
+        members,
+        version,
+        description,
+        date,
+        split: chosen.data,
+        category,
+        at: clock(),
+        ...money,
+      });
       if (edited.isFailure()) return edited;
       const saved = await expenses.save(edited.data);
       if (saved.isFailure()) return saved;

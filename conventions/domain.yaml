@@ -75,6 +75,8 @@ contexts:
         meaning: what a member owes, or is owed, in a group, read from the expenses' shares and payers.
       - term: Budget
         meaning: a group's monthly amount for one expense category, set by its owner; a month that spends more than it is told once (request 24, docs/adr/0023).
+      - term: SplitTemplate
+        meaning: a split saved under a name by a member of a group, which an expense is split by in place of its own, as if it had been given; the expense keeps its shares (request 25, docs/adr/0024).
   - id: Settlements
     purpose: >-
       Settling up between members: the settlements of each group decided in one book, in cash or through the payment

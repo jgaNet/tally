@@ -43,6 +43,15 @@ export const splitBody = {
 };
 
 /**
+ * The split an expense's body gives (request 25): one of the three, or the `template` it is split by in place of them. The body says
+ * exactly one of the four (`oneOf`: none or more than one is the wrong shape, `400`).
+ */
+const splitOrTemplateBody = {
+  properties: { ...splitBody.properties, template: { type: 'string' } },
+  oneOf: [...splitBody.oneOf, { required: ['template'] }],
+};
+
+/**
  * What was paid in another currency, as a body gives it (request 21): its currency, its amount in hundredths and its rate as a
  * string. The rate may be left out, and the expense then takes the rate offered on its date (request 22). The shape only: whether
  * the currency is one of Tally's, the amount in range and the rate a decimal are the domain's.
@@ -71,9 +80,9 @@ const recordExpenseBody = {
     date: { type: 'string' },
     category: { type: 'string' },
     ...amountBody.properties,
-    ...splitBody.properties,
+    ...splitOrTemplateBody.properties,
   },
-  allOf: [{ oneOf: amountBody.oneOf }, { oneOf: splitBody.oneOf }],
+  allOf: [{ oneOf: amountBody.oneOf }, { oneOf: splitOrTemplateBody.oneOf }],
 };
 
 /** An edit says the whole expense and the version it was read at (request 6): the shape only, as the record's body. */
@@ -86,9 +95,9 @@ const editExpenseBody = {
     category: { type: 'string' },
     version: { type: 'integer' },
     ...amountBody.properties,
-    ...splitBody.properties,
+    ...splitOrTemplateBody.properties,
   },
-  allOf: [{ oneOf: amountBody.oneOf }, { oneOf: splitBody.oneOf }],
+  allOf: [{ oneOf: amountBody.oneOf }, { oneOf: splitOrTemplateBody.oneOf }],
 };
 
 /** The amount a body gives, as the transport has checked it: `amount`, or `original`, exactly one (request 21). */
@@ -117,7 +126,7 @@ export interface SplitBody {
 export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fastify, { module }, done) => {
   fastify.post<{
     Params: { id: string };
-    Body: SplitBody & AmountBody & { description: string; date: string; category?: string };
+    Body: SplitBody & AmountBody & { description: string; date: string; category?: string; template?: string };
   }>('/groups/:id/expenses', { schema: { body: recordExpenseBody, tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(
       req,
@@ -129,7 +138,8 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         amount: req.body.amount,
         original: req.body.original,
         date: req.body.date,
-        split: splitOf(req.body),
+        split: req.body.template === undefined ? splitOf(req.body) : undefined,
+        template: req.body.template,
         category: req.body.category,
       },
       { created: true },
@@ -142,7 +152,14 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.put<{
     Params: { id: string };
-    Body: SplitBody & AmountBody & { description: string; date: string; version: number; category?: string };
+    Body: SplitBody &
+      AmountBody & {
+        description: string;
+        date: string;
+        version: number;
+        category?: string;
+        template?: string;
+      };
   }>('/expenses/:id', { schema: { body: editExpenseBody, tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(editExpense), {
       id: req.params.id,
@@ -151,7 +168,8 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
       original: req.body.original,
       date: req.body.date,
       version: req.body.version,
-      split: splitOf(req.body),
+      split: req.body.template === undefined ? splitOf(req.body) : undefined,
+      template: req.body.template,
       category: req.body.category,
     }),
   );
