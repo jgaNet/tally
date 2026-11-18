@@ -40,7 +40,7 @@ export const setUpRecurringExpense = command(
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
 
         const decision = decideSetUpRecurringExpense(
-          { memberIds: memberIdsOf(members) },
+          { memberIds: memberIdsOf(members), archived: await groupMembers.archivedOf(groupId) },
           { description, amount, startsOn, split, payer, category },
           clock(),
         );
@@ -79,7 +79,11 @@ export const stopRecurringExpense = command(
         const members = await groupMembers.membersOf(groupId, by);
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No recurring expense is found'));
 
-        const decision = decideStopRecurringExpense({ paidBy, ownerId: ownerIdOf(members) }, { by }, clock());
+        const decision = decideStopRecurringExpense(
+          { paidBy, ownerId: ownerIdOf(members), archived: await groupMembers.archivedOf(groupId) },
+          { by },
+          clock(),
+        );
         if (decision.isFailure()) return decision;
 
         stored.stop();
@@ -138,7 +142,11 @@ export const sweepRecurringExpenses = command(
           const snapshot = stored.toSnapshot();
           const members = await groupMembers.membersOf(snapshot.groupId, snapshot.paidBy);
           const decision = decideSweepRecurringExpense(
-            { recurring: snapshot, memberIds: members && memberIdsOf(members) },
+            {
+              recurring: snapshot,
+              memberIds: members && memberIdsOf(members),
+              archived: await groupMembers.archivedOf(snapshot.groupId),
+            },
             undefined,
             now,
           );

@@ -1,5 +1,6 @@
 import { Exception, Id, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import type { SettlementMethod, SettlementStatus } from './SettlementBook';
 import {
@@ -38,6 +39,8 @@ export interface RequestProviderPaymentCommand {
 export interface SettlementGiven {
   memberIds: readonly string[];
   balances: ReadonlyMap<string, number>;
+  /** Whether the group is archived (request 27): then no settlement is recorded, asked for or refunded in it. */
+  archived: boolean;
 }
 
 /** The values of a settlement once they are allowed: who paid whom, how much. */
@@ -71,9 +74,10 @@ export interface NewProviderPaymentValues extends NewSettlementValues {
  * refusal, or none.
  */
 function refuseSettlement(
-  { memberIds, balances }: SettlementGiven,
+  { memberIds, balances, archived }: SettlementGiven,
   { from, to, amount }: NewSettlementValues,
 ): Exception | undefined {
+  if (archived) return new GroupArchivedException();
   if (!memberIds.includes(from)) return new SettlementPayerNotMemberException();
   if (!memberIds.includes(to)) return new SettlementPayeeNotMemberException();
   if (from === to) return new SettlementToSelfException();
@@ -150,6 +154,8 @@ export interface RefundedSettlementFacts {
 export interface RefundGiven {
   memberIds: readonly string[];
   settlement: RefundedSettlementFacts;
+  /** Whether the group is archived (request 27): then no settlement is refunded in it. */
+  archived: boolean;
 }
 
 /**
@@ -159,9 +165,10 @@ export interface RefundGiven {
  * asks the provider to refund the payment, then the book moves it to refunding.
  */
 export const decideRefundSettlement: Decision<{ id: string }, RefundSettlementCommand, never, RefundGiven> = (
-  { memberIds, settlement },
+  { memberIds, settlement, archived },
   { caller },
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   if (settlement.to !== caller)
     return Result.fail(new NotAllowedException('Settlements', 'Only the payee may refund the settlement'));
   if (settlement.method !== 'provider') return Result.fail(new SettlementNotThroughProviderException());

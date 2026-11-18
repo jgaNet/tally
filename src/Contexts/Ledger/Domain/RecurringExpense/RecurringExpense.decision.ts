@@ -1,5 +1,6 @@
 import { NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { ExpenseAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { categoryOf, ExpenseCategory } from '@Contexts/Ledger/Domain/Expense/ExpenseCategory';
@@ -24,6 +25,8 @@ export interface SetUpRecurringExpenseCommand {
 /** The members of the group, as the caller may see them: every split member must be one of them. */
 export interface SetUpFacts {
   memberIds: readonly string[];
+  /** Whether the group is archived (request 27): then no recurring expense is set up in it. */
+  archived: boolean;
 }
 
 /** The values a recurring expense is set up with, once they are allowed: the split is kept as it was given. */
@@ -42,10 +45,11 @@ export interface SetUpValues {
  * are all members of the group, each listed once, the payer among them (the same rules as an expense's, request 4 and request 7).
  */
 export const decideSetUpRecurringExpense: Decision<SetUpValues, SetUpRecurringExpenseCommand, never, SetUpFacts> = (
-  { memberIds },
+  { memberIds, archived },
   command,
   now,
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   const description = ExpenseDescription.create(command.description);
   if (description.isFailure()) return description;
   const amount = ExpenseAmount.create(command.amount);
@@ -75,6 +79,8 @@ export interface SweepGiven {
   recurring: RecurringExpenseSnapshot;
   /** The members of the group, `undefined` when its payer is not one of them (or the group is not there). */
   memberIds: readonly string[] | undefined;
+  /** Whether the group is archived (request 27): then the background job records nothing in it, and leaves the recurring expense as it is. */
+  archived: boolean;
 }
 
 /** What a run decides: the recurring expense has ended, or the days it falls on up to today, each of which records an expense. */
@@ -86,10 +92,11 @@ export type SweepOutcome = { kind: 'ended' } | { kind: 'due'; days: string[] };
  * from its next day on, is a day that came. A run that finds nothing due decides nothing.
  */
 export const decideSweepRecurringExpense: Decision<SweepOutcome, undefined, never, SweepGiven> = (
-  { recurring, memberIds },
+  { recurring, memberIds, archived },
   _command,
   now,
 ) => {
+  if (archived) return decided({ kind: 'due', days: [] });
   const concerned = [recurring.paidBy, ...memberIdsOfSplit(recurring.split)];
   if (memberIds === undefined || !concerned.every(member => memberIds.includes(member))) {
     return decided({ kind: 'ended' });
@@ -106,13 +113,16 @@ export interface StopRecurringExpenseCommand {
 export interface StopGiven {
   paidBy: string;
   ownerId: string;
+  /** Whether the group is archived (request 27): then no recurring expense is stopped in it. */
+  archived: boolean;
 }
 
 /** Stopping a recurring expense (request 23): by its payer or the group's owner; any other member is refused. */
 export const decideStopRecurringExpense: Decision<undefined, StopRecurringExpenseCommand, never, StopGiven> = (
-  { paidBy, ownerId },
+  { paidBy, ownerId, archived },
   { by },
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   if (by !== paidBy && by !== ownerId) {
     return Result.fail(
       new NotAllowedException('Ledger', "Only the recurring expense's payer or the group's owner may stop it"),

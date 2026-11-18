@@ -5,10 +5,18 @@ import { GroupView, IGroupQueries, MemberView, PassView } from '@Contexts/Groups
 
 import { GroupsDatabase } from './GroupsDatabase';
 
-type GroupRow = { id: string; name: string; currency: string; owner_id: string; created_at: string; version: number };
+type GroupRow = {
+  id: string;
+  name: string;
+  currency: string;
+  owner_id: string;
+  created_at: string;
+  version: number;
+  archived_at: string | null;
+};
 type MemberRow = { account_id: string; joined_at: string };
 
-const GROUP_COLUMNS = 'g.id, g.name, g.currency, g.owner_id';
+const GROUP_COLUMNS = 'g.id, g.name, g.currency, g.owner_id, g.archived_at';
 const MEMBER_OF_GROUP = 'JOIN expense_group_members m ON m.group_id = g.id';
 /**
  * When a member joined. A membership an older build wrote, while a server of it still shares the file, carries no time:
@@ -16,11 +24,12 @@ const MEMBER_OF_GROUP = 'JOIN expense_group_members m ON m.group_id = g.id';
  */
 const JOINED_AT = "COALESCE(NULLIF(m.joined_at, ''), g.created_at)";
 
-const viewOf = (row: Pick<GroupRow, 'id' | 'name' | 'currency' | 'owner_id'>): GroupView => ({
+const viewOf = (row: Pick<GroupRow, 'id' | 'name' | 'currency' | 'owner_id' | 'archived_at'>): GroupView => ({
   id: row.id,
   name: row.name,
   currency: row.currency,
   ownerId: row.owner_id,
+  ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
 });
 
 /**
@@ -50,7 +59,7 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
   async get(id: string): Promise<Group | undefined> {
     const connection = this.database.connection;
     const row = connection
-      .prepare('SELECT id, name, currency, owner_id, created_at, version FROM expense_groups WHERE id = ?')
+      .prepare('SELECT id, name, currency, owner_id, created_at, version, archived_at FROM expense_groups WHERE id = ?')
       .get(id) as GroupRow | undefined;
     if (!row) return undefined;
     const members = connection
@@ -69,17 +78,18 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
       createdAt: row.created_at,
       members: members.map(member => ({ accountId: member.account_id, joinedAt: member.joined_at })),
       version: row.version,
+      ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
     };
     return Group.fromSnapshot(snapshot);
   }
 
   async save(group: Group): Promise<void> {
-    const { id, members } = group.toSnapshot();
+    const { id, members, archivedAt } = group.toSnapshot();
     await this.database.file.transaction(() => {
       const connection = this.database.connection;
       const updated = connection
-        .prepare('UPDATE expense_groups SET version = ? WHERE id = ? AND version = ?')
-        .run(group.version + 1, id, group.version);
+        .prepare('UPDATE expense_groups SET version = ?, archived_at = ? WHERE id = ? AND version = ?')
+        .run(group.version + 1, archivedAt ?? null, id, group.version);
       if (updated.changes !== 1) {
         throw new ConcurrencyConflictException('Groups', 'The group changed since it was read');
       }
@@ -97,6 +107,12 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
       );
       for (const { from, to, amount, at } of group.newPasses) pass.run(id, from, to, amount, at.toISOString());
     });
+  }
+
+  async archivedOf(groupId: string): Promise<boolean> {
+    const row = this.database.connection.prepare('SELECT archived_at FROM expense_groups WHERE id = ?').get(groupId) as
+      { archived_at: string | null } | undefined;
+    return Boolean(row?.archived_at);
   }
 
   async passesOf(groupId: string): Promise<PassView[]> {

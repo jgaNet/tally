@@ -22,7 +22,7 @@ const newDatabasePath = () => join(mkdtempSync(join(tmpdir(), 'tally-ledger-stor
 /** A recorded expense of 1000 paid by Ada, split between the three, as Ledger stores it. */
 function recorded(): Expense {
   const decision = decideRecordExpense(
-    { memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE },
+    { archived: false, memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE },
     {
       description: 'Groceries',
       amount: 1000,
@@ -61,6 +61,7 @@ describe('saving an expense over a newer version of it (CONC-OPTIMISTIC, feature
     const givenTo = (edited: Expense, amount: number) =>
       decideEditExpense(
         {
+          archived: false,
           expense: edited.toSnapshot(),
           memberIds: [ada, grace, linus],
           ownerId: ada,
@@ -103,6 +104,7 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
     const edited = (await store.get(expense._id.value))!;
     const decision = decideEditExpense(
       {
+        archived: false,
         expense: edited.toSnapshot(),
         memberIds: [ada, grace, linus],
         ownerId: ada,
@@ -149,6 +151,7 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
     readForEdit.revise(
       decideEditExpense(
         {
+          archived: false,
           expense: readForEdit.toSnapshot(),
           memberIds: [ada, grace, linus],
           ownerId: ada,

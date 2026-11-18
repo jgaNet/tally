@@ -7,7 +7,7 @@ const ada = 'ada';
 const grace = 'grace';
 const linus = 'linus';
 const now = new Date('2026-11-17T10:00:00Z');
-const facts = { memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE };
+const facts = { archived: false, memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE };
 
 const record = (overrides: Partial<RecordExpenseCommand> = {}): RecordExpenseCommand =>
   ({
@@ -82,6 +82,7 @@ describe('editing an expense paid in another currency (request 21)', () => {
       version: 1,
     };
     const access = {
+      archived: false,
       expense: snapshot,
       memberIds: facts.memberIds,
       ownerId: grace,

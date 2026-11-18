@@ -25,6 +25,7 @@ const stored: ExpenseSnapshot = {
   version: 1,
 };
 const access = {
+  archived: false,
   expense: stored,
   memberIds: [payer, owner, other],
   ownerId: owner,

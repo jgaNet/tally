@@ -1,5 +1,6 @@
 import { IResult, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import {
   InvalidSplitSharesException,
@@ -34,6 +35,8 @@ export interface SaveTemplateCommand {
 export interface SaveTemplateAccess {
   memberIds: readonly string[];
   nameTaken: boolean;
+  /** Whether the group is archived (request 27): then no template is saved, replaced or removed in it. */
+  archived: boolean;
 }
 
 /**
@@ -42,9 +45,10 @@ export interface SaveTemplateAccess {
  * one. The values are checked in this order: the name, the split, then the name's being taken.
  */
 export const decideSaveTemplate: Decision<TemplateValues, SaveTemplateCommand, never, SaveTemplateAccess> = (
-  { memberIds, nameTaken },
+  { memberIds, nameTaken, archived },
   { name: rawName, split },
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   const name = TemplateName.create(rawName);
   if (name.isFailure()) return name;
   const checked = checkSplit(split, memberIds);
@@ -69,6 +73,8 @@ export interface ReplaceTemplateAccess {
   memberIds: readonly string[];
   ownerId: string;
   nameTaken: boolean;
+  /** Whether the group is archived (request 27): then no template is replaced in it. */
+  archived: boolean;
 }
 
 /**
@@ -76,9 +82,10 @@ export interface ReplaceTemplateAccess {
  * other member is refused, before the values are looked at.
  */
 export const decideReplaceTemplate: Decision<TemplateValues, ReplaceTemplateCommand, never, ReplaceTemplateAccess> = (
-  { template, memberIds, ownerId, nameTaken },
+  { template, memberIds, ownerId, nameTaken, archived },
   { by, name: rawName, split },
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   if (!mayChange(template.savedBy, ownerId, by)) return Result.fail(new NotAllowedException('Ledger', MAY_CHANGE));
   const name = TemplateName.create(rawName);
   if (name.isFailure()) return name;
@@ -92,13 +99,16 @@ export const decideReplaceTemplate: Decision<TemplateValues, ReplaceTemplateComm
 export interface RemoveTemplateAccess {
   template: SplitTemplateSnapshot;
   ownerId: string;
+  /** Whether the group is archived (request 27): then no template is removed from it. */
+  archived: boolean;
 }
 
 /** Removing a template (request 25): the member who saved it, or the group's owner, removes it; any other member is refused. */
 export const decideRemoveTemplate: Decision<undefined, { by: string }, never, RemoveTemplateAccess> = (
-  { template, ownerId },
+  { template, ownerId, archived },
   { by },
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   if (!mayChange(template.savedBy, ownerId, by)) return Result.fail(new NotAllowedException('Ledger', MAY_CHANGE));
   return decided(undefined);
 };

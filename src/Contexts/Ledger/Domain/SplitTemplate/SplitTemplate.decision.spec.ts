@@ -24,7 +24,7 @@ const stored = (overrides: Partial<SplitTemplateSnapshot> = {}): SplitTemplateSn
 describe('saving a template', () => {
   it('lets a member save a split by equal members or by shares, under a name trimmed of its spaces', () => {
     const byEqual = decideSaveTemplate(
-      { memberIds: members, nameTaken: false },
+      { archived: false, memberIds: members, nameTaken: false },
       { by: 'grace', name: '  Flat  ', split: equal('ada', 'grace') },
       now,
     );
@@ -32,7 +32,7 @@ describe('saving a template', () => {
     expect(byEqual.data!.state.name.value).toBe('Flat');
 
     const byShareCount = decideSaveTemplate(
-      { memberIds: members, nameTaken: false },
+      { archived: false, memberIds: members, nameTaken: false },
       { by: 'grace', name: 'Big room', split: byShares(['ada', 2], ['grace', 1]) },
       now,
     );
@@ -42,7 +42,7 @@ describe('saving a template', () => {
   it('refuses a name that is blank, or of more than 60 characters', () => {
     for (const name of ['', '   ', 'x'.repeat(61)]) {
       const decision = decideSaveTemplate(
-        { memberIds: members, nameTaken: false },
+        { archived: false, memberIds: members, nameTaken: false },
         { by: 'grace', name, split: equal('ada') },
         now,
       );
@@ -52,7 +52,7 @@ describe('saving a template', () => {
 
   it('refuses a name another template of the group has', () => {
     const decision = decideSaveTemplate(
-      { memberIds: members, nameTaken: true },
+      { archived: false, memberIds: members, nameTaken: true },
       { by: 'grace', name: 'FLAT', split: equal('ada') },
       now,
     );
@@ -60,7 +60,7 @@ describe('saving a template', () => {
   });
 
   it('refuses a split with a member who is not in the group, one listed twice, none, or a share below 1', () => {
-    const access = { memberIds: members, nameTaken: false };
+    const access = { archived: false, memberIds: members, nameTaken: false };
     expect(
       decideSaveTemplate(access, { by: 'grace', name: 'A', split: equal('ada', 'mallory') }, now).error!.type,
     ).toBe('SplitMemberNotInGroup');
@@ -78,7 +78,7 @@ describe('saving a template', () => {
 
 describe('replacing a template', () => {
   it('lets the member who saved it replace it, and the owner too', () => {
-    const access = { template: stored(), memberIds: members, ownerId, nameTaken: false };
+    const access = { archived: false, template: stored(), memberIds: members, ownerId, nameTaken: false };
     expect(
       decideReplaceTemplate(access, { by: 'grace', name: 'Flat 2', split: byShares(['linus', 1]) }, now).isSuccess(),
     ).toBe(true);
@@ -89,7 +89,7 @@ describe('replacing a template', () => {
 
   it('refuses any other member before it looks at the values', () => {
     const decision = decideReplaceTemplate(
-      { template: stored(), memberIds: members, ownerId, nameTaken: false },
+      { archived: false, template: stored(), memberIds: members, ownerId, nameTaken: false },
       { by: 'linus', name: '', split: equal() },
       now,
     );
@@ -98,7 +98,7 @@ describe('replacing a template', () => {
 
   it('keeps the name of the template itself free to replace, and refuses another template’s name', () => {
     const decision = decideReplaceTemplate(
-      { template: stored(), memberIds: members, ownerId, nameTaken: true },
+      { archived: false, template: stored(), memberIds: members, ownerId, nameTaken: true },
       { by: 'grace', name: 'Flat', split: equal('ada') },
       now,
     );
@@ -108,8 +108,14 @@ describe('replacing a template', () => {
 
 describe('removing a template', () => {
   it('lets the member who saved it, or the owner, remove it, and refuses any other member', () => {
-    expect(decideRemoveTemplate({ template: stored(), ownerId }, { by: 'grace' }, now).isSuccess()).toBe(true);
-    expect(decideRemoveTemplate({ template: stored(), ownerId }, { by: ownerId }, now).isSuccess()).toBe(true);
-    expect(decideRemoveTemplate({ template: stored(), ownerId }, { by: 'linus' }, now).error!.type).toBe('NotAllowed');
+    expect(
+      decideRemoveTemplate({ archived: false, template: stored(), ownerId }, { by: 'grace' }, now).isSuccess(),
+    ).toBe(true);
+    expect(
+      decideRemoveTemplate({ archived: false, template: stored(), ownerId }, { by: ownerId }, now).isSuccess(),
+    ).toBe(true);
+    expect(
+      decideRemoveTemplate({ archived: false, template: stored(), ownerId }, { by: 'linus' }, now).error!.type,
+    ).toBe('NotAllowed');
   });
 });

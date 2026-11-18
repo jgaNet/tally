@@ -5,7 +5,7 @@ import { Split } from './Split';
 const ada = 'ada';
 const grace = 'grace';
 const linus = 'linus';
-const members = { memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE };
+const members = { archived: false, memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE };
 const now = new Date('2026-11-17T10:00:00Z');
 
 const command = (overrides: Partial<RecordExpenseCommand> = {}): RecordExpenseCommand =>
@@ -118,7 +118,12 @@ function amountOf(value: number) {
 }
 
 describe('the category of an expense (request 24)', () => {
-  const facts = { memberIds: ['ada', 'grace'], groupCurrency: 'EUR', offered: { kind: 'not-asked' } as never };
+  const facts = {
+    archived: false,
+    memberIds: ['ada', 'grace'],
+    groupCurrency: 'EUR',
+    offered: { kind: 'not-asked' } as never,
+  };
   const command = {
     description: 'Market',
     date: '2026-11-17',

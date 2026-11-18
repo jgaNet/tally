@@ -36,7 +36,12 @@ export const attachReceipt = command(
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
 
         const decision = decideAttachReceipt(
-          { expense, memberIds: memberIdsOf(members), ownerId: ownerIdOf(members) },
+          {
+            expense,
+            memberIds: memberIdsOf(members),
+            ownerId: ownerIdOf(members),
+            archived: await groupMembers.archivedOf(expense.groupId),
+          },
           { by, bytes },
           clock(),
         );

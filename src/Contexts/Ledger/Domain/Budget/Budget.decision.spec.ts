@@ -18,7 +18,11 @@ const stored = (overrides: Partial<BudgetSnapshot> = {}): BudgetSnapshot => ({
 describe('setting a budget', () => {
   it('lets the owner set a category’s budget from 1 to 100 000 000', () => {
     for (const amount of [1, 400, 100_000_000]) {
-      const decision = decideSetBudget({ ownerId }, { by: ownerId, category: 'groceries', amount }, now);
+      const decision = decideSetBudget(
+        { archived: false, ownerId },
+        { by: ownerId, category: 'groceries', amount },
+        now,
+      );
       expect(decision.isSuccess()).toBe(true);
       expect(decision.data!.state.amount.value).toBe(amount);
       expect(decision.data!.state.category).toBe('groceries');
@@ -26,37 +30,43 @@ describe('setting a budget', () => {
   });
 
   it('refuses any other member before looking at the values', () => {
-    const decision = decideSetBudget({ ownerId }, { by: 'grace', category: 'pets', amount: 0 }, now);
+    const decision = decideSetBudget({ archived: false, ownerId }, { by: 'grace', category: 'pets', amount: 0 }, now);
     expect(decision.isFailure()).toBe(true);
     expect(decision.error!.type).toBe('NotAllowed');
   });
 
   it('refuses an amount outside 1 to 100 000 000, and a category that is not one of the eight', () => {
     for (const amount of [0, -1, 100_000_001, 1.5]) {
-      const decision = decideSetBudget({ ownerId }, { by: ownerId, category: 'rent', amount }, now);
+      const decision = decideSetBudget({ archived: false, ownerId }, { by: ownerId, category: 'rent', amount }, now);
       expect(decision.error!.type).toBe('InvalidBudgetAmount');
     }
-    const decision = decideSetBudget({ ownerId }, { by: ownerId, category: 'pets', amount: 10 }, now);
+    const decision = decideSetBudget({ archived: false, ownerId }, { by: ownerId, category: 'pets', amount: 10 }, now);
     expect(decision.error!.type).toBe('InvalidExpenseCategory');
   });
 });
 
 describe('removing a budget', () => {
   it('lets the owner remove a budget that has an amount', () => {
-    const decision = decideRemoveBudget({ ownerId, budget: stored() }, { by: ownerId, category: 'groceries' }, now);
+    const decision = decideRemoveBudget(
+      { archived: false, ownerId, budget: stored() },
+      { by: ownerId, category: 'groceries' },
+      now,
+    );
     expect(decision.data!.state).toBe('groceries');
   });
 
   it('refuses any other member, and finds nothing to remove where there is no budget or it was removed', () => {
     expect(
-      decideRemoveBudget({ ownerId, budget: stored() }, { by: 'grace', category: 'groceries' }, now).error!.type,
+      decideRemoveBudget({ archived: false, ownerId, budget: stored() }, { by: 'grace', category: 'groceries' }, now)
+        .error!.type,
     ).toBe('NotAllowed');
-    expect(decideRemoveBudget({ ownerId, budget: undefined }, { by: ownerId, category: 'rent' }, now).error!.type).toBe(
-      'NotFound',
-    );
+    expect(
+      decideRemoveBudget({ archived: false, ownerId, budget: undefined }, { by: ownerId, category: 'rent' }, now).error!
+        .type,
+    ).toBe('NotFound');
     expect(
       decideRemoveBudget(
-        { ownerId, budget: stored({ amount: undefined }) },
+        { archived: false, ownerId, budget: stored({ amount: undefined }) },
         { by: ownerId, category: 'groceries' },
         now,
       ).error!.type,

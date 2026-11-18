@@ -32,3 +32,9 @@ export class BalancePassedEvent extends DomainEvent<{
   amount: number;
   at: Date;
 }> {}
+
+/**
+ * A group was archived by its owner (request 27): nothing in it changes any more. Recorded by `Group.archive()` and published after its save;
+ * nothing reacts to it, so it is not an integration event. The other contexts learn it by asking Groups through their ports (ADR 24).
+ */
+export class GroupArchivedEvent extends DomainEvent<{ groupId: string; archivedAt: Date }> {}

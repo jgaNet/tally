@@ -252,6 +252,25 @@ describe('Groups → Settlements', () => {
 });
 
 describe('Groups → Settlements', () => {
+  it('refuses a settlement in a group Groups archived, found by the id it answered, by GroupArchived, and lists none', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as { id: string };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+    expect((await http.request('POST', `${api}/groups/${groupId}/archive`, { token: ada.token })).status).toBe(204);
+
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      body: { from: grace.id, amount: 1 },
+      token: ada.token,
+    });
+    expect(recorded.body).toMatchObject({ type: 'GroupArchived' });
+    expect((await http.request('GET', `${api}/groups/${groupId}/settlements`, { token: ada.token })).body).toEqual([]);
+  });
+
   it('reminds a member of the group Groups answered, once the debt Settlements reads there has lasted a period', async () => {
     const ada = await signedInPerson('Ada');
     const grace = await signedInPerson('Grace');

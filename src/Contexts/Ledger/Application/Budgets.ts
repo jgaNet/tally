@@ -25,7 +25,11 @@ export const setBudget = command(
         const members = await groupMembers.membersOf(groupId, by);
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
 
-        const decision = decideSetBudget({ ownerId: ownerIdOf(members) }, { by, category, amount }, clock());
+        const decision = decideSetBudget(
+          { ownerId: ownerIdOf(members), archived: await groupMembers.archivedOf(groupId) },
+          { by, category, amount },
+          clock(),
+        );
         if (decision.isFailure()) return decision;
 
         const stored = await budgets.get(groupId, decision.data.state.category);
@@ -58,7 +62,11 @@ export const removeBudget = command(
         const stored = isExpenseCategory(category) ? await budgets.get(groupId, category) : undefined;
 
         const decision = decideRemoveBudget(
-          { ownerId: ownerIdOf(members), budget: stored?.toSnapshot() },
+          {
+            ownerId: ownerIdOf(members),
+            budget: stored?.toSnapshot(),
+            archived: await groupMembers.archivedOf(groupId),
+          },
           { by, category },
           clock(),
         );

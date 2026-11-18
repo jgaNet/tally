@@ -1,5 +1,6 @@
 import { NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { concernsFormerMember, mayChange } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 import { ExpenseHasFormerMemberException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
@@ -21,6 +22,8 @@ export interface AttachReceiptAccess {
   expense: Pick<ExpenseSnapshot, 'paidBy' | 'shares'>;
   memberIds: readonly string[];
   ownerId: string;
+  /** Whether the group is archived (request 27): then no receipt is attached in it. */
+  archived: boolean;
 }
 
 /** The file's type and size, once it is allowed: what the receipt keeps, besides the link the store answers. */
@@ -39,9 +42,10 @@ const MAY_NOT_ATTACH = "Only the expense's payer or the group's owner may attach
  * answers, so a refused file is never sent, and keeps the link the store answers.
  */
 export const decideAttachReceipt: Decision<ReceiptFileValues, AttachReceiptCommand, never, AttachReceiptAccess> = (
-  { expense, memberIds, ownerId },
+  { expense, memberIds, ownerId, archived },
   { by, bytes },
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   if (!mayChange(expense.paidBy, ownerId, by)) return Result.fail(new NotAllowedException('Ledger', MAY_NOT_ATTACH));
   if (concernsFormerMember(expense, memberIds)) return Result.fail(new ExpenseHasFormerMemberException());
   const file = readReceiptFile(bytes);

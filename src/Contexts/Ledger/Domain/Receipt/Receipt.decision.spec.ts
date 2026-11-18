@@ -18,6 +18,7 @@ const fileStarting = (start: number[], size: number): Uint8Array => {
 
 /** Ada paid an expense split between herself and Bo; Cy is the group's owner in the rules below and Ada is the payer. */
 const access: AttachReceiptAccess = {
+  archived: false,
   expense: {
     paidBy: 'ada',
     shares: [

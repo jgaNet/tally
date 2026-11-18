@@ -2,6 +2,7 @@ import { NotFoundException, Result } from '@Architecture/Domain';
 import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { Invitation } from '@Contexts/Groups/Domain/Invitation/Invitation';
 
 import { IGroupRepository } from './IGroupRepository';
@@ -20,6 +21,7 @@ export const createInvitation = command(
       const caller = callerOf(context);
       const group = await groups.get(id);
       if (!group || !group.hasMember(caller)) return Result.fail(new NotFoundException('Groups', 'No group is found'));
+      if (group.archivedAt !== undefined) return Result.fail(new GroupArchivedException());
 
       const invitation = Invitation.issue({ groupId: group._id.value, invitedBy: caller, at: clock() });
       await invitations.insert(invitation);

@@ -1,8 +1,14 @@
 import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { CurrencyCode } from '@SharedKernel/Domain';
+import { CurrencyCode, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { Currency } from './Currency';
-import { BalancePassedEvent, GroupCreatedEvent, MemberJoinedEvent, MemberLeftEvent } from './GroupEvents';
+import {
+  BalancePassedEvent,
+  GroupArchivedEvent,
+  GroupCreatedEvent,
+  MemberJoinedEvent,
+  MemberLeftEvent,
+} from './GroupEvents';
 import { AlreadyMemberException, OwnerCannotLeaveException } from './GroupExceptions';
 import { GroupName } from './GroupName';
 
@@ -21,6 +27,8 @@ export interface GroupSnapshot {
   createdAt: string;
   members: GroupMemberSnapshot[];
   version: number;
+  /** When the owner archived it, once it is archived (request 27); absent before. */
+  archivedAt?: string;
 }
 
 /** A balance that passed from a member who left to the owner, when it left (request 20): what the member's balance was, and the owner. */
@@ -50,6 +58,7 @@ export class Group extends AggregateRoot {
   readonly #createdAt: Date;
   readonly #members: GroupMember[];
   readonly #passes: GroupPass[] = [];
+  #archivedAt: Date | undefined;
 
   private constructor(
     id: Id,
@@ -59,6 +68,7 @@ export class Group extends AggregateRoot {
     ownerId: string,
     createdAt: Date,
     members: GroupMember[],
+    archivedAt: Date | undefined,
   ) {
     super(id, version);
     this.#name = name;
@@ -66,6 +76,7 @@ export class Group extends AggregateRoot {
     this.#ownerId = ownerId;
     this.#createdAt = createdAt;
     this.#members = members;
+    this.#archivedAt = archivedAt;
   }
 
   /** A new group, with its id generated here, its owner as its first member, recording that it was registered at `at`. */
@@ -80,7 +91,16 @@ export class Group extends AggregateRoot {
     ownerId: string;
     at: Date;
   }): Group {
-    const group = new Group(Id.generate(), 0, name, currency, ownerId, at, [{ accountId: ownerId, joinedAt: at }]);
+    const group = new Group(
+      Id.generate(),
+      0,
+      name,
+      currency,
+      ownerId,
+      at,
+      [{ accountId: ownerId, joinedAt: at }],
+      undefined,
+    );
     group.record(GroupCreatedEvent.set({ groupId: group._id.value, ownerId, createdAt: at }));
     return group;
   }
@@ -97,13 +117,15 @@ export class Group extends AggregateRoot {
       accountId: member.accountId,
       joinedAt: new Date(member.joinedAt),
     }));
+    const archivedAt = snapshot.archivedAt === undefined ? undefined : new Date(snapshot.archivedAt);
     const corrupted =
       name.isFailure() ||
       currency.isFailure() ||
       Number.isNaN(createdAt.getTime()) ||
       members[0]?.accountId !== snapshot.ownerId ||
       members.some(member => Number.isNaN(member.joinedAt.getTime())) ||
-      new Set(members.map(member => member.accountId)).size !== members.length;
+      new Set(members.map(member => member.accountId)).size !== members.length ||
+      (archivedAt !== undefined && Number.isNaN(archivedAt.getTime()));
     if (corrupted) throw new Error(`The stored group ${snapshot.id} is corrupted`);
     return new Group(
       new Id(snapshot.id),
@@ -113,7 +135,19 @@ export class Group extends AggregateRoot {
       snapshot.ownerId,
       createdAt,
       members,
+      archivedAt,
     );
+  }
+
+  /**
+   * The owner archives the group at `at` (request 27): nothing in it changes after. Recorded as `GroupArchived` and published after its
+   * save. Refused when it is archived already. Whether the archive may be is the decision's to say (`decideArchiveGroup`), before this is called.
+   */
+  archive(at: Date): IResult<void> {
+    if (this.#archivedAt !== undefined) return Result.fail(new GroupArchivedException());
+    this.#archivedAt = at;
+    this.record(GroupArchivedEvent.set({ groupId: this._id.value, archivedAt: at }));
+    return Result.ok(undefined);
   }
 
   /**
@@ -121,6 +155,7 @@ export class Group extends AggregateRoot {
    * `MemberJoined` otherwise.
    */
   join(accountId: string, at: Date): IResult<void> {
+    if (this.#archivedAt !== undefined) return Result.fail(new GroupArchivedException());
     if (this.hasMember(accountId)) return Result.fail(new AlreadyMemberException());
     this.#members.push({ accountId, joinedAt: at });
     this.record(MemberJoinedEvent.set({ groupId: this._id.value, accountId, joinedAt: at }));
@@ -134,6 +169,7 @@ export class Group extends AggregateRoot {
    * (`decideLeaveGroup`), before this is called.
    */
   leave(accountId: string, at: Date, balancePassed: number): IResult<void> {
+    if (this.#archivedAt !== undefined) return Result.fail(new GroupArchivedException());
     if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
     const index = this.#members.findIndex(member => member.accountId === accountId);
     if (index === -1) return Result.fail(new NotFoundException('Groups', 'No group is found'));
@@ -177,6 +213,11 @@ export class Group extends AggregateRoot {
     return this.#createdAt;
   }
 
+  /** When the group was archived, `undefined` while it is not (request 27). */
+  get archivedAt(): Date | undefined {
+    return this.#archivedAt;
+  }
+
   /** The members, in the order they joined: the owner first. */
   get members(): readonly GroupMember[] {
     return [...this.#members];
@@ -194,6 +235,7 @@ export class Group extends AggregateRoot {
         joinedAt: member.joinedAt.toISOString(),
       })),
       version: this.version,
+      ...(this.#archivedAt === undefined ? {} : { archivedAt: this.#archivedAt.toISOString() }),
     };
   }
 }

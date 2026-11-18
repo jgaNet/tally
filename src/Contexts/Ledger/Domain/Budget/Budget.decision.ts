@@ -1,5 +1,6 @@
 import { NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { categoryOf, ExpenseCategory } from '@Contexts/Ledger/Domain/Expense/ExpenseCategory';
 
@@ -19,6 +20,8 @@ export interface SetBudgetCommand {
 /** The group's owner, against whom the caller is checked. The caller is a member: the use case asked Groups before it decided. */
 export interface BudgetAccess {
   ownerId: string;
+  /** Whether the group is archived (request 27): then no budget is set or removed in it. */
+  archived: boolean;
 }
 
 /** The values a budget is set with, once they are allowed. */
@@ -32,9 +35,10 @@ export interface BudgetValues {
  * amount a whole number from 1 to 100 000 000. Setting it again replaces it.
  */
 export const decideSetBudget: Decision<BudgetValues, SetBudgetCommand, never, BudgetAccess> = (
-  { ownerId },
+  { ownerId, archived },
   { by, category: rawCategory, amount: rawAmount },
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   if (by !== ownerId) return Result.fail(new NotAllowedException('Ledger', OWNER_ONLY));
   const category = categoryOf(rawCategory);
   if (category.isFailure()) return category;
@@ -56,9 +60,10 @@ export interface StoredBudgetAccess extends BudgetAccess {
 
 /** Removing a budget (request 24): only the group's owner may; a category that has no budget has nothing to remove. */
 export const decideRemoveBudget: Decision<ExpenseCategory, RemoveBudgetCommand, never, StoredBudgetAccess> = (
-  { ownerId, budget },
+  { ownerId, budget, archived },
   { by, category: rawCategory },
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   if (by !== ownerId) return Result.fail(new NotAllowedException('Ledger', OWNER_ONLY));
   const category = categoryOf(rawCategory);
   if (category.isFailure()) return category;

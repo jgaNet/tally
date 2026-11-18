@@ -233,6 +233,27 @@ describe('Groups → Ledger', () => {
 });
 
 describe('Ledger → Groups', () => {
+  it('reads, from Ledger, the balances an archive is decided on: an unsettled expense refuses it, and once settled the owner archives', async () => {
+    const owner = await signedInPerson('Owner');
+    const grace = await signedInPerson('Grace');
+    const groupId = await groupWith(owner, [grace]);
+    await record(
+      groupId,
+      { description: 'Taxi', amount: 80, date: '2020-01-15', splitBetween: [owner.id, grace.id] },
+      owner.token,
+    );
+
+    const refused = await http.request('POST', `${api}/groups/${groupId}/archive`, { token: owner.token });
+    expect(refused.body).toMatchObject({ type: 'BalancesNotSettled' });
+
+    const settled = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      body: { from: grace.id, amount: 40 },
+      token: owner.token,
+    });
+    expect(settled.status).toBe(201);
+    expect((await http.request('POST', `${api}/groups/${groupId}/archive`, { token: owner.token })).status).toBe(204);
+  });
+
   it('reads, from Ledger, the balance an expense recorded in it gives a member, and passes it to the owner when the member leaves', async () => {
     const owner = await signedInPerson('Owner');
     const grace = await signedInPerson('Grace');

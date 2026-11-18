@@ -29,6 +29,8 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
   async execute(event: RecurringExpenseDayCameEvent, context: ExecutionContext): Promise<IResult<unknown>> {
     const { expenseId, groupId, paidBy, description, amount, day, split, category } = event.payload;
     if (await this.expenses.get(expenseId)) return Result.ok(undefined);
+    // A group archived since the sweep decided this day records nothing more (request 27): the day ends without an expense.
+    if (await this.groupMembers.archivedOf(groupId)) return Result.ok(undefined);
 
     const members = await this.groupMembers.membersOf(groupId, paidBy);
     if (!members) return Result.ok(undefined);

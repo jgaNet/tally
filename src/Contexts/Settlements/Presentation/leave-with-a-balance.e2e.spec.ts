@@ -105,6 +105,31 @@ const sendWebhook = (paymentId: string, status: string) => {
 };
 
 describe('Settlements → Groups', () => {
+  it('refuses to archive a group while a payment through the provider is being refunded, found by the group Groups answered (PaymentsWaiting)', async () => {
+    const { ada, grace, groupId } = await groupWhereGraceOwes30();
+    const asked = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      body: { to: ada.id, amount: 30 },
+      token: grace.token,
+    });
+    const { id: settlementId } = asked.body as { id: string };
+    const { payUrl } = (await http.request('GET', `${api}/settlements/${settlementId}`, { token: grace.token }))
+      .body as {
+      payUrl: string;
+    };
+    const paymentId = payUrl.slice(payUrl.lastIndexOf('/') + 1);
+    expect((await sendWebhook(paymentId, 'succeeded')).status).toBe(204);
+    expect((await http.request('POST', `${api}/settlements/${settlementId}/refund`, { token: ada.token })).status).toBe(
+      204,
+    );
+    expect((await http.request('GET', `${api}/settlements/${settlementId}`, { token: ada.token })).body).toMatchObject({
+      status: 'refunding',
+    });
+
+    // The balances still count the refunding payment, so they are 0 and the rule that refuses the archive is the waiting payment's.
+    const refused = await http.request('POST', `${api}/groups/${groupId}/archive`, { token: ada.token });
+    expect(refused.body).toMatchObject({ type: 'PaymentsWaiting' });
+  });
+
   it('refuses a member while a payment through the provider waits, and lets them leave once it has succeeded, the balances still adding up to 0', async () => {
     const { ada, grace, groupId } = await groupWhereGraceOwes30();
     const asked = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {

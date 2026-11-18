@@ -28,6 +28,7 @@ why, what it costs, and when to revisit it.
 | [21](0021-budgets-an-aggregate-that-remembers-its-months-and-a-fact-notifications-reads.md) | Budgets: an aggregate of Ledger that remembers the months it was passed in, decided by a policy on the expense, told to Notifications as `BudgetPassed` |
 | [22](0022-split-templates-an-aggregate-of-ledger-and-an-expense-takes-the-template-split.md) | Split templates: an aggregate of Ledger, and an expense takes the template's split, not a reference to it |
 | [23](0023-receipts-an-aggregate-of-ledger-kept-behind-a-port-in-an-outside-store.md) | Receipts: an aggregate of Ledger per expense, kept behind a port in an outside store, its type read from the bytes |
+| [24](0024-archive-a-group-decided-by-groups-and-refused-by-each-context-through-its-port.md) | Archiving a group: Groups decides and keeps the flag, each context asks through a port it owns and refuses by `GroupArchived` |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

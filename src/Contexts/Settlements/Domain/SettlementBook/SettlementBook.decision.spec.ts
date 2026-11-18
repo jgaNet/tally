@@ -6,7 +6,7 @@ const balances = new Map([
   ['ada', 30],
   ['grace', -30],
 ]);
-const payeeAda = (from: string, amount: number, given = { memberIds: members, balances }) =>
+const payeeAda = (from: string, amount: number, given = { archived: false, memberIds: members, balances }) =>
   decideRecordCashSettlement(given, { payee: 'ada', from, amount }, new Date('2026-01-01T00:00:00Z'));
 
 describe('decideRecordCashSettlement (request 12)', () => {
@@ -24,7 +24,7 @@ describe('decideRecordCashSettlement (request 12)', () => {
 
   it('refuses a payment more than the payee is owed', () => {
     const decision = decideRecordCashSettlement(
-      { memberIds: members, balances },
+      { archived: false, memberIds: members, balances },
       { payee: 'linus', from: 'grace', amount: 1 },
       new Date(),
     );

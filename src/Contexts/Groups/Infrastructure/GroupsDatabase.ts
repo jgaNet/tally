@@ -99,4 +99,8 @@ function migrate(connection: DatabaseSync): void {
   if (!columnsOf('expense_groups').includes('version')) {
     connection.exec('ALTER TABLE expense_groups ADD COLUMN version INTEGER NOT NULL DEFAULT 1;');
   }
+  // Request 27: a group archived by its owner keeps when; a group not archived keeps no time (NULL).
+  if (!columnsOf('expense_groups').includes('archived_at')) {
+    connection.exec('ALTER TABLE expense_groups ADD COLUMN archived_at TEXT;');
+  }
 }

@@ -1,5 +1,6 @@
 import { IResult, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { ExpenseAmount } from './ExpenseAmount';
 import { categoryOf, ExpenseCategory } from './ExpenseCategory';
@@ -73,6 +74,8 @@ export interface GroupFacts {
   memberIds: readonly string[];
   groupCurrency: string;
   offered: RateOffer;
+  /** Whether the group is archived (request 27): then nothing in it changes, and a change is refused by `GroupArchived` first. */
+  archived: boolean;
 }
 
 /**
@@ -101,7 +104,10 @@ export const decideRecordExpense: Decision<NewExpenseValues, RecordExpenseComman
   facts,
   command,
   now,
-) => newValues(command, facts, now);
+) => {
+  if (facts.archived) return Result.fail(new GroupArchivedException());
+  return newValues(command, facts, now);
+};
 
 /**
  * Editing an expense, as the storm decided it (feature 6): only its payer or the group's owner may, and any other member is
@@ -110,10 +116,11 @@ export const decideRecordExpense: Decision<NewExpenseValues, RecordExpenseComman
  * gives the answer to `Expense.revise`, which keeps the payer and records `ExpenseEdited`.
  */
 export const decideEditExpense: Decision<NewExpenseValues, EditExpenseCommand, never, StoredExpenseAccess> = (
-  { expense, memberIds, ownerId, groupCurrency, offered },
+  { expense, memberIds, ownerId, groupCurrency, offered, archived },
   command,
   now,
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   if (!mayChange(expense.paidBy, ownerId, command.by))
     return Result.fail(new NotAllowedException('Ledger', MAY_NOT_CHANGE));
   if (command.version !== expense.version) return Result.fail(new ExpenseChangedSinceReadException());
@@ -127,7 +134,7 @@ export const decideEditExpense: Decision<NewExpenseValues, EditExpenseCommand, n
       payer: expense.paidBy,
       category: command.category,
     },
-    { memberIds, groupCurrency, offered },
+    { memberIds, groupCurrency, offered, archived },
     now,
   );
 };
@@ -137,9 +144,10 @@ export const decideEditExpense: Decision<NewExpenseValues, EditExpenseCommand, n
  * the use case removes the expense, which records `ExpenseDeleted`.
  */
 export const decideDeleteExpense: Decision<undefined, DeleteExpenseCommand, never, DeleteAccess> = (
-  { expense, memberIds, ownerId },
+  { expense, memberIds, ownerId, archived },
   command,
 ) => {
+  if (archived) return Result.fail(new GroupArchivedException());
   if (!mayChange(expense.paidBy, ownerId, command.by))
     return Result.fail(new NotAllowedException('Ledger', MAY_NOT_CHANGE));
   if (concernsFormerMember(expense, memberIds)) return Result.fail(new ExpenseHasFormerMemberException());

@@ -83,7 +83,12 @@ export const recordExpense = command(
         if (asked === undefined) return Result.fail(new NotFoundException('Ledger', 'No template is found'));
 
         const decision = decideRecordExpense(
-          { memberIds: memberIdsOf(members), groupCurrency: currency, offered },
+          {
+            memberIds: memberIdsOf(members),
+            groupCurrency: currency,
+            offered,
+            archived: await groupMembers.archivedOf(groupId),
+          },
           { description, date, split: asked, payer, category, ...(given as GivenAmount) },
           clock(),
         );
@@ -135,6 +140,7 @@ export const editExpense = command(
             ownerId: ownerIdOf(members),
             groupCurrency: currency,
             offered,
+            archived: await groupMembers.archivedOf(stored.groupId),
           },
           { by, description, date, split: asked, version, category, ...(given as GivenAmount) },
           clock(),
@@ -166,7 +172,12 @@ export const deleteExpense = command(
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
 
         const decision = decideDeleteExpense(
-          { expense: stored, memberIds: memberIdsOf(members), ownerId: ownerIdOf(members) },
+          {
+            expense: stored,
+            memberIds: memberIdsOf(members),
+            ownerId: ownerIdOf(members),
+            archived: await groupMembers.archivedOf(stored.groupId),
+          },
           { by },
           clock(),
         );

@@ -18,19 +18,31 @@ function groupOf(owner: string, member: string): Group {
 describe('decideLeaveGroup (request 20)', () => {
   it('lets a member leave whatever their balance, and answers the balance that passes to the owner', () => {
     for (const balance of [0, 300, -300]) {
-      const decision = decideLeaveGroup({ ownerId: 'owner', balance, waiting: false }, { by: 'member' }, new Date());
+      const decision = decideLeaveGroup(
+        { archived: false, ownerId: 'owner', balance, waiting: false },
+        { by: 'member' },
+        new Date(),
+      );
       expect(decision.isFailure()).toBe(false);
       expect(decision.data?.state.balancePassed).toBe(balance);
     }
   });
 
   it('refuses the owner, whatever their balance', () => {
-    const decision = decideLeaveGroup({ ownerId: 'owner', balance: 0, waiting: false }, { by: 'owner' }, new Date());
+    const decision = decideLeaveGroup(
+      { archived: false, ownerId: 'owner', balance: 0, waiting: false },
+      { by: 'owner' },
+      new Date(),
+    );
     expect(decision.error?.type).toBe('OwnerCannotLeave');
   });
 
   it('refuses a member while a payment of theirs through the provider waits', () => {
-    const decision = decideLeaveGroup({ ownerId: 'owner', balance: 0, waiting: true }, { by: 'member' }, new Date());
+    const decision = decideLeaveGroup(
+      { archived: false, ownerId: 'owner', balance: 0, waiting: true },
+      { by: 'member' },
+      new Date(),
+    );
     expect(decision.error?.type).toBe('PaymentWaiting');
   });
 });

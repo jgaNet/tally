@@ -69,7 +69,8 @@ export const recordCashSettlement = command(
         const book = await books.bookOf(groupId);
         const balances = book.stillOwed(await groupBalances.balancesOf(groupId));
         const now = clock();
-        const decision = decideRecordCashSettlement({ memberIds, balances }, { payee, from, amount }, now);
+        const archived = await members.archivedOf(groupId);
+        const decision = decideRecordCashSettlement({ memberIds, balances, archived }, { payee, from, amount }, now);
         if (decision.isFailure()) return decision;
 
         const settlementId = book.recordCash({ ...decision.data.state, at: now });
@@ -119,8 +120,9 @@ export const payThroughProvider = command(
         const balances = book.stillOwed(await groupBalances.balancesOf(groupId));
         const payeeAccount = (await payoutAccounts.ofOwner(to))?.accountId;
         const now = clock();
+        const archived = await members.archivedOf(groupId);
         const decision = decideRequestProviderPayment(
-          { memberIds, balances, payeeAccount },
+          { memberIds, balances, payeeAccount, archived },
           { payer, to, amount },
           now,
         );
@@ -204,7 +206,8 @@ export const refundSettlement = command(
         const memberIds = await members.membersOf(book.groupId, payee);
         if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
 
-        const decision = decideRefundSettlement({ memberIds, settlement }, { caller: payee }, now);
+        const archived = await members.archivedOf(book.groupId);
+        const decision = decideRefundSettlement({ memberIds, settlement, archived }, { caller: payee }, now);
         if (decision.isFailure()) return decision;
 
         // A paid settlement is held by the book, with the provider's id for it: a settlement the book does not hold is not one it can refund.

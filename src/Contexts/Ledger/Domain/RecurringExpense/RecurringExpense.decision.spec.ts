@@ -39,17 +39,25 @@ describe('setting up', () => {
   it('refuses a split whose member is not in the group, and one that leaves the payer out', () => {
     const memberIds = ['ada'];
     expect(
-      decideSetUpRecurringExpense({ memberIds }, { ...base, startsOn: '2026-11-05' }, at('2026-11-18')).isFailure(),
+      decideSetUpRecurringExpense(
+        { archived: false, memberIds },
+        { ...base, startsOn: '2026-11-05' },
+        at('2026-11-18'),
+      ).isFailure(),
     ).toBe(true);
     const leavesPayerOut = { ...base, startsOn: '2026-11-05', split: { kind: 'equal' as const, memberIds: ['grace'] } };
     expect(
-      decideSetUpRecurringExpense({ memberIds: ['ada', 'grace'] }, leavesPayerOut, at('2026-11-18')).isFailure(),
+      decideSetUpRecurringExpense(
+        { archived: false, memberIds: ['ada', 'grace'] },
+        leavesPayerOut,
+        at('2026-11-18'),
+      ).isFailure(),
     ).toBe(true);
   });
 
   it('keeps the split as given, and its first day is its start', () => {
     const decision = decideSetUpRecurringExpense(
-      { memberIds: ['ada', 'grace'] },
+      { archived: false, memberIds: ['ada', 'grace'] },
       { ...base, startsOn: '2026-11-05' },
       at('2026-11-18'),
     );
@@ -81,21 +89,38 @@ describe('a run over a recurring expense', () => {
   }).toSnapshot();
 
   it('records each day that came, and ends when a member it concerns is not in the group', () => {
-    const due = decideSweepRecurringExpense({ recurring, memberIds: ['ada', 'grace'] }, undefined, at('2026-11-18'));
+    const due = decideSweepRecurringExpense(
+      { archived: false, recurring, memberIds: ['ada', 'grace'] },
+      undefined,
+      at('2026-11-18'),
+    );
     expect(due.data!.state).toEqual({ kind: 'due', days: ['2026-09-05', '2026-10-05', '2026-11-05'] });
-    const ended = decideSweepRecurringExpense({ recurring, memberIds: ['ada'] }, undefined, at('2026-11-18'));
+    const ended = decideSweepRecurringExpense(
+      { archived: false, recurring, memberIds: ['ada'] },
+      undefined,
+      at('2026-11-18'),
+    );
     expect(ended.data!.state).toEqual({ kind: 'ended' });
     expect(
-      decideSweepRecurringExpense({ recurring, memberIds: undefined }, undefined, at('2026-11-18')).data!.state,
+      decideSweepRecurringExpense({ archived: false, recurring, memberIds: undefined }, undefined, at('2026-11-18'))
+        .data!.state,
     ).toEqual({ kind: 'ended' });
   });
 
   it('refuses a stop by a member who is neither the payer nor the owner', () => {
     expect(
-      decideStopRecurringExpense({ paidBy: 'ada', ownerId: 'owner' }, { by: 'grace' }, at('2026-11-18')).isFailure(),
+      decideStopRecurringExpense(
+        { archived: false, paidBy: 'ada', ownerId: 'owner' },
+        { by: 'grace' },
+        at('2026-11-18'),
+      ).isFailure(),
     ).toBe(true);
     expect(
-      decideStopRecurringExpense({ paidBy: 'ada', ownerId: 'owner' }, { by: 'owner' }, at('2026-11-18')).isFailure(),
+      decideStopRecurringExpense(
+        { archived: false, paidBy: 'ada', ownerId: 'owner' },
+        { by: 'owner' },
+        at('2026-11-18'),
+      ).isFailure(),
     ).toBe(false);
   });
 });

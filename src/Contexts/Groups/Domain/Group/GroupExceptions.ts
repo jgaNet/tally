@@ -44,6 +44,28 @@ export class OwnerCannotLeaveException extends Exception {
   }
 }
 
+/** The owner archives a group only once every member's balance is 0 (request 27). */
+export class BalancesNotSettledException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'BalancesNotSettled',
+      message: 'The group can be archived only once every balance is 0',
+    });
+  }
+}
+
+/** The owner archives a group only while no payment through the provider is pending or being refunded (request 27). */
+export class PaymentsWaitingException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'PaymentsWaiting',
+      message: 'The group cannot be archived while a payment through the provider is pending or being refunded',
+    });
+  }
+}
+
 /** A member of a group whose payment through the provider is waiting, pending or being refunded, cannot leave until it has ended (request 20). */
 export class PaymentWaitingException extends Exception {
   constructor() {

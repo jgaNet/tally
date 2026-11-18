@@ -5,4 +5,5 @@
  */
 export * from './Currency';
 export * from './Email';
+export * from './GroupArchived';
 export * from './Role';

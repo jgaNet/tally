@@ -79,6 +79,25 @@ async function signedInPerson(name: string): Promise<{ token: string; id: string
 }
 
 describe('Groups → Ledger', () => {
+  it('refuses an expense in a group Groups archived, found by the id it answered, by GroupArchived, and keeps no expense of it', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as { id: string };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+    expect((await http.request('POST', `${api}/groups/${groupId}/archive`, { token: ada.token })).status).toBe(204);
+
+    const refused = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Late', amount: 10, date: '2020-01-16', splitBetween: [ada.id, grace.id] },
+      token: grace.token,
+    });
+    expect(refused.body).toMatchObject({ type: 'GroupArchived' });
+    expect((await http.request('GET', `${api}/groups/${groupId}/expenses`, { token: ada.token })).body).toEqual([]);
+  });
+
   it('reads, by the id Groups answered, the currency of the group made in Groups: the rate offered is to that currency, and no other', async () => {
     const ada = await signedInPerson('Ada');
     const created = await http.request('POST', `${api}/groups`, {

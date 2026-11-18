@@ -31,4 +31,9 @@ export interface IGroupMembers {
    * starts at 0. Asked by no member: it is what the balances are read with.
    */
   passesOf(groupId: string): Promise<BalancePass[]>;
+  /**
+   * Whether the group is archived (request 27): then no change is made in it, and each one is refused by `GroupArchived` (ADR 24). Asked
+   * by no member: a change asks it after the member is checked, as it asks the members, and the answer is only the flag.
+   */
+  archivedOf(groupId: string): Promise<boolean>;
 }

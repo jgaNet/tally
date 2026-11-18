@@ -3,12 +3,57 @@ import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
-import { decideCreateGroup, decideLeaveGroup } from '@Contexts/Groups/Domain/Group/Group.decision';
+import { decideArchiveGroup, decideCreateGroup, decideLeaveGroup } from '@Contexts/Groups/Domain/Group/Group.decision';
 
 import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/IGroupQueries';
 import { IGroupRepository } from './IGroupRepository';
 import { IMemberBalances } from './IMemberBalances';
 import { IWaitingPayments } from './IWaitingPayments';
+
+/**
+ * The owner archives the group (request 27), once every member's balance (read from Ledger) is 0 and no payment of theirs through the provider
+ * is pending or being refunded (read from Settlements): nothing in it changes after. Refused for anyone but its owner, and for a group already
+ * archived. Anyone who is not a member gets the answer for a group that does not exist. The balances and the waiting payments are read, the
+ * decision made and the group saved in one transaction on the groups' file, as a leaving is (ADR 16, ADR 17); the group is saved at the version it
+ * was read at (CONC-OPTIMISTIC).
+ */
+export const archiveGroup = command(
+  'ArchiveGroup',
+  (groups: IGroupRepository, balances: IMemberBalances, waiting: IWaitingPayments, clock: Clock) =>
+    async ({ id }: { id: string }, context) => {
+      const by = callerOf(context);
+      return groups.inTransaction(async () => {
+        const group = await groups.get(id);
+        if (!group || !group.hasMember(by)) return Result.fail(new NotFoundException('Groups', 'No group is found'));
+
+        const memberIds = group.members.map(member => member.accountId);
+        const balanceOfEach: number[] = [];
+        let anyWaiting = false;
+        for (const memberId of memberIds) {
+          balanceOfEach.push(await balances.balanceOf(id, memberId));
+          anyWaiting = anyWaiting || (await waiting.waitingOf(id, memberId));
+        }
+        const at = clock();
+        const decision = decideArchiveGroup(
+          {
+            archived: group.archivedAt !== undefined,
+            ownerId: group.ownerId,
+            balances: balanceOfEach,
+            waiting: anyWaiting,
+          },
+          { by },
+          at,
+        );
+        if (decision.isFailure()) return decision;
+
+        const archived = group.archive(at);
+        if (archived.isFailure()) return archived;
+        await groups.save(group);
+        await publishDomainEvents(group, context);
+        return Result.ok(undefined);
+      });
+    },
+);
 
 /**
  * A signed-in person creates a group in one of the six currencies, fixed for good, and owns it: its owner is its first
@@ -51,6 +96,7 @@ export const leaveGroup = command(
             ownerId: group.ownerId,
             balance: await balances.balanceOf(id, by),
             waiting: await waiting.waitingOf(id, by),
+            archived: group.archivedAt !== undefined,
           },
           { by },
           clock(),

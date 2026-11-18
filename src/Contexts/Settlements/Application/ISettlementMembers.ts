@@ -19,4 +19,9 @@ export interface ISettlementMembers {
    * Settlements answers (`OutstandingDebts`). Asked by no member, so nothing is checked.
    */
   allMembers(): Promise<{ groupId: string; memberIds: string[] }[]>;
+  /**
+   * Whether the group is archived (request 27): then no settlement is recorded, asked for or refunded in it. Asked by no member: a settlement
+   * asks it after the member is checked, and the answer is only the flag (ADR 24).
+   */
+  archivedOf(groupId: string): Promise<boolean>;
 }

@@ -29,7 +29,7 @@ export const saveTemplate = command(
         const nameTaken = await templates.isNameTaken(groupId, name);
 
         const decision = decideSaveTemplate(
-          { memberIds: memberIdsOf(members), nameTaken },
+          { memberIds: memberIdsOf(members), nameTaken, archived: await groupMembers.archivedOf(groupId) },
           { by, name, split },
           clock(),
         );
@@ -61,7 +61,13 @@ export const replaceTemplate = command(
         const nameTaken = await templates.isNameTaken(stored.groupId, name, id);
 
         const decision = decideReplaceTemplate(
-          { template: stored, memberIds: memberIdsOf(members), ownerId: ownerIdOf(members), nameTaken },
+          {
+            template: stored,
+            memberIds: memberIdsOf(members),
+            ownerId: ownerIdOf(members),
+            nameTaken,
+            archived: await groupMembers.archivedOf(stored.groupId),
+          },
           { by, name, split },
           clock(),
         );
@@ -91,7 +97,11 @@ export const removeTemplate = command(
         const members = await groupMembers.membersOf(stored.groupId, by);
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No template is found'));
 
-        const decision = decideRemoveTemplate({ template: stored, ownerId: ownerIdOf(members) }, { by }, clock());
+        const decision = decideRemoveTemplate(
+          { template: stored, ownerId: ownerIdOf(members), archived: await groupMembers.archivedOf(stored.groupId) },
+          { by },
+          clock(),
+        );
         if (decision.isFailure()) return decision;
 
         template.remove();

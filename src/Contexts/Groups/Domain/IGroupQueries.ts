@@ -4,6 +4,8 @@ export interface GroupView {
   name: string;
   currency: string;
   ownerId: string;
+  /** When the group was archived (request 27): present once it is archived, and only then. */
+  archivedAt?: string;
 }
 
 /** What `GetGroupMembers` answers for one member: the account, its name, its role, and when it joined. */
@@ -39,4 +41,9 @@ export interface IGroupQueries {
    * reads it when it reads the balances, through its own `GroupMembers` port, so that a former member's balance is counted with the owner's.
    */
   passesOf(groupId: string): Promise<PassView[]>;
+  /**
+   * Whether the group is archived (request 27). Asked by no member: a context asks it before it changes something in the group, through its
+   * own port, and refuses by `GroupArchived` if it is (ADR 24); nothing else of the group is read by it.
+   */
+  archivedOf(groupId: string): Promise<boolean>;
 }
