@@ -7,6 +7,7 @@ import { BudgetPassedIntegrationEvent } from '@SharedKernel/Application/Integrat
 import { NoticesForBudgetHandler } from '@Contexts/Notifications/Application/Events/NoticesForBudgetHandler';
 import { NoticesForExpenseHandler } from '@Contexts/Notifications/Application/Events/NoticesForExpenseHandler';
 import { getMyNotices } from '@Contexts/Notifications/Application/Notices';
+import { getNoticePreferences, setNoticePreference } from '@Contexts/Notifications/Application/Preferences';
 import { sweepDebts } from '@Contexts/Notifications/Application/DebtSweep';
 import {
   PostgresNoticeStore,
@@ -16,6 +17,10 @@ import {
   PostgresDebtWatchStore,
   debtWatchesTablesSchema,
 } from '@Contexts/Notifications/Infrastructure/PostgresDebtWatchStore';
+import {
+  PostgresNoticePreferenceStore,
+  noticePreferencesTablesSchema,
+} from '@Contexts/Notifications/Infrastructure/PostgresNoticePreferenceStore';
 import { IOutstandingDebts } from '@Contexts/Notifications/Application/IOutstandingDebts';
 
 /**
@@ -23,10 +28,15 @@ import { IOutstandingDebts } from '@Contexts/Notifications/Application/IOutstand
  * root with `notificationsSchema`. A notice is made from each ExpenseRecorded the bus hands it (request 17), in the reaction's own
  * transaction, and a person lists their own with `getMyNotices`. A reminder (request 18) is made by the background sweep, `sweepDebts`,
  * which the composition root runs every JOBS_INTERVAL_SECONDS: it asks what every member still owes through `debts`, its own port, which
- * the composition root answers over Settlements' read model, and keeps its watches in this context's own table. An expense reaches it as the published integration event, and a debt as the
+ * the composition root answers over Settlements' read model, and keeps its watches in this context's own table. A person's notice
+ * preferences (request 36) are kept in this context's own table too: a notice of a kind turned off is not made, from then on. An expense reaches it as the published integration event, and a debt as the
  * port the sweep owns: this file imports no other context. The module lists each use case once.
  */
-export const notificationsSchema = [...notificationsTablesSchema, ...debtWatchesTablesSchema];
+export const notificationsSchema = [
+  ...notificationsTablesSchema,
+  ...debtWatchesTablesSchema,
+  ...noticePreferencesTablesSchema,
+];
 
 /** What the sweep needs of the environment: how long a debt must last before it is reminded, in milliseconds (REMINDER_PERIOD_SECONDS). */
 export interface NotificationsConfig {
@@ -40,18 +50,24 @@ export function notificationsWiring(
 ): LiteModule {
   const notices = new PostgresNoticeStore(database);
   const watches = new PostgresDebtWatchStore(database);
+  const preferences = new PostgresNoticePreferenceStore(database);
 
   return new LiteModule({
     name: 'Notifications',
-    useCases: [getMyNotices(notices), sweepDebts(watches, debts, notices, systemClock, config.reminderPeriodMs)],
+    useCases: [
+      getMyNotices(notices),
+      setNoticePreference(preferences, systemClock),
+      getNoticePreferences(preferences),
+      sweepDebts(watches, debts, notices, preferences, systemClock, config.reminderPeriodMs),
+    ],
     integrationEvents: [
       {
         event: ExpenseRecordedIntegrationEvent,
-        handlers: [new NoticesForExpenseHandler(notices, systemClock)],
+        handlers: [new NoticesForExpenseHandler(notices, preferences, systemClock)],
       },
       {
         event: BudgetPassedIntegrationEvent,
-        handlers: [new NoticesForBudgetHandler(notices, systemClock)],
+        handlers: [new NoticesForBudgetHandler(notices, preferences, systemClock)],
       },
     ],
   });

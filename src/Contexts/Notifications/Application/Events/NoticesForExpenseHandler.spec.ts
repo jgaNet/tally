@@ -6,6 +6,7 @@ import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/Integ
 import { NoticesForExpenseHandler } from '@Contexts/Notifications/Application/Events/NoticesForExpenseHandler';
 import { INoticeStore } from '@Contexts/Notifications/Application/INoticeStore';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
+import { MemoryNoticePreferences } from '@Contexts/Notifications/Application/NoticePreferences.spec-helper';
 
 class RecordingStore implements INoticeStore {
   added: Notice[] = [];
@@ -20,7 +21,7 @@ const NOW = new Date('2026-11-17T10:00:00.000Z');
 describe('NoticesForExpenseHandler', () => {
   it('makes one notice for each member of the split but the payer, with their share', async () => {
     const store = new RecordingStore();
-    const handler = new NoticesForExpenseHandler(store, () => NOW);
+    const handler = new NoticesForExpenseHandler(store, new MemoryNoticePreferences(), () => NOW);
     const context = new ExecutionContext({ traceId: 'trace', eventBus: noBus, auth: {} });
 
     const result = await handler.execute(
@@ -64,7 +65,7 @@ describe('NoticesForExpenseHandler', () => {
     const store = new RecordingStore();
     const context = new ExecutionContext({ traceId: 'trace', eventBus: noBus, auth: {} });
 
-    await new NoticesForExpenseHandler(store, () => NOW).execute(
+    await new NoticesForExpenseHandler(store, new MemoryNoticePreferences(), () => NOW).execute(
       ExpenseRecordedIntegrationEvent.set({
         expenseId: 'expense-2',
         groupId: 'group-1',

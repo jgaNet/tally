@@ -47,6 +47,7 @@ import {
   waitingPaymentRoster,
 } from '@Contexts/Settlements/module.local';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
+import { noticePreferenceRoutes } from '@Contexts/Notifications/Presentation/notice-preferences.routes';
 import { sweepDebts } from '@Contexts/Notifications/Application/DebtSweep';
 import { DebtsFromSettlements } from '@Contexts/Notifications/Infrastructure/DebtsFromSettlements';
 import { notificationsSchema, notificationsWiring } from '@Contexts/Notifications/module.local';
@@ -199,6 +200,7 @@ export async function createApplication({
     .registerRoutes('/', settlementRoutes, { module: settlements })
     .registerRoutes('/', contestRoutes, { module: settlements })
     .registerRoutes('/', noticeRoutes, { module: notifications })
+    .registerRoutes('/', noticePreferenceRoutes, { module: notifications })
     .onStop(() => database.close());
 
   // The debt sweep (request 18): each run looks at what every member still owes, and notes, reminds or clears them, in its own

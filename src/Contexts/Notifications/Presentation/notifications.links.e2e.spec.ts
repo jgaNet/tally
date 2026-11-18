@@ -181,4 +181,45 @@ describe('Ledger → Notifications (BudgetPassed)', () => {
       },
     ]);
   });
+
+  it('a member who has turned expenses off is made no notice for an expense Ledger recorded, and the others of the split are made theirs', async () => {
+    const ann = await person('Ann', 'ann-off@links.example.com');
+    const bob = await person('Bob', 'bob-off@links.example.com');
+    const dee = await person('Dee', 'dee-off@links.example.com');
+
+    const { body: group } = await http.request('POST', `${api}/groups`, {
+      token: ann.token,
+      body: { name: 'Links off', currency: 'EUR' },
+    });
+    const groupId = (group as { id: string }).id;
+    for (const who of [bob, dee]) {
+      const invitation = await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ann.token });
+      await http.request('POST', `${api}/invitations/${(invitation.body as { id: string }).id}/accept`, {
+        token: who.token,
+      });
+    }
+    await http.request('PUT', `${api}/accounts/me/notice-preferences/expense`, {
+      token: dee.token,
+      body: { enabled: false },
+    });
+
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Tea', amount: 900, date: '2020-01-10', splitBetween: [ann.id, bob.id, dee.id] },
+    });
+    const expenseId = (recorded.body as { id: string }).id;
+
+    const noticeFor = async (token: string) => {
+      const { body } = await http.request('GET', `${api}/notices`, { token });
+      return (body as Array<Record<string, unknown>>).find(notice => notice.expenseId === expenseId);
+    };
+    let bobsNotice: Record<string, unknown> | undefined;
+    for (let poll = 0; poll < 120 && !bobsNotice; poll++) {
+      bobsNotice = await noticeFor(bob.token);
+      if (!bobsNotice) await new Promise(resolve => setTimeout(resolve, 25));
+    }
+
+    expect(bobsNotice).toMatchObject({ kind: 'expense', expenseId, amount: 300 });
+    expect(await noticeFor(dee.token)).toBeUndefined();
+  });
 });

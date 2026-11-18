@@ -3,6 +3,7 @@ import { Clock, ExecutionContext, publishDomainEvents } from '@Architecture/Appl
 import { command } from '@Architecture/Application/Lite/UseCase';
 
 import { IDebtWatchStore } from '@Contexts/Notifications/Application/IDebtWatchStore';
+import { INoticePreferenceStore } from '@Contexts/Notifications/Application/INoticePreferenceStore';
 import { INoticeStore } from '@Contexts/Notifications/Application/INoticeStore';
 import { IOutstandingDebts } from '@Contexts/Notifications/Application/IOutstandingDebts';
 import { DEBT_THRESHOLD, DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
@@ -18,12 +19,21 @@ const keyOf = (groupId: string, memberId: string): string => `${groupId}\u0000${
  * member of the group, is cleared. Nothing is decided by a read: only this run writes the watches and the notices, in one transaction,
  * so a conflict with another server's run runs the whole sweep again on what it committed (CONFLICT_ATTEMPTS).
  *
+ * A member who has turned reminders off is reminded of nothing; the watch is noted all the same (request 36).
+ *
  * It is started by the composition root, every JOBS_INTERVAL_SECONDS, with the one clock the wiring passes and the reminder period
  * (REMINDER_PERIOD_SECONDS) as a parameter. It has no caller: nothing routes to it.
  */
 export const sweepDebts = command(
   'SweepDebts',
-  (watches: IDebtWatchStore, debts: IOutstandingDebts, notices: INoticeStore, clock: Clock, reminderPeriodMs: number) =>
+  (
+    watches: IDebtWatchStore,
+    debts: IOutstandingDebts,
+    notices: INoticeStore,
+    preferences: INoticePreferenceStore,
+    clock: Clock,
+    reminderPeriodMs: number,
+  ) =>
     async (_: void, context): Promise<IResult<void>> => {
       const now = clock();
       const known = new Map((await watches.all()).map(watch => [keyOf(watch.groupId, watch.memberId), watch]));
@@ -36,7 +46,9 @@ export const sweepDebts = command(
 
         const watch = known.get(key) ?? DebtWatch.create({ groupId, memberId });
         const { reminderDue } = watch.sight(owes, now, reminderPeriodMs);
-        if (reminderDue) {
+        // A reminder is made only to a member who has reminders on (request 36). One not made is not recorded: the watch keeps its
+        // last reminder as it was, so the first run after reminders are on again reminds the member who still owes.
+        if (reminderDue && (await preferences.preferencesOf(memberId)).isOn('reminder')) {
           watch.remind(owes, now);
           const notice = Notice.reminder({ recipientId: memberId, groupId, amount: owes }, now);
           await notices.add(notice);
