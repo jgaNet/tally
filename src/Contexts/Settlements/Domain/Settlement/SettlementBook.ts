@@ -103,6 +103,20 @@ export interface MovedSettlement {
   at: string;
 }
 
+/**
+ * A change of money the book made since it was read, which the store writes to the group's audit in its own transaction (request 28,
+ * docs/adr/0027): a cash settlement recorded, or a provider's payment that succeeded (`settlement-paid`, by its payee, or by its payer
+ * through the provider), or a settlement the balances counted that the provider says was refunded (`settlement-refunded`, by its payee).
+ */
+export interface AuditedSettlementChange {
+  id: string;
+  action: 'settlement-paid' | 'settlement-refunded';
+  by: string;
+  subjectId: string;
+  amount: number;
+  at: string;
+}
+
 /** A refund asked now: the settlement's refund command, and the time Tally asked for it (request 19: the status it moves to is dated). */
 export type RecordRefundCommand = RefundSettlementCommand & { at: Date };
 
@@ -135,6 +149,7 @@ export class SettlementBook extends AggregateRoot {
   #paid: PaidSettlement[];
   #recorded: NewSettlement[] = [];
   #moved: MovedSettlement[] = [];
+  #audited: AuditedSettlementChange[] = [];
 
   private constructor(groupId: Id, version: number, pending: PendingSettlement[], paid: PaidSettlement[]) {
     super(groupId, version);
@@ -185,6 +200,11 @@ export class SettlementBook extends AggregateRoot {
     return this.#moved;
   }
 
+  /** The changes of money the book made since it was read, in the order they were made: the store writes each one to the audit. */
+  get audited(): readonly AuditedSettlementChange[] {
+    return this.#audited;
+  }
+
   /** The settlements of the group still pending, as the book was read and as recorded since. */
   get pending(): readonly PendingSettlement[] {
     return this.#pending;
@@ -218,6 +238,14 @@ export class SettlementBook extends AggregateRoot {
       at: at.toISOString(),
     };
     this.#recorded.push(settlement);
+    this.#audited.push({
+      id: Id.generate().value,
+      action: 'settlement-paid',
+      by,
+      subjectId: settlement.id,
+      amount,
+      at: at.toISOString(),
+    });
     this.record(
       SettlementRecordedEvent.set({
         settlementId: settlement.id,
@@ -322,6 +350,14 @@ export class SettlementBook extends AggregateRoot {
     const { id, from, to, amount } = payment;
     if (status === 'succeeded') {
       this.#moved.push({ id, status: 'paid', at: at.toISOString() });
+      this.#audited.push({
+        id: Id.generate().value,
+        action: 'settlement-paid',
+        by: from,
+        subjectId: id,
+        amount,
+        at: at.toISOString(),
+      });
       this.record(SettlementPaidEvent.set({ settlementId: id, groupId: this.groupId, from, to, amount }));
     } else {
       this.#moved.push({ id, status: 'failed', at: at.toISOString() });
@@ -331,15 +367,28 @@ export class SettlementBook extends AggregateRoot {
 
   /** The provider says the payment was refunded: a pending, paid or refunding settlement is refunded, and never counted again. */
   #refundedByProvider(providerPaymentId: string, at: Date): void {
+    const pending = this.#pending.find(each => each.providerPaymentId === providerPaymentId);
     const payment: PendingSettlement | undefined =
-      this.#pending.find(each => each.providerPaymentId === providerPaymentId) ??
-      this.#paid.find(each => each.providerPaymentId === providerPaymentId);
+      pending ?? this.#paid.find(each => each.providerPaymentId === providerPaymentId);
     if (!payment) return;
+    // Only a settlement the balances counted (paid, or refunding) leaves them: a pending one that a refund overtook was never counted,
+    // so the audit records no refund for it (docs/adr/0027).
+    const counted = pending === undefined;
 
     this.#pending = this.#pending.filter(each => each !== payment);
     this.#paid = this.#paid.filter(each => each.providerPaymentId !== providerPaymentId);
     const { id, from, to, amount } = payment;
     this.#moved.push({ id, status: 'refunded', at: at.toISOString() });
+    if (counted) {
+      this.#audited.push({
+        id: Id.generate().value,
+        action: 'settlement-refunded',
+        by: to,
+        subjectId: id,
+        amount,
+        at: at.toISOString(),
+      });
+    }
     this.record(SettlementRefundedEvent.set({ settlementId: id, groupId: this.groupId, from, to, amount }));
   }
 

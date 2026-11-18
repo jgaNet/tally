@@ -27,6 +27,17 @@ import { Currency, CurrencyCode } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupSnapshot, MemberSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 
 /**
+ * A balance that passed to the owner when a member left, as the group's audit keeps it (request 28, docs/adr/0027): the member who left
+ * (`memberId`, the one who acted and the subject alike), its balance as it left (`amount`, positive or negative) and when.
+ */
+export interface PassedLeave {
+  id: string;
+  memberId: string;
+  amount: number;
+  at: string;
+}
+
+/**
  * A group of people who share expenses in one currency (conventions/domain.yaml, the Groups context).
  *
  * Its members are kept in the order they joined; the owner is the first, and the group starts with it: creating
@@ -50,6 +61,7 @@ export class Group extends AggregateRoot {
   readonly #createdAt: Date;
   readonly #members: MemberSnapshot[];
   #archivedAt: Date | undefined;
+  #passedLeaves: PassedLeave[] = [];
 
   private constructor(
     id: Id,
@@ -193,7 +205,10 @@ export class Group extends AggregateRoot {
     if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
     if (waitingPayment) return Result.fail(new PaymentWaitingException());
     member.leftAt = at.toISOString();
-    if (balance !== 0) member.passed = (member.passed ?? 0) + balance;
+    if (balance !== 0) {
+      member.passed = (member.passed ?? 0) + balance;
+      this.#passedLeaves.push({ id: Id.generate().value, memberId: accountId, amount: balance, at: at.toISOString() });
+    }
     this.record(
       BalancePassedEvent.set({ groupId: this._id.value, from: accountId, to: this.#ownerId, amount: balance }),
     );
@@ -264,5 +279,10 @@ export class Group extends AggregateRoot {
   /** The current members, in the order they joined: a former member is not among them. */
   get members(): readonly MemberSnapshot[] {
     return this.#members.filter(member => member.leftAt === undefined).map(member => ({ ...member }));
+  }
+
+  /** The balances that passed to the owner since the group was read, in the order they passed: the store writes each one to the audit. */
+  get passedLeaves(): readonly PassedLeave[] {
+    return this.#passedLeaves;
   }
 }

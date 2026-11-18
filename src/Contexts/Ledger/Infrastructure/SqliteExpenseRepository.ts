@@ -7,6 +7,7 @@ import { OriginalAmountSnapshot, ShareSnapshot, SplitKind } from '@Contexts/Ledg
 import { Category, DEFAULT_CATEGORY } from '@Contexts/Ledger/Domain/Expense/Category';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { LEDGER_AUDIT_SCHEMA, recordAudit } from '@Contexts/Ledger/Infrastructure/SqliteAuditEntries';
 
 /**
  * The ledger's tables: an expense is a row, and its shares are rows of their own, keyed by the expense and the position
@@ -47,6 +48,8 @@ export function prepareLedgerSchema(connection: DatabaseSync): void {
   for (const [name, type] of ORIGINAL_COLUMNS) {
     if (!columns.includes(name)) connection.exec(`ALTER TABLE expenses ADD COLUMN ${name} ${type}`);
   }
+  // The group's audit of the changes of money (request 28, docs/adr/0027): one row per entry, written with the change.
+  connection.exec(LEDGER_AUDIT_SCHEMA);
 }
 
 /** The columns an expense row is read by, in the order `ExpenseRow` lists them. */
@@ -169,6 +172,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     snapshot.shares.forEach((share, position) => {
       insertShare.run(snapshot.id, position, share.memberId, share.amount);
     });
+    recordAudit(connection, snapshot.groupId, expense.audited);
     return Result.ok(undefined);
   }
 
@@ -182,6 +186,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       .prepare('DELETE FROM expenses WHERE id = ? AND version = ?')
       .run(snapshot.id, snapshot.version);
     if (changes === 0) return Result.fail(changedSinceRead());
+    recordAudit(connection, snapshot.groupId, expense.audited);
     return Result.ok(undefined);
   }
 }

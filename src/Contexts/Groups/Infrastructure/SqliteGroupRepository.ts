@@ -17,6 +17,8 @@ export const GROUPS_SCHEMA = [
   'CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, currency TEXT NOT NULL, owner_id TEXT NOT NULL, created_at TEXT NOT NULL, version INTEGER NOT NULL)',
   'CREATE TABLE IF NOT EXISTS group_members (group_id TEXT NOT NULL REFERENCES groups (id), account_id TEXT NOT NULL, role TEXT NOT NULL, position INTEGER NOT NULL, joined_at TEXT NOT NULL, left_at TEXT, passed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (group_id, account_id))',
   'CREATE INDEX IF NOT EXISTS group_members_by_account ON group_members (account_id)',
+  // The balances that passed to the owner when a member left, one row each, never changed: the group's audit (request 28, docs/adr/0027).
+  'CREATE TABLE IF NOT EXISTS passed_balances (id TEXT PRIMARY KEY, group_id TEXT NOT NULL, member_id TEXT NOT NULL, amount INTEGER NOT NULL, at TEXT NOT NULL)',
 ].join(';\n');
 
 /**
@@ -133,6 +135,13 @@ export class SqliteGroupRepository implements IGroupRepository {
         member.passed ?? 0,
       );
     });
+    // A balance that passed is an entry of the group's audit, written with the departure in this transaction (request 28).
+    const passedLeave = connection.prepare(
+      'INSERT INTO passed_balances (id, group_id, member_id, amount, at) VALUES (?, ?, ?, ?, ?)',
+    );
+    for (const leave of group.passedLeaves) {
+      passedLeave.run(leave.id, snapshot.id, leave.memberId, leave.amount, leave.at);
+    }
     return Result.ok(undefined);
   }
 }

@@ -3,7 +3,15 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { groupsReadModel, ledgerReadModel, settledAmountsOfSettlements } from '@Bootstrap/Fastify/readModels';
+import {
+  groupsReadModel,
+  ledgerReadModel,
+  passedBalancesOfGroups,
+  settledAmountsOfSettlements,
+  settlementAuditOfSettlements,
+} from '@Bootstrap/Fastify/readModels';
+import { getGroupAudit } from '@Contexts/Ledger/Application/Audit';
+import { SqliteAuditQueries } from '@Contexts/Ledger/Infrastructure/SqliteAuditEntries';
 import {
   deleteExpense,
   editExpense,
@@ -81,6 +89,9 @@ const templateQueries = new SqliteSplitTemplateQueries(sharedDatabase);
 const receipts = new SqliteReceipts(sharedDatabase);
 const receiptQueries = new SqliteReceiptQueries(sharedDatabase);
 const receiptStore = new HttpReceiptStore();
+// The group's audit (request 28, docs/adr/0027): the expenses' entries are Ledger's own table; the settlements' and the balances that
+// passed are read through the ports below, over the other contexts' read models (readModels.ts).
+const auditQueries = new SqliteAuditQueries(sharedDatabase);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
@@ -89,7 +100,7 @@ export const localLedgerModule = new LiteModule({
     getExpense(expenseQueries, groupMembers),
     getGroupBalances(expenseQueries, groupMembers),
     editExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock, templates),
-    deleteExpense(expenses, groupMembers),
+    deleteExpense(expenses, groupMembers, systemClock),
     getGroupExpenses(expenseQueries, groupMembers),
     getMemberStatement(expenseQueries, groupMembers),
     getOfferedRate(groupCurrency, offeredRates, systemClock),
@@ -108,6 +119,7 @@ export const localLedgerModule = new LiteModule({
     // The expense is read over Ledger's own read model, on a connection of its own: the command's transaction holds the shared one (readModels.ts).
     attachReceipt(receipts, receiptStore, ledgerReadModel, groupMembers),
     getReceipt(receiptQueries, expenseQueries, groupMembers),
+    getGroupAudit(auditQueries, settlementAuditOfSettlements, passedBalancesOfGroups, groupMembers),
   ],
   domainEvents: [
     // An expense recorded is told to the other contexts as the published fact (request 17, docs/adr/0017), and may pass its month's budget (request 24).

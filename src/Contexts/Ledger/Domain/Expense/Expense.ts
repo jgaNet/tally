@@ -1,6 +1,7 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
 import { GroupArchivedException } from '@SharedKernel/Domain';
 
+import { AuditEntryView } from '@Contexts/Ledger/Domain/Audit/DTOs';
 import {
   ExpenseSnapshot,
   OriginalAmountSnapshot,
@@ -54,6 +55,8 @@ export class Expense extends AggregateRoot {
   readonly #split: Split;
   readonly #original: OriginalAmount | undefined;
   readonly #category: Category;
+  // The changes of money this expense made since it was read: its audit entries, written by its store with the change (request 28).
+  #audited: AuditEntryView[] = [];
 
   private constructor(
     id: Id,
@@ -125,6 +128,14 @@ export class Expense extends AggregateRoot {
       checked.data.category,
       0,
     );
+    expense.#audited.push({
+      id: Id.generate().value,
+      at: at.toISOString(),
+      by: paidBy,
+      action: 'expense-recorded',
+      subjectId: id.value,
+      amount: checked.data.amount,
+    });
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: id.value,
@@ -196,6 +207,14 @@ export class Expense extends AggregateRoot {
       checked.data.category,
       this.version,
     );
+    edited.#audited.push({
+      id: Id.generate().value,
+      at: at.toISOString(),
+      by,
+      action: 'expense-edited',
+      subjectId: this._id.value,
+      amount: checked.data.amount,
+    });
     edited.record(
       ExpenseEditedEvent.set({
         expenseId: this._id.value,
@@ -212,10 +231,29 @@ export class Expense extends AggregateRoot {
    * Removes the expense, for its payer or the group's owner (request 6). A deleted expense is gone from every read and
    * counts in no balance: the store removes it and its shares with it, in the same transaction.
    */
-  remove({ by, members, archived }: { by: string; members: GroupMember[]; archived: boolean }): IResult<Expense> {
+  remove({
+    by,
+    members,
+    archived,
+    at,
+  }: {
+    by: string;
+    members: GroupMember[];
+    archived: boolean;
+    at: Date;
+  }): IResult<Expense> {
     if (archived) return Result.fail(new GroupArchivedException('Ledger'));
     if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
     if (!this.concernsOnlyCurrentMembers(members)) return Result.fail(new ExpenseOfFormerMemberException());
+    // The amount it had is the one the audit keeps (request 28, docs/adr/0027).
+    this.#audited.push({
+      id: Id.generate().value,
+      at: at.toISOString(),
+      by,
+      action: 'expense-deleted',
+      subjectId: this._id.value,
+      amount: this.#amount,
+    });
     this.record(ExpenseDeletedEvent.set({ expenseId: this._id.value, groupId: this.#groupId, paidBy: this.#paidBy }));
     return Result.ok(this);
   }
@@ -296,6 +334,11 @@ export class Expense extends AggregateRoot {
 
   get date(): string {
     return this.#date;
+  }
+
+  /** The changes of money this expense made since it was read, in the order they were made: its store writes each one to the audit. */
+  get audited(): readonly AuditEntryView[] {
+    return this.#audited;
   }
 
   /** The payer, or the group's owner, may change the expense; any other member may not. */

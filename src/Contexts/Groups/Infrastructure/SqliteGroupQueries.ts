@@ -6,6 +6,7 @@ import {
   IGroupQueries,
   MemberView,
   PassedBalancesView,
+  PassedLeaveView,
   PassedMemberView,
 } from '@Contexts/Groups/Domain/Group/Ports/IGroupQueries';
 
@@ -94,6 +95,21 @@ export class SqliteGroupQueries implements IGroupQueries {
         })),
       };
     });
+  }
+
+  async passedLeavesOf(groupId: string): Promise<PassedLeaveView[]> {
+    return this.database.exclusive(() =>
+      (
+        this.database.connection
+          .prepare('SELECT id, at, member_id, amount FROM passed_balances WHERE group_id = ? ORDER BY at, rowid')
+          .all(groupId) as Array<{ id: string; at: string; member_id: string; amount: number }>
+      ).map((row): PassedLeaveView => ({
+        id: String(row.id),
+        at: String(row.at),
+        memberId: String(row.member_id),
+        amount: Number(row.amount),
+      })),
+    );
   }
 
   async currentMemberIdsOf(groupId: string): Promise<string[]> {

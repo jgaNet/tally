@@ -2,6 +2,7 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import {
   SettledMember,
+  SettlementAuditEntry,
   SettlementStatus,
   SettlementStatusLine,
   SettlementWithHistory,
@@ -124,6 +125,32 @@ export class SqliteSettlementQueries implements ISettlementQueries {
   async waitingOf(groupId: string): Promise<WaitingMember[]> {
     return this.database.exclusive(() =>
       totalsOf(this.database, groupId, ['pending']).map((member): WaitingMember => ({ ...member })),
+    );
+  }
+
+  async auditOf(groupId: string): Promise<SettlementAuditEntry[]> {
+    return this.database.exclusive(() =>
+      (
+        this.database.connection
+          .prepare(
+            'SELECT id, at, by_id, action, subject_id, amount FROM settlement_audit WHERE group_id = ? ORDER BY at, rowid',
+          )
+          .all(groupId) as Array<{
+          id: string;
+          at: string;
+          by_id: string;
+          action: string;
+          subject_id: string;
+          amount: number;
+        }>
+      ).map((row): SettlementAuditEntry => ({
+        id: String(row.id),
+        at: String(row.at),
+        by: String(row.by_id),
+        action: String(row.action) as SettlementAuditEntry['action'],
+        subjectId: String(row.subject_id),
+        amount: Number(row.amount),
+      })),
     );
   }
 }

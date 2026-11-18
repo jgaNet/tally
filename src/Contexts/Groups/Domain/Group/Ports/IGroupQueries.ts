@@ -46,6 +46,19 @@ export interface IGroupQueries {
    * not exist. Ledger reads it through GroupMembers when it reads the balances.
    */
   passedBalancesOf(groupId: string): Promise<PassedBalancesView | undefined>;
+  /**
+   * Each balance that a leave of the group passed to its owner, the oldest first, with the member who left and when (request 28,
+   * docs/adr/0027): the entries Ledger's audit reads through its PassedBalances port. Empty for a group nobody left with a balance.
+   */
+  passedLeavesOf(groupId: string): Promise<PassedLeaveView[]>;
+}
+
+/** A leave that passed a balance to the owner, as the group's audit keeps it (request 28, docs/adr/0027). */
+export interface PassedLeaveView {
+  id: string;
+  at: string;
+  memberId: string;
+  amount: number;
 }
 
 /** A member whose leaves passed a balance to the owner, as Ledger reads it (docs/adr/0019). */

@@ -200,12 +200,12 @@ describe('Expense.edit and Expense.remove', () => {
   });
 
   it('removes the expense for its payer or the owner, and records ExpenseDeleted; another member is refused', () => {
-    const removed = stored().remove({ archived: false, by: 'bob', members: roles });
+    const removed = stored().remove({ at: NOW, archived: false, by: 'bob', members: roles });
     expect(removed.isSuccess()).toBe(true);
     expect(removed.data?.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseDeletedEvent']);
 
-    expect(stored().remove({ archived: false, by: 'ada', members: roles }).isSuccess()).toBe(true);
-    expect(stored().remove({ archived: false, by: 'cy', members: roles }).error?.type).toBe('NotAllowed');
+    expect(stored().remove({ at: NOW, archived: false, by: 'ada', members: roles }).isSuccess()).toBe(true);
+    expect(stored().remove({ at: NOW, archived: false, by: 'cy', members: roles }).error?.type).toBe('NotAllowed');
   });
 });
 
@@ -236,7 +236,7 @@ describe('an expense of a former member (request 9)', () => {
 
   it('refuses an edit once a member of its split has left, and a delete too', () => {
     expect(edited(recorded()).error?.type).toBe('ExpenseOfFormerMember');
-    expect(recorded().remove({ archived: false, by: 'ada', members: current }).error?.type).toBe(
+    expect(recorded().remove({ at: NOW, archived: false, by: 'ada', members: current }).error?.type).toBe(
       'ExpenseOfFormerMember',
     );
   });
@@ -266,7 +266,12 @@ describe('an archived group takes no expense (request 27)', () => {
 
     const stored = Expense.register({ ...valid, archived: false }).data!;
     stored.pullDomainEvents();
-    const removed = stored.remove({ by: 'ada', members: [{ memberId: 'ada', role: 'owner' }], archived: true });
+    const removed = stored.remove({
+      by: 'ada',
+      members: [{ memberId: 'ada', role: 'owner' }],
+      archived: true,
+      at: NOW,
+    });
 
     expect(removed.error?.type).toBe('GroupArchived');
     expect(stored.pullDomainEvents()).toEqual([]);

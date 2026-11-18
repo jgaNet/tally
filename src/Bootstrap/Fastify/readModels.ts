@@ -5,6 +5,8 @@ import { WaitingPaymentsOfSettlements } from '@Contexts/Groups/Infrastructure/Wa
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
 import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
+import { SettlementAuditOfSettlements } from '@Contexts/Ledger/Infrastructure/SettlementAuditOfSettlements';
+import { PassedBalancesOfGroups } from '@Contexts/Ledger/Infrastructure/PassedBalancesOfGroups';
 import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/SqliteSettlementQueries';
 import { GroupBalancesOfLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesOfLedger';
 import { OutstandingDebtsOfLedger } from '@Contexts/Settlements/Infrastructure/OutstandingDebtsOfLedger';
@@ -23,8 +25,12 @@ export const groupsReadModel = new SqliteGroupQueries(new SqliteDatabase());
 export const settlementsReadModel = new SqliteSettlementQueries(new SqliteDatabase());
 /** Ledger's SettledAmounts: the settlements, counted by every balance Ledger reads. */
 export const settledAmountsOfSettlements = new SettledAmountsOfSettlements(settlementsReadModel);
+/** Ledger's SettlementAudit over Settlements' read model: the settlements' changes of money, as the group's audit reads them (request 28). */
+export const settlementAuditOfSettlements = new SettlementAuditOfSettlements(settlementsReadModel);
 /** Ledger's GroupMembers over Groups' read model: who is a member, and what the leaves passed to the owner (docs/adr/0019). */
 export const groupMembersOfGroups = new GroupMembersOfGroups(groupsReadModel);
+/** Ledger's PassedBalances over Groups' read model: the balances the leaves passed, as the group's audit reads them (request 28, docs/adr/0027). */
+export const passedBalancesOfGroups = new PassedBalancesOfGroups(groupsReadModel);
 export const ledgerReadModel = new SqliteExpenseQueries(
   new SqliteDatabase(),
   settledAmountsOfSettlements,

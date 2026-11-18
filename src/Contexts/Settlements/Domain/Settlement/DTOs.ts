@@ -64,3 +64,16 @@ export interface OutstandingDebt {
   memberId: string;
   amount: number;
 }
+
+/**
+ * One change of money of a group's settlements, as the group's audit keeps it (request 28, docs/adr/0027): a settlement paid, by its payee
+ * (in cash) or its payer (through the provider), or refunded by its payee. `subjectId` is the settlement.
+ */
+export interface SettlementAuditEntry {
+  id: string;
+  at: string;
+  by: string;
+  action: 'settlement-paid' | 'settlement-refunded';
+  subjectId: string;
+  amount: number;
+}

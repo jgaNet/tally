@@ -193,7 +193,7 @@ export const editExpense = command(
  */
 export const deleteExpense = command(
   'DeleteExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers) =>
+  (expenses: IExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
     async ({ id }: { id: string }, context) => {
       const by = callerOf(context);
       const stored = await expenses.get(id);
@@ -202,7 +202,7 @@ export const deleteExpense = command(
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
       const archived = await groupMembers.isArchived(stored.groupId);
 
-      const removed = stored.remove({ by, members, archived });
+      const removed = stored.remove({ by, members, archived, at: clock() });
       if (removed.isFailure()) return removed;
       const saved = await expenses.remove(removed.data);
       if (saved.isFailure()) return saved;

@@ -44,6 +44,10 @@ export function prepareSettlementSchema(connection: DatabaseSync): void {
       'CREATE INDEX IF NOT EXISTS settlement_statuses_by_settlement ON settlement_statuses (settlement_id)',
     ].join(';\n'),
   );
+  // The group's audit of the changes of money the book makes, one row each, never changed (request 28, docs/adr/0027).
+  connection.exec(
+    'CREATE TABLE IF NOT EXISTS settlement_audit (id TEXT PRIMARY KEY, group_id TEXT NOT NULL, at TEXT NOT NULL, by_id TEXT NOT NULL, action TEXT NOT NULL, subject_id TEXT NOT NULL, amount INTEGER NOT NULL)',
+  );
   // Read first: a file with every settlement's line is only read, never written (a write here would lock the file for the others).
   const unlined = connection
     .prepare(
@@ -148,6 +152,14 @@ export class SqliteSettlementBooks implements ISettlementBooks {
     for (const each of book.moved) {
       move.run(each.status, each.id);
       learn.run(each.id, each.status, each.at);
+    }
+
+    // Each change of money the book made is an entry of the group's audit, written with it in this transaction (request 28, docs/adr/0027).
+    const audit = connection.prepare(
+      'INSERT INTO settlement_audit (id, group_id, at, by_id, action, subject_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const change of book.audited) {
+      audit.run(change.id, groupId, change.at, change.by, change.action, change.subjectId, change.amount);
     }
     return Result.ok(undefined);
   }

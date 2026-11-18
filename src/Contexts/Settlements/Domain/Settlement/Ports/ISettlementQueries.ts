@@ -1,4 +1,9 @@
-import { SettledMember, SettlementWithHistory, WaitingMember } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import {
+  SettledMember,
+  SettlementAuditEntry,
+  SettlementWithHistory,
+  WaitingMember,
+} from '@Contexts/Settlements/Domain/Settlement/DTOs';
 
 /** The read side of the settlements: what the queries answer, and what Ledger reads of what was settled (docs/adr/0013, docs/adr/0014). */
 export interface ISettlementQueries {
@@ -22,4 +27,9 @@ export interface ISettlementQueries {
    * may not leave the group (request 20, docs/adr/0019). Answered to Groups through its WaitingPayments port.
    */
   providerWaitingOf(groupId: string, memberId: string): Promise<boolean>;
+  /**
+   * The changes of money of the group's settlements, the oldest first, as the audit keeps them (request 28, docs/adr/0027): read by
+   * Ledger's audit through its SettlementAudit port.
+   */
+  auditOf(groupId: string): Promise<SettlementAuditEntry[]>;
 }
