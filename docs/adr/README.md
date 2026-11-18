@@ -37,6 +37,7 @@ why, what it costs, and when to revisit it.
 | [30](0030-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
 | [31](0031-a-merged-group-is-removed-and-what-it-held-moves-by-the-groups-merged-fact.md) | A merged group is removed, and what it held moves to the group kept by the GroupsMerged fact |
 | [32](0032-a-netting-is-decided-across-the-shared-groups-and-stored-with-their-books.md) | A netting is decided by a Settlements domain service across the groups two members share, and stored with their books |
+| [33](0033-a-contested-settlement-is-held-until-an-administrator-decides-it.md) | A contested settlement is held by Settlements until an administrator decides it, and the decision is logged by the context that made it |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

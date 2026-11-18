@@ -1,4 +1,5 @@
 import {
+  AdministratorDecisionEntry,
   CountedSettlement,
   SettledMember,
   SettlementAuditEntry,
@@ -26,11 +27,14 @@ export interface ISettlementQueries {
    * Read by Ledger's SettledAmounts for a member's statement: the same settlements `settledOf` totals, one by one.
    */
   countedOf(groupId: string): Promise<CountedSettlement[]>;
-  /** What each member of the group is waiting to pay and to receive in its pending settlements, one read (request 13). */
+  /**
+   * What each member of the group is waiting to pay and to receive in its pending and contested settlements, one read (request 13, request 33):
+   * a contested settlement counts as paid until an administrator decides it.
+   */
   waitingOf(groupId: string): Promise<WaitingMember[]>;
   /**
-   * Whether a settlement the member pays or receives through the provider, in the group, is pending or refunding: a member with one
-   * may not leave the group (request 20, docs/adr/0019). Answered to Groups through its WaitingPayments port.
+   * Whether a settlement the member pays or receives through the provider, in the group, is pending, refunding or contested: a member with one
+   * may not leave the group (request 20, docs/adr/0019; request 33). Answered to Groups through its WaitingPayments port.
    */
   providerWaitingOf(groupId: string, memberId: string): Promise<boolean>;
   /**
@@ -38,4 +42,13 @@ export interface ISettlementQueries {
    * Ledger's audit through its SettlementAudit port.
    */
   auditOf(groupId: string): Promise<SettlementAuditEntry[]>;
+  /**
+   * The settlements contested now, each with its history, the earliest contested first (request 33): what an administrator lists to decide.
+   */
+  contestedSettlements(): Promise<SettlementWithHistory[]>;
+  /**
+   * The administrators' decisions on contested settlements, the oldest first (request 33, docs/adr/0033): read by Groups' administrators' log
+   * through its AdministratorDecisions port.
+   */
+  administratorDecisions(): Promise<AdministratorDecisionEntry[]>;
 }

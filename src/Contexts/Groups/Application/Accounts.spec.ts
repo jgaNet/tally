@@ -21,13 +21,13 @@ import { NotAllowedException, NotFoundException } from '@Architecture/Domain';
  * database keeps, are tested with their adapter (Infrastructure/PostgresSessionTokens.spec.ts).
  */
 class TokensOfTheSpec implements ISessionTokens {
-  issue(accountId: string): string {
-    return `token-of-${accountId}`;
+  issue(accountId: string, role: Role): string {
+    return `token-of-${accountId}-${role}`;
   }
 
-  accountOf(token: string): string | undefined {
-    const prefix = 'token-of-';
-    return token.startsWith(prefix) ? token.slice(prefix.length) : undefined;
+  accountOf(token: string): { subjectId: string; role: Role } | undefined {
+    const match = /^token-of-(.+)-(ADMIN|USER|GUEST)$/.exec(token);
+    return match ? { subjectId: match[1], role: match[2] as Role } : undefined;
   }
 }
 
@@ -46,7 +46,7 @@ function setUp() {
     accounts,
     context,
     register: signUp(accounts, passwords),
-    logIn: signIn(accounts, passwords, tokens),
+    logIn: signIn(accounts, passwords, tokens, () => []),
     readMine: getMyAccount({ findAccount: async id => toView(id, accounts) }),
     tokens,
   };
@@ -104,7 +104,7 @@ describe('signing in', () => {
     const result = await logIn.run({ email: 'ADA@example.com', password: 'a-good-password' }, context());
 
     expect(result.isSuccess()).toBe(true);
-    expect(tokens.accountOf((result.data as { token: string }).token)).toBe(id);
+    expect(tokens.accountOf((result.data as { token: string }).token)?.subjectId).toBe(id);
   });
 
   it('refuses a wrong password and an unknown email the same way', async () => {

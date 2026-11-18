@@ -44,17 +44,25 @@ export const signUp = command(
   { caller: 'anyone' },
 );
 
-/** Signs in: checks the credentials and answers a token. Nothing changes, nothing is recorded. */
+/**
+ * Signs in: checks the credentials and answers a token that carries the account's role, administrator when its email is one of the
+ * administrators' (`administratorEmails`, read when a sign-in is made: docs/adr/0033). Nothing changes, nothing is recorded.
+ */
 export const signIn = command(
   'SignIn',
-  (accounts: IAccountRepository, passwords: IPasswordHasher, tokens: ISessionTokens) =>
+  (
+    accounts: IAccountRepository,
+    passwords: IPasswordHasher,
+    tokens: ISessionTokens,
+    administratorEmails: () => readonly string[],
+  ) =>
     async ({ email, password }: { email: string; password: string }) => {
       const address = Email.create(email);
       const account = address.isSuccess() ? await accounts.findByEmail(address.data.value) : undefined;
       if (!account || !(await passwords.matches(password, account.passwordHash))) {
         return Result.fail(new NotAllowedException('Groups', WRONG_CREDENTIALS));
       }
-      return Result.ok({ token: tokens.issue(account.id) });
+      return Result.ok({ token: tokens.issue(account.id, account.roleAmong(administratorEmails())) });
     },
   { caller: 'anyone' },
 );

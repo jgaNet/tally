@@ -75,3 +75,29 @@ export class PayeeHasNoPayoutAccountException extends Exception {
     });
   }
 }
+
+/**
+ * The settlement cannot be contested: it is not a paid settlement through the provider, its payee has already contested it (once only),
+ * or one of its payer and payee has left the group (request 33, docs/adr/0033). Nothing changes; `422`.
+ */
+export class SettlementNotContestableException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementNotContestable',
+      message:
+        'A settlement is contested only once, while it is paid through the provider, and both its members are still in the group',
+    });
+  }
+}
+
+/** The settlement is not contested, so there is no decision to make about it (request 33): a decision is made once, on a contested one; `422`. */
+export class SettlementNotContestedException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementNotContested',
+      message: 'Only a contested settlement is decided, and once',
+    });
+  }
+}

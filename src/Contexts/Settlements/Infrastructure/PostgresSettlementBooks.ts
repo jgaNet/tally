@@ -37,6 +37,11 @@ export const prepareSettlementSchema: Setup = async database => {
   await database.exec(
     'CREATE TABLE IF NOT EXISTS settlement_audit (seq BIGSERIAL NOT NULL UNIQUE, id TEXT PRIMARY KEY, group_id TEXT NOT NULL, at TEXT NOT NULL, by_id TEXT NOT NULL, action TEXT NOT NULL, subject_id TEXT NOT NULL, amount INTEGER NOT NULL)',
   );
+  // The administrators' log of their decisions on contested settlements, one row each, never changed, written with the decision (request 33,
+  // docs/adr/0033). Not per group: Groups reads it whole, for the administrators only.
+  await database.exec(
+    'CREATE TABLE IF NOT EXISTS administrator_decisions (seq BIGSERIAL NOT NULL UNIQUE, id TEXT PRIMARY KEY, at TEXT NOT NULL, by_id TEXT NOT NULL, action TEXT NOT NULL, subject_id TEXT NOT NULL)',
+  );
 };
 
 /**
@@ -59,8 +64,12 @@ export class PostgresSettlementBooks implements ISettlementBooks {
       'SELECT id, payer_id, payee_id, amount, provider_payment_id FROM settlements WHERE group_id = ? AND status = \'pending\' ORDER BY recorded_at COLLATE "C", seq',
       [groupId],
     );
+    // A contested settlement is held in the book, as paid by the provider, until an administrator decides it (request 33): whether it was
+    // contested before is read from its history, so that it is contested once.
     const paid = await this.database.all<PaidRow>(
-      "SELECT id, payer_id, payee_id, amount, provider_payment_id, status FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('paid', 'refunding') ORDER BY recorded_at COLLATE \"C\", seq",
+      `SELECT id, payer_id, payee_id, amount, provider_payment_id, status,
+           EXISTS (SELECT 1 FROM settlement_statuses l WHERE l.settlement_id = settlements.id AND l.status = 'contested') AS was_contested
+         FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('paid', 'refunding', 'contested') ORDER BY recorded_at COLLATE "C", seq`,
       [groupId],
     );
     return SettlementBook.fromSnapshot({
@@ -138,6 +147,14 @@ export class PostgresSettlementBooks implements ISettlementBooks {
       await this.learn(each.id, each.status, each.at);
     }
 
+    // Each administrators' decision is an entry of the log, written with the decision in this transaction (request 33, docs/adr/0033).
+    for (const decision of book.decided) {
+      await this.database.run(
+        'INSERT INTO administrator_decisions (id, at, by_id, action, subject_id) VALUES (?, ?, ?, ?, ?)',
+        [decision.id, decision.at, decision.by, decision.action, decision.subjectId],
+      );
+    }
+
     // Each change of money the book made is an entry of the group's audit, written with it in this transaction (request 28, docs/adr/0027).
     for (const change of book.audited) {
       await this.database.run(
@@ -161,7 +178,7 @@ const changedSinceRead = () =>
   new ConcurrencyConflictException('Settlements', 'The settlements of the group changed since they were read');
 
 type PendingRow = { id: string; payer_id: string; payee_id: string; amount: number; provider_payment_id: string };
-type PaidRow = PendingRow & { status: string };
+type PaidRow = PendingRow & { status: string; was_contested: boolean };
 
 const pendingOf = (row: PendingRow): PendingSettlement => ({
   id: String(row.id),
@@ -174,6 +191,7 @@ const pendingOf = (row: PendingRow): PendingSettlement => ({
 const paidOf = (row: PaidRow): PaidSettlement => ({
   ...pendingOf(row),
   status: String(row.status) as PaidSettlement['status'],
+  wasContested: Boolean(row.was_contested),
 });
 
 /** The settlement a row holds, as `GetSettlement` answers it. Exported for the read side of the same tables. */

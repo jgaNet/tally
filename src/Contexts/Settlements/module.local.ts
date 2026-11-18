@@ -27,6 +27,7 @@ import { PostgresSettlementBooks } from '@Contexts/Settlements/Infrastructure/Po
 import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/PostgresSettlementQueries';
 import { PostgresNettingQueries, PostgresNettings } from '@Contexts/Settlements/Infrastructure/PostgresNettings';
 import { getNetting, netDebts } from '@Contexts/Settlements/Application/Nettings';
+import { contestSettlement, decideContest, getContests } from '@Contexts/Settlements/Application/Contests';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADR 11, ADR 0012, ADR 0013, ADR 0014, ADR 0015): the settlements of each group, in cash or
@@ -61,6 +62,9 @@ export const localSettlementsModule = new LiteModule({
     getPayoutAccount(payoutQueries),
     netDebts(books, balances, members, nettings, systemClock),
     getNetting(nettingQueries),
+    contestSettlement(books, members, systemClock),
+    decideContest(books, systemClock),
+    getContests(settlements),
   ],
   integrationEvents: [
     // A merge is moved here: the group merged's settlements move to the group kept (request 31, docs/adr/0031).

@@ -1,5 +1,6 @@
 import { AggregateRoot, Id } from '@Architecture/Domain';
 import { Email } from '@SharedKernel/Domain/Email';
+import { Role } from '@SharedKernel/Domain';
 
 import { AccountSnapshot } from '@Contexts/Groups/Domain/Account/DTOs';
 import { AccountRegisteredEvent } from '@Contexts/Groups/Domain/Account/Events/AccountEvents';
@@ -49,6 +50,15 @@ export class Account extends AggregateRoot {
       passwordHash: this.#passwordHash,
       version: this.version,
     };
+  }
+
+  /**
+   * The role this account has when it signs in: administrator when its email is one of the administrators' (ADMIN_EMAILS, whatever their
+   * case), user otherwise. Nothing is recorded: the role is given to the sign-in's token and to no one through the API (docs/adr/0033).
+   */
+  roleAmong(administratorEmails: readonly string[]): Role {
+    const administrators = administratorEmails.map(each => each.trim().toLowerCase());
+    return administrators.includes(this.#email.value) ? Role.ADMIN : Role.USER;
   }
 
   get id(): string {

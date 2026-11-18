@@ -1,6 +1,7 @@
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import {
+  AdministratorDecisionEntry,
   CountedSettlement,
   SettledMember,
   SettlementAuditEntry,
@@ -138,15 +139,58 @@ export class PostgresSettlementQueries implements ISettlementQueries {
     return this.database.exclusive(
       async () =>
         (await this.database.get(
-          "SELECT 1 FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?) LIMIT 1",
+          "SELECT 1 FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding', 'contested') AND (payer_id = ? OR payee_id = ?) LIMIT 1",
           [groupId, memberId, memberId],
         )) !== undefined,
     );
   }
 
+  /** What each member is waiting to pay and receive: the pending settlements, and the contested ones, which count as paid (request 33). */
   async waitingOf(groupId: string): Promise<WaitingMember[]> {
     return this.database.exclusive(async () =>
-      (await totalsOf(this.database, groupId, ['pending'])).map((member): WaitingMember => ({ ...member })),
+      (await totalsOf(this.database, groupId, ['pending', 'contested'])).map((member): WaitingMember => ({
+        ...member,
+      })),
+    );
+  }
+
+  /** The settlements contested now, the earliest contested first, each with its history in one statement for them (request 33). */
+  async contestedSettlements(): Promise<SettlementWithHistory[]> {
+    return this.database.exclusive(async () => {
+      const rows = await this.database.all<SettlementRow>(
+        `SELECT s.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.recorded_at, s.pay_url FROM settlements s
+           WHERE s.status = 'contested'
+           ORDER BY (SELECT MIN(l.learned_at COLLATE "C") FROM settlement_statuses l WHERE l.settlement_id = s.id AND l.status = 'contested') COLLATE "C", s.seq`,
+        [],
+      );
+      const lines = await this.database.all<HistoryRow>(
+        "SELECT l.settlement_id, l.status, l.learned_at FROM settlement_statuses l JOIN settlements s ON s.id = l.settlement_id WHERE s.status = 'contested' ORDER BY l.seq",
+        [],
+      );
+      const byId = new Map<string, SettlementStatusLine[]>();
+      for (const line of lines) {
+        const id = String(line.settlement_id);
+        byId.set(id, [...(byId.get(id) ?? []), lineOf(line)]);
+      }
+      return rows.map(row => withHistory(row, byId.get(String(row.id)) ?? []));
+    });
+  }
+
+  /** The administrators' decisions, the oldest first, as the log keeps them (request 33, docs/adr/0033). */
+  async administratorDecisions(): Promise<AdministratorDecisionEntry[]> {
+    return this.database.exclusive(async () =>
+      (
+        await this.database.all<{ id: string; at: string; by_id: string; action: string; subject_id: string }>(
+          'SELECT id, at, by_id, action, subject_id FROM administrator_decisions ORDER BY seq',
+          [],
+        )
+      ).map((row): AdministratorDecisionEntry => ({
+        id: String(row.id),
+        at: String(row.at),
+        by: String(row.by_id),
+        action: String(row.action) as AdministratorDecisionEntry['action'],
+        subjectId: String(row.subject_id),
+      })),
     );
   }
 

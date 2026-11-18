@@ -7,9 +7,10 @@ export type SettlementMethod = 'cash' | 'provider' | 'net';
 /**
  * Where a settlement stands: a cash settlement is paid the moment it is recorded (request 12); a settlement through the provider
  * is `pending` until the provider says its payment ended, once: `paid` if it succeeded, `failed` if it did not (request 13). A paid
- * one is `refunding` once its payee asked for the refund, and `refunded` once the provider says it went back (request 15).
+ * one is `refunding` once its payee asked for the refund, and `refunded` once the provider says it went back (request 15). A paid
+ * one its payee contested is `contested` until an administrator decides it: `paid` again if the money arrived, `annulled` if not (request 33).
  */
-export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
 
 /**
  * A settlement as it is recorded and as `GetSettlement` answers it (requests 12 and 13). `from` pays `to`, `at` when it was
@@ -84,13 +85,26 @@ export interface OutstandingDebt {
 
 /**
  * One change of money of a group's settlements, as the group's audit keeps it (request 28, docs/adr/0027): a settlement paid, by its payee
- * (in cash) or its payer (through the provider), or refunded by its payee. `subjectId` is the settlement.
+ * (in cash) or its payer (through the provider), or refunded by its payee; a settlement contested by its payee, and paid again by an
+ * administrator's decision (request 33). `subjectId` is the settlement.
  */
 export interface SettlementAuditEntry {
   id: string;
   at: string;
   by: string;
-  action: 'settlement-paid' | 'settlement-refunded';
+  action: 'settlement-paid' | 'settlement-refunded' | 'settlement-contested';
   subjectId: string;
   amount: number;
+}
+
+/**
+ * One decision an administrator made on a contested settlement (request 33, docs/adr/0033): `decided-paid` when the money arrived,
+ * `decided-annulled` when it did not. Written in the transaction of the decision, never changed, and read by Groups' administrators' log.
+ */
+export interface AdministratorDecisionEntry {
+  id: string;
+  at: string;
+  by: string;
+  action: 'decided-paid' | 'decided-annulled';
+  subjectId: string;
 }

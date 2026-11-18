@@ -11,6 +11,7 @@ import {
 import { payThroughProvider, refundSettlement } from '@Contexts/Settlements/Application/Payments';
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
+import { contestSettlement, decideContest, getContests } from '@Contexts/Settlements/Application/Contests';
 
 /**
  * The settlements' routes, at the API's root with their full path (docs/adr/0003): each answers its use case at once. A body says
@@ -81,6 +82,31 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
     '/settlements/:id/refund',
     { schema: { tags: ['settlements'] } },
     (req, reply) => answerAtOnce(req, reply, module.useCase(refundSettlement), { id: req.params.id }),
+  );
+
+  fastify.post<{ Params: { id: string } }>(
+    '/settlements/:id/contest',
+    { schema: { tags: ['settlements'] } },
+    (req, reply) => answerAtOnce(req, reply, module.useCase(contestSettlement), { id: req.params.id }),
+  );
+
+  fastify.get('/admin/contests', { schema: { tags: ['settlements'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getContests), undefined),
+  );
+
+  fastify.post<{ Params: { id: string }; Body: { paid: boolean } }>(
+    '/admin/settlements/:id/decision',
+    {
+      schema: {
+        tags: ['settlements'],
+        body: {
+          type: 'object',
+          required: ['paid'],
+          properties: { paid: { type: 'boolean' } },
+        },
+      },
+    },
+    (req, reply) => answerAtOnce(req, reply, module.useCase(decideContest), { id: req.params.id, paid: req.body.paid }),
   );
 
   fastify.put<{ Body: { accountId: string } }>(

@@ -7,14 +7,13 @@ import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogge
 import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 import { PostgresUnitOfWork } from '@Architecture/Infrastructure/Postgres/PostgresUnitOfWork';
 import { PostgresInbox } from '@Architecture/Infrastructure/Postgres/PostgresInbox';
-import { Role } from '@SharedKernel/Domain';
 
 import { prepareDatabase } from '@Bootstrap/Database/prepareDatabase';
 import { LEGACY_UPGRADES } from '@Bootstrap/Database/legacy';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { operationRoutes } from '@Bootstrap/Fastify/operations.routes';
-import { localGroupsModule, authenticatedAccountOf } from '@Contexts/Groups/module.local';
+import { localGroupsModule, authenticatedCallerOf } from '@Contexts/Groups/module.local';
 import { localLedgerModule, sweepRecurringExpenseDays } from '@Contexts/Ledger/module.local';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
 import { budgetRoutes } from '@Contexts/Ledger/Presentation/budgets.routes';
@@ -25,6 +24,7 @@ import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule, sweepNotificationDebts } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
+import { administrationRoutes } from '@Contexts/Groups/Presentation/administration.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
@@ -43,7 +43,8 @@ import { providerWebhookRoutes } from '@Contexts/Settlements/Presentation/provid
  * Configuration is in the environment: `PORT`, `API_PREFIX` (`v1`), `DATABASE_URL` (the PostgreSQL database), `DATABASE_PATH` (a SQLite file an earlier version kept, moved in once),
  * `JOBS_INTERVAL_SECONDS` (60), `REMINDER_PERIOD_SECONDS` (604800, a week), `WEB_ORIGINS` (a comma-separated list), and for payments through the provider (request 13):
  * `PROVIDER_URL`, the base of the provider's API without a trailing slash, and `PROVIDER_WEBHOOK_SECRET`, the secret it signs with;
- * and for the rate offered for an expense in another currency (request 22): `RATES_URL`, the base of the rates service's API without a
+ * and `ADMIN_EMAILS`, the comma-separated emails of the platform's administrators (request 33, docs/adr/0033): an account with one of them, whatever
+ * its case, is an administrator when it signs in, and no request makes one; and for the rate offered for an expense in another currency (request 22): `RATES_URL`, the base of the rates service's API without a
  * trailing slash, where no value means no rates service; and for receipts (request 26): `RECEIPTS_URL`, the base of the receipts store's
  * API without a trailing slash, where no value means every receipt is refused.
  *
@@ -68,10 +69,10 @@ export async function createApplication({
     port,
     webOrigins,
     unitOfWork: () => new PostgresUnitOfWork(sharedDatabase),
-    // The token a request brings proves its account: the Groups context says which, and every other request is anonymous.
+    // The token a request brings proves its account and the role it had at sign-in: the Groups context says which, and every other request is anonymous.
     authenticate: async request => {
-      const subjectId = authenticatedAccountOf(request.headers.authorization);
-      if (subjectId) request.auth = { subjectId, role: Role.USER };
+      const caller = authenticatedCallerOf(request.headers.authorization);
+      if (caller) request.auth = caller;
     },
   })
     .setEventBus(
@@ -86,6 +87,7 @@ export async function createApplication({
     .registerModule(localSettlementsModule)
     .registerModule(localNotificationsModule)
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
+    .registerRoutes('/', administrationRoutes, { module: localGroupsModule })
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', invitationRoutes, { module: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })

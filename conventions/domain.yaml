@@ -164,7 +164,10 @@ relationships:
       A member leaves a group at any balance, but not while a payment of theirs waits at the provider: a payment that
       lands after they left would change a former member's balance. Only Settlements knows which payments wait. Groups
       asks through a port it owns (WaitingPayments) in the leave's own transaction (docs/adr/0019; storm
-      conventions/storms/leave-with-a-balance.yaml).
+      conventions/storms/leave-with-a-balance.yaml). The same relationship carries the administrators' log (request 33,
+      docs/adr/0033): Groups reads the decisions of the administrators on contested settlements through a port it owns
+      (AdministratorDecisions), answered over Settlements' read model; a contested payment waits like a pending one
+      (storm conventions/storms/contest-a-settlement.yaml).
   - upstream: Settlements
     downstream: Notifications
     patterns: [customer-supplier, anti-corruption-layer]

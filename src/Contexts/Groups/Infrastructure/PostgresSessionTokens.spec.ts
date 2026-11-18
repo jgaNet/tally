@@ -1,3 +1,4 @@
+import { Role } from '@SharedKernel/Domain';
 import { randomUUID } from 'node:crypto';
 
 import pg from 'pg';
@@ -40,13 +41,17 @@ afterAll(async () => {
 });
 
 describe('session tokens', () => {
-  it('proves the account it was issued for', () => {
-    expect(tokens.accountOf(tokens.issue('account-1'))).toBe('account-1');
+  it('proves the account it was issued for, and the role it had', () => {
+    expect(tokens.accountOf(tokens.issue('account-1', Role.USER))).toEqual({ subjectId: 'account-1', role: Role.USER });
+    expect(tokens.accountOf(tokens.issue('account-2', Role.ADMIN))).toEqual({
+      subjectId: 'account-2',
+      role: Role.ADMIN,
+    });
   });
 
-  it('refuses a token whose payload was changed to name another account', () => {
-    const [, signature] = tokens.issue('account-1').split('.');
-    const forged = `${Buffer.from(JSON.stringify({ sub: 'account-2' })).toString('base64url')}.${signature}`;
+  it('refuses a token whose payload was changed to name another account or role', () => {
+    const [, signature] = tokens.issue('account-1', Role.USER).split('.');
+    const forged = `${Buffer.from(JSON.stringify({ sub: 'account-2', role: 'ADMIN' })).toString('base64url')}.${signature}`;
 
     expect(tokens.accountOf(forged)).toBeUndefined();
   });

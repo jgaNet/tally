@@ -77,3 +77,27 @@ export class SettlementRefundedEvent extends DomainEvent<{
  * group merged's book is gone. Recorded by `SettlementBook.absorb()`, once the move is stored.
  */
 export class SettlementBookMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string }> {}
+
+/**
+ * A paid settlement through the provider was contested by its payee: the money did not reach them. Its effect on the balances is held, and
+ * it waits, until an administrator decides it (request 33, docs/adr/0033). Recorded by `SettlementBook.contest()`.
+ */
+export class SettlementContestedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  from: string;
+  to: string;
+  amount: number;
+}> {}
+
+/**
+ * An administrator decided that a contested settlement's money did not arrive: the settlement is annulled, nothing counts it, and what was
+ * owed is owed again (request 33, docs/adr/0033). Recorded by `SettlementBook.decideContest()`.
+ */
+export class SettlementAnnulledEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  from: string;
+  to: string;
+  amount: number;
+}> {}

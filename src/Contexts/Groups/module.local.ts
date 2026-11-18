@@ -3,9 +3,15 @@ import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDa
 
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
-import { ledgerReadModel, waitingPaymentsOfSettlements } from '@Bootstrap/Fastify/readModels';
+import { Role } from '@SharedKernel/Domain';
+import {
+  administratorDecisionsOfSettlements,
+  ledgerReadModel,
+  waitingPaymentsOfSettlements,
+} from '@Bootstrap/Fastify/readModels';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import { getAdministratorsLog } from '@Contexts/Groups/Application/Administration';
 import {
   archiveGroup,
   createGroup,
@@ -52,7 +58,7 @@ export const localGroupsModule = new LiteModule({
   name: 'Groups',
   useCases: [
     signUp(accounts, passwords),
-    signIn(accounts, passwords, tokens),
+    signIn(accounts, passwords, tokens, administratorEmailsOf),
     getMyAccount(accountQueries),
     createGroup(groups, systemClock),
     getGroup(groupQueries),
@@ -64,6 +70,7 @@ export const localGroupsModule = new LiteModule({
     leaveGroup(groups, memberBalances, waitingPaymentsOfSettlements, systemClock),
     archiveGroup(groups, memberBalances, waitingPaymentsOfSettlements, systemClock),
     mergeGroups(groups, invitations, waitingPaymentsOfSettlements, systemClock),
+    getAdministratorsLog(administratorDecisionsOfSettlements),
   ],
   domainEvents: [
     // A merge is told to the other contexts as the published fact (request 31, docs/adr/0031): Ledger and Settlements move what they hold.
@@ -72,10 +79,23 @@ export const localGroupsModule = new LiteModule({
 });
 
 /**
- * Who an `Authorization` header proves, for the transport: the account of a `Bearer` token it accepts, or
- * `undefined` when no token is given or the token proves nothing (docs/adr/0002).
+ * The administrators' emails, read from `ADMIN_EMAILS` (a comma-separated list) each time a sign-in is made: an account with one of them,
+ * whatever its case, is an administrator when it signs in (docs/adr/0033).
  */
-export function authenticatedAccountOf(authorization: string | undefined): string | undefined {
+export function administratorEmailsOf(): string[] {
+  return String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map(each => each.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Who an `Authorization` header proves, for the transport: the account of a `Bearer` token it accepts and the role it had at sign-in, or
+ * `undefined` when no token is given or the token proves nothing (docs/adr/0002, docs/adr/0033).
+ */
+export function authenticatedCallerOf(
+  authorization: string | undefined,
+): { subjectId: string; role: Role } | undefined {
   const match = /^Bearer\s+(\S+)$/i.exec(authorization ?? '');
   return match ? tokens.accountOf(match[1]) : undefined;
 }

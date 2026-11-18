@@ -2,6 +2,7 @@ import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDa
 
 import { PostgresGroupQueries } from '@Contexts/Groups/Infrastructure/PostgresGroupQueries';
 import { WaitingPaymentsOfSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsOfSettlements';
+import { AdministratorDecisionsOfSettlements } from '@Contexts/Groups/Infrastructure/AdministratorDecisionsOfSettlements';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { PostgresExpenseQueries } from '@Contexts/Ledger/Infrastructure/PostgresExpenseQueries';
 import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
@@ -36,8 +37,10 @@ export const ledgerReadModel = new PostgresExpenseQueries(
   settledAmountsOfSettlements,
   groupMembersOfGroups,
 );
-/** Groups' WaitingPayments over Settlements' read model: a leave waits while a payment of the member is pending or refunding (docs/adr/0019). */
+/** Groups' WaitingPayments over Settlements' read model: a leave waits while a payment of the member is pending, refunding or contested (docs/adr/0019, docs/adr/0033). */
 export const waitingPaymentsOfSettlements = new WaitingPaymentsOfSettlements(settlementsReadModel);
+/** Groups' AdministratorDecisions over Settlements' read model: the administrators' log, as Groups reads it (request 33, docs/adr/0033). */
+export const administratorDecisionsOfSettlements = new AdministratorDecisionsOfSettlements(settlementsReadModel);
 /**
  * Settlements' what-is-still-owed, read by Notifications' sweep (docs/adr/0018): the balances of every group, less the payments waiting
  * at the provider. It reads Ledger's balances and Settlements' read model, both opened above, so it is opened here as well.

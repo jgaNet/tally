@@ -1,13 +1,15 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { isRole, Role } from '@SharedKernel/Domain';
 
 import { ISessionTokens } from '@Contexts/Groups/Application/Ports/ISessionTokens';
 
 const KEY_NAME = 'session-token-key';
 
 /**
- * Signed tokens, `<payload>.<signature>`: the payload is the account's id in base64url, the signature its
+ * Signed tokens, `<payload>.<signature>`: the payload is the account's id and its role at sign-in in base64url (a token of an earlier
+ * version has no role: it is a user's), the signature its
  * HMAC-SHA256 under a key. The key is random and kept in the application's database (table `secrets`), so
  * every server on the database signs and checks with the same one and a token outlives a restart (docs/adr/0002).
  * A token has no expiry and no record of its own: it proves its account, and nothing else.
@@ -33,20 +35,24 @@ export class PostgresSessionTokens implements ISessionTokens {
     });
   }
 
-  issue(accountId: string): string {
-    const payload = Buffer.from(JSON.stringify({ sub: accountId })).toString('base64url');
+  issue(accountId: string, role: Role): string {
+    const payload = Buffer.from(JSON.stringify({ sub: accountId, role })).toString('base64url');
     return `${payload}.${this.#sign(payload)}`;
   }
 
-  accountOf(token: string): string | undefined {
+  accountOf(token: string): { subjectId: string; role: Role } | undefined {
     const [payload, signature, ...rest] = token.split('.');
     if (!payload || !signature || rest.length > 0) return undefined;
     const expected = Buffer.from(this.#sign(payload));
     const given = Buffer.from(signature);
     if (given.length !== expected.length || !timingSafeEqual(given, expected)) return undefined;
     try {
-      const { sub } = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { sub?: unknown };
-      return typeof sub === 'string' && sub.length > 0 ? sub : undefined;
+      const { sub, role } = JSON.parse(Buffer.from(payload, 'base64url').toString()) as {
+        sub?: unknown;
+        role?: unknown;
+      };
+      if (typeof sub !== 'string' || sub.length === 0) return undefined;
+      return { subjectId: sub, role: isRole(role) ? role : Role.USER };
     } catch {
       return undefined;
     }
