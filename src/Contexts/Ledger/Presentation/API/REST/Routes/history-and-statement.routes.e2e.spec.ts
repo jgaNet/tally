@@ -196,8 +196,16 @@ describe("a member's statement", () => {
       memberId: bob.id,
       balance: -50,
       entries: [
-        { expenseId: b, date: daysFromToday(-5), description: 'B', paid: 600, share: 200, balance: 400 },
-        { expenseId: a, date: daysFromToday(-2), description: 'A', paid: 0, share: 450, balance: -50 },
+        {
+          kind: 'expense',
+          expenseId: b,
+          date: daysFromToday(-5),
+          description: 'B',
+          paid: 600,
+          share: 200,
+          balance: 400,
+        },
+        { kind: 'expense', expenseId: a, date: daysFromToday(-2), description: 'A', paid: 0, share: 450, balance: -50 },
       ],
     });
 
@@ -272,5 +280,111 @@ describe('Groups → Ledger: a group made through the API is read by Ledger by t
     });
     const afterRecord = await http.get(`${api}/groups/${groupId}/expenses`, { token: owner.token });
     expect((afterRecord.body as Expense[]).map(expense => expense.id)).toEqual([expenseId]);
+  });
+});
+
+describe("a member's statement with the settlements the balances count, and as CSV (request 29)", () => {
+  /** Records a settlement in cash as its payee does, and answers its id. */
+  async function settleInCash(payee: { token: string }, from: string, amount: number, groupId: string) {
+    const answer = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      body: { from, amount },
+      token: payee.token,
+    });
+    const done = await outcome((answer.body as Body).operationId as string, payee.token);
+    return (done.body as { result: { id: string } }).result.id;
+  }
+
+  it('lists the settlement the balances count beside the expenses, and the balance is the one the group gives', async () => {
+    const { alice, bob, groupId, b, a } = await scenario();
+    // Bob owes Alice 50 (his balance is -50): he pays all of it in cash, which is counted from today.
+    const settlementId = await settleInCash(alice, bob.id, 50, groupId);
+
+    const { status, body } = await statement(groupId, bob.id, bob.token);
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      memberId: bob.id,
+      balance: 0,
+      entries: [
+        {
+          kind: 'expense',
+          expenseId: b,
+          date: daysFromToday(-5),
+          description: 'B',
+          paid: 600,
+          share: 200,
+          balance: 400,
+        },
+        { kind: 'expense', expenseId: a, date: daysFromToday(-2), description: 'A', paid: 0, share: 450, balance: -50 },
+        {
+          kind: 'settlement',
+          settlementId,
+          date: serverToday,
+          description: 'Settlement in cash',
+          paid: 50,
+          share: 0,
+          balance: 0,
+        },
+      ],
+    });
+    const balances = await http.get(`${api}/groups/${groupId}/balances`, { token: bob.token });
+    expect(
+      (balances.body as { memberId: string; balance: number }[]).find(each => each.memberId === bob.id)?.balance,
+    ).toBe(0);
+
+    // Alice received it: it is her share, so her balance goes down by it, from 250 to 200.
+    const alices = await statement(groupId, alice.id, alice.token);
+    expect((alices.body as { balance: number }).balance).toBe(200);
+    expect((alices.body as { entries: unknown[] }).entries).toContainEqual({
+      kind: 'settlement',
+      settlementId,
+      date: serverToday,
+      description: 'Settlement in cash',
+      paid: 0,
+      share: 50,
+      balance: 200,
+    });
+  });
+
+  it('answers the statement as CSV: a header, then the entries in the statement order, each line ending in CRLF', async () => {
+    const { alice, bob, groupId, b, a } = await scenario();
+    const settlementId = await settleInCash(alice, bob.id, 50, groupId);
+
+    const csv = await http.get(`${api}/groups/${groupId}/members/${bob.id}/statement.csv`, { token: bob.token });
+    expect(csv.status).toBe(200);
+    expect(csv.headers.get('content-type')).toBe('text/csv; charset=utf-8');
+    expect(csv.body).toBe(
+      'date,kind,id,description,paid,share,balance\r\n' +
+        `${daysFromToday(-5)},expense,${b},B,600,200,400\r\n` +
+        `${daysFromToday(-2)},expense,${a},A,0,450,-50\r\n` +
+        `${serverToday},settlement,${settlementId},Settlement in cash,50,0,0\r\n`,
+    );
+  });
+
+  it('quotes a field with a comma or a double quote, doubling the quotes in it, and no other', async () => {
+    const people = await fourMembers();
+    const expenseId = await record(people.alice.token, people.groupId, {
+      description: 'Dinner, "the good one"',
+      amount: 500,
+      date: daysFromToday(-1),
+      splitBetween: [people.alice.id, people.bob.id],
+    });
+    const csv = await http.get(`${api}/groups/${people.groupId}/members/${people.bob.id}/statement.csv`, {
+      token: people.bob.token,
+    });
+    // Bob's share is 250 and he paid nothing: his balance is -250.
+    expect(csv.body).toBe(
+      'date,kind,id,description,paid,share,balance\r\n' +
+        `${daysFromToday(-1)},expense,${expenseId},"Dinner, ""the good one""",0,250,-250\r\n`,
+    );
+  });
+
+  it('answers the CSV to the members only, and 401 to no one', async () => {
+    const { alice, eve, groupId } = await scenario();
+    const notAMember = await http.get(`${api}/groups/${groupId}/members/${alice.id}/statement.csv`, {
+      token: eve.token,
+    });
+    expect(notAMember.status).toBe(404);
+    const anonymous = await http.get(`${api}/groups/${groupId}/members/${alice.id}/statement.csv`);
+    expect(anonymous.status).toBe(401);
   });
 });

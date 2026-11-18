@@ -7,6 +7,8 @@ import {
   groupMembershipInCommand,
 } from '@Contexts/Groups/module.local';
 import {
+  countedSettlements,
+  countedSettlementsInCommand,
   settlementAuditEntries,
   settlementEffects,
   settlementEffectsInCommand,
@@ -26,6 +28,7 @@ import {
   GetExpenseQueryHandler,
   GetGroupBalancesQueryHandler,
   GetGroupExpensesQueryHandler,
+  GetMemberStatementCsvQueryHandler,
   GetMemberStatementQueryHandler,
   GetOfferedRateQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
@@ -110,8 +113,8 @@ import { GetGroupAuditQueryHandler } from '@Contexts/Ledger/Application/Queries/
 const database = SqliteDatabase.shared();
 
 /** What the settlements paid, as Ledger reads it: outside a transaction for a query, inside the asking command's for a command. */
-const settledForQueries = new SettlementsSettledAmounts(settlementEffects);
-const settledInCommand = new SettlementsSettledAmounts(settlementEffectsInCommand);
+const settledForQueries = new SettlementsSettledAmounts(settlementEffects, countedSettlements);
+const settledInCommand = new SettlementsSettledAmounts(settlementEffectsInCommand, countedSettlementsInCommand);
 
 /** Who passed what when a member left (request 20), as Ledger reads it through GroupMembers: outside a transaction, and inside the asking command's. */
 const membersForQueries = new GroupsMembers(groupMembership);
@@ -341,7 +344,16 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         membersForQueries,
       ),
       new GetGroupExpensesQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
-      new GetMemberStatementQueryHandler(new SqliteStatementQueries(database), new GroupsMembers(groupMembership)),
+      new GetMemberStatementQueryHandler(
+        new SqliteStatementQueries(database),
+        new GroupsMembers(groupMembership),
+        settledForQueries,
+      ),
+      new GetMemberStatementCsvQueryHandler(
+        new SqliteStatementQueries(database),
+        new GroupsMembers(groupMembership),
+        settledForQueries,
+      ),
       new GetRecurringExpenseQueryHandler(
         new SqliteRecurringExpenseQueries(database),
         new GroupsMembers(groupMembership),

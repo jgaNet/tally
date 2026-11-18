@@ -6,7 +6,7 @@ feature: statement-as-csv
 intent: >-
   A member's statement lists the settlements the balances count beside the expenses, and is read as CSV in a stated column order.
 
-done: false
+done: true
 
 hotSpots:
   - question: How does the statement learn of the settlements?

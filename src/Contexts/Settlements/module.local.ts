@@ -3,6 +3,8 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { groupCurrencyInCommand, groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
 import { ISettlementEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementEffects';
+import { ICountedSettlements } from '@Contexts/Settlements/Domain/Settlement/Ports/ICountedSettlements';
+import { SqliteCountedSettlements } from '@Contexts/Settlements/Infrastructure/SqliteCountedSettlements';
 import { IGroupBalances } from '@Contexts/Settlements/Domain/Settlement/Ports/IGroupBalances';
 import { IMemberDebts } from '@Contexts/Settlements/Domain/Settlement/Ports/IMemberDebts';
 import {
@@ -58,6 +60,13 @@ export const settlementEffectsInCommand: ISettlementEffects = new SqliteSettleme
   'paid',
   'refunding',
 ]);
+
+/**
+ * The settlements each member's balance counts, with when they started to count, as Ledger's statement reads them (SettledAmounts,
+ * request 29): exported for a query (outside any transaction) and for a command (inside the asking command's transaction).
+ */
+export const countedSettlements: ICountedSettlements = new SqliteCountedSettlements(database, false);
+export const countedSettlementsInCommand: ICountedSettlements = new SqliteCountedSettlements(database, true);
 
 /**
  * Whether a member has a payment waiting at the provider, exported for Groups' command (WaitingPayments, ADR 13): inside the
