@@ -14,7 +14,7 @@ export interface CountedSettlement {
   payerId: string;
   payeeId: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   /** An instant, ISO 8601 in UTC: the moment the settlement was paid (in cash, when recorded). */
   countedFrom: string;
 }

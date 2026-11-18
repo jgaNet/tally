@@ -122,6 +122,21 @@ export interface AuditedSettlementChange {
 export type RecordRefundCommand = RefundSettlementCommand & { at: Date };
 
 /**
+ * One settlement of a netting, in one group (request 32): the member who asked (`by`, the audit's), the payer and the payee of this
+ * settlement, its amount, and what the decision reads of the group, as for a cash settlement.
+ */
+export interface RecordNetCommand {
+  by: string;
+  from: string;
+  to: string;
+  amount: number;
+  members: string[];
+  balances: { payer: number; payee: number };
+  archived: boolean;
+  at: Date;
+}
+
+/**
  * The settlements of one group, decided in one place (conventions/domain.yaml, the Settlements context; docs/adr/0013, docs/adr/0014,
  * docs/adr/0015). The book is the group's: its identity is the group's id, born with the group and taken up as it is (DOMAIN-IDENTITY). Its
  * version is what the store checks on a save (CONC-OPTIMISTIC): two writers who read the same version cannot both record.
@@ -264,6 +279,49 @@ export class SettlementBook extends AggregateRoot {
         amount,
       }),
     );
+    return Result.ok(settlement);
+  }
+
+  /**
+   * What one member can pay another in this group: the smaller of what the payer still owes and what the payee is still owed, when the
+   * payer owes and the payee is owed, and 0 otherwise (request 13, counting the payments waiting at the provider as paid). The same
+   * amount the rules of a settlement are decided by (`#decide`), so a netting reads what each group can take.
+   */
+  capacityOf({ from, to, balances }: { from: string; to: string; balances: { payer: number; payee: number } }): number {
+    const payer = stillBalance(balances.payer, this.#waitingOf(from));
+    const payee = stillBalance(balances.payee, this.#waitingOf(to));
+    return Math.min(Math.max(0, -payer), Math.max(0, payee));
+  }
+
+  /**
+   * Records one settlement of a netting (request 32, docs/adr/0032): paid at once, method `net`, the same rules as any settlement
+   * (`#decide`). The change of money is an audit entry by the member who asked, as `settlement-paid`; `SettlementRecorded` is recorded.
+   * The netting, which holds the settlements' ids, is saved by the store with the book, in the same transaction.
+   */
+  recordNet({ by, from, to, amount, members, balances, archived, at }: RecordNetCommand): IResult<SettlementView> {
+    const decided = this.#decide({ from, to, amount, members, balances, archived });
+    if (decided.isFailure()) return decided;
+
+    const settlement: NewSettlement = {
+      id: Id.generate().value,
+      groupId: this.groupId,
+      from,
+      to,
+      amount,
+      method: 'net',
+      status: 'paid',
+      at: at.toISOString(),
+    };
+    this.#recorded.push(settlement);
+    this.#audited.push({
+      id: Id.generate().value,
+      action: 'settlement-paid',
+      by,
+      subjectId: settlement.id,
+      amount,
+      at: at.toISOString(),
+    });
+    this.record(SettlementRecordedEvent.set({ settlementId: settlement.id, groupId: this.groupId, from, to, amount }));
     return Result.ok(settlement);
   }
 
@@ -457,10 +515,7 @@ export class SettlementBook extends AggregateRoot {
     }
     if (!Number.isInteger(amount) || amount < 1) return Result.fail(new InvalidSettlementAmountException());
 
-    const payer = stillBalance(balances.payer, this.#waitingOf(from));
-    const payee = stillBalance(balances.payee, this.#waitingOf(to));
-    const owed = Math.min(Math.max(0, -payer), Math.max(0, payee));
-    if (amount > owed) return Result.fail(new SettlementExceedsDebtException());
+    if (amount > this.capacityOf({ from, to, balances })) return Result.fail(new SettlementExceedsDebtException());
     return Result.ok(undefined);
   }
 

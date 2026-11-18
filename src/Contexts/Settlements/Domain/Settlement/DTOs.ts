@@ -1,5 +1,8 @@
-/** How a settlement is paid: in cash, handed over between the two members (request 12), or through the provider (request 13). */
-export type SettlementMethod = 'cash' | 'provider';
+/**
+ * How a settlement is paid: in cash, handed over between the two members (request 12), through the provider (request 13), or by
+ * netting what two members owe each other across their groups (request 32): no money moves, and it counts at once.
+ */
+export type SettlementMethod = 'cash' | 'provider' | 'net';
 
 /**
  * Where a settlement stands: a cash settlement is paid the moment it is recorded (request 12); a settlement through the provider

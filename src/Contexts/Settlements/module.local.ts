@@ -25,6 +25,8 @@ import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPa
 import { SettlementMembersOfGroups } from '@Contexts/Settlements/Infrastructure/SettlementMembersOfGroups';
 import { PostgresSettlementBooks } from '@Contexts/Settlements/Infrastructure/PostgresSettlementBooks';
 import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/PostgresSettlementQueries';
+import { PostgresNettingQueries, PostgresNettings } from '@Contexts/Settlements/Infrastructure/PostgresNettings';
+import { getNetting, netDebts } from '@Contexts/Settlements/Application/Nettings';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADR 11, ADR 0012, ADR 0013, ADR 0014, ADR 0015): the settlements of each group, in cash or
@@ -37,6 +39,8 @@ const books = new PostgresSettlementBooks(sharedDatabase);
 const settlements = new PostgresSettlementQueries(sharedDatabase);
 const balances = new GroupBalancesOfLedger(ledgerReadModel);
 const members = new SettlementMembersOfGroups(groupsReadModel);
+const nettings = new PostgresNettings(sharedDatabase);
+const nettingQueries = new PostgresNettingQueries(sharedDatabase);
 const payouts = new PostgresPayoutAccounts(sharedDatabase);
 const payoutQueries = new PostgresPayoutAccountQueries(sharedDatabase);
 // The provider and its webhook's key are the environment's: read when they are used, not when the module loads (request 13).
@@ -55,6 +59,8 @@ export const localSettlementsModule = new LiteModule({
     getSuggestedSettlements(balances, members, settlements),
     setPayoutAccount(payouts, provider),
     getPayoutAccount(payoutQueries),
+    netDebts(books, balances, members, nettings, systemClock),
+    getNetting(nettingQueries),
   ],
   integrationEvents: [
     // A merge is moved here: the group merged's settlements move to the group kept (request 31, docs/adr/0031).

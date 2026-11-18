@@ -16,6 +16,7 @@ export interface StatementExpense {
 const SETTLEMENT_DESCRIPTION: Record<CountedSettlement['method'], string> = {
   cash: 'Settlement in cash',
   provider: 'Settlement through the provider',
+  net: 'Settlement by netting',
 };
 
 /** The day of an instant, in UTC. */
