@@ -374,6 +374,28 @@ const migrations: readonly string[] = [
   -- time it was archived is kept as \`archived_at\`; a group not archived has none.
   ALTER TABLE groups ADD COLUMN archived_at TEXT;
   `,
+  `
+  -- The audit of a group: one entry for each change of money, written in the transaction of the change, so it is
+  -- there when the change is and not otherwise. \`by_id\` is the account that made the change, \`subject_id\` what it is
+  -- about (an expense, a settlement, or the member who left), and \`amount\` what it moved, in hundredths of the group's
+  -- currency. An entry is never changed or removed: the triggers refuse it, whatever writes.
+  CREATE TABLE audit_entries (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    at         TEXT NOT NULL,
+    by_id      TEXT NOT NULL REFERENCES accounts (id),
+    action     TEXT NOT NULL CHECK (action IN (
+                 'expense-recorded', 'expense-edited', 'expense-deleted',
+                 'settlement-paid', 'settlement-refunded', 'balance-passed')),
+    subject_id TEXT NOT NULL,
+    amount     INTEGER NOT NULL
+  );
+  CREATE INDEX audit_entries_by_group ON audit_entries (group_id, at);
+  CREATE TRIGGER audit_entries_never_updated BEFORE UPDATE ON audit_entries
+  BEGIN SELECT RAISE(ABORT, 'an audit entry is never changed'); END;
+  CREATE TRIGGER audit_entries_never_deleted BEFORE DELETE ON audit_entries
+  BEGIN SELECT RAISE(ABORT, 'an audit entry is never removed'); END;
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

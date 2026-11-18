@@ -1,5 +1,7 @@
+import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createServer as createTcpServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Application } from './app';
@@ -340,3 +342,42 @@ export async function startFakeReceiptsStore(): Promise<FakeReceiptsStore> {
     });
   return store;
 }
+
+/** A free port on the loopback interface. */
+export async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createTcpServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address() as { port: number };
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+/** Starts `src/server.ts` as its own process, on `databasePath`, and waits until it listens. */
+export async function startServerProcess(databasePath: string): Promise<{ child: ChildProcess; base: string }> {
+  const port = await freePort();
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
+    env: { ...process.env, PORT: String(port), DATABASE_PATH: databasePath, API_PREFIX: 'v1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const base = `http://127.0.0.1:${port}/v1`;
+  await new Promise<void>((resolve, reject) => {
+    let output = '';
+    child.stdout?.on('data', (chunk: Buffer) => {
+      output += chunk.toString();
+      if (output.includes('listening on')) resolve();
+    });
+    child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString()));
+    child.once('exit', code => reject(new Error(`server exited (${code}) before listening: ${output}`)));
+  });
+  return { child, base };
+}
+
+/** Resolves once `child` has exited (at once, when it has). */
+export const exited = (child: ChildProcess) =>
+  new Promise<void>(resolve => {
+    if (child.exitCode !== null || child.signalCode !== null) return resolve();
+    child.once('exit', () => resolve());
+  });

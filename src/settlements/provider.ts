@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { recordAudit } from '../audit/audit';
 import { type Database, inTransaction } from '../database';
 import { requireMembership, requireNotArchived } from '../groups/groups';
 import { payoutAccountOf } from '../payouts/payout-accounts';
@@ -158,6 +159,34 @@ export function applyProviderStatus(db: Database, paymentId: string, status: str
   }
 }
 
+interface ProviderSettlementRow {
+  id: string;
+  group_id: string;
+  /** The status it had before the provider's word. */
+  status: StatusEntry['status'];
+  payer_id: string;
+  payee_id: string;
+  amount: number;
+}
+
+/**
+ * The change of money a provider's word makes to a settlement, if any: it starts to count when it becomes `paid`,
+ * made by its payer; it stops counting when it becomes `refunded` from a status that counted (`paid` or
+ * `refunding`), made by its payee. A payment that never counted, one refunded while still pending, moves no money.
+ */
+function moneyChangeOf(
+  settlement: ProviderSettlementRow,
+  status: StatusEntry['status'],
+): { by: string; action: 'settlement-paid' | 'settlement-refunded' } | undefined {
+  if (status === 'paid') {
+    return { by: settlement.payer_id, action: 'settlement-paid' };
+  }
+  if (status === 'refunded' && (settlement.status === 'paid' || settlement.status === 'refunding')) {
+    return { by: settlement.payee_id, action: 'settlement-refunded' };
+  }
+  return undefined;
+}
+
 /**
  * Sets the provider settlement of `paymentId` to `status`, if it is now one of `from`, and records the
  * change in its history. A word that changes nothing records nothing.
@@ -172,16 +201,23 @@ function setProviderStatus(
     // `from` is written here, never from a request: only its placeholders are built from it.
     const settlements = db
       .prepare(
-        `SELECT settlements.id, settlements.group_id FROM settlements
+        `SELECT settlements.id, settlements.group_id, settlements.status, settlements.payer_id, settlements.payee_id,
+                settlements.amount
+           FROM settlements
           WHERE settlements.provider_payment_id = ? AND settlements.method = 'provider'
             AND settlements.status IN (${from.map(() => '?').join(', ')})`,
       )
-      .all(paymentId, ...from) as { id: string; group_id: string }[];
-    for (const { id, group_id } of settlements) {
+      .all(paymentId, ...from) as unknown as ProviderSettlementRow[];
+    for (const settlement of settlements) {
       // An archived group is read only: the provider's word cannot change its settlement, so it is refused.
-      requireNotArchived(db, group_id);
-      db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(status, id);
-      recordStatus(db, id, status);
+      requireNotArchived(db, settlement.group_id);
+      const at = new Date().toISOString();
+      db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(status, settlement.id);
+      recordStatus(db, settlement.id, status, at);
+      const change = moneyChangeOf(settlement, status);
+      if (change !== undefined) {
+        recordAudit(db, settlement.group_id, { ...change, subjectId: settlement.id, amount: settlement.amount }, at);
+      }
     }
   });
 }

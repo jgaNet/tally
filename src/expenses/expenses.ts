@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recordAudit } from '../audit/audit';
 import { noticeIfPassed } from '../budgets/budgets';
 import type { Category } from '../budgets/categories';
 import { type Database, inTransaction } from '../database';
@@ -180,6 +181,7 @@ export function insertExpense(
   writeShares(db, id, shares);
   recordExpenseNotices(db, { id, groupId, paidBy: payerId, shares }, at);
   noticeIfPassed(db, groupId, expense.category, expense.date, at);
+  recordAudit(db, groupId, { by: payerId, action: 'expense-recorded', subjectId: id, amount: expense.amount }, at);
   return id;
 }
 
@@ -365,6 +367,7 @@ export async function updateExpense(
   }
   const offer = await rateOfferFor(rates, currencyOfGroup(db, before.groupId), input.money, input.date);
   inTransaction(db, () => {
+    const at = new Date().toISOString();
     const current = requireEditor(db, expenseId, accountId);
     if (current.version !== version) {
       throw staleVersion();
@@ -398,7 +401,13 @@ export async function updateExpense(
     }
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     writeShares(db, expenseId, sharesOf(expense.split, expense.amount));
-    noticeIfPassed(db, current.groupId, expense.category, expense.date, new Date().toISOString());
+    noticeIfPassed(db, current.groupId, expense.category, expense.date, at);
+    recordAudit(
+      db,
+      current.groupId,
+      { by: accountId, action: 'expense-edited', subjectId: expenseId, amount: expense.amount },
+      at,
+    );
   });
 }
 
@@ -408,10 +417,16 @@ export async function updateExpense(
  */
 export function deleteExpense(db: Database, expenseId: string, accountId: string): void {
   inTransaction(db, () => {
-    requireEditor(db, expenseId, accountId);
+    const expense = requireEditor(db, expenseId, accountId);
     db.prepare('DELETE FROM receipts WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
+    recordAudit(
+      db,
+      expense.groupId,
+      { by: accountId, action: 'expense-deleted', subjectId: expenseId, amount: expense.amount },
+      new Date().toISOString(),
+    );
   });
 }
 

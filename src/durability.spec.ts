@@ -1,46 +1,6 @@
-import { type ChildProcess, spawn } from 'node:child_process';
-import { createServer } from 'node:net';
 import { createApplication } from './app';
 import { openDatabase } from './database';
-import { send, signedUpAccount, temporaryDatabasePath, validSignup } from './test-support';
-
-/** A free port on the loopback interface. */
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address() as { port: number };
-      probe.close(() => resolve(port));
-    });
-  });
-}
-
-/** Starts `src/server.ts` as its own process, on `databasePath`, and waits until it listens. */
-async function startServerProcess(databasePath: string): Promise<{ child: ChildProcess; base: string }> {
-  const port = await freePort();
-  const child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
-    env: { ...process.env, PORT: String(port), DATABASE_PATH: databasePath, API_PREFIX: 'v1' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const base = `http://127.0.0.1:${port}/v1`;
-  await new Promise<void>((resolve, reject) => {
-    let output = '';
-    child.stdout?.on('data', (chunk: Buffer) => {
-      output += chunk.toString();
-      if (output.includes('listening on')) resolve();
-    });
-    child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString()));
-    child.once('exit', code => reject(new Error(`server exited (${code}) before listening: ${output}`)));
-  });
-  return { child, base };
-}
-
-const exited = (child: ChildProcess) =>
-  new Promise<void>(resolve => {
-    if (child.exitCode !== null || child.signalCode !== null) return resolve();
-    child.once('exit', () => resolve());
-  });
+import { exited, send, signedUpAccount, startServerProcess, temporaryDatabasePath, validSignup } from './test-support';
 
 describe('what is kept', () => {
   it('keeps accounts, and their tokens, when the application stops and starts again on the same file', async () => {
@@ -128,7 +88,7 @@ describe('the database file', () => {
     const databasePath = temporaryDatabasePath();
     openDatabase(databasePath).close();
     const again = openDatabase(databasePath);
-    expect(again.prepare('PRAGMA user_version').get()?.user_version).toBe(22);
+    expect(again.prepare('PRAGMA user_version').get()?.user_version).toBe(23);
     again.close();
   });
 });

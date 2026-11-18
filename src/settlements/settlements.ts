@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recordAudit } from '../audit/audit';
 import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
 import { requireMembership, requireNotArchived } from '../groups/groups';
@@ -93,6 +94,8 @@ export function recordCashSettlement(
        VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?)`,
     ).run(id, groupId, input.from, payeeId, input.amount, at);
     recordStatus(db, id, 'paid', at);
+    // A cash settlement starts to count at once, and its payee is the one who recorded it.
+    recordAudit(db, groupId, { by: payeeId, action: 'settlement-paid', subjectId: id, amount: input.amount }, at);
     return id;
   });
 }

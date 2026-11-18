@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recordAudit } from '../audit/audit';
 import { balancesOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
 import { Refusal } from '../refusal';
@@ -197,14 +198,16 @@ export function leaveGroup(db: Database, groupId: string, accountId: string): vo
       );
     }
     const balance = balancesOf(db, groupId).find(entry => entry.memberId === accountId)?.balance ?? 0;
+    const at = new Date().toISOString();
     if (balance !== 0) {
       db.prepare('INSERT INTO balance_transfers (group_id, from_id, to_id, amount, at) VALUES (?, ?, ?, ?, ?)').run(
         groupId,
         accountId,
         group.ownerId,
         balance,
-        new Date().toISOString(),
+        at,
       );
+      recordAudit(db, groupId, { by: accountId, action: 'balance-passed', subjectId: accountId, amount: balance }, at);
     }
     db.prepare('DELETE FROM memberships WHERE group_id = ? AND account_id = ?').run(groupId, accountId);
     // A debt noted before the member left is not carried over: one who joins again is noted afresh.
