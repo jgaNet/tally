@@ -12,3 +12,5 @@ export * from './budget.routes';
 export * from './budget.routes.schema';
 export * from './template.routes';
 export * from './template.routes.schema';
+export * from './receipt.routes';
+export * from './receipt.routes.schema';

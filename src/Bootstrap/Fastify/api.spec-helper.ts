@@ -47,14 +47,16 @@ export function apiClient(origin: string) {
     path: string,
     { body, token, headers = {} }: { body?: unknown; token?: string; headers?: Record<string, string> } = {},
   ): Promise<ApiAnswer> => {
+    // A file is sent as its bytes, as the request gives it (`application/octet-stream`); anything else is JSON.
+    const raw = body instanceof Uint8Array;
     const response = await fetch(`${origin}${path}`, {
       method,
       headers: {
-        ...(body !== undefined && { 'content-type': 'application/json' }),
+        ...(body !== undefined && !raw && { 'content-type': 'application/json' }),
         ...(token && { authorization: `Bearer ${token}` }),
         ...headers,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : raw ? Buffer.from(body) : JSON.stringify(body),
     });
     const text = await response.text();
     let parsed: unknown = undefined;

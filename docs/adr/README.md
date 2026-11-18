@@ -23,6 +23,7 @@ why, what it costs, and when to revisit it.
 | [16](0016-recurring-expenses.md) | Recurring expenses: an aggregate in Ledger, and the background job records each day once |
 | [17](0017-budgets.md) | Budgets: a monthly limit per category in Ledger, and a month that passes it is told once |
 | [18](0018-split-templates.md) | Split templates: an aggregate in Ledger, and an expense is split by one as if its split had been given |
+| [19](0019-receipts.md) | Receipts: an aggregate in Ledger, kept in an outside store behind a port Ledger owns |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

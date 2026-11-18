@@ -7,14 +7,24 @@ import {
 } from '@Contexts/Ledger/Application/ReadModel/ExpenseReadModel';
 import { EXPENSE_STATEMENTS } from '@Contexts/Ledger/Infrastructure/expenses.schema';
 
-/** What the screens read of the expenses, from the SQLite file, outside any transaction. */
+/**
+ * What the screens read of the expenses, from the SQLite file, outside any transaction. A command that reads the read model
+ * inside its own transaction takes `inCommand`: the transaction holds the connection, so it reads that connection directly.
+ */
 export class SqliteExpenseQueries implements IExpenseQueries {
-  constructor(private readonly database: SqliteDatabase) {
+  constructor(
+    private readonly database: SqliteDatabase,
+    private readonly inCommand = false,
+  ) {
     database.migrate(EXPENSE_STATEMENTS);
   }
 
+  private run<T>(fn: (connection: SqliteDatabase['connection']) => T): Promise<T> {
+    return this.inCommand ? Promise.resolve(fn(this.database.connection)) : this.database.exclusive(fn);
+  }
+
   findById(id: string): Promise<ExpenseReadModel | null> {
-    return this.database.exclusive(connection => {
+    return this.run(connection => {
       const row = connection
         .prepare(
           `SELECT e.id, e.group_id AS groupId, e.description, e.amount, e.date, e.paid_by AS paidBy,
@@ -38,7 +48,7 @@ export class SqliteExpenseQueries implements IExpenseQueries {
   }
 
   listByGroup(groupId: string): Promise<ExpenseReadModel[]> {
-    return this.database.exclusive(connection => {
+    return this.run(connection => {
       // `rowid` breaks a tie of the same instant: the expenses were inserted in the order they were recorded.
       const rows = connection
         .prepare(

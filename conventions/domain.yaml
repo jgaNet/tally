@@ -87,6 +87,8 @@ contexts:
         meaning: the owner's monthly limit on one category of a group, in the group's currency; a month that spends more than it is told once (request 24, ADR 17).
       - term: Split template
         meaning: a split saved under a name in a group, which an expense is split by in place of its own; the expense keeps the shares it was given, never a reference to the template (request 25, ADR 18).
+      - term: Receipt
+        meaning: the picture of one expense, a JPEG or a PNG of at most 2 MB, kept in the receipts store and read at the link it gives; one per expense, replaced when another is attached, and never an edit of the expense (request 26, ADR 19).
   - id: Tracker
     purpose: >-
       What became of each command: every operation the bus dispatches is recorded with its outcome, so that a

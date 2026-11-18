@@ -22,6 +22,7 @@ import {
   recordRecurringExpensesWith,
 } from '@Contexts/Ledger/module.local';
 import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
+import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/HttpReceiptStore';
 import {
   memberDebtsWith,
   memberPaymentsWaitingInCommand,
@@ -41,6 +42,7 @@ import {
   statementRoutes,
   budgetRoutes,
   templateRoutes,
+  receiptRoutes,
 } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
@@ -85,7 +87,12 @@ export async function createApplication({
   );
   // The rates service (request 22, ADR 15): its API is RATES_URL; without it, no rate is offered, and an expense in another
   // currency is recorded at the rate its payer states, as request 21 has it.
-  const localLedgerModule = ledgerModuleWith(new HttpOfferedRates(process.env.RATES_URL), clock);
+  // The receipts store (request 26, ADR 19): its API is RECEIPTS_URL; without it, a receipt is refused.
+  const localLedgerModule = ledgerModuleWith(
+    new HttpOfferedRates(process.env.RATES_URL),
+    new HttpReceiptStore(process.env.RECEIPTS_URL),
+    clock,
+  );
   const app = new FastifyApplication({
     logger,
     apiPrefix,
@@ -110,6 +117,7 @@ export async function createApplication({
     .registerRoutes('/', recurringRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', budgetRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', templateRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', receiptRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', settlementRoutes, {
       settlementsModule: localSettlementsModule,
       // The secret the provider signs its webhooks with (ADR 8), read here, at the transport that checks them.

@@ -81,6 +81,14 @@ import {
   RemoveTemplateCommandHandler,
 } from '@Contexts/Ledger/Application/Commands/RemoveTemplate';
 import { GetGroupTemplatesQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupTemplates/GetGroupTemplatesQueryHandler';
+import {
+  AttachReceiptCommandEvent,
+  AttachReceiptCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/AttachReceipt';
+import { GetReceiptQueryHandler } from '@Contexts/Ledger/Application/Queries/GetReceipt/GetReceiptQueryHandler';
+import { IReceiptStore } from '@Contexts/Ledger/Application/Ports/IReceiptStore';
+import { SqliteReceiptRepository } from '@Contexts/Ledger/Infrastructure/SqliteReceiptRepository';
+import { SqliteReceiptQueries } from '@Contexts/Ledger/Infrastructure/SqliteReceiptQueries';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3, ADR 7): the expenses of each group, recorded with their equal
@@ -98,6 +106,9 @@ const settledInCommand = new SettlementsSettledAmounts(settlementEffectsInComman
 /** Who passed what when a member left (request 20), as Ledger reads it through GroupMembers: outside a transaction, and inside the asking command's. */
 const membersForQueries = new GroupsMembers(groupMembership);
 const membersInCommand = new GroupsMembers(groupMembershipInCommand);
+
+/** An expense as a receipt's command reads it (request 26): inside the command's transaction, so it reads the connection the transaction holds. */
+const expensesInCommand = new SqliteExpenseQueries(database, true);
 
 /**
  * Ledger's balance of a member as Groups asks it when a member leaves (MemberBalances, ADR 4), exported for a command:
@@ -141,7 +152,11 @@ export function recordRecurringExpensesWith(clock: Clock): RecordRecurringExpens
   );
 }
 
-export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
+/**
+ * The Ledger module. `receipts` is the outside store a receipt's file is kept in (request 26, ADR 19): the composition root
+ * builds it from RECEIPTS_URL, so that this wiring does not read the environment.
+ */
+export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, clock: Clock): Module {
   return new Module({
     name: 'Ledger',
     commands: [
@@ -251,6 +266,18 @@ export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
           ),
         ],
       },
+      {
+        event: AttachReceiptCommandEvent,
+        handlers: [
+          new AttachReceiptCommandHandler(
+            new SqliteReceiptRepository(database),
+            expensesInCommand,
+            new GroupsMembers(groupMembershipInCommand),
+            receipts,
+            clock,
+          ),
+        ],
+      },
     ],
     domainEvents: [
       {
@@ -308,6 +335,11 @@ export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
       ),
       new GetGroupBudgetsQueryHandler(new SqliteBudgetQueries(database), new GroupsMembers(groupMembership), clock),
       new GetGroupTemplatesQueryHandler(new SqliteSplitTemplateQueries(database), new GroupsMembers(groupMembership)),
+      new GetReceiptQueryHandler(
+        new SqliteReceiptQueries(database),
+        new SqliteExpenseQueries(database),
+        new GroupsMembers(groupMembership),
+      ),
       new GetOfferedRateQueryHandler(
         rates,
         new GroupsGroupCurrency(groupCurrencyForQueries),
