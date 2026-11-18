@@ -12,6 +12,7 @@ import {
   ReceivePaymentWebhookCommandEvent,
   ReceivePaymentWebhookCommandHandler,
 } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook';
+import { NetDebtsCommandEvent, NetDebtsCommandHandler } from '@Contexts/Settlements/Application/Commands/NetDebts';
 import {
   RecordCashSettlementCommandEvent,
   RecordCashSettlementCommandHandler,
@@ -22,9 +23,12 @@ import {
 } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
 import {
   GetGroupSettlementsQueryHandler,
+  GetNettingQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
+import { PostgresNettingRepository } from '@Contexts/Settlements/Infrastructure/PostgresNettingRepository';
+import { PostgresNettingReadModels } from '@Contexts/Settlements/Infrastructure/PostgresNettingReadModels';
 import { IWebhookSignatures } from '@Contexts/Settlements/Application/Ports/IWebhookSignatures';
 import {
   SetPayoutAccountCommandEvent,
@@ -61,6 +65,8 @@ const readModels = new PostgresSettlementReadModels(database);
 const audit = new PostgresSettlementAuditLog(database);
 const payoutAccounts = new PostgresPayoutAccountRepository(database);
 const payoutAccountReadModels = new PostgresPayoutAccountReadModels(database);
+const nettings = new PostgresNettingRepository(database);
+const nettingReadModels = new PostgresNettingReadModels(database);
 
 /** What has been settled in a group, read by Ledger when it reads a balance (ADR 7): Settlements' read model, exported. */
 export const settledAmounts: ISettledAmountsQueries = readModels;
@@ -89,7 +95,8 @@ export const outstandingDebtsQueries: IOutstandingDebtsQueries = new Outstanding
 );
 
 /**
- * The Settlements context: a settlement in cash is decided in its group's book (request 12); a payment through the provider is
+ * The Settlements context: a settlement in cash is decided in its group's book (request 12); what two people owe each other across
+ * their groups is netted into settlements of those books (request 32); a payment through the provider is
  * decided there too, and kept pending until the provider's webhook says how it ended (request 13); a paid one may be refunded
  * through the provider (request 15); suggestions are read (request 11).
  */
@@ -99,6 +106,10 @@ export const localSettlementsModule = new Module({
     {
       event: RecordCashSettlementCommandEvent,
       handlers: [new RecordCashSettlementCommandHandler(books, members, balances, systemClock, audit)],
+    },
+    {
+      event: NetDebtsCommandEvent,
+      handlers: [new NetDebtsCommandHandler(books, members, balances, nettings, systemClock, audit)],
     },
     {
       event: PayThroughProviderCommandEvent,
@@ -128,5 +139,6 @@ export const localSettlementsModule = new Module({
     new GetGroupSettlementsQueryHandler(readModels, members),
     new GetSettlementQueryHandler(readModels, members),
     new GetPayoutAccountQueryHandler(payoutAccountReadModels),
+    new GetNettingQueryHandler(nettingReadModels),
   ],
 });

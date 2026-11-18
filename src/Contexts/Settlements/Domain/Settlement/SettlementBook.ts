@@ -195,18 +195,7 @@ export class SettlementBook extends AggregateRoot {
     const decided = this.decide(decision);
     if (decided.isFailure()) return decided;
 
-    const settlement = new Settlement(
-      Id.generate(),
-      this.groupId,
-      decision.payer,
-      decision.payee,
-      decision.amount,
-      'cash',
-      'paid',
-      now,
-      null,
-      [{ status: 'paid', at: now }],
-    );
+    const settlement = paidAtOnce(this.groupId, 'cash', decision, now);
     this.keep(settlement);
     this.moneyMoved.push({ action: 'settlement-paid', by: decision.payee, settlement });
     this.record(
@@ -219,6 +208,38 @@ export class SettlementBook extends AggregateRoot {
       }),
     );
     return Result.ok(settlement);
+  }
+
+  /**
+   * Records one settlement of a netting (request 32), in this group: `payer` pays `payee` the amount, by `net`, paid at once, so it
+   * counts at once; it is audited as paid by `by`, the member who asked for the netting. The netting decided the amount on the balances
+   * read in this transaction, and this checks it again on the same rules as a cash settlement.
+   */
+  recordNet({ by, now, ...decision }: Decision & { by: Id; now: Date }): IResult<Settlement> {
+    const decided = this.decide(decision);
+    if (decided.isFailure()) return decided;
+
+    const settlement = paidAtOnce(this.groupId, 'net', decision, now);
+    this.keep(settlement);
+    this.moneyMoved.push({ action: 'settlement-paid', by, settlement });
+    this.record(
+      SettlementRecordedEvent.set({
+        settlementId: settlement.id.value,
+        groupId: this.groupId.value,
+        payer: decision.payer.value,
+        payee: decision.payee.value,
+        amount: decision.amount,
+      }),
+    );
+    return Result.ok(settlement);
+  }
+
+  /**
+   * A member's balance as the rules count it: the balance Ledger keeps, with what waits at the provider counted as paid (up for a
+   * payer, down for a payee). The netting decides on this, so that its amounts are the ones the book would accept.
+   */
+  effectiveBalance(member: Id, ledgerBalance: number): number {
+    return ledgerBalance + this.waitingEffectOn(member);
   }
 
   /**
@@ -413,6 +434,12 @@ export class SettlementBook extends AggregateRoot {
     });
   }
 }
+
+/** A settlement paid at once, in cash or by netting: `paid` from the moment it is recorded, and its history starts there. */
+const paidAtOnce = (groupId: Id, method: 'cash' | 'net', decision: Decision, now: Date): Settlement =>
+  new Settlement(Id.generate(), groupId, decision.payer, decision.payee, decision.amount, method, 'paid', now, null, [
+    { status: 'paid', at: now },
+  ]);
 
 /** The outcome a provider's webhook status names for a payment, or `null` for a status Tally does not know or waits on. */
 const outcomeOf = (status: string): PaymentOutcome | null => {

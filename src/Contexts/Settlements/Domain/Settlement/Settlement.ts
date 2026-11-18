@@ -1,7 +1,7 @@
 import { Id } from '@Architecture/Domain';
 
-/** How a settlement is paid: in cash, recorded by its payee, or through the payment provider. */
-export type SettlementMethod = 'cash' | 'provider';
+/** How a settlement is paid: in cash, recorded by its payee, through the payment provider, or by netting what two people owe each other across their groups (request 32). */
+export type SettlementMethod = 'cash' | 'provider' | 'net';
 
 /**
  * Where a settlement stands: `pending` while the provider has not said how its payment ended, then `paid` or `failed`; a paid

@@ -8,7 +8,7 @@ export interface SettledAmount {
 /** One settlement a member pays or receives that the balances count, as the member's statement lists it (request 29). */
 export interface CountedSettlement {
   settlementId: string;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   payer: string;
   payee: string;
   amount: number;

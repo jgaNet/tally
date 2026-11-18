@@ -52,6 +52,21 @@ export function createSettlementsTables(database: PostgresDatabase): void {
     amount INTEGER NOT NULL
   )`);
   database.declare('CREATE INDEX IF NOT EXISTS settlement_audit_by_group ON settlement_audit_entries (group_id)');
+  // What two people netted across their groups (request 32): one row per netting, written once, and its settlements in the order they
+  // were made (`position` counts from 1). A netting's settlements are the settlements of its groups' books, stored in the same transaction.
+  database.declare(`CREATE TABLE IF NOT EXISTS nettings (
+    id TEXT PRIMARY KEY,
+    by_account TEXT NOT NULL,
+    with_account TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    amount INTEGER NOT NULL
+  )`);
+  database.declare(`CREATE TABLE IF NOT EXISTS netting_settlements (
+    netting_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    settlement_id TEXT NOT NULL,
+    PRIMARY KEY (netting_id, position)
+  )`);
   // A person's payout account at the provider (request 16): one row per person, unique by owner, at its version.
   database.declare(`CREATE TABLE IF NOT EXISTS payout_accounts (
     id TEXT PRIMARY KEY,

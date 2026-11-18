@@ -11,7 +11,7 @@ export interface SettledAmountOf {
  */
 export interface CountedSettlementOf {
   settlementId: string;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   payer: string;
   payee: string;
   amount: number;

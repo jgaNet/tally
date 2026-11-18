@@ -7,6 +7,13 @@ import { ExpenseReadModel } from '@Contexts/Ledger/Application/ReadModel/Expense
 import { StatementEntryReadModel, StatementReadModel } from '@Contexts/Ledger/Application/ReadModel/StatementReadModel';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 
+/** How a settlement the balances count is named in a statement, by how it was paid (requests 12, 13, 32). */
+const DESCRIPTIONS: Record<'cash' | 'provider' | 'net', string> = {
+  cash: 'Settlement in cash',
+  provider: 'Settlement through the provider',
+  net: 'Settlement by netting',
+};
+
 /** The ports a member's statement is read through: the group's members, the expenses' audit (when each was recorded), and the settlements. */
 export interface StatementSources {
   groupMembers: IGroupMembers;
@@ -64,7 +71,7 @@ export async function readMemberStatement(
           kind: 'settlement' as const,
           settlementId: settlement.settlementId,
           date: settlement.countedFrom.slice(0, 10),
-          description: settlement.method === 'cash' ? 'Settlement in cash' : 'Settlement through the provider',
+          description: DESCRIPTIONS[settlement.method],
           paid: payer ? settlement.amount : 0,
           share: payer ? 0 : settlement.amount,
           balance: 0,

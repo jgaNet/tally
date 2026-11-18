@@ -7,8 +7,10 @@ import { FastifySettlementController } from '@Contexts/Settlements/Presentation/
 import {
   GetGroupSettlementsResSchema,
   GetSettlementResSchema,
+  GetNettingResSchema,
   GetSuggestedSettlementsResSchema,
   LaterCommandResSchema,
+  NetDebtsBodySchema,
   PayThroughProviderBodySchema,
   ReceivePaymentWebhookBodySchema,
   RecordCashSettlementBodySchema,
@@ -47,6 +49,20 @@ export const settlementRoutes = function (
     '/settlements/:id/refund',
     { schema: { tags: ['settlements'], response: LaterCommandResSchema } },
     controller.refundSettlement.bind(controller),
+  );
+
+  // Answered 202 and read at the operation: what the caller and `with` owe each other, netted across their groups (request 32); the
+  // operation's result is the netting's id.
+  fastify.post(
+    '/nettings',
+    { schema: { tags: ['settlements'], body: NetDebtsBodySchema, response: LaterCommandResSchema } },
+    controller.netDebts.bind(controller),
+  );
+
+  fastify.get(
+    '/nettings/:id',
+    { schema: { tags: ['settlements'], response: GetNettingResSchema } },
+    controller.getNetting.bind(controller),
   );
 
   // The provider's webhook: signed over the body as sent, so the signature is checked before the body is validated or decided

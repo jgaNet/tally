@@ -24,6 +24,10 @@ export class SettlementMembersFromGroups implements ISettlementMembers {
     return this.groups().currencyOf(groupId);
   }
 
+  async sharedGroupsOf(firstAccountId: string, secondAccountId: string, currency: string): Promise<string[]> {
+    return this.groups().groupsSharedBy(firstAccountId, secondAccountId, currency);
+  }
+
   async groupsWithMembers(): Promise<{ groupId: string; memberIds: string[] }[]> {
     return this.groups().membersOfEveryGroup();
   }

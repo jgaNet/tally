@@ -29,6 +29,11 @@ export interface IGroupMembersQueries {
   /** The group's currency, fixed when it was created; null when there is no such group. Read by a command that prices a payment. */
   currencyOf(groupId: string): Promise<string | null>;
   /**
+   * The groups both accounts are current members of, in the currency given and not archived, the earliest created first (request 32).
+   * Read by the command that nets what two people owe each other, inside its transaction, so it takes no lock.
+   */
+  groupsSharedBy(firstAccountId: string, secondAccountId: string, currency: string): Promise<string[]>;
+  /**
    * Every group that has a current member, each with its current members in join order: read by a query outside any
    * transaction, to say what every member still owes (ADR 10). A group with none is not listed.
    */

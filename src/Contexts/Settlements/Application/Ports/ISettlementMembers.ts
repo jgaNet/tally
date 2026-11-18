@@ -15,6 +15,11 @@ export interface ISettlementMembers {
   archivedOf(groupId: string): Promise<boolean>;
   /** The group's currency, or null when there is no such group. */
   currencyOf(groupId: string): Promise<string | null>;
+  /**
+   * The groups both accounts are current members of, in the currency given and not archived, the earliest created first (request 32):
+   * read by the netting, which settles in each of them in that order. Groups decides it and answers.
+   */
+  sharedGroupsOf(firstAccountId: string, secondAccountId: string, currency: string): Promise<string[]>;
   /** Every group with a current member, each with its current members in the order they joined (ADR 10). */
   groupsWithMembers(): Promise<{ groupId: string; memberIds: string[] }[]>;
 }

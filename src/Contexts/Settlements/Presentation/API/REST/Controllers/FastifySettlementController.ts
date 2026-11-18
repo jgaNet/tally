@@ -6,10 +6,12 @@ import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/Acce
 
 import { PayThroughProviderCommandEvent } from '@Contexts/Settlements/Application/Commands/PayThroughProvider';
 import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook';
+import { NetDebtsCommandEvent } from '@Contexts/Settlements/Application/Commands/NetDebts';
 import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RecordCashSettlement';
 import { RefundSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
 import {
   GetGroupSettlementsQueryHandler,
+  GetNettingQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
@@ -57,6 +59,19 @@ export class FastifySettlementController {
 
   async refundSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     return acceptCommand(req, reply, this.#module, RefundSettlementCommandEvent.set({ settlementId: req.params.id }));
+  }
+
+  async netDebts(req: FastifyRequest<{ Body: { with: string; currency: string } }>, reply: FastifyReply) {
+    const { with: withAccount, currency } = req.body;
+    return acceptCommand(req, reply, this.#module, NetDebtsCommandEvent.set({ with: withAccount, currency }));
+  }
+
+  async getNetting(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetNettingQueryHandler)
+      .handle({ id: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
   }
 
   async receivePaymentWebhook(req: FastifyRequest, reply: FastifyReply) {

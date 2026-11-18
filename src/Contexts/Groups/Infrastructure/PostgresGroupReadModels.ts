@@ -137,6 +137,25 @@ export class PostgresGroupReadModels implements IGroupQueries, IGroupMembersQuer
     );
   }
 
+  /**
+   * The groups both accounts are current members of, in the currency given and not archived, the earliest created first (request 32).
+   * Read inside the netting's command, so it takes no lock (as `memberIdsOf` does).
+   */
+  async groupsSharedBy(firstAccountId: string, secondAccountId: string, currency: string): Promise<string[]> {
+    return (
+      await this.database.all<{ id: string }>(
+        `SELECT g.id FROM groups g
+         WHERE g.currency = ? AND g.archived_at IS NULL
+           AND EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.account_id = ? AND m.left_at IS NULL)
+           AND EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.account_id = ? AND m.left_at IS NULL)
+         ORDER BY g.seq`,
+        currency,
+        firstAccountId,
+        secondAccountId,
+      )
+    ).map(row => row.id);
+  }
+
   /** The role of a member, read inside the command deciding on it, so it takes no lock (as `memberIdsOf` does). */
   async roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null> {
     const row = await this.database.get<{ owner_id: string }>(

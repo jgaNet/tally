@@ -38,7 +38,7 @@ const SettlementSchema = {
     from: { type: 'string' },
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
-    method: { enum: ['cash', 'provider'] },
+    method: { enum: ['cash', 'provider', 'net'] },
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     payUrl: { type: 'string', minLength: 1 },
@@ -88,4 +88,31 @@ export const ReceivePaymentWebhookBodySchema = {
     status: { type: 'string' },
     at: { type: 'string' },
   },
+} as const;
+
+/** The shape of a body only: a netting is with an account, in a currency; whether it is allowed is the netting's, behind the 202 (request 32). */
+export const NetDebtsBodySchema = {
+  type: 'object',
+  required: ['with', 'currency'],
+  properties: { with: { type: 'string' }, currency: { type: 'string' } },
+} as const;
+
+const NettingSchema = {
+  type: 'object',
+  required: ['id', 'by', 'with', 'currency', 'amount', 'settlements'],
+  properties: {
+    id: { type: 'string' },
+    by: { type: 'string' },
+    with: { type: 'string' },
+    currency: { type: 'string', pattern: '^[A-Z]{3}$' },
+    amount: { type: 'integer', minimum: 1 },
+    settlements: { type: 'array', minItems: 2, items: { type: 'string' } },
+  },
+} as const;
+
+/** A read: a netting, to one of the two people only; anyone else is told it does not exist (request 32). */
+export const GetNettingResSchema = {
+  200: { description: 'Success', ...NettingSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
 } as const;
