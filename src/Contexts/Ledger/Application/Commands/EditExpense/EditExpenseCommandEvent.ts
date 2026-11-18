@@ -1,5 +1,6 @@
 import { CommandEvent } from '@Architecture/Domain';
 
+import { MoneyInput } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /**
@@ -9,7 +10,7 @@ import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 export class EditExpenseCommandEvent extends CommandEvent<{
   expenseId: string;
   description: string;
-  amount: number;
+  money: MoneyInput;
   date: string;
   split: SplitInput;
   version: number;

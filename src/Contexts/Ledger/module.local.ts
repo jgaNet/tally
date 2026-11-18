@@ -19,6 +19,7 @@ import {
   GetGroupExpensesQueryHandler,
   GetMemberStatementQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
+import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { SqliteExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteExpenseReadModels';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
@@ -37,6 +38,11 @@ const expenseReadModels = new SqliteExpenseReadModels(database);
  */
 const members = new GroupMembersFromGroups(() => groupMembers);
 /**
+ * The group's currency, which an expense paid in another currency is converted into (request 21), read through the port Ledger
+ * owns beside membership (ADR 12): Groups' read model, read when it is asked, as the membership port is.
+ */
+const currencies = new GroupCurrencyFromGroups(() => groupMembers);
+/**
  * What has been settled in the group, read through the port Ledger owns (ADR 7): Settlements' read model, read when it is asked
 (ADR 4), so that a balance counts a settlement as soon as it is recorded.
  */
@@ -54,11 +60,11 @@ export const localLedgerModule = new Module({
   commands: [
     {
       event: RecordExpenseCommandEvent,
-      handlers: [new RecordExpenseCommandHandler(expenses, members, systemClock, balances)],
+      handlers: [new RecordExpenseCommandHandler(expenses, members, currencies, systemClock, balances)],
     },
     {
       event: EditExpenseCommandEvent,
-      handlers: [new EditExpenseCommandHandler(expenses, members, systemClock, balances)],
+      handlers: [new EditExpenseCommandHandler(expenses, members, currencies, systemClock, balances)],
     },
     {
       event: DeleteExpenseCommandEvent,

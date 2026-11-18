@@ -10,6 +10,7 @@ import {
   InMemoryBalanceStore,
   InMemoryExpenseRepository,
   InMemoryExpenseStore,
+  InMemoryGroupCurrency,
   InMemoryGroupMembers,
 } from '@Contexts/Ledger/Infrastructure/InMemoryExpenses';
 
@@ -25,6 +26,7 @@ const setup = () => {
   const handler = new RecordExpenseCommandHandler(
     new InMemoryExpenseRepository(store),
     new InMemoryGroupMembers(new Map([['flat', ['alice', 'bob']]])),
+    new InMemoryGroupCurrency(new Map([['flat', 'EUR']])),
     () => at,
     new InMemoryBalances(balanceStore),
   );
@@ -34,7 +36,7 @@ const setup = () => {
 const groceries = {
   groupId: 'flat',
   description: 'Groceries',
-  amount: 1000,
+  money: { amount: 1000 },
   date: '2026-03-10',
   split: { kind: 'equal' as const, members: ['alice', 'bob'] },
 };
@@ -112,7 +114,7 @@ describe('RecordExpense', () => {
     const shares = await handler.execute(
       RecordExpenseCommandEvent.set({
         ...groceries,
-        amount: 1001,
+        money: { amount: 1001 },
         split: {
           kind: 'shares',
           shares: [

@@ -5,6 +5,7 @@ import { requireSignedIn } from '@SharedKernel/Application/Guards';
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense/EditExpenseCommandEvent';
 import { IBalanceCounts } from '@Contexts/Ledger/Application/Ports/IBalanceCounts';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
+import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 
 /**
@@ -17,6 +18,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
   constructor(
     private expenses: IExpenseRepository,
     private groupMembers: IGroupMembers,
+    private groupCurrency: IGroupCurrency,
     private clock: Clock,
     private balances: IBalanceCounts,
   ) {
@@ -31,16 +33,19 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (!expense) return Result.fail(notFound(payload.expenseId));
     const role = await this.groupMembers.roleOf(expense.groupId.value, caller.data);
     if (!role) return Result.fail(notFound(payload.expenseId));
+    const currency = await this.groupCurrency.currencyOf(expense.groupId.value);
+    if (!currency) return Result.fail(notFound(payload.expenseId));
 
     const edited = expense.edit({
       by: caller.data,
       byOwner: role === 'owner',
       version: payload.version,
       description: payload.description,
-      amount: payload.amount,
+      money: payload.money,
       date: payload.date,
       split: payload.split,
       groupMembers: await this.groupMembers.membersOf(expense.groupId.value),
+      groupCurrency: currency,
       now: this.clock(),
     });
     if (edited.isFailure()) return edited;

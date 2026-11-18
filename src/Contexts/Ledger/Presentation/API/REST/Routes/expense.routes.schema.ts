@@ -3,6 +3,13 @@ const RefusedSchema = {
   properties: { message: { type: 'string' } },
 } as const;
 
+/** What was paid in another currency: its currency, its amount in that currency's hundredths, and the rate as the string given. */
+const OriginalSchema = {
+  type: 'object',
+  required: ['currency', 'amount', 'rate'],
+  properties: { currency: { type: 'string' }, amount: { type: 'integer' }, rate: { type: 'string' } },
+} as const;
+
 const ExpenseSchema = {
   type: 'object',
   required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'splitKind', 'version', 'shares'],
@@ -23,7 +30,20 @@ const ExpenseSchema = {
         properties: { memberId: { type: 'string' }, amount: { type: 'integer' } },
       },
     },
+    // What was paid in another currency (request 21): absent for an expense in the group's currency.
+    original: OriginalSchema,
   },
+} as const;
+
+/**
+ * The money of an expense, as a body gives it: an amount in the group's currency, or what was paid in another currency (request
+ * 21). Each is listed by shape only; the currency, the amount and the rate are the expense's to decide, behind the 202.
+ */
+const MoneyBodyProperties = { amount: { type: 'integer' }, original: OriginalSchema } as const;
+
+/** Exactly one of the two ways to give the money: neither, or both, is a body of the wrong shape (400). */
+const ExactlyOneMoney = {
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
 } as const;
 
 /**
@@ -58,28 +78,28 @@ const ExactlyOneSplit = {
 /** The shape of a body only: whether a value is allowed is the expense's to decide, behind the 202 (API-BODY-SHAPE). */
 export const RecordExpenseBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date'],
+  required: ['description', 'date'],
   properties: {
     description: { type: 'string' },
-    amount: { type: 'integer' },
     date: { type: 'string' },
+    ...MoneyBodyProperties,
     ...SplitBodyProperties,
   },
-  ...ExactlyOneSplit,
+  allOf: [ExactlyOneMoney, ExactlyOneSplit],
 } as const;
 
 /** The body of an edit: the expense as it is given again, split one of the three ways, and the version its author read (request 6). */
 export const EditExpenseBodySchema = {
   type: 'object',
-  required: ['description', 'amount', 'date', 'version'],
+  required: ['description', 'date', 'version'],
   properties: {
     description: { type: 'string' },
-    amount: { type: 'integer' },
     date: { type: 'string' },
     version: { type: 'integer' },
+    ...MoneyBodyProperties,
     ...SplitBodyProperties,
   },
-  ...ExactlyOneSplit,
+  allOf: [ExactlyOneMoney, ExactlyOneSplit],
 } as const;
 
 /** A command answered later: 202 with an operation, whose SUCCESS result is the expense's id. */

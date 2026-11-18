@@ -5,6 +5,7 @@ import { requireSignedIn } from '@SharedKernel/Application/Guards';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IBalanceCounts } from '@Contexts/Ledger/Application/Ports/IBalanceCounts';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
+import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandEvent';
 
@@ -13,11 +14,13 @@ import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands
  * expense's id. For anyone who is not a member the group does not exist, the same refusal as one that is not there.
  * The split is decided by the expense; its members are read from Groups through the port Ledger owns (ADR 3). The
  * expense is counted into the balances in this same transaction, so the balances and the expense are stored together.
+ * An expense paid in another currency is converted into the group's currency, which is read through the port Ledger owns (ADR 12).
  */
 export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCommandEvent> {
   constructor(
     private expenses: IExpenseRepository,
     private groupMembers: IGroupMembers,
+    private groupCurrency: IGroupCurrency,
     private clock: Clock,
     private balances: IBalanceCounts,
   ) {
@@ -33,14 +36,18 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       return Result.fail(new NotFoundException('Ledger', 'Group not found', { id: payload.groupId }));
     }
 
+    const currency = await this.groupCurrency.currencyOf(payload.groupId);
+    if (!currency) return Result.fail(new NotFoundException('Ledger', 'Group not found', { id: payload.groupId }));
+
     const expense = Expense.create({
       groupId: new Id(payload.groupId),
       paidBy: caller.data,
       description: payload.description,
-      amount: payload.amount,
+      money: payload.money,
       date: payload.date,
       split: payload.split,
       groupMembers: members,
+      groupCurrency: currency,
       now: this.clock(),
     });
     if (expense.isFailure()) return expense;

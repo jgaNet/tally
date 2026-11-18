@@ -13,6 +13,9 @@ interface Row {
   paid_by: string;
   split_kind: 'equal' | 'exact' | 'shares';
   version: number;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 }
 
 interface ShareRow {
@@ -21,8 +24,8 @@ interface ShareRow {
   amount: number;
 }
 
-const SELECT_EXPENSES =
-  'SELECT id, group_id, description, amount, spent_on, paid_by, split_kind, version FROM expenses';
+const SELECT_EXPENSES = `SELECT id, group_id, description, amount, spent_on, paid_by, split_kind, version,
+                                original_currency, original_amount, original_rate FROM expenses`;
 
 /** The expenses' read models: read outside any command's transaction, so it waits for the one in progress. */
 export class SqliteExpenseReadModels implements IExpenseQueries {
@@ -69,7 +72,7 @@ function sharesOf(rows: ShareRow[]): Map<string, ExpenseShareReadModel[]> {
 }
 
 function toReadModel(row: Row, shares: ExpenseShareReadModel[]): ExpenseReadModel {
-  return {
+  const model: ExpenseReadModel = {
     id: row.id,
     groupId: row.group_id,
     description: row.description,
@@ -80,4 +83,13 @@ function toReadModel(row: Row, shares: ExpenseShareReadModel[]): ExpenseReadMode
     version: row.version,
     shares,
   };
+  // An expense in the group's currency has no `original`: the read says so by leaving it out.
+  if (row.original_currency !== null) {
+    model.original = {
+      currency: row.original_currency,
+      amount: row.original_amount ?? 0,
+      rate: row.original_rate ?? '',
+    };
+  }
+  return model;
 }

@@ -1,9 +1,10 @@
 import { IResult, Result, ValueObject } from '@Architecture/Domain';
 
+import { CURRENCIES, CurrencyCode, isCurrencyCode } from '@SharedKernel/Domain/Currency';
+
 import { InvalidCurrency } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 
-export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
-export type CurrencyCode = (typeof CURRENCIES)[number];
+export { CURRENCIES, type CurrencyCode };
 
 /**
  * The currency of a group, chosen when it is created and never changed: every amount of the group is in it. Each of
@@ -18,7 +19,7 @@ export class Currency extends ValueObject<CurrencyCode> {
   }
 
   static create(raw: string): IResult<Currency> {
-    if (!(CURRENCIES as readonly string[]).includes(raw)) return Result.fail(new InvalidCurrency());
-    return Result.ok(new Currency(raw as CurrencyCode));
+    if (!isCurrencyCode(raw)) return Result.fail(new InvalidCurrency());
+    return Result.ok(new Currency(raw));
   }
 }

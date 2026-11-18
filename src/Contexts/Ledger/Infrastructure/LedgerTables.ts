@@ -32,6 +32,13 @@ export function createLedgerTables(database: SqliteDatabase): void {
     database.exec('ALTER TABLE expenses ADD COLUMN recorded_seq INTEGER NOT NULL DEFAULT 0');
     database.exec('UPDATE expenses SET recorded_seq = rowid');
   }
+  // What was paid in another currency (request 21): kept as given, and NULL for an expense in the group's currency, which is every
+  // expense made before it.
+  if (!columns.some(column => column.name === 'original_currency')) {
+    database.exec('ALTER TABLE expenses ADD COLUMN original_currency TEXT');
+    database.exec('ALTER TABLE expenses ADD COLUMN original_amount INTEGER');
+    database.exec('ALTER TABLE expenses ADD COLUMN original_rate TEXT');
+  }
   database.exec('CREATE INDEX IF NOT EXISTS expenses_by_group ON expenses (group_id)');
   database.exec(`CREATE TABLE IF NOT EXISTS expense_shares (
     expense_id TEXT NOT NULL,

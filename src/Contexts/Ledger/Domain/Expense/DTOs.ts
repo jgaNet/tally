@@ -6,10 +6,18 @@ export interface ShareSnapshot {
   amount: number;
 }
 
+/** What was paid in another currency, as it is kept: the currency, the amount in its hundredths and the rate as it was given. */
+export interface OriginalSnapshot {
+  currency: string;
+  amount: number;
+  rate: string;
+}
+
 /**
- * What an expense is made of, as it is kept: its amount and its day, the payer, how it was split and each member's share
- * in the order the split was given. Its id is the one it was born with; its version is the one it was last saved at (1 when
- * recorded). An expense recorded before splits had kinds was split equally.
+ * What an expense is made of, as it is kept: its amount in the group's currency and its day, the payer, how it was split and
+ * each member's share in the order the split was given, and what was paid in another currency, if it was (`null` otherwise).
+ * Its id is the one it was born with; its version is the one it was last saved at (1 when recorded). An expense recorded
+ * before splits had kinds was split equally.
  */
 export interface ExpenseSnapshot {
   id: string;
@@ -20,5 +28,6 @@ export interface ExpenseSnapshot {
   paidBy: string;
   splitKind: SplitKind;
   shares: ShareSnapshot[];
+  original: OriginalSnapshot | null;
   version: number;
 }

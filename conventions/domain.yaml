@@ -127,6 +127,8 @@ relationships:
       Only a member of the group may be in a split, and only Groups knows who is a member now, in which order, with
       which role, and who has ever been one. Ledger asks in its own words, through a port it owns (GroupMembers), when
       it decides, so that a member who has just joined can be in a split at once (T3).
+      It asks the same way for the group's currency (GroupCurrency), into which an expense paid in another currency
+      is converted (request 21; ADR 12).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]

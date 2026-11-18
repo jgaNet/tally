@@ -96,3 +96,31 @@ export class NotThePayerOrTheOwner extends LedgerException {
     super('NotThePayerOrTheOwner', 'Only the payer of an expense or the owner of the group may change it');
   }
 }
+
+/** A currency is one of Tally's (request 2): an expense paid in another currency names one of them. */
+export class InvalidOriginalCurrency extends LedgerException {
+  constructor() {
+    super('InvalidOriginalCurrency', 'A currency is one of EUR, USD, GBP, CHF, CAD or AUD');
+  }
+}
+
+/** An expense paid in another currency is in a currency other than its group's: the group's own needs no rate. */
+export class SameCurrencyAsTheGroup extends LedgerException {
+  constructor() {
+    super('SameCurrencyAsTheGroup', "An expense in another currency is in a currency other than the group's");
+  }
+}
+
+/** The amount paid in another currency is a whole number of its hundredths, from 1 to 100 000 000, like any amount. */
+export class InvalidOriginalAmount extends LedgerException {
+  constructor() {
+    super('InvalidOriginalAmount', 'An amount in another currency is a whole number from 1 to 100 000 000');
+  }
+}
+
+/** A rate is a decimal number above 0, written as text, with at most 6 digits after the point. */
+export class InvalidRate extends LedgerException {
+  constructor() {
+    super('InvalidRate', 'A rate is a number above 0, written as text, with at most 6 digits after the point');
+  }
+}

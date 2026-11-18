@@ -19,10 +19,11 @@ const recordExpense = (overrides: Partial<Parameters<typeof Expense.create>[0]> 
     groupId: group,
     paidBy: alice,
     description: 'Groceries',
-    amount: 1000,
+    money: { amount: 1000 },
     date: '2026-03-10',
     split: equally(['alice', 'bob', 'carl']),
     groupMembers: [alice, bob, carl],
+    groupCurrency: 'EUR',
     now,
     ...overrides,
   });
@@ -277,6 +278,7 @@ describe('Expense', () => {
         { memberId: 'bob', amount: 333 },
         { memberId: 'carl', amount: 333 },
       ],
+      original: null,
       version: 0,
     });
   });
@@ -292,7 +294,7 @@ describe('Expense', () => {
       },
     }).data as Expense;
     const shares = recordExpense({
-      amount: 1001,
+      money: { amount: 1001 },
       paidBy: bob,
       split: {
         kind: 'shares',
@@ -388,10 +390,10 @@ describe('Expense', () => {
     expect(recordExpense({ description: ' \t ' })).toMatchObject({ error: { type: 'InvalidDescription' } });
     expect(recordExpense({ description: 'x'.repeat(100) }).isSuccess()).toBe(true);
     expect(recordExpense({ description: 'x'.repeat(101) })).toMatchObject({ error: { type: 'InvalidDescription' } });
-    expect(recordExpense({ amount: 0 })).toMatchObject({ error: { type: 'InvalidAmount' } });
-    expect(recordExpense({ amount: 1.5 })).toMatchObject({ error: { type: 'InvalidAmount' } });
-    expect(recordExpense({ amount: 100_000_000 }).isSuccess()).toBe(true);
-    expect(recordExpense({ amount: 100_000_001 })).toMatchObject({ error: { type: 'InvalidAmount' } });
+    expect(recordExpense({ money: { amount: 0 } })).toMatchObject({ error: { type: 'InvalidAmount' } });
+    expect(recordExpense({ money: { amount: 1.5 } })).toMatchObject({ error: { type: 'InvalidAmount' } });
+    expect(recordExpense({ money: { amount: 100_000_000 } }).isSuccess()).toBe(true);
+    expect(recordExpense({ money: { amount: 100_000_001 } })).toMatchObject({ error: { type: 'InvalidAmount' } });
   });
 });
 
@@ -406,10 +408,11 @@ const editing = (overrides: Partial<Parameters<Expense['edit']>[0]> = {}) => ({
   byOwner: false,
   version: 1,
   description: 'Groceries, again',
-  amount: 900,
+  money: { amount: 900 },
   date: '2026-03-10',
   split: equally(['alice', 'bob']),
   groupMembers: [alice, bob, carl],
+  groupCurrency: 'EUR' as const,
   now,
   ...overrides,
 });

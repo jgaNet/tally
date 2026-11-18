@@ -8,6 +8,7 @@ import { DeleteExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense';
 import { GetExpenseQueryHandler, GetGroupExpensesQueryHandler } from '@Contexts/Ledger/Application/Queries';
+import { MoneyInput } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** Exactly one of the three ways to split, as a body gives it (request 7). */
@@ -15,8 +16,14 @@ type SplitBody =
   | { splitBetween: string[] }
   | { splitExactly: { memberId: string; amount: number }[] }
   | { splitByShares: { memberId: string; shares: number }[] };
-type RecordExpenseBody = { description: string; amount: number; date: string } & SplitBody;
+/** Exactly one of the two ways to give the money: an amount in the group's currency, or what was paid in another (request 21). */
+type MoneyBody = { amount: number } | { original: { currency: string; amount: number; rate: string } };
+type RecordExpenseBody = { description: string; date: string } & MoneyBody & SplitBody;
 type EditExpenseBody = RecordExpenseBody & { version: number };
+
+/** The money a body gives: the transport has refused a body of neither, or of both, of the two. */
+const moneyOf = (body: MoneyBody): MoneyInput =>
+  'original' in body ? { original: body.original } : { amount: body.amount };
 
 /** The split a body gives, by its kind: the transport has refused a body of none, or of more than one, of the three. */
 const splitOf = (body: SplitBody): SplitInput => {
@@ -33,17 +40,23 @@ export class FastifyExpenseController {
   }
 
   async recordExpense(req: FastifyRequest<{ Params: { id: string }; Body: RecordExpenseBody }>, reply: FastifyReply) {
-    const { description, amount, date } = req.body;
+    const { description, date } = req.body;
     return acceptCommand(
       req,
       reply,
       this.#module,
-      RecordExpenseCommandEvent.set({ groupId: req.params.id, description, amount, date, split: splitOf(req.body) }),
+      RecordExpenseCommandEvent.set({
+        groupId: req.params.id,
+        description,
+        money: moneyOf(req.body),
+        date,
+        split: splitOf(req.body),
+      }),
     );
   }
 
   async editExpense(req: FastifyRequest<{ Params: { id: string }; Body: EditExpenseBody }>, reply: FastifyReply) {
-    const { description, amount, date, version } = req.body;
+    const { description, date, version } = req.body;
     return acceptCommand(
       req,
       reply,
@@ -51,7 +64,7 @@ export class FastifyExpenseController {
       EditExpenseCommandEvent.set({
         expenseId: req.params.id,
         description,
-        amount,
+        money: moneyOf(req.body),
         date,
         version,
         split: splitOf(req.body),

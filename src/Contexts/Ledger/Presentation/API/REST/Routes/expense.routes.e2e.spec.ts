@@ -24,6 +24,7 @@ type Expense = {
   splitKind: 'equal' | 'exact' | 'shares';
   version: number;
   shares: { memberId: string; amount: number }[];
+  original?: { currency: string; amount: number; rate: string };
 };
 
 /** Follows an operation to its end, as a client answered 202 does. */
@@ -68,7 +69,9 @@ type SplitFields =
   | { splitBetween: string[] }
   | { splitExactly: { memberId: string; amount: number }[] }
   | { splitByShares: { memberId: string; shares: number }[] };
-type ExpenseFields = { description: string; amount: number; date: string } & SplitFields;
+/** The money of an expense as a body gives it: its amount in the group's currency, or what was paid in another (request 21). */
+type MoneyFields = { amount: number } | { original: { currency: string; amount: number; rate: string } };
+type ExpenseFields = { description: string; date: string } & MoneyFields & SplitFields;
 
 /** Records an expense, and follows its operation: the operation's answer, SUCCESS with the id or ERROR with the refusal. */
 async function record(token: string, groupId: string, body: ExpenseFields): Promise<Operation> {
@@ -594,5 +597,161 @@ describe('editing and deleting an expense', () => {
       ).status,
     ).toBe(401);
     expect((await http.request('DELETE', `${api}/expenses/${expenseId}`, {})).status).toBe(401);
+  });
+});
+
+describe('an expense in another currency', () => {
+  it('is converted into the group currency, and keeps what was paid and the rate as they were given', async () => {
+    const alice = await signedIn('ola@example.com', 'Alice');
+    const bob = await signedIn('ole@example.com', 'Bob');
+    const groupId = await createGroup(alice.token, 'Zurich');
+    await join(alice.token, groupId, bob.token);
+
+    // 1234 francs at 1.0625 is 1311.125 euros, so 1311: split equally, the remainder to the first member listed.
+    const recorded = await record(alice.token, groupId, {
+      description: 'Train tickets',
+      original: { currency: 'CHF', amount: 1234, rate: '1.0625' },
+      date: PAST_DAY,
+      splitBetween: [alice.id, bob.id],
+    });
+    expect(recorded).toMatchObject({ status: 'SUCCESS', result: expect.any(String) });
+
+    const read = await http.get(`${api}/expenses/${recorded.result}`, { token: bob.token });
+    expect(read.body).toEqual({
+      id: recorded.result as string,
+      groupId,
+      description: 'Train tickets',
+      amount: 1311,
+      date: PAST_DAY,
+      paidBy: alice.id,
+      splitKind: 'equal',
+      version: 1,
+      shares: [
+        { memberId: alice.id, amount: 656 },
+        { memberId: bob.id, amount: 655 },
+      ],
+      original: { currency: 'CHF', amount: 1234, rate: '1.0625' },
+    });
+
+    const listed = await http.get(`${api}/groups/${groupId}/expenses`, { token: alice.token });
+    expect(listed.body).toEqual([
+      expect.objectContaining({ amount: 1311, original: { currency: 'CHF', amount: 1234, rate: '1.0625' } }),
+    ]);
+
+    const balances = await http.get(`${api}/groups/${groupId}/balances`, { token: alice.token });
+    expect(balances.body).toEqual([
+      { memberId: alice.id, balance: 655 },
+      { memberId: bob.id, balance: -655 },
+    ]);
+  });
+
+  it('keeps a rate written as the payer gave it, and a half is rounded up', async () => {
+    const alice = await signedIn('pim@example.com', 'Alice');
+    const groupId = await createGroup(alice.token, 'Trip');
+    const recorded = await record(alice.token, groupId, {
+      description: 'Coins',
+      original: { currency: 'GBP', amount: 1, rate: '0.5' },
+      date: PAST_DAY,
+      splitBetween: [alice.id],
+    });
+    expect(recorded).toMatchObject({ status: 'SUCCESS', result: expect.any(String) });
+    const read = await http.get(`${api}/expenses/${recorded.result}`, { token: alice.token });
+    expect(read.body).toMatchObject({ amount: 1, original: { currency: 'GBP', amount: 1, rate: '0.5' } });
+  });
+
+  it('is edited into the group currency, and back into another, from the version its author read', async () => {
+    const alice = await signedIn('qua@example.com', 'Alice');
+    const groupId = await createGroup(alice.token, 'Holiday');
+    const recorded = await record(alice.token, groupId, {
+      description: 'Hotel',
+      original: { currency: 'USD', amount: 10000, rate: '0.9542' },
+      date: PAST_DAY,
+      splitBetween: [alice.id],
+    });
+    const expenseId = recorded.result as string;
+
+    const inGroupCurrency = await edit(alice.token, expenseId, {
+      description: 'Hotel',
+      amount: 9542,
+      date: PAST_DAY,
+      version: 1,
+      splitBetween: [alice.id],
+    });
+    expect(inGroupCurrency).toMatchObject({ status: 'SUCCESS' });
+    const afterEdit = await http.get(`${api}/expenses/${expenseId}`, { token: alice.token });
+    expect(afterEdit.body).toMatchObject({ amount: 9542, version: 2 });
+    expect(afterEdit.body).not.toHaveProperty('original');
+
+    const back = await edit(alice.token, expenseId, {
+      description: 'Hotel',
+      original: { currency: 'USD', amount: 10000, rate: '0.9542' },
+      date: PAST_DAY,
+      version: 2,
+      splitBetween: [alice.id],
+    });
+    expect(back).toMatchObject({ status: 'SUCCESS' });
+    const again = await http.get(`${api}/expenses/${expenseId}`, { token: alice.token });
+    expect(again.body).toMatchObject({
+      amount: 9542,
+      version: 3,
+      original: { currency: 'USD', amount: 10000, rate: '0.9542' },
+    });
+  });
+
+  it('refuses on its operation a currency that is the group’s own or not Tally’s, a rate that is not valid, and an amount out of range once converted', async () => {
+    const alice = await signedIn('rex@example.com', 'Alice');
+    const groupId = await createGroup(alice.token, 'Flat');
+    const fields = { description: 'Repair', date: PAST_DAY, splitBetween: [alice.id] };
+
+    const sameCurrency = await record(alice.token, groupId, {
+      ...fields,
+      original: { currency: 'EUR', amount: 100, rate: '1' },
+    });
+    const unknownCurrency = await record(alice.token, groupId, {
+      ...fields,
+      original: { currency: 'JPY', amount: 100, rate: '1' },
+    });
+    const badRate = await record(alice.token, groupId, {
+      ...fields,
+      original: { currency: 'USD', amount: 100, rate: '1.0000001' },
+    });
+    const zeroRate = await record(alice.token, groupId, {
+      ...fields,
+      original: { currency: 'USD', amount: 100, rate: '0' },
+    });
+    const overflow = await record(alice.token, groupId, {
+      ...fields,
+      original: { currency: 'USD', amount: 100_000_000, rate: '2' },
+    });
+
+    expect(sameCurrency).toMatchObject({ status: 'ERROR', error: { type: 'SameCurrencyAsTheGroup' } });
+    expect(unknownCurrency).toMatchObject({ status: 'ERROR', error: { type: 'InvalidOriginalCurrency' } });
+    expect(badRate).toMatchObject({ status: 'ERROR', error: { type: 'InvalidRate' } });
+    expect(zeroRate).toMatchObject({ status: 'ERROR', error: { type: 'InvalidRate' } });
+    expect(overflow).toMatchObject({ status: 'ERROR', error: { type: 'InvalidAmount' } });
+  });
+
+  it('answers 400 to a rate given as a number, and to a body with both an amount and an original, or neither', async () => {
+    const alice = await signedIn('tan@example.com', 'Alice');
+    const groupId = await createGroup(alice.token, 'Flat');
+    const fields = { description: 'Repair', date: PAST_DAY, splitBetween: [alice.id] };
+    const original = { currency: 'USD', amount: 100, rate: '1' };
+
+    const numberRate = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: alice.token,
+      body: { ...fields, original: { ...original, rate: 1 } },
+    });
+    const both = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: alice.token,
+      body: { ...fields, amount: 100, original },
+    });
+    const neither = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: alice.token,
+      body: fields,
+    });
+
+    expect(numberRate.status).toBe(400);
+    expect(both.status).toBe(400);
+    expect(neither.status).toBe(400);
   });
 });
