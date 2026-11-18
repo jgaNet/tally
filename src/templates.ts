@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SplitInput } from './expenses';
-import { findGroupOfMember, membersOfGroup } from './groups';
+import { assertNotArchived, findGroupOfMember, membersOfGroup } from './groups';
 import { Refusal } from './refusal';
 import { characters } from './text';
 import { inReadSnapshot, inTransaction } from './transactions';
@@ -125,7 +125,9 @@ export function saveTemplate(
   const { groupId, callerId, split } = input;
   const id = randomUUID();
   inTransaction(db, () => {
-    if (!findGroupOfMember(db, callerId, groupId)) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    const group = findGroupOfMember(db, callerId, groupId);
+    if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    assertNotArchived(group);
     const name = checkTemplate(db, groupId, input.name, split);
     const nameKey = nameKeyOf(name);
     refuseNameTaken(db, groupId, nameKey);
@@ -169,6 +171,7 @@ function templateChangeableBy(db: DatabaseSync, editorId: string, templateId: st
   const row = db.prepare(`SELECT ${COLUMNS} FROM templates WHERE id = ?`).get(templateId) as TemplateRow | undefined;
   const group = row && findGroupOfMember(db, editorId, row.group_id);
   if (!row || !group) throw new Refusal(404, 'TemplateNotFound', 'No template has this id.');
+  assertNotArchived(group);
   if (editorId !== row.saved_by && editorId !== group.ownerId) {
     throw new Refusal(
       403,

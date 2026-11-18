@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { noticeBudgetPassed } from './budgets';
 import { CATEGORIES, DEFAULT_CATEGORY, isCategory, type Category } from './categories';
 import { isCalendarDay, todayInUtc } from './days';
-import { CURRENCIES, findGroupOfMember, membersOfGroup, type Currency, type Group } from './groups';
+import { assertNotArchived, CURRENCIES, findGroupOfMember, membersOfGroup, type Currency, type Group } from './groups';
 import { noticeExpense } from './notices';
 import { millionthsOf, offeredRate, RATE_SHAPE, type RatesConfig } from './rates';
 import { Refusal } from './refusal';
@@ -501,12 +501,14 @@ export async function recordExpense(db: DatabaseSync, rates: RatesConfig, input:
   if (!asked) {
     throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
   }
+  assertNotArchived(asked);
   const offer = await rateOfferFor(rates, asked.currency, input.amount, date);
   inTransaction(db, () => {
     const group = findGroupOfMember(db, payerId, groupId);
     if (!group) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
+    assertNotArchived(group);
     const checked = checkExpenseFields(db, groupId, group.currency, payerId, input, offer);
     insertExpense(db, { id, groupId, payerId, date, checked, at: new Date().toISOString() });
   });
@@ -607,6 +609,7 @@ export function expenseChangeableBy(
   if (!expense) throw new Refusal(404, 'ExpenseNotFound', 'No expense has this id.');
   const group = findGroupOfMember(db, editorId, expense.groupId);
   if (!group) throw new Refusal(404, 'ExpenseNotFound', 'No expense has this id.');
+  assertNotArchived(group);
   if (editorId !== expense.paidBy && editorId !== group.ownerId) {
     throw new Refusal(403, 'NotPayerOrOwner', 'Only the payer of the expense or the owner of its group may change it.');
   }
@@ -646,6 +649,7 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
   // The rate is asked for the expense as it is now, outside the transaction; the edit's own rules are checked inside it.
   const asked = findExpenseOfMember(db, editorId, expenseId);
   const askedGroup = asked && findGroupOfMember(db, editorId, asked.groupId);
+  if (askedGroup) assertNotArchived(askedGroup);
   const offer = askedGroup ? await rateOfferFor(rates, askedGroup.currency, input.amount, date) : undefined;
   return inTransaction(db, () => {
     const { expense, group } = expenseChangeableBy(db, editorId, expenseId);

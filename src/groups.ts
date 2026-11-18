@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { balancesOfGroup } from './balances';
 import { inTransaction } from './transactions';
 import { Refusal } from './refusal';
 import { characters } from './text';
@@ -13,12 +14,16 @@ export type Currency = (typeof CURRENCIES)[number];
 
 const MAX_NAME_LENGTH = 60;
 
-/** What the application knows of a group, as its members see it. */
+/**
+ * What the application knows of a group, as its members see it. `archivedAt` (an ISO 8601 instant) is there once the group
+ * is archived, and only then.
+ */
 export interface Group {
   readonly id: string;
   readonly name: string;
   readonly currency: Currency;
   readonly ownerId: string;
+  readonly archivedAt?: string;
 }
 
 interface GroupRow {
@@ -26,12 +31,24 @@ interface GroupRow {
   name: string;
   currency: Currency;
   owner_id: string;
+  archived_at: string | null;
 }
 
-const GROUP_COLUMNS = 'g.id, g.name, g.currency, g.owner_id';
+const GROUP_COLUMNS = 'g.id, g.name, g.currency, g.owner_id, g.archived_at';
 
 function groupOf(row: GroupRow): Group {
-  return { id: row.id, name: row.name, currency: row.currency, ownerId: row.owner_id };
+  const group = { id: row.id, name: row.name, currency: row.currency, ownerId: row.owner_id };
+  return row.archived_at === null ? group : { ...group, archivedAt: row.archived_at };
+}
+
+/**
+ * Refuses a change to an archived group, `409` as `GroupIsArchived`, the same for every change. Each write calls it inside
+ * its own transaction, once it knows the caller is a member, and before any other rule: a refused change changes nothing.
+ */
+export function assertNotArchived(group: Group): void {
+  if (group.archivedAt !== undefined) {
+    throw new Refusal(409, 'GroupIsArchived', 'The group is archived: nothing in it changes.');
+  }
 }
 
 /**
@@ -66,6 +83,12 @@ export function createGroup(db: DatabaseSync, input: { ownerId: string; name: st
     db.prepare('INSERT INTO group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)').run(id, ownerId, now);
   });
   return id;
+}
+
+/** The group with this id, whoever reads it; `undefined` when there is none. Reading never changes it. */
+export function findGroup(db: DatabaseSync, groupId: string): Group | undefined {
+  const row = db.prepare(`SELECT ${GROUP_COLUMNS} FROM groups g WHERE g.id = ?`).get(groupId) as GroupRow | undefined;
+  return row && groupOf(row);
 }
 
 /** The group with this id, when `accountId` is one of its current members; `undefined` otherwise, as if it did not exist. */
@@ -147,13 +170,15 @@ export function isOrWasMember(db: DatabaseSync, accountId: string, groupId: stri
  * `pending` or `refunding` (`409`): they leave once it has ended. A member who left is no longer among the
  * group's members or balances, and the group is not among their groups; their expenses stay as they were.
  * The check and the leaving are one transaction, so an expense or settlement recorded at the same moment
- * is either counted before the member leaves, or refused because they are no longer a member.
+ * is either counted before the member leaves, or refused because they are no longer a member. An archived group
+ * is refused (`409`, see {@link assertNotArchived}).
  */
 export function leaveGroup(db: DatabaseSync, input: { groupId: string; accountId: string }): void {
   const { groupId, accountId } = input;
   inTransaction(db, () => {
     const group = findGroupOfMember(db, accountId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    assertNotArchived(group);
     if (group.ownerId === accountId) {
       throw new Refusal(403, 'OwnerCannotLeave', 'The owner created the group and cannot leave it.');
     }
@@ -176,5 +201,39 @@ export function leaveGroup(db: DatabaseSync, input: { groupId: string; accountId
       groupId,
       accountId,
     );
+  });
+}
+
+/**
+ * Archives the group, which its owner does, once every member's balance is 0 and no settlement through the provider is
+ * `pending` or `refunding`. The group stays, for the record, and nothing in it changes any more; `archivedAt` says when it
+ * was archived. Refused with `404` when `accountId` is not a current member of the group, with `409` as `GroupIsArchived`
+ * when it is archived already, with `403` as `NotOwner` when the caller is another member, with `409` as
+ * `BalancesAreNotZero` when a balance is not 0, and with `409` as `SettlementIsInProgress` when a settlement through the
+ * provider has not ended. The checks and the archiving are one transaction, so a change recorded at the same moment is
+ * either counted before, or refused because the group is archived.
+ */
+export function archiveGroup(db: DatabaseSync, input: { groupId: string; accountId: string }): void {
+  const { groupId, accountId } = input;
+  inTransaction(db, () => {
+    const group = findGroupOfMember(db, accountId, groupId);
+    if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    assertNotArchived(group);
+    if (group.ownerId !== accountId) {
+      throw new Refusal(403, 'NotOwner', 'Only the owner of the group may archive it.');
+    }
+    if (balancesOfGroup(db, groupId).some(member => member.balance !== 0)) {
+      throw new Refusal(409, 'BalancesAreNotZero', 'Every balance must be 0 before the group is archived.');
+    }
+    const waiting = db
+      .prepare(
+        `SELECT 1 FROM settlements
+         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')`,
+      )
+      .get(groupId);
+    if (waiting !== undefined) {
+      throw new Refusal(409, 'SettlementIsInProgress', 'A settlement through the provider has not ended yet.');
+    }
+    db.prepare('UPDATE groups SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), groupId);
   });
 }

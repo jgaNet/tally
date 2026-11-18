@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { expenseChangeableBy, findExpenseOfMember } from './expenses';
+import { assertNotArchived, findGroupOfMember } from './groups';
 import { Refusal } from './refusal';
 import { inTransaction } from './transactions';
 
@@ -93,7 +94,8 @@ async function storeFile(receipts: ReceiptsConfig, type: ReceiptType, bytes: Buf
  * {@link expenseChangeableBy}): the file is a JPEG or a PNG (by its first bytes), and it is kept at the store before the
  * expense keeps it. The receipt replaces the one the expense had; the expense keeps its version. A file that is empty or
  * not a JPEG or a PNG is refused with `422`, and the store is not asked. Who may not attach is refused as an edit is
- * (`404`, `403`, `409`), before the store is asked. Nothing is kept when the store does not keep the file.
+ * (`404`, `403`, `409`), before the store is asked; an archived group refuses it as `GroupIsArchived`, before anything
+ * else. Nothing is kept when the store does not keep the file.
  */
 export async function attachReceipt(
   db: DatabaseSync,
@@ -101,6 +103,9 @@ export async function attachReceipt(
   input: { expenseId: string; editorId: string; bytes: Buffer },
 ): Promise<void> {
   const { expenseId, editorId, bytes } = input;
+  const expense = findExpenseOfMember(db, editorId, expenseId);
+  const group = expense && findGroupOfMember(db, editorId, expense.groupId);
+  if (group) assertNotArchived(group);
   if (bytes.length === 0) throw new Refusal(422, 'ReceiptIsEmpty', 'A receipt is a file of at least one byte.');
   const type = receiptTypeOf(bytes);
   if (type === undefined) {

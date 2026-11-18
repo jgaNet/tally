@@ -26,14 +26,16 @@ interface LastingDebtRow {
  *
  * The run is one write transaction (`BEGIN IMMEDIATE`): servers sharing the file run it one after the other, and
  * each sees what the one before it noted and reminded, so a member is reminded at most once a period for a group.
- * Answers how many reminders it made.
+ * An archived group is not looked at: it changes nothing. Answers how many reminders it made.
  */
 export function sweepReminders(db: DatabaseSync, now: Date, periodMs: number): number {
   const at = now.toISOString();
   const nowMs = now.getTime();
   return inTransaction(db, () => {
     let reminded = 0;
-    const groups = db.prepare('SELECT id FROM groups ORDER BY created_at ASC, rowid ASC').all() as unknown as {
+    const groups = db
+      .prepare('SELECT id FROM groups WHERE archived_at IS NULL ORDER BY created_at ASC, rowid ASC')
+      .all() as unknown as {
       id: string;
     }[];
     const watchedOf = db.prepare('SELECT account_id, noted_at, last_reminded_at FROM lasting_debts WHERE group_id = ?');

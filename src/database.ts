@@ -35,7 +35,8 @@ const SCHEMA = `
     name       TEXT NOT NULL,
     currency   TEXT NOT NULL CHECK (currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD')),
     owner_id   TEXT NOT NULL REFERENCES accounts (id),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    archived_at TEXT
   );
   CREATE TABLE IF NOT EXISTS group_members (
     group_id   TEXT NOT NULL REFERENCES groups (id),
@@ -268,6 +269,11 @@ function addMissingColumns(db: DatabaseSync): void {
   const membershipColumns = db.prepare('PRAGMA table_info(group_members)').all() as unknown as { name: string }[];
   const settlementColumns = db.prepare('PRAGMA table_info(settlements)').all() as unknown as { name: string }[];
   const recurringColumns = db.prepare('PRAGMA table_info(recurring)').all() as unknown as { name: string }[];
+  const groupColumns = db.prepare('PRAGMA table_info(groups)').all() as unknown as { name: string }[];
+  // A group written before archiving has no `archived_at`: none of them is archived.
+  if (!groupColumns.some(column => column.name === 'archived_at')) {
+    db.exec('ALTER TABLE groups ADD COLUMN archived_at TEXT');
+  }
   // A membership written before leaving a group has no `left_at`: every such membership is still current.
   if (!membershipColumns.some(column => column.name === 'left_at')) {
     db.exec('ALTER TABLE group_members ADD COLUMN left_at TEXT');

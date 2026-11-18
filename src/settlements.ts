@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { type Balance, balancesOfGroup } from './balances';
-import { findGroupOfMember, membersOfGroup } from './groups';
+import { assertNotArchived, findGroup, findGroupOfMember, membersOfGroup } from './groups';
 import { type ProviderConfig, requestPayment, requestRefund } from './provider';
 import { payoutAccountOf } from './payout-accounts';
 import { Refusal } from './refusal';
@@ -204,9 +204,11 @@ export function recordCashSettlement(
   const { groupId, payeeId, payerId, amount } = input;
   const id = randomUUID();
   inTransaction(db, () => {
-    if (!findGroupOfMember(db, payeeId, groupId)) {
+    const group = findGroupOfMember(db, payeeId, groupId);
+    if (!group) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
+    assertNotArchived(group);
     checkSettlement(db, { groupId, payerId, payeeId, amount });
     const at = new Date().toISOString();
     db.prepare(
@@ -244,6 +246,7 @@ export async function requestProviderSettlement(
   const decide = (): { currency: string; payee: string } => {
     const group = findGroupOfMember(db, payerId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    assertNotArchived(group);
     if (!membersOfGroup(db, groupId).some(member => member.memberId === payeeId)) {
       throw new Refusal(422, 'PayeeNotInGroup', 'The payee must be a member of the group.');
     }
@@ -300,7 +303,8 @@ export function recordProviderOutcome(db: DatabaseSync, input: { paymentId: stri
     const moved = db
       .prepare(
         `SELECT id FROM settlements
-         WHERE method = 'provider' AND provider_payment_id = ? AND status IN (${outcome.from})`,
+         WHERE method = 'provider' AND provider_payment_id = ? AND status IN (${outcome.from})
+           AND group_id NOT IN (SELECT id FROM groups WHERE archived_at IS NOT NULL)`,
       )
       .all(input.paymentId) as unknown as { id: string }[];
     const at = new Date().toISOString();
@@ -383,6 +387,8 @@ function refundablePayment(db: DatabaseSync, accountId: string, settlementId: st
       }
     | undefined;
   if (!row) throw new Refusal(404, 'SettlementNotFound', 'No settlement has this id.');
+  const group = findGroup(db, row.group_id);
+  if (group) assertNotArchived(group);
   if (row.payee_id !== accountId) {
     throw new Refusal(403, 'NotThePayee', 'Only the member who was paid can refund the settlement.');
   }

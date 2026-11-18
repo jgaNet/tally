@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { checkExpenseFields, insertExpense, type SplitInput } from './expenses';
 import { isCalendarDay } from './days';
-import { findGroupOfMember, membersOfGroup } from './groups';
+import { assertNotArchived, findGroupOfMember, membersOfGroup } from './groups';
 import type { Category } from './categories';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
@@ -111,6 +111,7 @@ export function setUpRecurring(db: DatabaseSync, input: SetUpRecurringInput): st
   inTransaction(db, () => {
     const group = findGroupOfMember(db, payerId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    assertNotArchived(group);
     const checked = checkExpenseFields(
       db,
       groupId,
@@ -192,13 +193,17 @@ function removeRecurring(db: DatabaseSync, recurringId: string): void {
   db.prepare('DELETE FROM recurring WHERE id = ?').run(recurringId);
 }
 
-/** Stops a recurring expense: `404` for a non-member, `403` unless the caller is its payer or the group's owner. */
+/**
+ * Stops a recurring expense: `404` for a non-member, `409` as `GroupIsArchived` for an archived group, `403` unless the
+ * caller is its payer or the group's owner.
+ */
 export function stopRecurring(db: DatabaseSync, input: { recurringId: string; accountId: string }): void {
   inTransaction(db, () => {
     const row = db.prepare(`SELECT ${COLUMNS} FROM recurring WHERE id = ?`).get(input.recurringId) as
       RecurringRow | undefined;
     const group = row && findGroupOfMember(db, input.accountId, row.group_id);
     if (!row || !group) throw new Refusal(404, 'RecurringNotFound', 'No recurring expense has this id.');
+    assertNotArchived(group);
     if (input.accountId !== row.paid_by && input.accountId !== group.ownerId) {
       throw new Refusal(403, 'NotPayerOrOwner', 'Only the payer or the owner of the group may stop it.');
     }
@@ -210,8 +215,8 @@ export function stopRecurring(db: DatabaseSync, input: { recurringId: string; ac
  * One run of the recurring expenses, at `now`: every day of a recurring expense that has come (its day is today or
  * passed) and has no expense yet has its expense recorded, in order, and the next day moves on, all in one write
  * transaction, so each day has one expense whatever servers share the file. On a day when its payer or a member of
- * its split is no longer a member of the group, nothing is recorded and the recurring expense ends. Answers how many
- * expenses it recorded.
+ * its split is no longer a member of the group, nothing is recorded and the recurring expense ends. A recurring expense
+ * of an archived group records nothing, and is left as it is. Answers how many expenses it recorded.
  */
 export function recordRecurring(db: DatabaseSync, now: Date): number {
   const at = now.toISOString();
@@ -219,7 +224,11 @@ export function recordRecurring(db: DatabaseSync, now: Date): number {
   return inTransaction(db, () => {
     let recorded = 0;
     const rows = db
-      .prepare(`SELECT ${COLUMNS} FROM recurring WHERE next_on <= ? ORDER BY created_at ASC, rowid ASC`)
+      .prepare(
+        `SELECT ${COLUMNS} FROM recurring
+         WHERE next_on <= ? AND group_id NOT IN (SELECT id FROM groups WHERE archived_at IS NOT NULL)
+         ORDER BY created_at ASC, rowid ASC`,
+      )
       .all(today) as unknown as RecurringRow[];
     for (const row of rows) {
       const split = splitOf(row.split_kind, partsOf(db, row.id));

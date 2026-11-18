@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { CATEGORIES, isCategory, type Category } from './categories';
-import { findGroupOfMember, membersOfGroup, type Group } from './groups';
+import { assertNotArchived, findGroupOfMember, membersOfGroup, type Group } from './groups';
 import { noticeBudget } from './notices';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
@@ -51,10 +51,14 @@ function spentIn(db: DatabaseSync, groupId: string, category: Category, month: s
   return row.total;
 }
 
-/** The group, when `callerId` is its owner; a non-member is `404` (as if it did not exist), another member `403`. */
+/**
+ * The group, when `callerId` is its owner; a non-member is `404` (as if it did not exist), an archived group `409` (see
+ * {@link assertNotArchived}), another member `403`.
+ */
 function ownedGroup(db: DatabaseSync, callerId: string, groupId: string): Group {
   const group = findGroupOfMember(db, callerId, groupId);
   if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+  assertNotArchived(group);
   if (group.ownerId !== callerId) {
     throw new Refusal(403, 'NotOwner', 'Only the owner of the group may set or remove its budgets.');
   }

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { createGroup, findGroupOfMember, groupsOfMember, leaveGroup, membersOfGroup } from '../groups';
+import { archiveGroup, createGroup, findGroupOfMember, groupsOfMember, leaveGroup, membersOfGroup } from '../groups';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
 
@@ -24,6 +24,8 @@ const GROUP = {
     name: { type: 'string' },
     currency: { type: 'string' },
     ownerId: { type: 'string' },
+    // Only an archived group has it: when it was archived.
+    archivedAt: { type: 'string' },
   },
 };
 
@@ -72,6 +74,14 @@ export function registerGroupRoutes(server: FastifyInstance, db: DatabaseSync): 
   server.post<{ Params: { id: string } }>('/groups/:id/leave', async (request, reply) => {
     const caller = requireCaller(db, request);
     leaveGroup(db, { groupId: request.params.id, accountId: caller.id });
+    return reply.code(204).send();
+  });
+
+  // Only the owner archives the group, once every balance is 0 and no provider settlement is in progress; after that the
+  // group is read only.
+  server.post<{ Params: { id: string } }>('/groups/:id/archive', async (request, reply) => {
+    const caller = requireCaller(db, request);
+    archiveGroup(db, { groupId: request.params.id, accountId: caller.id });
     return reply.code(204).send();
   });
 

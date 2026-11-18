@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { acceptInvitation, createInvitation, findInvitation } from '../invitations';
-import { findGroupOfMember } from '../groups';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
 
@@ -27,9 +26,6 @@ export function registerInvitationRoutes(server: FastifyInstance, db: DatabaseSy
     },
     async (request, reply) => {
       const caller = requireCaller(db, request);
-      if (!findGroupOfMember(db, caller.id, request.params.id)) {
-        throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
-      }
       const id = createInvitation(db, { groupId: request.params.id, accountId: caller.id });
       return reply.code(201).send({ id });
     },
