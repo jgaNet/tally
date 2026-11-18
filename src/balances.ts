@@ -68,6 +68,20 @@ export function rawBalanceOf(db: DatabaseSync, groupId: string, accountId: strin
 }
 
 /**
+ * The balance of the membership of `accountId` in the group, current or left, as {@link balancesOfGroup} counts it: its
+ * raw balance less what it has passed on. It is 0 for an account with no membership of the group. Reading changes nothing.
+ */
+export function balanceOfMembership(db: DatabaseSync, groupId: string, accountId: string): number {
+  const row = db
+    .prepare(
+      `SELECT (${rawBalanceSql(countedStatuses({}))}) - m.balance_base AS balance FROM group_members m
+       WHERE m.group_id = ? AND m.account_id = ?`,
+    )
+    .get(groupId, accountId) as { balance: number } | undefined;
+  return row === undefined ? 0 : Number(row.balance);
+}
+
+/**
  * The balance of every current member of a group, the earliest to join first (as {@link membersOfGroup}
  * orders them). A member with no expense and no settlement has a balance of 0. The balances add up to 0,
  * since each expense's shares add up to its amount, each expense is counted once, and each settlement

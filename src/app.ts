@@ -1,5 +1,6 @@
 import cors from '@fastify/cors';
 import Fastify, { FastifyInstance } from 'fastify';
+import { registerAuditRoutes } from './routes/audit';
 import { openDatabase } from './database';
 import { sendError } from './http';
 import type { ProviderConfig } from './provider';
@@ -132,6 +133,7 @@ export async function createApplication({
       registerNoticeRoutes(api, db);
       registerTemplateRoutes(api, db);
       registerOperationRoutes(api, db);
+      registerAuditRoutes(api, db);
     },
     { prefix: `/${apiPrefix}` },
   );

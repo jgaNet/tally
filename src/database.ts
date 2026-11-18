@@ -183,6 +183,25 @@ const NOTICES_TABLE = `
 `;
 
 /**
+ * The audit of a group: every change of money, one row per change, written in the transaction that makes the change, so
+ * it exists exactly when the change does. Nothing changes or removes a row, and no row refers to what it is about (an
+ * expense deleted, or a member who left, keeps its entries). `subject_id` is what the change is about, `by_id` who made it.
+ */
+const AUDIT_TABLE = `
+  CREATE TABLE IF NOT EXISTS audit_entries (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    at         TEXT NOT NULL,
+    by_id      TEXT NOT NULL REFERENCES accounts (id),
+    action     TEXT NOT NULL CHECK (action IN ('expense-recorded', 'expense-edited', 'expense-deleted',
+                 'settlement-paid', 'settlement-refunded', 'balance-passed')),
+    subject_id TEXT NOT NULL,
+    amount     INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS audit_entries_by_group ON audit_entries (group_id, at);
+`;
+
+/**
  * The receipt of an expense: the id and the link the receipts store gave its file, and its type and size. One per
  * expense: a receipt attached replaces the one it had. It is written in the transaction that attaches it, and deleted
  * with its expense. Tally keeps no file, only what the store answered.
@@ -380,6 +399,7 @@ export function openDatabase(path: string): DatabaseSync {
       db.exec(SETTLEMENTS_TABLE);
       db.exec(NOTICES_TABLE);
       db.exec(RECEIPTS_TABLE);
+      db.exec(AUDIT_TABLE);
       addMissingColumns(db);
       // After the settlements' rebuilds: a table referencing `settlements` would follow a rename of it.
       db.exec(SETTLEMENT_STATUSES_TABLE);

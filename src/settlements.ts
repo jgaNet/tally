@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { recordAudit } from './audit';
 import { type Balance, balancesOfGroup } from './balances';
 import { assertNotArchived, findGroup, findGroupOfMember, membersOfGroup } from './groups';
 import { type ProviderConfig, requestPayment, requestRefund } from './provider';
@@ -215,6 +216,8 @@ export function recordCashSettlement(
       'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(id, groupId, payerId, payeeId, amount, 'cash', 'paid', at);
     recordStatus(db, id, 'paid', at);
+    // Paid in cash, the balances start to count it at once: its payee, who records it, made the change.
+    recordAudit(db, { groupId, at, by: payeeId, action: 'settlement-paid', subjectId: id, amount });
   });
   return id;
 }
@@ -302,15 +305,43 @@ export function recordProviderOutcome(db: DatabaseSync, input: { paymentId: stri
   inTransaction(db, () => {
     const moved = db
       .prepare(
-        `SELECT id FROM settlements
+        `SELECT id, group_id, payer_id, payee_id, amount, status FROM settlements
          WHERE method = 'provider' AND provider_payment_id = ? AND status IN (${outcome.from})
            AND group_id NOT IN (SELECT id FROM groups WHERE archived_at IS NOT NULL)`,
       )
-      .all(input.paymentId) as unknown as { id: string }[];
+      .all(input.paymentId) as unknown as {
+      id: string;
+      group_id: string;
+      payer_id: string;
+      payee_id: string;
+      amount: number;
+      status: Settlement['status'];
+    }[];
     const at = new Date().toISOString();
-    for (const { id } of moved) {
-      db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(outcome.to, id);
-      recordStatus(db, id, outcome.to, at);
+    for (const row of moved) {
+      db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(outcome.to, row.id);
+      recordStatus(db, row.id, outcome.to, at);
+      // The balances count a settlement from its success, paid through the provider by its payer, until a refund
+      // takes it back: a refund of a payment still pending never counted, so it changes no balance and has no entry.
+      if (outcome.to === 'paid') {
+        recordAudit(db, {
+          groupId: row.group_id,
+          at,
+          by: row.payer_id,
+          action: 'settlement-paid',
+          subjectId: row.id,
+          amount: row.amount,
+        });
+      } else if (outcome.to === 'refunded' && row.status !== 'pending') {
+        recordAudit(db, {
+          groupId: row.group_id,
+          at,
+          by: row.payee_id,
+          action: 'settlement-refunded',
+          subjectId: row.id,
+          amount: row.amount,
+        });
+      }
     }
   });
 }

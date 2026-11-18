@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { recordAudit } from './audit';
 import { noticeBudgetPassed } from './budgets';
 import { CATEGORIES, DEFAULT_CATEGORY, isCategory, type Category } from './categories';
 import { isCalendarDay, todayInUtc } from './days';
@@ -454,6 +455,7 @@ export function insertExpense(
     at,
   );
   writeShares(db, id, checked.shares);
+  recordAudit(db, { groupId, at, by: payerId, action: 'expense-recorded', subjectId: id, amount: checked.amount });
   // The members of the split are told of their shares in the same transaction: the notices exist with the expense.
   noticeExpense(db, { expenseId: id, groupId, payerId, shares: checked.shares, at });
   noticeBudgetPassed(db, { groupId, category: checked.category, date, at });
@@ -685,13 +687,17 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
     }
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     writeShares(db, expenseId, checked.shares);
-    // The month the edit leaves the expense in, in its category, is checked against the budget as a record is.
-    noticeBudgetPassed(db, {
+    const at = new Date().toISOString();
+    recordAudit(db, {
       groupId: expense.groupId,
-      category: checked.category,
-      date,
-      at: new Date().toISOString(),
+      at,
+      by: editorId,
+      action: 'expense-edited',
+      subjectId: expenseId,
+      amount: checked.amount,
     });
+    // The month the edit leaves the expense in, in its category, is checked against the budget as a record is.
+    noticeBudgetPassed(db, { groupId: expense.groupId, category: checked.category, date, at });
     return findExpenseOfMember(db, editorId, expenseId) as Expense;
   });
 }
@@ -704,7 +710,15 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
 export function deleteExpense(db: DatabaseSync, input: { expenseId: string; deleterId: string }): void {
   const { expenseId, deleterId } = input;
   inTransaction(db, () => {
-    expenseChangeableBy(db, deleterId, expenseId);
+    const { expense } = expenseChangeableBy(db, deleterId, expenseId);
+    recordAudit(db, {
+      groupId: expense.groupId,
+      at: new Date().toISOString(),
+      by: deleterId,
+      action: 'expense-deleted',
+      subjectId: expenseId,
+      amount: expense.amount,
+    });
     db.prepare('DELETE FROM receipts WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);

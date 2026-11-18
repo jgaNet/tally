@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { balancesOfGroup } from './balances';
+import { recordAudit } from './audit';
+import { balanceOfMembership, balancesOfGroup } from './balances';
 import { inTransaction } from './transactions';
 import { Refusal } from './refusal';
 import { characters } from './text';
@@ -196,11 +197,17 @@ export function leaveGroup(db: DatabaseSync, input: { groupId: string; accountId
         'A settlement through the provider that the member pays or receives has not ended yet.',
       );
     }
+    const at = new Date().toISOString();
+    // What the member holds passes to the owner as it leaves: a change of money, unless the balance is 0.
+    const balance = balanceOfMembership(db, groupId, accountId);
     db.prepare('UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?').run(
-      new Date().toISOString(),
+      at,
       groupId,
       accountId,
     );
+    if (balance !== 0) {
+      recordAudit(db, { groupId, at, by: accountId, action: 'balance-passed', subjectId: accountId, amount: balance });
+    }
   });
 }
 
