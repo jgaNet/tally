@@ -193,8 +193,24 @@ describe('leaving a group', () => {
         memberId: grace.id,
         balance: 0,
         entries: [
-          { expenseId: first, date: todayInUtc(), description: 'Groceries', paid: 1000, share: 500, balance: 500 },
-          { expenseId: second, date: todayInUtc(), description: 'Groceries', paid: 0, share: 500, balance: 0 },
+          {
+            kind: 'expense',
+            expenseId: first,
+            date: todayInUtc(),
+            description: 'Groceries',
+            paid: 1000,
+            share: 500,
+            balance: 500,
+          },
+          {
+            kind: 'expense',
+            expenseId: second,
+            date: todayInUtc(),
+            description: 'Groceries',
+            paid: 0,
+            share: 500,
+            balance: 0,
+          },
         ],
       });
     });

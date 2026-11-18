@@ -97,6 +97,7 @@ describe("a member's statement", () => {
         balance: 500,
         entries: [
           {
+            kind: 'expense',
             expenseId: first,
             date: dayBefore(todayInUtc(), 2),
             description: 'Dinner',
@@ -104,7 +105,15 @@ describe("a member's statement", () => {
             share: 300,
             balance: 600,
           },
-          { expenseId: third, date: todayInUtc(), description: 'Coffee', paid: 0, share: 100, balance: 500 },
+          {
+            kind: 'expense',
+            expenseId: third,
+            date: todayInUtc(),
+            description: 'Coffee',
+            paid: 0,
+            share: 100,
+            balance: 500,
+          },
         ],
       });
     });
@@ -112,14 +121,15 @@ describe("a member's statement", () => {
     it('leaves out an expense the member neither paid nor is in the split of', async () => {
       const { ada, groupId, second } = await threeExpenses();
       const entries = (await statementOf(ada.token, groupId, ada.id)).json().entries;
-      expect(entries.map((entry: { expenseId: string }) => entry.expenseId)).not.toContain(second);
+      expect(entries.map((entry: { kind: 'expense'; expenseId: string }) => entry.expenseId)).not.toContain(second);
     });
 
     it('includes an expense the member is in the split of, though someone else paid it', async () => {
       const { linus, groupId, second } = await threeExpenses();
       const entries = (await statementOf(linus.token, groupId, linus.id)).json().entries;
-      const taxi = entries.find((entry: { expenseId: string }) => entry.expenseId === second);
+      const taxi = entries.find((entry: { kind: 'expense'; expenseId: string }) => entry.expenseId === second);
       expect(taxi).toEqual({
+        kind: 'expense',
         expenseId: second,
         date: dayBefore(todayInUtc()),
         description: 'Taxi',
@@ -150,7 +160,7 @@ describe("a member's statement", () => {
       );
       const ids = (await statementOf(ada.token, groupId, ada.id))
         .json()
-        .entries.map((entry: { expenseId: string }) => entry.expenseId);
+        .entries.map((entry: { kind: 'expense'; expenseId: string }) => entry.expenseId);
       expect(ids).toEqual([oldest, older, older2, today1]);
     });
 
@@ -159,7 +169,15 @@ describe("a member's statement", () => {
       const id = await record(ada.token, groupId, expense({ amount: 1000, splitBetween: [ada.id, grace.id] }));
       const entries = (await statementOf(ada.token, groupId, ada.id)).json().entries;
       expect(entries).toEqual([
-        { expenseId: id, date: todayInUtc(), description: 'Groceries', paid: 1000, share: 500, balance: 500 },
+        {
+          kind: 'expense',
+          expenseId: id,
+          date: todayInUtc(),
+          description: 'Groceries',
+          paid: 1000,
+          share: 500,
+          balance: 500,
+        },
       ]);
     });
 
@@ -168,6 +186,76 @@ describe("a member's statement", () => {
       await record(ada.token, groupId, expense({ splitBetween: [ada.id] }));
       const response = await statementOf(linus.token, groupId, linus.id);
       expect(response.json()).toEqual({ memberId: linus.id, balance: 0, entries: [] });
+    });
+  });
+
+  describe('the settlements it has', () => {
+    it('lists a cash settlement the balances count, as an entry of its own, from the day it is recorded', async () => {
+      const { ada, grace, groupId } = await threeMembers();
+      const expenseId = await record(grace.token, groupId, expense({ amount: 1000, splitBetween: [ada.id, grace.id] }));
+      const settlement = await send(app, 'POST', `/groups/${groupId}/settlements/cash`, {
+        token: grace.token,
+        payload: { from: ada.id, amount: 200 },
+      });
+      expect(settlement.statusCode).toBe(201);
+      const settlementId = settlement.json<{ id: string }>().id;
+      const statement = (await statementOf(ada.token, groupId, ada.id)).json();
+      expect(statement.entries).toEqual([
+        {
+          kind: 'expense',
+          expenseId,
+          date: todayInUtc(),
+          description: 'Groceries',
+          paid: 0,
+          share: 500,
+          balance: -500,
+        },
+        {
+          kind: 'settlement',
+          settlementId,
+          date: todayInUtc(),
+          description: 'Settlement in cash',
+          paid: 200,
+          share: 0,
+          balance: -300,
+        },
+      ]);
+      expect(statement.balance).toBe(-300);
+    });
+
+    it('gives the payee of a settlement its amount as the share, and a balance that goes up', async () => {
+      const { ada, grace, groupId } = await threeMembers();
+      await record(grace.token, groupId, expense({ amount: 1000, splitBetween: [ada.id, grace.id] }));
+      const settlement = await send(app, 'POST', `/groups/${groupId}/settlements/cash`, {
+        token: grace.token,
+        payload: { from: ada.id, amount: 200 },
+      });
+      const settlementId = settlement.json<{ id: string }>().id;
+      const entries = (await statementOf(grace.token, groupId, grace.id)).json().entries;
+      expect(entries.at(-1)).toEqual({
+        kind: 'settlement',
+        settlementId,
+        date: todayInUtc(),
+        description: 'Settlement in cash',
+        paid: 0,
+        share: 200,
+        balance: 300,
+      });
+    });
+
+    it('orders a settlement among the expenses of its day by when the balances started to count it', async () => {
+      const { ada, grace, groupId } = await threeMembers();
+      const first = await record(grace.token, groupId, expense({ amount: 1000, splitBetween: [ada.id, grace.id] }));
+      const settlement = await send(app, 'POST', `/groups/${groupId}/settlements/cash`, {
+        token: grace.token,
+        payload: { from: ada.id, amount: 200 },
+      });
+      const settlementId = settlement.json<{ id: string }>().id;
+      const last = await record(grace.token, groupId, expense({ amount: 600, splitBetween: [ada.id, grace.id] }));
+      const ids = (await statementOf(ada.token, groupId, ada.id))
+        .json()
+        .entries.map((entry: { expenseId?: string; settlementId?: string }) => entry.expenseId ?? entry.settlementId);
+      expect(ids).toEqual([first, settlementId, last]);
     });
   });
 
@@ -208,7 +296,7 @@ describe("a member's statement", () => {
       expect(edit.statusCode).toBe(204);
       const statement = (await statementOf(ada.token, groupId, ada.id)).json();
       expect(statement.entries).toEqual([
-        { expenseId: id, date, description: 'Groceries', paid: 400, share: 200, balance: 200 },
+        { kind: 'expense', expenseId: id, date, description: 'Groceries', paid: 400, share: 200, balance: 200 },
       ]);
     });
 
@@ -216,7 +304,9 @@ describe("a member's statement", () => {
       const { ada, groupId, first, third } = await threeExpenses();
       expect((await send(app, 'DELETE', `/expenses/${first}`, { token: ada.token })).statusCode).toBe(204);
       const statement = (await statementOf(ada.token, groupId, ada.id)).json();
-      expect(statement.entries.map((entry: { expenseId: string }) => entry.expenseId)).toEqual([third]);
+      expect(statement.entries.map((entry: { kind: 'expense'; expenseId: string }) => entry.expenseId)).toEqual([
+        third,
+      ]);
       expect(statement.balance).toBe(-100);
     });
   });

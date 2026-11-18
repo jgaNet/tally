@@ -192,15 +192,25 @@ describe('settling up in cash', () => {
       ]);
     });
 
-    it("leaves a member's statement listing expenses only: its balance is what the expenses give", async () => {
+    it("lists the settlement in the payer's statement, as an entry of its own, and the balance is the group's", async () => {
       const { ada, grace, groupId } = await adaOwesGrace();
-      await settle(grace.token, groupId, { from: ada.id, amount: 500 });
+      const id = (await settle(grace.token, groupId, { from: ada.id, amount: 500 })).json().id;
       const statement = await send(app, 'GET', `/groups/${groupId}/members/${ada.id}/statement`, {
         token: ada.token,
       });
       expect(statement.statusCode).toBe(200);
-      expect(statement.json().balance).toBe(-500);
-      expect(statement.json().entries).toHaveLength(1);
+      expect(statement.json().entries).toEqual([
+        expect.objectContaining({ kind: 'expense', paid: 0, share: 500, balance: -500 }),
+        expect.objectContaining({
+          kind: 'settlement',
+          settlementId: id,
+          description: 'Settlement in cash',
+          paid: 500,
+          share: 0,
+          balance: 0,
+        }),
+      ]);
+      expect(statement.json().balance).toBe(0);
       expect((await balancesOf(ada.token, groupId)).find(b => b.memberId === ada.id)?.balance).toBe(0);
     });
   });
