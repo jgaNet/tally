@@ -24,6 +24,9 @@ import {
   saveTemplate,
 } from '@Contexts/Ledger/Application/SplitTemplates';
 import { ISettledAmounts } from '@Contexts/Ledger/Application/ISettledAmounts';
+import { IReceiptStore } from '@Contexts/Ledger/Application/IReceiptStore';
+import { attachReceipt, getReceipt } from '@Contexts/Ledger/Application/Receipts';
+import { SqliteReceiptBook, receiptsTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteReceiptBook';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
 import { IOfferedRates } from '@Contexts/Ledger/Application/IOfferedRates';
@@ -56,6 +59,7 @@ export const ledgerSchema = [
   ...recurringExpensesTablesSchema,
   ...budgetsTablesSchema,
   ...splitTemplatesTablesSchema,
+  ...receiptsTablesSchema,
 ];
 
 /**
@@ -77,7 +81,8 @@ export function ledgerBalanceRoster(
  * (`groupCurrency`, the same roster: an expense in another currency is converted to it, request 21), the rates a rates service
  * offers (`rates`, request 22: an expense in another currency takes the rate offered when its own is left out, and is checked
  * against it) and what the settlements moved. The composition root builds `groupMembers` once, so the balance read model and this
- * module share it.
+ * module share it. The receipts store (`receiptStore`, request 26, ADR 21) is the outside place a receipt's file is kept, given by the composition
+ * root: it is built over RECEIPTS_URL, and keeps nothing when that is not set.
  */
 export function ledgerWiring(
   database: SqliteDatabase,
@@ -85,11 +90,13 @@ export function ledgerWiring(
   groupCurrency: IGroupCurrency,
   rates: IOfferedRates,
   settled: ISettledAmounts,
+  receiptStore: IReceiptStore,
 ): LiteModule {
   const expenses = new SqliteExpenseStore(database);
   const recurring = new SqliteRecurringExpenseStore(database);
   const budgets = new SqliteBudgetStore(database);
   const templates = new SqliteSplitTemplateStore(database);
+  const receipts = new SqliteReceiptBook(database);
 
   return new LiteModule({
     name: 'Ledger',
@@ -126,6 +133,8 @@ export function ledgerWiring(
       replaceTemplate(templates, groupMembers, systemClock),
       removeTemplate(templates, groupMembers, systemClock),
       getGroupTemplates(templates, groupMembers),
+      attachReceipt(expenses, groupMembers, receipts, receiptStore, systemClock),
+      getReceipt(expenses, groupMembers, receipts),
     ],
   });
 }

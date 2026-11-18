@@ -18,6 +18,7 @@ import { groupRoster, groupsSchema, groupsWiring } from '@Contexts/Groups/module
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
 import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
+import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/HttpReceiptStore';
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
@@ -25,6 +26,7 @@ import { ratesRoutes } from '@Contexts/Ledger/Presentation/rates.routes';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
 import { budgetRoutes } from '@Contexts/Ledger/Presentation/budgets.routes';
 import { templateRoutes } from '@Contexts/Ledger/Presentation/templates.routes';
+import { receiptRoutes } from '@Contexts/Ledger/Presentation/receipts.routes';
 import { sweepRecurringExpenses } from '@Contexts/Ledger/Application/RecurringExpenses';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
@@ -69,6 +71,7 @@ export async function createApplication({
   providerUrl = process.env.PROVIDER_URL || undefined,
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || undefined,
   ratesUrl = process.env.RATES_URL || undefined,
+  receiptsUrl = process.env.RECEIPTS_URL || undefined,
   jobsIntervalSeconds = Number(process.env.JOBS_INTERVAL_SECONDS || 60),
   reminderPeriodSeconds = Number(process.env.REMINDER_PERIOD_SECONDS || 604800),
 }: {
@@ -84,6 +87,8 @@ export async function createApplication({
   providerWebhookSecret?: string;
   /** The base of the rates service's API, without a trailing slash (RATES_URL); without it, no rate is offered (request 22). */
   ratesUrl?: string;
+  /** The base of the receipts store's API, without a trailing slash (RECEIPTS_URL); without it, a receipt is refused (request 26). */
+  receiptsUrl?: string;
   /** How often the background jobs run, in seconds (JOBS_INTERVAL_SECONDS; 60 when it is not set): the debt sweep of request 18. */
   jobsIntervalSeconds?: number;
   /** How long a debt must last before its member is reminded, in seconds (REMINDER_PERIOD_SECONDS; a week when it is not set). */
@@ -113,7 +118,9 @@ export async function createApplication({
   // The rates a rates service offers (request 22) are asked of RATES_URL, through a port Ledger owns: an expense in another currency takes
   // the rate offered when its own is left out, and is checked against it.
   const rates = new HttpOfferedRates(ratesUrl);
-  const ledger = ledgerWiring(database, groupMembers, groupCurrency, rates, settledAmounts);
+  // The receipts store (request 26, ADR 21) is asked of RECEIPTS_URL, through a port Ledger owns: a receipt is kept there, never in Tally.
+  const receiptStore = new HttpReceiptStore(receiptsUrl);
+  const ledger = ledgerWiring(database, groupMembers, groupCurrency, rates, settledAmounts, receiptStore);
   // The suggested settlements read the members of a group from Groups' roster and its balances from Ledger's read model (ADR 9).
   // Paying through the provider (request 13) is asked of PROVIDER_URL, and its webhooks are checked with PROVIDER_WEBHOOK_SECRET.
   const settlements = settlementsWiring(database, groups.roster, balances, {
@@ -152,6 +159,7 @@ export async function createApplication({
     .registerRoutes('/', recurringRoutes, { module: ledger })
     .registerRoutes('/', budgetRoutes, { module: ledger })
     .registerRoutes('/', templateRoutes, { module: ledger })
+    .registerRoutes('/', receiptRoutes, { module: ledger })
     .registerRoutes('/', settlementRoutes, { module: settlements })
     .registerRoutes('/', noticeRoutes, { module: notifications })
     .onStop(() => database.close());
