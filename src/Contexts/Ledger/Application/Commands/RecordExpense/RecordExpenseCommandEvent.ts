@@ -15,5 +15,8 @@ export class RecordExpenseCommandEvent extends CommandEvent<
     date: string;
     /** What the expense is filed under (request 24); `other` when left out. */
     category?: string;
-  } & SplitRequest
+  } & SplitRequest & {
+      /** The id of a template of the group, split as it was saved, in place of one of the three splits (request 25). */
+      template?: string;
+    }
 > {}

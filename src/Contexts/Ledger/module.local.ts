@@ -66,6 +66,21 @@ import { BudgetPassedEventHandler } from '@Contexts/Ledger/Application/Events/Bu
 import { SqliteBudgetRepository } from '@Contexts/Ledger/Infrastructure/SqliteBudgetRepository';
 import { SqliteBudgetQueries } from '@Contexts/Ledger/Infrastructure/SqliteBudgetQueries';
 import { SqliteMonthlySpend } from '@Contexts/Ledger/Infrastructure/SqliteMonthlySpend';
+import { SqliteSplitTemplateRepository } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateRepository';
+import { SqliteSplitTemplateQueries } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateQueries';
+import {
+  SaveTemplateCommandEvent,
+  SaveTemplateCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/SaveTemplate';
+import {
+  ReplaceTemplateCommandEvent,
+  ReplaceTemplateCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/ReplaceTemplate';
+import {
+  RemoveTemplateCommandEvent,
+  RemoveTemplateCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/RemoveTemplate';
+import { GetGroupTemplatesQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupTemplates/GetGroupTemplatesQueryHandler';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3, ADR 7): the expenses of each group, recorded with their equal
@@ -135,6 +150,7 @@ export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
         handlers: [
           new RecordExpenseCommandHandler(
             new SqliteExpenseRepository(database),
+            new SqliteSplitTemplateRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             new GroupsGroupCurrency(groupCurrencyInCommand),
             rates,
@@ -147,6 +163,7 @@ export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
         handlers: [
           new EditExpenseCommandHandler(
             new SqliteExpenseRepository(database),
+            new SqliteSplitTemplateRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             new GroupsGroupCurrency(groupCurrencyInCommand),
             rates,
@@ -199,6 +216,36 @@ export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
         handlers: [
           new RemoveBudgetCommandHandler(
             new SqliteBudgetRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
+          ),
+        ],
+      },
+      {
+        event: SaveTemplateCommandEvent,
+        handlers: [
+          new SaveTemplateCommandHandler(
+            new SqliteSplitTemplateRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
+          ),
+        ],
+      },
+      {
+        event: ReplaceTemplateCommandEvent,
+        handlers: [
+          new ReplaceTemplateCommandHandler(
+            new SqliteSplitTemplateRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
+          ),
+        ],
+      },
+      {
+        event: RemoveTemplateCommandEvent,
+        handlers: [
+          new RemoveTemplateCommandHandler(
+            new SqliteSplitTemplateRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -260,6 +307,7 @@ export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
         new GroupsMembers(groupMembership),
       ),
       new GetGroupBudgetsQueryHandler(new SqliteBudgetQueries(database), new GroupsMembers(groupMembership), clock),
+      new GetGroupTemplatesQueryHandler(new SqliteSplitTemplateQueries(database), new GroupsMembers(groupMembership)),
       new GetOfferedRateQueryHandler(
         rates,
         new GroupsGroupCurrency(groupCurrencyForQueries),

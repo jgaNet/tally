@@ -6,3 +6,6 @@ export * from '@Contexts/Ledger/Application/Commands/SetUpRecurringExpense';
 export * from '@Contexts/Ledger/Application/Commands/StopRecurringExpense';
 export * from '@Contexts/Ledger/Application/Commands/SetBudget';
 export * from '@Contexts/Ledger/Application/Commands/RemoveBudget';
+export * from '@Contexts/Ledger/Application/Commands/SaveTemplate';
+export * from '@Contexts/Ledger/Application/Commands/ReplaceTemplate';
+export * from '@Contexts/Ledger/Application/Commands/RemoveTemplate';

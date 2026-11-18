@@ -5,8 +5,9 @@ import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { categoryOf } from '@Contexts/Ledger/Domain/Expense/Category';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
-import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
+import { ISplitTemplateRepository } from '@Contexts/Ledger/Domain/SplitTemplate/Ports/ISplitTemplateRepository';
+import { splitOfExpense } from '@Contexts/Ledger/Application/Commands/splitOfExpense';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
 import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
@@ -22,6 +23,7 @@ import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands
 export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCommandEvent> {
   constructor(
     private readonly expenses: IExpenseRepository,
+    private readonly templates: ISplitTemplateRepository,
     private readonly groupMembers: IGroupMembers,
     private readonly groupCurrency: IGroupCurrency,
     private readonly offeredRates: IOfferedRates,
@@ -45,7 +47,13 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     if (date.isFailure()) return date;
     const priced = await priceExpense(payload, groupId, date.data, this.groupCurrency, this.offeredRates);
     if (priced.isFailure()) return priced;
-    const split = Split.fromRequest({ amount: priced.data.amount, payer: payer.data, request: payload });
+    const split = await splitOfExpense({
+      amount: priced.data.amount,
+      payer: payer.data,
+      groupId: groupId,
+      request: payload,
+      templates: this.templates,
+    });
     if (split.isFailure()) return split;
     const category = categoryOf(payload.category);
     if (category.isFailure()) return category;

@@ -10,3 +10,5 @@ export * from './recurring.routes';
 export * from './recurring.routes.schema';
 export * from './budget.routes';
 export * from './budget.routes.schema';
+export * from './template.routes';
+export * from './template.routes.schema';

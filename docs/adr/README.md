@@ -22,6 +22,7 @@ why, what it costs, and when to revisit it.
 | [15](0015-offered-rates.md) | Offered rates: a rates service behind a port Ledger owns, and an expense takes or checks the rate it offers |
 | [16](0016-recurring-expenses.md) | Recurring expenses: an aggregate in Ledger, and the background job records each day once |
 | [17](0017-budgets.md) | Budgets: a monthly limit per category in Ledger, and a month that passes it is told once |
+| [18](0018-split-templates.md) | Split templates: an aggregate in Ledger, and an expense is split by one as if its split had been given |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

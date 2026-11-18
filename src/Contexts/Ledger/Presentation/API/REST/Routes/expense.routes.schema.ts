@@ -63,19 +63,22 @@ const ExpenseSchema = {
 } as const;
 
 /*
- * How an expense is split: exactly one of the three fields, each with its own shape. Two of them in one body, or none, is the
- * body's shape and a 400; whether the amounts add up or the shares are at least 1 is the domain's to decide.
+ * How an expense is split: exactly one of the three fields or `template`, each with its own shape. Two of them in one body,
+ * or none, is the body's shape and a 400; whether the amounts add up or the shares are at least 1 is the domain's to decide.
  */
 const SplitFields = {
   splitBetween: { type: 'array', items: { type: 'string' } },
   splitExactly: { type: 'array', items: ExactShareSchema },
   splitByShares: { type: 'array', items: SharesShareSchema },
+  /** The id of a template of the group, split as it was saved, in place of one of the three (request 25). */
+  template: { type: 'string' },
 } as const;
 
 const ExactlyOneOfTheSplits = [
   { required: ['splitBetween'] },
   { required: ['splitExactly'] },
   { required: ['splitByShares'] },
+  { required: ['template'] },
 ] as const;
 
 /*
