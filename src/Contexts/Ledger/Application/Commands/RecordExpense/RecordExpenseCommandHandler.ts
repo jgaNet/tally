@@ -9,6 +9,8 @@ import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurr
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandEvent';
+import { resolveSplit } from '@Contexts/Ledger/Application/Commands/SplitSource';
+import { ISplitTemplateRepository } from '@Contexts/Ledger/Domain/SplitTemplate/Ports/ISplitTemplateRepository';
 
 /**
  * A signed-in member of a group records an expense they paid: the payer is the caller, and the operation answers the
@@ -16,7 +18,8 @@ import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands
  * The split is decided by the expense; its members are read from Groups through the port Ledger owns (ADR 3). The
  * expense is counted into the balances in this same transaction, so the balances and the expense are stored together.
  * An expense paid in another currency is converted into the group's currency, which is read through the port Ledger owns (ADR 12).
- * Its rate is settled against the rate the rates service offers for that day, asked through the port Ledger owns (ADR 13).
+ * Its rate is settled against the rate the rates service offers for that day, asked through the port Ledger owns (ADR 13). Its split may
+ * be the split of a template of the group (request 25), which the expense is decided by as if it had been given.
  */
 export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCommandEvent> {
   constructor(
@@ -26,6 +29,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     private offeredRates: IOfferedRates,
     private clock: Clock,
     private balances: IBalanceCounts,
+    private templates: ISplitTemplateRepository,
   ) {
     super();
   }
@@ -42,6 +46,9 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     const currency = await this.groupCurrency.currencyOf(payload.groupId);
     if (!currency) return Result.fail(new NotFoundException('Ledger', 'Group not found', { id: payload.groupId }));
 
+    const split = await resolveSplit(this.templates, payload.groupId, payload.split);
+    if (split.isFailure()) return split;
+
     const offer =
       'original' in payload.money
         ? await this.offeredRates.rateOn({ from: payload.money.original.currency, to: currency, date: payload.date })
@@ -53,7 +60,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       description: payload.description,
       money: payload.money,
       date: payload.date,
-      split: payload.split,
+      split: split.data,
       category: payload.category,
       groupMembers: members,
       groupCurrency: currency,

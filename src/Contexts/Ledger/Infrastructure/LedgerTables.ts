@@ -111,4 +111,25 @@ export function createLedgerTables(database: SqliteDatabase): void {
     month TEXT NOT NULL,
     PRIMARY KEY (budget_id, month)
   )`);
+  // The split templates (request 25): a split saved under a name in its group. A name is free in its group whatever its case, so
+  // `name_key` is the name in lower case and is unique with the group; `saved_seq` is the order they were saved in, the earliest first.
+  // `split_kind` is `equal` or `shares`; the members are kept in the order given, with their shares for a split by shares.
+  database.exec(`CREATE TABLE IF NOT EXISTS split_templates (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    split_kind TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    saved_seq INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (group_id, name_key)
+  )`);
+  database.exec(`CREATE TABLE IF NOT EXISTS split_template_members (
+    template_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    member_id TEXT NOT NULL,
+    shares INTEGER,
+    PRIMARY KEY (template_id, position)
+  )`);
 }

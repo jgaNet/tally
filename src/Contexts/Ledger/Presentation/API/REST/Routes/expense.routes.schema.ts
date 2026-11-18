@@ -94,6 +94,24 @@ export const ExactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 } as const;
 
+/**
+ * The template an expense is split by, in place of its own split (request 25): the id of one of its group's templates, whose shape is
+ * the template's to check, behind the 202.
+ */
+const TemplateBodyProperty = { template: { type: 'string' } } as const;
+
+/**
+ * Exactly one of the three split fields, or the template in their place: none, or two or more, is a body of the wrong shape (400).
+ */
+const ExactlyOneSplitOrTemplate = {
+  oneOf: [
+    { required: ['splitBetween'] },
+    { required: ['splitExactly'] },
+    { required: ['splitByShares'] },
+    { required: ['template'] },
+  ],
+} as const;
+
 /** The shape of a body only: whether a value is allowed is the expense's to decide, behind the 202 (API-BODY-SHAPE). */
 export const RecordExpenseBodySchema = {
   type: 'object',
@@ -104,8 +122,9 @@ export const RecordExpenseBodySchema = {
     ...CategoryBodyProperty,
     ...MoneyBodyProperties,
     ...SplitBodyProperties,
+    ...TemplateBodyProperty,
   },
-  allOf: [ExactlyOneMoney, ExactlyOneSplit],
+  allOf: [ExactlyOneMoney, ExactlyOneSplitOrTemplate],
 } as const;
 
 /** The body of an edit: the expense as it is given again, split one of the three ways, and the version its author read (request 6). */
@@ -119,8 +138,9 @@ export const EditExpenseBodySchema = {
     ...CategoryBodyProperty,
     ...MoneyBodyProperties,
     ...SplitBodyProperties,
+    ...TemplateBodyProperty,
   },
-  allOf: [ExactlyOneMoney, ExactlyOneSplit],
+  allOf: [ExactlyOneMoney, ExactlyOneSplitOrTemplate],
 } as const;
 
 /** A command answered later: 202 with an operation, whose SUCCESS result is the expense's id. */

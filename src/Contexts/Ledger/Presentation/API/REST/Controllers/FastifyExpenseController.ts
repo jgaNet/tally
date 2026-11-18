@@ -9,13 +9,14 @@ import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/E
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense';
 import { GetExpenseQueryHandler, GetGroupExpensesQueryHandler } from '@Contexts/Ledger/Application/Queries';
 import { MoneyInput } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
-import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
+import { SplitSource } from '@Contexts/Ledger/Application/Commands/SplitSource';
 
-/** Exactly one of the three ways to split, as a body gives it (request 7). */
+/** Exactly one of the three ways to split, or the template in their place, as a body gives it (requests 7 and 25). */
 type SplitBody =
   | { splitBetween: string[] }
   | { splitExactly: { memberId: string; amount: number }[] }
-  | { splitByShares: { memberId: string; shares: number }[] };
+  | { splitByShares: { memberId: string; shares: number }[] }
+  | { template: string };
 /** Exactly one of the two ways to give the money: an amount in the group's currency, or what was paid in another (request 21). */
 type MoneyBody = { amount: number } | { original: { currency: string; amount: number; rate?: string } };
 type RecordExpenseBody = { description: string; date: string; category?: string } & MoneyBody & SplitBody;
@@ -25,8 +26,9 @@ type EditExpenseBody = RecordExpenseBody & { version: number };
 const moneyOf = (body: MoneyBody): MoneyInput =>
   'original' in body ? { original: body.original } : { amount: body.amount };
 
-/** The split a body gives, by its kind: the transport has refused a body of none, or of more than one, of the three. */
-const splitOf = (body: SplitBody): SplitInput => {
+/** The split a body gives, by its kind, or the template it names: the transport has refused a body of none, or of more than one. */
+const splitOf = (body: SplitBody): SplitSource => {
+  if ('template' in body) return { template: body.template };
   if ('splitBetween' in body) return { kind: 'equal', members: body.splitBetween };
   if ('splitExactly' in body) return { kind: 'exact', amounts: body.splitExactly };
   return { kind: 'shares', shares: body.splitByShares };

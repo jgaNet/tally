@@ -14,6 +14,18 @@ import {
 } from '@Contexts/Ledger/Application/Commands/RemoveBudget';
 import { SetBudgetCommandEvent, SetBudgetCommandHandler } from '@Contexts/Ledger/Application/Commands/SetBudget';
 import {
+  SaveTemplateCommandEvent,
+  SaveTemplateCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/SaveTemplate';
+import {
+  ReplaceTemplateCommandEvent,
+  ReplaceTemplateCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/ReplaceTemplate';
+import {
+  RemoveTemplateCommandEvent,
+  RemoveTemplateCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/RemoveTemplate';
+import {
   DeleteExpenseCommandEvent,
   DeleteExpenseCommandHandler,
 } from '@Contexts/Ledger/Application/Commands/DeleteExpense';
@@ -35,12 +47,15 @@ import {
   GetMemberStatementQueryHandler,
   GetOfferedRateQueryHandler,
   GetRecurringExpenseQueryHandler,
+  GetGroupTemplatesQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
 import { HttpRatesService } from '@Contexts/Ledger/Infrastructure/HttpRatesService';
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { SqliteBudgetReadModels } from '@Contexts/Ledger/Infrastructure/SqliteBudgetReadModels';
 import { SqliteBudgetRepository } from '@Contexts/Ledger/Infrastructure/SqliteBudgetRepository';
+import { SqliteSplitTemplateReadModels } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateReadModels';
+import { SqliteSplitTemplateRepository } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateRepository';
 import { SqliteExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteExpenseReadModels';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
@@ -88,6 +103,9 @@ const recurringReadModels = new SqliteRecurringExpenseReadModels(database);
 /** The budgets (request 24): one per group and category, and what a month spends in each, read from the expenses above. */
 const budgets = new SqliteBudgetRepository(database);
 const budgetReadModels = new SqliteBudgetReadModels(database);
+/** The split templates (request 25): saved under a name in a group, and the splits expenses are split by in place of their own. */
+const splitTemplates = new SqliteSplitTemplateRepository(database);
+const templateReadModels = new SqliteSplitTemplateReadModels(database);
 /**
  * The sweep of the recurring expenses (request 23, ADR 14): the process runs it every JOBS_INTERVAL_SECONDS, as the debt sweep (ADR 10),
  * in a context of its own. It takes the one clock, and the members are read through the port Ledger owns (ADR 3).
@@ -122,11 +140,31 @@ export const localLedgerModule = new Module({
   commands: [
     {
       event: RecordExpenseCommandEvent,
-      handlers: [new RecordExpenseCommandHandler(expenses, members, currencies, offeredRates, systemClock, balances)],
+      handlers: [
+        new RecordExpenseCommandHandler(
+          expenses,
+          members,
+          currencies,
+          offeredRates,
+          systemClock,
+          balances,
+          splitTemplates,
+        ),
+      ],
     },
     {
       event: EditExpenseCommandEvent,
-      handlers: [new EditExpenseCommandHandler(expenses, members, currencies, offeredRates, systemClock, balances)],
+      handlers: [
+        new EditExpenseCommandHandler(
+          expenses,
+          members,
+          currencies,
+          offeredRates,
+          systemClock,
+          balances,
+          splitTemplates,
+        ),
+      ],
     },
     {
       event: DeleteExpenseCommandEvent,
@@ -138,6 +176,9 @@ export const localLedgerModule = new Module({
     },
     { event: SetBudgetCommandEvent, handlers: [new SetBudgetCommandHandler(budgets, members)] },
     { event: RemoveBudgetCommandEvent, handlers: [new RemoveBudgetCommandHandler(budgets, members)] },
+    { event: SaveTemplateCommandEvent, handlers: [new SaveTemplateCommandHandler(splitTemplates, members)] },
+    { event: ReplaceTemplateCommandEvent, handlers: [new ReplaceTemplateCommandHandler(splitTemplates, members)] },
+    { event: RemoveTemplateCommandEvent, handlers: [new RemoveTemplateCommandHandler(splitTemplates, members)] },
     {
       event: StopRecurringExpenseCommandEvent,
       handlers: [new StopRecurringExpenseCommandHandler(recurringExpenses, members)],
@@ -147,6 +188,7 @@ export const localLedgerModule = new Module({
     new GetExpenseQueryHandler(expenseReadModels, members),
     new GetGroupBalancesQueryHandler(balances, members),
     new GetGroupBudgetsQueryHandler(budgetReadModels, members, systemClock),
+    new GetGroupTemplatesQueryHandler(templateReadModels, members),
     new GetGroupExpensesQueryHandler(expenseReadModels, members),
     new GetMemberStatementQueryHandler(expenseReadModels, members),
     new GetOfferedRateQueryHandler(offeredRates, members, currencies, systemClock),

@@ -14,6 +14,7 @@ import {
   InMemoryGroupMembers,
   InMemoryOfferedRates,
 } from '@Contexts/Ledger/Infrastructure/InMemoryExpenses';
+import { InMemorySplitTemplates } from '@Contexts/Ledger/Infrastructure/InMemorySplitTemplates';
 
 const eventBus = { connect: jest.fn(), publish: jest.fn(), subscribe: jest.fn() } as EventBus;
 const at = new Date('2026-03-10T10:00:00.000Z');
@@ -31,6 +32,7 @@ const setup = () => {
     new InMemoryOfferedRates(),
     () => at,
     new InMemoryBalances(balanceStore),
+    new InMemorySplitTemplates(),
   );
   return { store, balanceStore, handler };
 };

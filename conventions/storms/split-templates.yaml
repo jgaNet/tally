@@ -5,7 +5,7 @@ feature: split-templates
 intent: >-
   A member saves a split under a name; an expense recorded or edited may be split by it, as if its split had been given, and keeps its shares when the template changes or goes.
 
-done: false
+done: true
 
 hotSpots:
   - question: Is a template part of an expense?

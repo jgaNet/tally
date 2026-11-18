@@ -6,3 +6,4 @@ export { GetOfferedRateQueryHandler } from '@Contexts/Ledger/Application/Queries
 export { GetRecurringExpenseQueryHandler } from '@Contexts/Ledger/Application/Queries/GetRecurringExpense/GetRecurringExpenseQueryHandler';
 export { GetGroupRecurringExpensesQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupRecurringExpenses/GetGroupRecurringExpensesQueryHandler';
 export { GetGroupBudgetsQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupBudgets';
+export { GetGroupTemplatesQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupTemplates';

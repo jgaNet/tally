@@ -8,6 +8,8 @@ import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpen
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
+import { resolveSplit } from '@Contexts/Ledger/Application/Commands/SplitSource';
+import { ISplitTemplateRepository } from '@Contexts/Ledger/Domain/SplitTemplate/Ports/ISplitTemplateRepository';
 
 /**
  * A signed-in member of an expense's group edits it from the version they read. For anyone who is not a member the expense
@@ -24,6 +26,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     private offeredRates: IOfferedRates,
     private clock: Clock,
     private balances: IBalanceCounts,
+    private templates: ISplitTemplateRepository,
   ) {
     super();
   }
@@ -38,6 +41,8 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (!role) return Result.fail(notFound(payload.expenseId));
     const currency = await this.groupCurrency.currencyOf(expense.groupId.value);
     if (!currency) return Result.fail(notFound(payload.expenseId));
+    const split = await resolveSplit(this.templates, expense.groupId.value, payload.split);
+    if (split.isFailure()) return split;
 
     const offer =
       'original' in payload.money
@@ -51,7 +56,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
       description: payload.description,
       money: payload.money,
       date: payload.date,
-      split: payload.split,
+      split: split.data,
       category: payload.category,
       groupMembers: await this.groupMembers.membersOf(expense.groupId.value),
       groupCurrency: currency,

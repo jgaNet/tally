@@ -22,6 +22,7 @@ import {
   rateRoutes,
   recurringRoutes,
   statementRoutes,
+  templateRoutes,
 } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
@@ -69,6 +70,7 @@ export async function createApplication({
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', budgetRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', templateRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { settlementsModule: localSettlementsModule, webhookSignatures })
     .registerRoutes('/', payoutAccountRoutes, { settlementsModule: localSettlementsModule })
     .registerRoutes('/', noticeRoutes, { notificationsModule: localNotificationsModule })
