@@ -7,7 +7,7 @@ import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts
 import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** The three ways a body may split an expense (request 7): exactly one of them, its shape only. */
-type SplitBody =
+export type SplitBody =
   | { readonly splitBetween: string[] }
   | { readonly splitExactly: { memberId: string; amount: number }[] }
   | { readonly splitByShares: { memberId: string; shares: number }[] };
@@ -45,7 +45,7 @@ const amountOf = (body: AmountBody): { amount?: number; original?: OriginalBody 
  * The schema of a split in a body (request 4's `splitBetween`, request 7's `splitExactly` and `splitByShares`): exactly one of
  * the three keys, each of the shape it names. Whether an amount is 0 or more, or the shares are at least 1, is the domain's.
  */
-const splitProperties = {
+export const splitProperties = {
   splitBetween: { type: 'array', items: { type: 'string' } },
   splitExactly: {
     type: 'array',
@@ -64,12 +64,12 @@ const splitProperties = {
     },
   },
 };
-const exactlyOneSplit = {
+export const exactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 };
 
 /** The split a body gives, in the domain's words. The schema has let through exactly one of the three keys. */
-const splitOf = (body: SplitBody): SplitDraft => {
+export const splitOf = (body: SplitBody): SplitDraft => {
   if ('splitBetween' in body) return { kind: 'equal', memberIds: body.splitBetween };
   if ('splitExactly' in body) return { kind: 'exact', amounts: body.splitExactly };
   return { kind: 'shares', shares: body.splitByShares };

@@ -1,0 +1,49 @@
+import { Id, IResult, Result } from '@Architecture/Domain';
+import { Clock, EventHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
+
+import { IExpenseStore } from '@Contexts/Ledger/Application/IExpenseStore';
+import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
+import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
+import { GroupNotFoundException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
+import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
+
+/**
+ * Records the expense a day of a recurring expense stands for (request 23, ADR 18): the reaction to RecurringExpenseDayCame, which the
+ * sweep records for each day that has come. The expense is built on the id the fact carries (DOMAIN-IDENTITY), dated the day, paid by the
+ * payer, with the description, amount and split of the recurring expense, decided by the rule in force now and checked as a recording
+ * is. An expense already recorded under that id is left as it is, so a redelivery records nothing twice. It runs in its own transaction:
+ * the expense, its balances and its ExpenseRecorded commit together or not at all, as any expense's do; a refusal (a member who left
+ * between the sweep and this reaction) records nothing, and the reaction fails with it.
+ */
+export class RecordRecurringExpenseHandler extends EventHandler<RecurringExpenseDayCameEvent> {
+  constructor(
+    private readonly expenses: IExpenseStore,
+    private readonly groupMembers: IGroupMembers,
+    private readonly groupCurrency: IGroupCurrency,
+    private readonly clock: Clock,
+  ) {
+    super();
+  }
+
+  async execute(event: RecurringExpenseDayCameEvent, context: ExecutionContext): Promise<IResult<void>> {
+    const { expenseId, groupId, paidBy, description, amount, day, split } = event.payload;
+    if (await this.expenses.viewOf(expenseId)) return Result.ok(undefined);
+
+    const members = await this.groupMembers.membersOf(groupId);
+    const currency = await this.groupCurrency.currencyOf(groupId);
+    if (!members || currency === undefined) return Result.fail(new GroupNotFoundException());
+
+    const recorded = Expense.register(
+      { groupId, payerId: paidBy, groupCurrency: currency, description, date: day, amount, split },
+      members.map(member => member.memberId),
+      this.clock(),
+      new Id(expenseId),
+    );
+    if (recorded.isFailure()) return Result.fail(recorded.error);
+
+    await this.expenses.add(recorded.data);
+    await publishDomainEvents(recorded.data, context);
+    return Result.ok(undefined);
+  }
+}

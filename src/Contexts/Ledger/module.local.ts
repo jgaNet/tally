@@ -15,6 +15,19 @@ import { IOfferedRates } from '@Contexts/Ledger/Application/IOfferedRates';
 import { IBalanceRoster } from '@Contexts/Ledger/Domain/Expense/Ports/IBalanceRoster';
 import { SqliteBalanceRoster } from '@Contexts/Ledger/Infrastructure/SqliteBalanceRoster';
 import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseStore';
+import {
+  SqliteRecurringExpenseStore,
+  recurringExpensesTablesSchema,
+} from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseStore';
+import { RecordRecurringExpenseHandler } from '@Contexts/Ledger/Application/Events/RecordRecurringExpenseHandler';
+import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
+import {
+  getGroupRecurringExpenses,
+  getRecurringExpense,
+  setUpRecurringExpense,
+  stopRecurringExpense,
+  sweepRecurringExpenses,
+} from '@Contexts/Ledger/Application/RecurringExpenses';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADRs 1, 6 and 10): its wiring, as data. Expenses are kept over the tables the
@@ -23,7 +36,7 @@ import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrast
  * no part of Groups but the roster's type. What the settlements moved in a balance is given the same way (`settled`, ADR 10):
  * every balance Ledger reads counts the settlements recorded so far. The module lists each use case once.
  */
-export const ledgerSchema = ledgerTablesSchema;
+export const ledgerSchema = [...ledgerTablesSchema, ...recurringExpensesTablesSchema];
 
 /**
  * The balances of a group's members, as Ledger's read model gives them to Groups when a member asks to leave (feature 9), and to
@@ -54,10 +67,17 @@ export function ledgerWiring(
   settled: ISettledAmounts,
 ): LiteModule {
   const expenses = new SqliteExpenseStore(database);
+  const recurring = new SqliteRecurringExpenseStore(database);
 
   return new LiteModule({
     name: 'Ledger',
-    domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
+    domainEvents: [
+      { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] },
+      {
+        event: RecurringExpenseDayCameEvent,
+        handlers: [new RecordRecurringExpenseHandler(expenses, groupMembers, groupCurrency, systemClock)],
+      },
+    ],
     useCases: [
       recordExpense(expenses, groupMembers, groupCurrency, rates, systemClock),
       editExpense(expenses, groupMembers, groupCurrency, rates, systemClock),
@@ -67,6 +87,11 @@ export function ledgerWiring(
       getGroupBalances(expenses, groupMembers, settled),
       getGroupExpenses(expenses, groupMembers),
       getMemberStatement(expenses, groupMembers),
+      setUpRecurringExpense(recurring, groupMembers, systemClock),
+      stopRecurringExpense(recurring, groupMembers, systemClock),
+      getRecurringExpense(recurring, groupMembers),
+      getGroupRecurringExpenses(recurring, groupMembers),
+      sweepRecurringExpenses(recurring, groupMembers, systemClock),
     ],
   });
 }

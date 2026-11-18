@@ -22,6 +22,8 @@ import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
 import { ratesRoutes } from '@Contexts/Ledger/Presentation/rates.routes';
+import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
+import { sweepRecurringExpenses } from '@Contexts/Ledger/Application/RecurringExpenses';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
@@ -145,6 +147,7 @@ export async function createApplication({
     .registerRoutes('/', balanceRoutes, { module: ledger })
     .registerRoutes('/', historyRoutes, { module: ledger })
     .registerRoutes('/', ratesRoutes, { module: ledger })
+    .registerRoutes('/', recurringRoutes, { module: ledger })
     .registerRoutes('/', settlementRoutes, { module: settlements })
     .registerRoutes('/', noticeRoutes, { module: notifications })
     .onStop(() => database.close());
@@ -154,6 +157,13 @@ export async function createApplication({
   app.every(jobsIntervalSeconds * 1000, async () => {
     const result = await notifications.useCase(sweepDebts).run(undefined, app.executionContext('sweep-debts'));
     if (result.isFailure()) app.logger.warn('The debt sweep was refused', { error: result.error });
+  });
+
+  // The recurring expenses (request 23, ADR 18): each run records the days that have come for each recurring expense, and ends those
+  // whose payer or a split member has left. Its days are recorded by the reaction to each, in its own transaction.
+  app.every(jobsIntervalSeconds * 1000, async () => {
+    const result = await ledger.useCase(sweepRecurringExpenses).run(undefined, app.executionContext('sweep-recurring'));
+    if (result.isFailure()) app.logger.warn('The recurring expenses sweep was refused', { error: result.error });
   });
 
   await app.startModules();

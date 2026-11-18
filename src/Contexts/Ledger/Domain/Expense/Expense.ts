@@ -120,14 +120,20 @@ export class Expense extends AggregateRoot {
    * may be in, each once, the payer among them. The shares are the `Split`'s, decided the way the split is given (equally, by
    * exact amounts, or by shares), the remainder to the member listed first. The identity is generated here (DOMAIN-IDENTITY), and
    * the recording records `ExpenseRecorded`. Pure: the members, the group's currency and the time are given, nothing is read.
+   * An expense whose day a recurring expense stands for is recorded under the id that day's fact carries (`id`, request 23, ADR 18), so
+   * the expense is built on the id it was given and not a new one; by default the identity is generated here.
    */
-  static register(draft: ExpenseDraft, members: readonly string[], now: Date): IResult<Expense> {
+  static register(
+    draft: ExpenseDraft,
+    members: readonly string[],
+    now: Date,
+    id: Id = Id.generate(),
+  ): IResult<Expense> {
     const { groupId, description, date, payerId, split: splitDraft } = draft;
     const checked = checkDraft({ ...draft, payerId, split: splitDraft }, members, now);
     if (checked.isFailure()) return Result.fail(checked.error);
     const { split, amount, original } = checked.data;
 
-    const id = Id.generate();
     const expense = new Expense(id, groupId, description, amount, date, payerId, split, now.toISOString(), 0, original);
     expense.record(
       ExpenseRecordedEvent.set({
@@ -314,13 +320,13 @@ const amountOf = ({
 };
 
 /** The description is 1 to 100 characters (counted as characters, not bytes), and not only spaces. */
-const isDescription = (raw: string): boolean => {
+export const isDescription = (raw: string): boolean => {
   const length = [...raw].length;
   return raw.trim() !== '' && length >= 1 && length <= Expense.MAX_DESCRIPTION_LENGTH;
 };
 
 /** A whole number of units from 1 to 100 000 000. */
-const isAmount = (raw: number): boolean => Number.isInteger(raw) && raw >= 1 && raw <= Expense.MAX_AMOUNT;
+export const isAmount = (raw: number): boolean => Number.isInteger(raw) && raw >= 1 && raw <= Expense.MAX_AMOUNT;
 
 /** A real day of the calendar (`YYYY-MM-DD`, round-tripped so that 2026-02-30 is refused), not after today in UTC. */
 const isSpentBy = (raw: string, now: Date): boolean => {
