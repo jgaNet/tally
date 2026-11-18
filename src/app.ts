@@ -12,6 +12,7 @@ import { registerNoticeRoutes } from './notices';
 import { registerOperationRoutes } from './operations';
 import { registerPayoutAccountRoutes } from './payout-accounts';
 import { registerRateRoutes, type RatesConfig } from './rates';
+import { registerRecurringRoutes, runRecurring } from './recurring';
 import { registerSettlementRoutes } from './settlements';
 import { type ProviderConfig } from './provider';
 import { Refusal } from './refusal';
@@ -92,6 +93,7 @@ export async function createApplication({
       registerLeaveRoutes(instance, db);
       registerExpenseRoutes(instance, db, rates);
       registerRateRoutes(instance, db, rates);
+      registerRecurringRoutes(instance, db);
       registerBalanceRoutes(instance, db);
       registerHistoryRoutes(instance, db);
       registerSettlementRoutes(instance, db, provider);
@@ -107,6 +109,7 @@ export async function createApplication({
   let stopped = false;
   const runJobs = (now?: Date): void => {
     if (stopped) return;
+    runRecurring(db, now);
     runReminders(db, reminderPeriodSeconds * 1000, now);
   };
   return {

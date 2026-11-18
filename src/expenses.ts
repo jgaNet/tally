@@ -128,7 +128,7 @@ interface ShareRow {
 }
 
 /** A split as it was given: its kind, and its members in the order given, with what each one weighs. */
-type Split =
+export type Split =
   | { kind: 'equal'; members: string[] }
   | { kind: 'exact'; shares: ExactShare[] }
   | { kind: 'shares'; shares: ShareCount[] };
@@ -161,12 +161,12 @@ export function sharesByWeight(amount: number, weights: readonly ShareCount[]): 
   return shares.map((share, index) => (index === 0 ? { ...share, amount: share.amount + remainder } : share));
 }
 
-function refuse(type: string, message: string): never {
+export function refuse(type: string, message: string): never {
   throw new Refusal(422, type, message);
 }
 
 /** The description, trimmed: 1 to 100 characters, counted as characters and not as code units. */
-function checkDescription(description: string): string {
+export function checkDescription(description: string): string {
   const trimmed = description.trim();
   const length = Array.from(trimmed).length;
   if (length < 1 || length > DESCRIPTION_MAX) {
@@ -175,7 +175,7 @@ function checkDescription(description: string): string {
   return trimmed;
 }
 
-function checkAmount(amount: number): void {
+export function checkAmount(amount: number): void {
   if (amount < 1 || amount > AMOUNT_MAX) {
     refuse('InvalidAmount', `The amount must be from 1 to ${AMOUNT_MAX}, in hundredths of the currency.`);
   }
@@ -341,7 +341,7 @@ function splitOf(input: NewExpense): Split {
 }
 
 /** The members of a split, in the order it was given. */
-function membersOf(split: Split): string[] {
+export function membersOf(split: Split): string[] {
   return split.kind === 'equal' ? split.members : split.shares.map(share => share.memberId);
 }
 
@@ -350,7 +350,7 @@ function membersOf(split: Split): string[] {
  * exactly; a split by shares gives each member at least one share. Otherwise the split is refused. The
  * split has been checked to name members, so the first member of an equal or weighted split exists.
  */
-function sharesOf(split: Split, amount: number): Share[] {
+export function sharesOf(split: Split, amount: number): Share[] {
   switch (split.kind) {
     case 'equal':
       return equalShares(amount, split.members);
@@ -375,7 +375,7 @@ function sharesOf(split: Split, amount: number): Share[] {
  * The split holds each member once, names the payer among them, and names only members of the group.
  * It is checked where it is written, inside the write transaction that records or edits the expense.
  */
-function checkSplit(db: DatabaseSync, groupId: string, payerId: string, members: readonly string[]): void {
+export function checkSplit(db: DatabaseSync, groupId: string, payerId: string, members: readonly string[]): void {
   if (new Set(members).size !== members.length) {
     refuse('InvalidSplit', 'Each member can be in the split only once.');
   }
@@ -388,13 +388,49 @@ function checkSplit(db: DatabaseSync, groupId: string, payerId: string, members:
 }
 
 /** Writes the shares of the split, in the order the split was given. */
-function writeShares(db: DatabaseSync, expenseId: string, shares: readonly Share[]): void {
+export function writeShares(db: DatabaseSync, expenseId: string, shares: readonly Share[]): void {
   const insertShare = db.prepare(
     'INSERT INTO expense_shares (expense_id, position, account_id, amount) VALUES (?, ?, ?, ?)',
   );
   shares.forEach((share, position) => {
     insertShare.run(expenseId, position, share.memberId, share.amount);
   });
+}
+
+/** What `recordExpense` writes: an expense whose split is already checked and computed. */
+export interface RecordedExpense {
+  id: string;
+  groupId: string;
+  description: string;
+  amount: number;
+  date: string;
+  paidBy: string;
+  splitKind: SplitKind;
+  shares: readonly Share[];
+  /** The moment it is recorded, which dates its notices. */
+  at: string;
+  original?: Original;
+}
+
+/** Writes an expense, its shares and the notices of its members. It is called inside a write transaction. */
+export function recordExpense(db: DatabaseSync, expense: RecordedExpense): void {
+  db.prepare(
+    'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, created_at, original_currency, original_amount, original_rate) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)',
+  ).run(
+    expense.id,
+    expense.groupId,
+    expense.description,
+    expense.amount,
+    expense.date,
+    expense.paidBy,
+    expense.splitKind,
+    expense.at,
+    expense.original?.currency ?? null,
+    expense.original?.amount ?? null,
+    expense.original?.rate ?? null,
+  );
+  writeShares(db, expense.id, expense.shares);
+  writeExpenseNotices(db, expense, expense.shares);
 }
 
 /**
@@ -422,23 +458,18 @@ export async function createExpense(
     const split = splitOf(input);
     checkSplit(db, groupId, accountId, membersOf(split));
     const shares = sharesOf(split, amount);
-    db.prepare(
-      'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, created_at, original_currency, original_amount, original_rate) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)',
-    ).run(
+    recordExpense(db, {
       id,
       groupId,
       description,
       amount,
-      input.date,
-      accountId,
-      split.kind,
-      recordedAt,
-      original?.currency ?? null,
-      original?.amount ?? null,
-      original?.rate ?? null,
-    );
-    writeShares(db, id, shares);
-    writeExpenseNotices(db, { id, groupId, paidBy: accountId, at: recordedAt }, shares);
+      date: input.date,
+      paidBy: accountId,
+      splitKind: split.kind,
+      shares,
+      at: recordedAt,
+      original,
+    });
   });
   return id;
 }

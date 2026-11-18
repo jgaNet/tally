@@ -280,6 +280,33 @@ const MIGRATIONS: readonly string[] = [
   ALTER TABLE expenses ADD COLUMN original_amount INTEGER;
   ALTER TABLE expenses ADD COLUMN original_rate TEXT;
   `,
+  `
+  -- A recurring expense: its payer, description and amount, the day of its first month, and next_on, the day of the
+  -- next expense the background job records for it, which it moves one month on in the write transaction that
+  -- records that expense, so each day has one. The split as it was given is in recurring_shares, in order: value is
+  -- null for an equal split, the amount of an exact one, the number of shares of a split by shares.
+  CREATE TABLE recurring (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    paid_by TEXT NOT NULL REFERENCES accounts (id),
+    description TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    starts_on TEXT NOT NULL,
+    next_on TEXT NOT NULL,
+    split_kind TEXT NOT NULL CHECK (split_kind IN ('equal', 'exact', 'shares')),
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX recurring_group ON recurring (group_id, seq);
+
+  CREATE TABLE recurring_shares (
+    recurring_id TEXT NOT NULL REFERENCES recurring (id),
+    position INTEGER NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    value INTEGER,
+    PRIMARY KEY (recurring_id, position)
+  );
+  `,
 ];
 
 /**
