@@ -15,6 +15,7 @@ import { localLedgerModule, sweepRecurringExpenseDays } from '@Contexts/Ledger/m
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
 import { budgetRoutes } from '@Contexts/Ledger/Presentation/budgets.routes';
 import { templateRoutes } from '@Contexts/Ledger/Presentation/templates.routes';
+import { receiptRoutes } from '@Contexts/Ledger/Presentation/receipts.routes';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule, sweepNotificationDebts } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
@@ -36,7 +37,8 @@ import { providerWebhookRoutes } from '@Contexts/Settlements/Presentation/provid
  * `JOBS_INTERVAL_SECONDS` (60), `REMINDER_PERIOD_SECONDS` (604800, a week), `WEB_ORIGINS` (a comma-separated list), and for payments through the provider (request 13):
  * `PROVIDER_URL`, the base of the provider's API without a trailing slash, and `PROVIDER_WEBHOOK_SECRET`, the secret it signs with;
  * and for the rate offered for an expense in another currency (request 22): `RATES_URL`, the base of the rates service's API without a
- * trailing slash, where no value means no rates service.
+ * trailing slash, where no value means no rates service; and for receipts (request 26): `RECEIPTS_URL`, the base of the receipts store's
+ * API without a trailing slash, where no value means every receipt is refused.
  *
  * A context is added here: its `LiteModule` registered, its routes under its own prefix with `{ module }`, or at the
  * API's root when it serves more than one resource (docs/adr/0003):
@@ -76,6 +78,7 @@ export async function createApplication({
     .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
     .registerRoutes('/', budgetRoutes, { module: localLedgerModule })
     .registerRoutes('/', templateRoutes, { module: localLedgerModule })
+    .registerRoutes('/', receiptRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { module: localSettlementsModule })
     .registerRoutes('/', providerWebhookRoutes, { module: localSettlementsModule })
     .registerRoutes('/', noticeRoutes, { module: localNotificationsModule })

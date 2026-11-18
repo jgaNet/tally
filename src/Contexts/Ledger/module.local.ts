@@ -3,7 +3,7 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { groupsReadModel, settledAmountsOfSettlements } from '@Bootstrap/Fastify/readModels';
+import { groupsReadModel, ledgerReadModel, settledAmountsOfSettlements } from '@Bootstrap/Fastify/readModels';
 import {
   deleteExpense,
   editExpense,
@@ -26,6 +26,10 @@ import {
 } from '@Contexts/Ledger/Application/SplitTemplates';
 import { SqliteSplitTemplateQueries } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateQueries';
 import { SqliteSplitTemplates } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplates';
+import { attachReceipt, getReceipt } from '@Contexts/Ledger/Application/Receipts';
+import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/HttpReceiptStore';
+import { SqliteReceiptQueries } from '@Contexts/Ledger/Infrastructure/SqliteReceiptQueries';
+import { SqliteReceipts } from '@Contexts/Ledger/Infrastructure/SqliteReceipts';
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Events/BudgetEvents';
 import { ExpenseEditedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { SqliteBudgetQueries } from '@Contexts/Ledger/Infrastructure/SqliteBudgetQueries';
@@ -73,6 +77,10 @@ const spending = new SqliteMonthlySpending(sharedDatabase);
 // The split templates (request 25, docs/adr/0024): their own table; an expense split by one reads it inside its own transaction.
 const templates = new SqliteSplitTemplates(sharedDatabase);
 const templateQueries = new SqliteSplitTemplateQueries(sharedDatabase);
+// The receipts (request 26, docs/adr/0025): their own table, and the file kept in the receipts store named by RECEIPTS_URL, read at each call.
+const receipts = new SqliteReceipts(sharedDatabase);
+const receiptQueries = new SqliteReceiptQueries(sharedDatabase);
+const receiptStore = new HttpReceiptStore();
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
@@ -97,6 +105,9 @@ export const localLedgerModule = new LiteModule({
     replaceTemplate(templates, groupMembers),
     removeTemplate(templates, groupMembers),
     getGroupTemplates(templateQueries, groupMembers),
+    // The expense is read over Ledger's own read model, on a connection of its own: the command's transaction holds the shared one (readModels.ts).
+    attachReceipt(receipts, receiptStore, ledgerReadModel, groupMembers),
+    getReceipt(receiptQueries, expenseQueries, groupMembers),
   ],
   domainEvents: [
     // An expense recorded is told to the other contexts as the published fact (request 17, docs/adr/0017), and may pass its month's budget (request 24).

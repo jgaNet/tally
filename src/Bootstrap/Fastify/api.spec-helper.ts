@@ -45,16 +45,28 @@ export function apiClient(origin: string) {
   const request = async (
     method: string,
     path: string,
-    { body, token, headers = {} }: { body?: unknown; token?: string; headers?: Record<string, string> } = {},
+    {
+      body,
+      token,
+      headers = {},
+      file,
+    }: {
+      body?: unknown;
+      token?: string;
+      headers?: Record<string, string>;
+      /** A file sent as the body, as it is (request 26): its bytes, and the type it is sent as. */
+      file?: { bytes: Uint8Array; contentType: string };
+    } = {},
   ): Promise<ApiAnswer> => {
     const response = await fetch(`${origin}${path}`, {
       method,
       headers: {
         ...(body !== undefined && { 'content-type': 'application/json' }),
+        ...(file && { 'content-type': file.contentType }),
         ...(token && { authorization: `Bearer ${token}` }),
         ...headers,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: file ? new Uint8Array(file.bytes) : body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await response.text();
     let parsed: unknown = undefined;
