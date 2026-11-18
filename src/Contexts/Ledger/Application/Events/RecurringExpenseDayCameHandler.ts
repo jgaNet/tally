@@ -39,6 +39,8 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
       category: payload.category,
       members: listedMembers(payload.split),
       archived: false,
+      // The job checked the payer is not suspended when the day came, in the step that moved the day on (request 34, docs/adr/0034).
+      suspended: false,
       at: this.clock(),
     });
     if (expense.isFailure()) return expense;

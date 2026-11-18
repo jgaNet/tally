@@ -38,6 +38,11 @@ export interface IGroupMembers {
    * `membersOf`.
    */
   isArchived(groupId: string): Promise<boolean>;
+  /**
+   * Whether the account is suspended (request 34, docs/adr/0034): an administrator suspended it, and it starts no expense, recurring expense
+   * while it is. Groups answers it; a change asks the caller's membership first, through `membersOf`.
+   */
+  isSuspended(accountId: string): Promise<boolean>;
 }
 
 /** A member whose leaves passed a balance to the owner, as Ledger's balances count it (docs/adr/0019). */

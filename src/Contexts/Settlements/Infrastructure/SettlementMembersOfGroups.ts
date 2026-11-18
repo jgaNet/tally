@@ -25,6 +25,10 @@ export class SettlementMembersOfGroups implements ISettlementMembers {
     };
   }
 
+  async isSuspended(accountId: string): Promise<boolean> {
+    return this.groups.isSuspended(accountId);
+  }
+
   async sharedGroupsOf(callerId: string, withId: string, currency: string): Promise<SharedSettlementGroup[]> {
     // `listGroupsOf` answers the most recently created first: reversed, the earliest created comes first.
     const groups = (await this.groups.listGroupsOf(callerId)).reverse();

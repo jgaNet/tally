@@ -25,6 +25,11 @@ export interface IGroupQueries {
   /** The members of the group, in the order they joined, when this account is one of them: undefined otherwise. */
   listMembersOf(memberId: string, groupId: string): Promise<MemberView[] | undefined>;
   /**
+   * Whether the account is suspended (request 34, docs/adr/0034): an administrator suspended it, and it changes nothing until it is reinstated.
+   * False for an account that does not exist. Every context that refuses a suspended account asks it through the port it owns.
+   */
+  isSuspended(accountId: string): Promise<boolean>;
+  /**
    * Whether the group is archived (request 27, docs/adr/0026): nothing in it changes any more. False for a group that does not exist; a
    * change asks the caller's membership first, through `findGroupOf` or `listMembersOf`.
    */

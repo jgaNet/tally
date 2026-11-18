@@ -13,6 +13,7 @@ const valid = {
   split: { kind: 'equal' as const, between: ['ada', 'bob', 'cy'] },
   members,
   archived: false,
+  suspended: false,
   at: NOW,
 };
 

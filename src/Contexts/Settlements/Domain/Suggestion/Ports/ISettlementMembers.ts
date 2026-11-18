@@ -33,4 +33,9 @@ export interface ISettlementMembers {
    * Archived ones are listed too, with their flag: a netting leaves them out. Answered for the caller only, as the caller's groups.
    */
   sharedGroupsOf(callerId: string, withId: string, currency: string): Promise<SharedSettlementGroup[]>;
+  /**
+   * Whether the account is suspended (request 34, docs/adr/0034): a suspended account records no cash settlement, asks no provider
+   * payment and asks no netting. Groups answers it.
+   */
+  isSuspended(accountId: string): Promise<boolean>;
 }

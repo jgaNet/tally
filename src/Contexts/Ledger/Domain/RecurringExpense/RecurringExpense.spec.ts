@@ -7,6 +7,7 @@ const EQUAL = { kind: 'equal' as const, between: ['ada', 'bob'] };
 function setUp(startsOn: string, split = EQUAL) {
   return RecurringExpense.setUp({
     archived: false,
+    suspended: false,
     groupId: 'group-1',
     paidBy: 'ada',
     description: 'Rent',

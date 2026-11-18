@@ -82,6 +82,7 @@ export const recordExpense = command(
       const members = await groupMembers.membersOf(paidBy, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
       const archived = await groupMembers.isArchived(groupId);
+      const suspended = await groupMembers.isSuspended(paidBy);
       const money = await amountGiven(groupCurrency, offeredRates, paidBy, groupId, date, { amount, original });
       if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
       const chosen = await splitGiven(templates, groupId, { split, template });
@@ -97,6 +98,7 @@ export const recordExpense = command(
         category,
         members: members.map(member => member.memberId),
         archived,
+        suspended,
         at: clock(),
       });
       if (expense.isFailure()) return expense;

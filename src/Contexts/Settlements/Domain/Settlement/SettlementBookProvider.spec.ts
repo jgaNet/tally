@@ -7,6 +7,7 @@ const at = new Date('2026-11-17T10:00:00.000Z');
 const request = (overrides: Partial<RequestProviderPaymentCommand> = {}): RequestProviderPaymentCommand => ({
   by: 'bob',
   to: 'ann',
+  suspended: false,
   amount: 30,
   members: ['ann', 'bob', 'cy'],
   balances: { payer: -30, payee: 30 },

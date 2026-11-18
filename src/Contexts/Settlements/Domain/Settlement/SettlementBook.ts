@@ -1,5 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { AdministratorDecisionEntry, SettlementView } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
@@ -35,6 +35,8 @@ export interface RecordCashSettlementCommand {
   balances: { payer: number; payee: number };
   /** Whether the group is archived, as Groups says it now (request 27): an archived group takes no settlement. */
   archived: boolean;
+  /** Whether the payee, the caller, is suspended, as Groups says it now (request 34): a suspended account records no settlement in cash. */
+  suspended: boolean;
   at: Date;
 }
 
@@ -51,6 +53,8 @@ export interface RequestProviderPaymentCommand {
   payoutAccount: string | undefined;
   /** Whether the group is archived, as Groups says it now (request 27): an archived group asks no provider for a payment. */
   archived: boolean;
+  /** Whether the payer, the caller, is suspended, as Groups says it now (request 34): a suspended account asks no provider payment. */
+  suspended: boolean;
   at: Date;
 }
 
@@ -161,6 +165,8 @@ export interface RecordNetCommand {
   members: string[];
   balances: { payer: number; payee: number };
   archived: boolean;
+  /** Whether the caller, who asked for the netting, is suspended (request 34): a suspended account asks no netting. */
+  suspended: boolean;
   at: Date;
 }
 
@@ -280,9 +286,10 @@ export class SettlementBook extends AggregateRoot {
     members,
     balances,
     archived,
+    suspended,
     at,
   }: RecordCashSettlementCommand): IResult<SettlementView> {
-    const decided = this.#decide({ from, to: by, amount, members, balances, archived });
+    const decided = this.#decide({ from, to: by, amount, members, balances, archived, suspended });
     if (decided.isFailure()) return decided;
 
     const settlement: NewSettlement = {
@@ -332,8 +339,18 @@ export class SettlementBook extends AggregateRoot {
    * (`#decide`). The change of money is an audit entry by the member who asked, as `settlement-paid`; `SettlementRecorded` is recorded.
    * The netting, which holds the settlements' ids, is saved by the store with the book, in the same transaction.
    */
-  recordNet({ by, from, to, amount, members, balances, archived, at }: RecordNetCommand): IResult<SettlementView> {
-    const decided = this.#decide({ from, to, amount, members, balances, archived });
+  recordNet({
+    by,
+    from,
+    to,
+    amount,
+    members,
+    balances,
+    archived,
+    suspended,
+    at,
+  }: RecordNetCommand): IResult<SettlementView> {
+    const decided = this.#decide({ from, to, amount, members, balances, archived, suspended });
     if (decided.isFailure()) return decided;
 
     const settlement: NewSettlement = {
@@ -583,8 +600,8 @@ export class SettlementBook extends AggregateRoot {
    * (request 16). Answers the payout account the provider is asked to pay.
    */
   #decideProvider(command: RequestProviderPaymentCommand): IResult<string> {
-    const { by, to, amount, members, balances, payoutAccount, archived } = command;
-    const decided = this.#decide({ from: by, to, amount, members, balances, archived });
+    const { by, to, amount, members, balances, payoutAccount, archived, suspended } = command;
+    const decided = this.#decide({ from: by, to, amount, members, balances, archived, suspended });
     if (decided.isFailure()) return decided;
     if (payoutAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccountException());
     return Result.ok(payoutAccount);
@@ -619,6 +636,7 @@ export class SettlementBook extends AggregateRoot {
     members,
     balances,
     archived,
+    suspended,
   }: {
     from: string;
     to: string;
@@ -626,8 +644,10 @@ export class SettlementBook extends AggregateRoot {
     members: string[];
     balances: { payer: number; payee: number };
     archived: boolean;
+    suspended: boolean;
   }): IResult<undefined> {
     if (archived) return Result.fail(new GroupArchivedException('Settlements'));
+    if (suspended) return Result.fail(new AccountSuspendedException('Settlements'));
     if (from === to) return Result.fail(new SettlementToSelfException());
     if (!members.includes(from) || !members.includes(to)) {
       return Result.fail(new NotFoundException('Settlements', 'There is no such member'));

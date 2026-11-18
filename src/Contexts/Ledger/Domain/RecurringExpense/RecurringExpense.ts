@@ -1,5 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { Category, DEFAULT_CATEGORY, isCategory } from '@Contexts/Ledger/Domain/Expense/Category';
 import { dayOf, isRealDay } from '@Contexts/Ledger/Domain/Expense/Expense';
@@ -90,6 +90,7 @@ export class RecurringExpense extends AggregateRoot {
     members,
     category,
     archived,
+    suspended,
     at,
   }: {
     groupId: string;
@@ -103,9 +104,12 @@ export class RecurringExpense extends AggregateRoot {
     category?: string;
     /** Whether the group is archived, as Groups says it now (request 27): an archived group takes no recurring expense. */
     archived: boolean;
+    /** Whether the caller, its payer, is suspended, as Groups says it now (request 34): a suspended account sets up none. */
+    suspended: boolean;
     at: Date;
   }): IResult<RecurringExpense> {
     if (archived) return Result.fail(new GroupArchivedException('Ledger'));
+    if (suspended) return Result.fail(new AccountSuspendedException('Ledger'));
     const text = ExpenseDescription.create(description);
     if (text.isFailure()) return text;
     if (category !== undefined && !isCategory(category)) return Result.fail(new InvalidCategoryException());
@@ -155,6 +159,11 @@ export class RecurringExpense extends AggregateRoot {
     }
     this.record(RecurringExpenseStoppedEvent.set({ recurringId: this._id.value, groupId: this.#groupId }));
     return Result.ok(this);
+  }
+
+  /** The member who pays every month: the one who set it up (request 23). */
+  get payer(): string {
+    return this.#paidBy;
   }
 
   /** Whether the day of its next expense has come by `now`: it is not after today, in UTC. */

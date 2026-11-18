@@ -301,4 +301,21 @@ describe('Settlements → Groups (AdministratorDecisions)', () => {
     }>;
     expect(log.filter(each => each.subjectId === id)).toHaveLength(1);
   });
+  it('answers, in the same log, the changes Groups made to accounts beside the decisions, the oldest first', async () => {
+    const { ann, id } = await paidThroughProvider('log-order');
+    const root = await administrator();
+    const suspended = await signedIn('log-order-suspended@example.com', 'Suspended');
+    await http.request('PUT', `${api}/admin/accounts/${suspended.id}/suspension`, { token: root.token });
+    await contest(id, ann.token);
+    await decide(id, true, root.token);
+
+    const log = (await http.request('GET', `${api}/admin/log`, { token: root.token })).body as Array<{
+      at: string;
+      action: string;
+      subjectId: string;
+    }>;
+    const ours = log.filter(each => each.subjectId === id || each.subjectId === suspended.id);
+    expect(ours.map(each => each.action)).toEqual(['suspended', 'decided-paid']);
+    expect(ours.map(each => each.at)).toEqual([...ours.map(each => each.at)].sort());
+  });
 });

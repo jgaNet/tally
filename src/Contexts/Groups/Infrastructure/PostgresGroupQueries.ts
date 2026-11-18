@@ -120,6 +120,15 @@ export class PostgresGroupQueries implements IGroupQueries {
     );
   }
 
+  async isSuspended(accountId: string): Promise<boolean> {
+    return this.database.exclusive(async () => {
+      const row = await this.database.get<{ suspended: boolean }>('SELECT suspended FROM accounts WHERE id = ?', [
+        accountId,
+      ]);
+      return row?.suspended === true;
+    });
+  }
+
   async isArchived(groupId: string): Promise<boolean> {
     return this.database.exclusive(async () => {
       const row = await this.database.get<{ archived_at: string | null }>(

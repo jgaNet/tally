@@ -1,5 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { AuditEntryView } from '@Contexts/Ledger/Domain/Audit/DTOs';
 import {
@@ -96,6 +96,7 @@ export class Expense extends AggregateRoot {
     members,
     category,
     archived,
+    suspended,
     at,
     ...money
   }: {
@@ -110,9 +111,12 @@ export class Expense extends AggregateRoot {
     category?: string;
     /** Whether the group is archived, as Groups says it now (request 27): an archived group takes no expense. */
     archived: boolean;
+    /** Whether the account that starts the expense is suspended, as Groups says it now (request 34): a suspended account records none. */
+    suspended: boolean;
     at: Date;
   } & AmountInput): IResult<Expense> {
     if (archived) return Result.fail(new GroupArchivedException('Ledger'));
+    if (suspended) return Result.fail(new AccountSuspendedException('Ledger'));
     const checked = checkExpense({ description, date, paidBy, split, members, category, at, ...money });
     if (checked.isFailure()) return checked;
 

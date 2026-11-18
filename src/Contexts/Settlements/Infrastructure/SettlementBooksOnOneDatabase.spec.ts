@@ -83,6 +83,7 @@ async function recordPending(database: PostgresDatabase): Promise<void> {
   const recorded = book.recordProviderPayment(
     {
       archived: false,
+      suspended: false,
       by: PAYER,
       to: PAYEE,
       amount: 50,

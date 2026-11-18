@@ -36,6 +36,7 @@ export const setUpRecurringExpense = command(
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
 
       const archived = await groupMembers.isArchived(groupId);
+      const suspended = await groupMembers.isSuspended(paidBy);
       const set = RecurringExpense.setUp({
         groupId,
         paidBy,
@@ -46,6 +47,7 @@ export const setUpRecurringExpense = command(
         category,
         members: members.map(member => member.memberId),
         archived,
+        suspended,
         at: clock(),
       });
       if (set.isFailure()) return set;
@@ -116,7 +118,7 @@ export const getGroupRecurringExpenses = query(
 /**
  * What one step of the background job did with a recurring expense on its day: `recorded` (the day's expense is to be recorded by
  * the reaction to its fact, and the next day is the job's to come to), `ended` (it no longer exists), or `idle` (its day has not come,
- * it is gone, or its group is archived and records nothing: request 27).
+ * it is gone, its group is archived and records nothing: request 27, or its payer is suspended and its day waits: request 34).
  */
 export type DayStep = 'idle' | 'recorded' | 'ended';
 
@@ -135,6 +137,8 @@ export const recordRecurringDay = command(
       if (!stored || !stored.isDue(now)) return Result.ok('idle');
       // An archived group records nothing by itself (request 27): its day is not recorded, and the job has nothing to step on.
       if (await groupMembers.isArchived(stored.groupId)) return Result.ok('idle');
+      // A suspended payer records nothing, and its day waits: the first run after the reinstatement records every day that has come (request 34).
+      if (await groupMembers.isSuspended(stored.payer)) return Result.ok('idle');
 
       const run = stored.runDay(await groupMembers.currentMemberIds(stored.groupId));
       if (run.kind === 'ended') {

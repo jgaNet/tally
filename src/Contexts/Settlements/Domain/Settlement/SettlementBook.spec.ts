@@ -12,6 +12,7 @@ const cash = (overrides: Partial<Parameters<SettlementBook['recordCash']>[0]> = 
   balances: { payer: -30, payee: 30 },
   at,
   archived: false,
+  suspended: false,
   ...overrides,
 });
 
@@ -124,6 +125,7 @@ describe('an archived group takes no settlement (request 27)', () => {
       balances: { payer: -30, payee: 30 },
       payoutAccount: 'ann-at-the-provider',
       archived: true,
+      suspended: false,
       at,
     };
     expect(empty.reserveProviderPayment(payment).error?.type).toBe('GroupArchived');

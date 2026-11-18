@@ -40,7 +40,8 @@ export const netDebts = command(
         });
       }
 
-      const decided = NetDebts.decide({ by, with: other, currency, groups, at: clock() });
+      const suspended = await members.isSuspended(by);
+      const decided = NetDebts.decide({ by, with: other, currency, groups, suspended, at: clock() });
       if (decided.isFailure()) return decided;
 
       for (const group of groups) {

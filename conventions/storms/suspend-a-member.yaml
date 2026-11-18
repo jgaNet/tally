@@ -5,7 +5,7 @@ feature: suspend-a-member
 intent: >-
   An administrator suspends an account and reinstates it; while suspended, the expenses and settlements it starts are refused in every group by one rule's name, its recurring expenses wait, and nothing is written in any group.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where is a suspension?

@@ -22,6 +22,7 @@ const netting = (groups: SharedGroupDebts[], overrides: { by?: string; with?: st
     by: overrides.by ?? 'ann',
     with: overrides.with ?? 'bob',
     currency: overrides.currency ?? 'EUR',
+    suspended: false,
     groups,
     at,
   });

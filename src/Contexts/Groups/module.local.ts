@@ -11,7 +11,7 @@ import {
 } from '@Bootstrap/Fastify/readModels';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
-import { getAdministratorsLog } from '@Contexts/Groups/Application/Administration';
+import { getAdministratorsLog, reinstateAccount, suspendAccount } from '@Contexts/Groups/Application/Administration';
 import {
   archiveGroup,
   createGroup,
@@ -26,6 +26,7 @@ import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEve
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { PostgresAccountRepository } from '@Contexts/Groups/Infrastructure/PostgresAccountRepository';
 import { PostgresAccountQueries } from '@Contexts/Groups/Infrastructure/PostgresAccountQueries';
+import { PostgresAdministratorChanges } from '@Contexts/Groups/Infrastructure/PostgresAdministratorChanges';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
 import { PostgresSessionTokens } from '@Contexts/Groups/Infrastructure/PostgresSessionTokens';
 import { PostgresGroupRepository } from '@Contexts/Groups/Infrastructure/PostgresGroupRepository';
@@ -41,6 +42,8 @@ import { MemberBalancesOfLedger } from '@Contexts/Groups/Infrastructure/MemberBa
  */
 const accounts = new PostgresAccountRepository(sharedDatabase);
 const accountQueries = new PostgresAccountQueries(sharedDatabase);
+/** The administrators' log of the changes to accounts, which Groups writes and reads itself (request 34, docs/adr/0034). */
+const administrationChanges = new PostgresAdministratorChanges(sharedDatabase);
 const passwords = new ScryptPasswordHasher();
 const tokens = new PostgresSessionTokens(sharedDatabase);
 const groups = new PostgresGroupRepository(sharedDatabase);
@@ -70,7 +73,9 @@ export const localGroupsModule = new LiteModule({
     leaveGroup(groups, memberBalances, waitingPaymentsOfSettlements, systemClock),
     archiveGroup(groups, memberBalances, waitingPaymentsOfSettlements, systemClock),
     mergeGroups(groups, invitations, waitingPaymentsOfSettlements, systemClock),
-    getAdministratorsLog(administratorDecisionsOfSettlements),
+    suspendAccount(accounts, systemClock),
+    reinstateAccount(accounts, systemClock),
+    getAdministratorsLog(administrationChanges, administratorDecisionsOfSettlements),
   ],
   domainEvents: [
     // A merge is told to the other contexts as the published fact (request 31, docs/adr/0031): Ledger and Settlements move what they hold.

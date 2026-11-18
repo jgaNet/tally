@@ -28,6 +28,7 @@ export const recordCashSettlement = command(
       const by = callerOf(context);
       const group = await members.groupOf(by, groupId);
       if (!group) return Result.fail(new NotFoundException('Settlements', 'There is no such group'));
+      const suspended = await members.isSuspended(by);
 
       const book = await books.get(groupId);
       const owed = await balances.balancesOf(groupId);
@@ -40,6 +41,7 @@ export const recordCashSettlement = command(
         members: group.members.map(member => member.memberId),
         balances: { payer: balanceOf(from), payee: balanceOf(by) },
         archived: group.archived,
+        suspended,
         at: clock(),
       });
       if (recorded.isFailure()) return recorded;

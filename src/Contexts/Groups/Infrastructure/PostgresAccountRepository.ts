@@ -8,23 +8,39 @@ import { EmailAlreadyUsedException } from '@Contexts/Groups/Domain/Account/Accou
 
 /** The accounts' table: the email is unique, so two sign-ups of one email cannot both be stored, whichever process made them. */
 export const ACCOUNTS_SCHEMA =
-  'CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password_hash TEXT NOT NULL, version INTEGER NOT NULL)';
+  'CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password_hash TEXT NOT NULL, suspended BOOLEAN NOT NULL DEFAULT FALSE, version INTEGER NOT NULL)';
 
-/** The accounts' schema step, run once when the database is prepared (docs/adr/0029). */
+/**
+ * The administrators' log of the changes to accounts, one row each, never changed, written with the change (request 34, docs/adr/0034).
+ * `seq` orders it, the oldest first.
+ */
+export const ADMINISTRATOR_CHANGES_SCHEMA =
+  'CREATE TABLE IF NOT EXISTS administrator_account_changes (seq BIGSERIAL NOT NULL UNIQUE, id TEXT PRIMARY KEY, at TEXT NOT NULL, by_id TEXT NOT NULL, action TEXT NOT NULL, subject_id TEXT NOT NULL)';
+
+/** The accounts' schema steps, run once when the database is prepared (docs/adr/0029). */
 export async function prepareAccountsSchema(database: PostgresDatabase): Promise<void> {
   await database.exec(ACCOUNTS_SCHEMA);
+  await database.exec(ADMINISTRATOR_CHANGES_SCHEMA);
 }
 
 /** The name PostgreSQL gives the UNIQUE constraint on `accounts.email`. */
 const EMAIL_CONSTRAINT = 'accounts_email_key';
 
-type AccountRow = { id: string; email: string; name: string; password_hash: string; version: number };
+type AccountRow = {
+  id: string;
+  email: string;
+  name: string;
+  password_hash: string;
+  suspended: boolean;
+  version: number;
+};
 
 const toSnapshot = (row: AccountRow): AccountSnapshot => ({
   id: String(row.id),
   email: String(row.email),
   name: String(row.name),
   passwordHash: String(row.password_hash),
+  suspended: row.suspended === true,
   version: Number(row.version),
 });
 
@@ -54,29 +70,45 @@ export class PostgresAccountRepository implements IAccountRepository {
     try {
       if (snapshot.version === 0) {
         await this.database.run(
-          'INSERT INTO accounts (id, email, name, password_hash, version) VALUES (?, ?, ?, ?, ?)',
-          [snapshot.id, snapshot.email, snapshot.name, snapshot.passwordHash, snapshot.version + 1],
+          'INSERT INTO accounts (id, email, name, password_hash, suspended, version) VALUES (?, ?, ?, ?, ?, ?)',
+          [snapshot.id, snapshot.email, snapshot.name, snapshot.passwordHash, snapshot.suspended, snapshot.version + 1],
         );
-        return Result.ok(undefined);
+      } else {
+        const { changes } = await this.database.run(
+          'UPDATE accounts SET email = ?, name = ?, password_hash = ?, suspended = ?, version = ? WHERE id = ? AND version = ?',
+          [
+            snapshot.email,
+            snapshot.name,
+            snapshot.passwordHash,
+            snapshot.suspended,
+            snapshot.version + 1,
+            snapshot.id,
+            snapshot.version,
+          ],
+        );
+        if (changes === 0) {
+          return Result.fail(new ConcurrencyConflictException('Groups', 'The account changed since it was read'));
+        }
       }
-      const { changes } = await this.database.run(
-        'UPDATE accounts SET email = ?, name = ?, password_hash = ?, version = ? WHERE id = ? AND version = ?',
-        [snapshot.email, snapshot.name, snapshot.passwordHash, snapshot.version + 1, snapshot.id, snapshot.version],
-      );
-      if (changes === 0) {
-        return Result.fail(new ConcurrencyConflictException('Groups', 'The account changed since it was read'));
-      }
-      return Result.ok(undefined);
     } catch (error) {
       if (isEmailTaken(error)) return Result.fail(new EmailAlreadyUsedException());
       throw error;
     }
+
+    // Each administrators' change the account made is an entry of the log, written with it in this transaction (request 34, docs/adr/0034).
+    for (const change of account.changes) {
+      await this.database.run(
+        'INSERT INTO administrator_account_changes (id, at, by_id, action, subject_id) VALUES (?, ?, ?, ?, ?)',
+        [change.id, change.at, change.by, change.action, change.subjectId],
+      );
+    }
+    return Result.ok(undefined);
   }
 
   async #one(column: 'id' | 'email', value: string): Promise<Account | undefined> {
     this.database.assertInTransaction();
     const row = await this.database.get<AccountRow>(
-      `SELECT id, email, name, password_hash, version FROM accounts WHERE ${column} = ?`,
+      `SELECT id, email, name, password_hash, suspended, version FROM accounts WHERE ${column} = ?`,
       [value],
     );
     return row ? Account.fromSnapshot(toSnapshot(row)) : undefined;

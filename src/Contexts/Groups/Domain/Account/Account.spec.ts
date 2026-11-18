@@ -2,7 +2,11 @@ import { Email } from '@SharedKernel/Domain/Email';
 
 import { Account } from '@Contexts/Groups/Domain/Account/Account';
 import { AccountName } from '@Contexts/Groups/Domain/Account/AccountName';
-import { AccountRegisteredEvent } from '@Contexts/Groups/Domain/Account/Events/AccountEvents';
+import {
+  AccountRegisteredEvent,
+  AccountReinstatedEvent,
+  AccountSuspendedEvent,
+} from '@Contexts/Groups/Domain/Account/Events/AccountEvents';
 
 const newAccount = () =>
   Account.create({
@@ -43,5 +47,61 @@ describe('Account', () => {
 
     expect(() => Account.fromSnapshot({ ...snapshot, email: 'not-an-email' })).toThrow(/corrupted/);
     expect(() => Account.fromSnapshot({ ...snapshot, passwordHash: '' })).toThrow(/corrupted/);
+  });
+});
+
+describe('Account suspension (request 34)', () => {
+  const administrator = 'admin-1';
+  const at = new Date('2026-11-18T10:00:00.000Z');
+
+  it('is not suspended when created or read back, and suspending it records its event and one log entry', () => {
+    const account = newAccount();
+    account.pullDomainEvents();
+    expect(account.isSuspended).toBe(false);
+
+    expect(account.suspend({ by: administrator, at })).toBe(true);
+
+    expect(account.isSuspended).toBe(true);
+    const [event] = account.pullDomainEvents();
+    expect(event).toBeInstanceOf(AccountSuspendedEvent);
+    expect(event.payload).toEqual({ accountId: account.id });
+    expect(account.changes).toEqual([
+      {
+        id: expect.any(String),
+        at: '2026-11-18T10:00:00.000Z',
+        by: administrator,
+        action: 'suspended',
+        subjectId: account.id,
+      },
+    ]);
+  });
+
+  it('changes nothing when it is suspended again, and nothing when it is reinstated while not suspended', () => {
+    const account = newAccount();
+    account.suspend({ by: administrator, at });
+    account.pullDomainEvents();
+
+    expect(account.suspend({ by: administrator, at })).toBe(false);
+    expect(account.pullDomainEvents()).toEqual([]);
+    expect(account.changes).toHaveLength(1);
+
+    const fresh = newAccount();
+    expect(fresh.reinstate({ by: administrator, at })).toBe(false);
+    expect(fresh.changes).toEqual([]);
+  });
+
+  it('reinstates a suspended account, recording AccountReinstated and a second log entry, and keeps the flag in its snapshot', () => {
+    const account = newAccount();
+    account.suspend({ by: administrator, at });
+    account.pullDomainEvents();
+
+    expect(account.reinstate({ by: administrator, at })).toBe(true);
+    expect(account.isSuspended).toBe(false);
+    expect(account.pullDomainEvents()[0]).toBeInstanceOf(AccountReinstatedEvent);
+    expect(account.changes.map(change => change.action)).toEqual(['suspended', 'reinstated']);
+
+    const suspended = Account.fromSnapshot({ ...newAccount().toSnapshot(), suspended: true });
+    expect(suspended.isSuspended).toBe(true);
+    expect(suspended.toSnapshot().suspended).toBe(true);
   });
 });

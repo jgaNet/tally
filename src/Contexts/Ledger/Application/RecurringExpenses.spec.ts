@@ -81,6 +81,11 @@ class MemoryMembers implements IGroupMembers {
   async isArchived(): Promise<boolean> {
     return this.archived;
   }
+  /** The accounts an administrator suspended in the spec (request 34): none, unless the spec says so. */
+  suspended = new Set<string>();
+  async isSuspended(accountId: string): Promise<boolean> {
+    return this.suspended.has(accountId);
+  }
   async currentMemberIds(): Promise<string[]> {
     this.currentAsked += 1;
     return [...this.current];
@@ -137,6 +142,36 @@ describe('the background job, over the recurring expenses', () => {
 
     expect(members.currentAsked).toBe(0);
     expect([...store.rows.values()][0].next).toBe('2026-12-01');
+  });
+
+  it('records nothing for a suspended payer: its days wait, and the first run after the reinstatement records every day that has come', async () => {
+    const { store, members, setUp: set, sweep, context } = setUp();
+    await set.run(
+      { groupId: 'group-1', description: 'Rent', amount: 90_000, startsOn: '2026-10-01', split: EVERY_TWO },
+      context('ada'),
+    );
+    members.suspended.add('ada');
+
+    await sweep(context('ada'));
+    expect([...store.rows.values()][0].next).toBe('2026-10-01');
+
+    members.suspended.clear();
+    await sweep(context('ada'));
+    expect([...store.rows.values()][0].next).toBe('2026-12-01');
+  });
+
+  it('refuses to set up a recurring expense for a suspended payer, by AccountSuspended, and stores nothing', async () => {
+    const { store, members, setUp: set, context } = setUp();
+    members.suspended.add('ada');
+
+    const refused = await set.run(
+      { groupId: 'group-1', description: 'Rent', amount: 90_000, startsOn: '2026-10-01', split: EVERY_TWO },
+      context('ada'),
+    );
+
+    expect(refused.isFailure()).toBe(true);
+    expect((refused.error as { type: string }).type).toBe('AccountSuspended');
+    expect(store.rows.size).toBe(0);
   });
 
   it('ends a recurring expense whose split member has left, and records nothing for it', async () => {
