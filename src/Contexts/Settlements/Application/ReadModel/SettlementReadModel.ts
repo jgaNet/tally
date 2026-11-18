@@ -1,4 +1,4 @@
-import { SettlementMethod, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { FeeBorne, SettlementMethod, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
 /** A status a settlement had, and when Tally learned it, as an ISO string (request 19). */
 export interface SettlementHistoryLine {
@@ -24,5 +24,7 @@ export interface SettlementReadModel {
   /** When it was recorded, as an ISO string. */
   at: string;
   payUrl?: string;
+  /** The provider's fee and who bore it, for a settlement through the provider asked for from request 38 on (no other has one). */
+  fee?: { amount: number; borneBy: FeeBorne };
   history: SettlementHistoryLine[];
 }

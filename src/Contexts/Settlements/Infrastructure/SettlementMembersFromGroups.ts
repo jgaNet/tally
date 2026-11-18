@@ -16,6 +16,10 @@ export class SettlementMembersFromGroups implements ISettlementMembers {
     return this.groups().isMemberOf(groupId, accountId);
   }
 
+  async roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null> {
+    return this.groups().roleOf(groupId, accountId);
+  }
+
   async suspendedOf(accountId: string): Promise<boolean> {
     return this.groups().isSuspendedOf(accountId);
   }

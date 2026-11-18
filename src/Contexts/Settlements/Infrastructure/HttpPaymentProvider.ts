@@ -11,7 +11,7 @@ export const PROVIDER_TIMEOUT_MS = 5000;
 
 /**
  * The payment provider over its HTTP API: `POST {PROVIDER_URL}/payments` with `{ reference, amount, currency, payee }`, answered
- * `201 { id, payUrl }`. Any other answer, or no answer within the limit, is no link (`null`). `PROVIDER_URL` is read when a payment is
+ * `201 { id, payUrl, fee }`. Any other answer, an answer without its fee, or no answer within the limit, is no link (`null`). `PROVIDER_URL` is read when a payment is
  * asked, so a server started without it refuses paying through the provider and nothing else.
  */
 export class HttpPaymentProvider implements IPaymentProvider {
@@ -31,9 +31,11 @@ export class HttpPaymentProvider implements IPaymentProvider {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
       if (response.status !== 201) return null;
-      const body = (await response.json()) as { id?: unknown; payUrl?: unknown };
+      const body = (await response.json()) as { id?: unknown; payUrl?: unknown; fee?: unknown };
       if (typeof body.id !== 'string' || typeof body.payUrl !== 'string' || !body.id || !body.payUrl) return null;
-      return { paymentId: body.id, payUrl: body.payUrl };
+      // An answer without a fee is no answer (request 38); whether the fee is a whole number the payment can bear is the book's to say.
+      if (typeof body.fee !== 'number') return null;
+      return { paymentId: body.id, payUrl: body.payUrl, fee: body.fee };
     } catch {
       return null;
     }

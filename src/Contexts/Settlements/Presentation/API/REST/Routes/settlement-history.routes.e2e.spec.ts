@@ -37,7 +37,7 @@ beforeAll(async () => {
       const paymentId = `pay_${issued.length + 1}`;
       issued.push({ paymentId, reference: body.reference });
       response.writeHead(201, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ id: paymentId, payUrl: `https://pay.example/${paymentId}` }));
+      response.end(JSON.stringify({ id: paymentId, fee: 0, payUrl: `https://pay.example/${paymentId}` }));
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
@@ -207,6 +207,8 @@ describe("a group's settlements (request 19)", () => {
         status: 'refunded',
         at: expect.stringMatching(ISO_TIME),
         payUrl: `https://pay.example/${paymentId}`,
+        // Asked through the provider from request 38 on, so it reads the fee it was asked with (the provider gave none here: 0, borne by the payee).
+        fee: { amount: 0, borneBy: 'payee' },
         history: [
           { status: 'pending', at: expect.stringMatching(ISO_TIME) },
           { status: 'paid', at: expect.stringMatching(ISO_TIME) },

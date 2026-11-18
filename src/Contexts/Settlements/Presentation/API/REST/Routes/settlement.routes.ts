@@ -16,6 +16,8 @@ import {
   PayThroughProviderBodySchema,
   ReceivePaymentWebhookBodySchema,
   RecordCashSettlementBodySchema,
+  GetFeePolicyResSchema,
+  SetFeePolicyBodySchema,
 } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
 
 export const settlementRoutes = function (
@@ -115,6 +117,20 @@ export const settlementRoutes = function (
     '/settlements/:id',
     { schema: { tags: ['settlements'], response: GetSettlementResSchema } },
     controller.getSettlement.bind(controller),
+  );
+
+  // Who bears the provider's fee of the group's payments, read by a member of the group (request 38).
+  fastify.get(
+    '/groups/:id/fee-policy',
+    { schema: { tags: ['settlements'], response: GetFeePolicyResSchema } },
+    controller.getFeePolicy.bind(controller),
+  );
+
+  // Answered 202 and read at the operation: the owner of the group says who bears the provider's fee of its payments (request 38).
+  fastify.put(
+    '/groups/:id/fee-policy',
+    { schema: { tags: ['settlements'], body: SetFeePolicyBodySchema, response: LaterCommandResSchema } },
+    controller.setFeePolicy.bind(controller),
   );
 
   done();

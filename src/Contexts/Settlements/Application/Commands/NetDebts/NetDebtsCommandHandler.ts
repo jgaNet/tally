@@ -117,7 +117,7 @@ export class NetDebtsCommandHandler extends CommandHandler<NetDebtsCommandEvent>
           by: move.by.value,
           action: move.action,
           subjectId: move.settlement.id.value,
-          amount: move.settlement.amount,
+          amount: move.settlement.settledAmount,
         });
       }
     }

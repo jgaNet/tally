@@ -74,3 +74,9 @@ export class SettlementAnnulledEvent extends DomainEvent<{
 
 /** The book of the group merged into this one (request 31) is taken up: its settlements are this group's from the save on. */
 export class SettlementBookMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string }> {}
+
+/** The owner of a group said who bears the provider's fee of its payments from now on (request 38). */
+export class FeePolicySetEvent extends DomainEvent<{
+  groupId: string;
+  borneBy: string;
+}> {}

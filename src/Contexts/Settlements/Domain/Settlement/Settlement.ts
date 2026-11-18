@@ -25,6 +25,26 @@ export interface SettlementLine {
   readonly at: Date;
 }
 
+/** Who bears the provider's fee of a payment: its payer, its payee, or both, each half (request 38). Until its owner decides, the payee. */
+export type FeeBorne = 'payer' | 'payee' | 'shared';
+
+export const FEE_BORNE_VALUES: readonly FeeBorne[] = ['payer', 'payee', 'shared'];
+
+export const isFeeBorne = (value: string): value is FeeBorne => (FEE_BORNE_VALUES as readonly string[]).includes(value);
+
+/** The provider's fee for a payment through the provider, and who bore it, both fixed when the payment is asked for (request 38). */
+export interface SettlementFee {
+  readonly amount: number;
+  readonly borneBy: FeeBorne;
+}
+
+/**
+ * The part of the fee its payer bears: all of it, none of it, or half of it rounded down, so that the payee bears the extra hundredth
+ * when the fee is odd (request 38).
+ */
+export const payersPartOf = ({ amount, borneBy }: SettlementFee): number =>
+  borneBy === 'payer' ? amount : borneBy === 'shared' ? Math.floor(amount / 2) : 0;
+
 /**
  * One settlement, as the book keeps it: `payer` pays `payee` the `amount` of a group, by `method`, at `at`. A cash settlement is
  * `paid` from the moment it is recorded. A settlement through the provider is `pending` until the provider's webhook says it
@@ -35,6 +55,11 @@ export interface SettlementLine {
 export class Settlement {
   private currentStatus: SettlementStatus;
   private readonly lines: SettlementLine[];
+  /**
+   * What the settlement settles: the amount less the part of the fee its payer bears (request 38). It is what the balances count, what is
+   * still owed while it waits, and what is audited; the amount stays the one asked for, and is what the provider is asked for.
+   */
+  readonly settledAmount: number;
 
   constructor(
     readonly id: Id,
@@ -48,9 +73,12 @@ export class Settlement {
     readonly provider: ProviderPayment | null,
     /** The lines kept so far, the earliest first; the last one is the status the settlement has now. */
     history: readonly SettlementLine[],
+    /** The provider's fee and who bore it, fixed when the payment was asked for; null for a settlement with no fee (a cash one, or one asked before request 38). */
+    readonly fee: SettlementFee | null = null,
   ) {
     this.currentStatus = status;
     this.lines = [...history];
+    this.settledAmount = fee ? amount - payersPartOf(fee) : amount;
   }
 
   get status(): SettlementStatus {

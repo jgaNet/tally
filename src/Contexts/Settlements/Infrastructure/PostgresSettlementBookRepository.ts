@@ -4,7 +4,9 @@ import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/Postgres
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import {
+  FeeBorne,
   Settlement,
+  SettlementFee,
   SettlementLine,
   SettlementMethod,
   SettlementStatus,
@@ -15,6 +17,7 @@ interface BookRow {
   id: string;
   group_id: string;
   version: number;
+  fee_policy: FeeBorne;
 }
 
 /** One settlement as the table keeps it. */
@@ -29,6 +32,9 @@ export interface SettlementRow {
   recorded_at: string;
   provider_payment_id: string | null;
   pay_url: string | null;
+  settled_amount: number | null;
+  fee_amount: number | null;
+  fee_borne_by: FeeBorne | null;
 }
 
 /**
@@ -44,19 +50,25 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
 
   async findByGroupId(groupId: Id): Promise<SettlementBook | null> {
     const row = await this.database.get<BookRow>(
-      'SELECT id, group_id, version FROM settlement_books WHERE group_id = ?',
+      'SELECT id, group_id, version, fee_policy FROM settlement_books WHERE group_id = ?',
       groupId.value,
     );
     if (!row) return null;
     const history = await historyOfGroup(this.database, groupId.value);
     const settlements = (
       await this.database.all<SettlementRow>(
-        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
+        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
          FROM settlements WHERE group_id = ? ORDER BY recorded_at, id`,
         groupId.value,
       )
     ).map(settled => toSettlement(settled, history.get(settled.id) ?? []));
-    return SettlementBook.fromSnapshot({ id: row.id, groupId: row.group_id, version: row.version, settlements });
+    return SettlementBook.fromSnapshot({
+      id: row.id,
+      groupId: row.group_id,
+      version: row.version,
+      settlements,
+      feePolicy: row.fee_policy,
+    });
   }
 
   async findBySettlementId(settlementId: Id): Promise<SettlementBook | null> {
@@ -79,15 +91,17 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
     if (book.version === 0) {
       // The group's first settlement opens its book; a book another writer opened first is left as it is, and that is a conflict.
       const opened = await this.database.run(
-        'INSERT INTO settlement_books (id, group_id, version) VALUES (?, ?, 1) ON CONFLICT DO NOTHING',
+        'INSERT INTO settlement_books (id, group_id, version, fee_policy) VALUES (?, ?, 1, ?) ON CONFLICT DO NOTHING',
         book._id.value,
         book.groupId.value,
+        book.feePolicy,
       );
       if (!opened) return conflict(book.groupId.value);
     } else {
       const changed = await this.database.run(
-        'UPDATE settlement_books SET version = ? WHERE id = ? AND version = ?',
+        'UPDATE settlement_books SET version = ?, fee_policy = ? WHERE id = ? AND version = ?',
         book.version + 1,
+        book.feePolicy,
         book._id.value,
         book.version,
       );
@@ -106,8 +120,8 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
     }
     for (const settlement of book.created) {
       await this.database.run(
-        `INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         settlement.id.value,
         settlement.groupId.value,
         settlement.payer.value,
@@ -118,6 +132,9 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
         settlement.at.toISOString(),
         settlement.provider?.paymentId ?? null,
         settlement.provider?.payUrl ?? null,
+        settlement.fee ? settlement.settledAmount : null,
+        settlement.fee?.amount ?? null,
+        settlement.fee?.borneBy ?? null,
       );
     }
     for (const settlement of book.statusChangedSinceRead) {
@@ -176,7 +193,12 @@ export const toSettlement = (row: SettlementRow, history: readonly SettlementLin
     new Date(row.recorded_at),
     row.provider_payment_id && row.pay_url ? { paymentId: row.provider_payment_id, payUrl: row.pay_url } : null,
     history,
+    feeOf(row),
   );
+
+/** The fee a settlement row keeps, or null when it keeps none (a settlement in cash, or one asked before request 38). */
+export const feeOf = (row: SettlementRow): SettlementFee | null =>
+  row.fee_amount !== null && row.fee_borne_by !== null ? { amount: row.fee_amount, borneBy: row.fee_borne_by } : null;
 
 const conflict = (groupId: string): IResult =>
   Result.fail(new ConcurrencyConflictException('Settlements', 'The group settlements have changed', { groupId }));

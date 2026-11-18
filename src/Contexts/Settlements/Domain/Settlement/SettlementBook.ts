@@ -18,10 +18,14 @@ import {
   PayeeHasNoPayoutAccount,
   PayeeNotAMember,
   PayerNotAMember,
+  ProviderFeeInvalid,
   ProviderRefundUnavailable,
   ProviderUnavailable,
+  InvalidFeePolicy,
+  OnlyTheOwnerMayChangeFeePolicy,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 import {
+  FeePolicySetEvent,
   PaymentRequestedEvent,
   RefundRequestedEvent,
   SettlementAnnulledEvent,
@@ -31,7 +35,14 @@ import {
   SettlementRecordedEvent,
   SettlementRefundedEvent,
 } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
-import { PaymentOutcome, Settlement, SettlementLine } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import {
+  FeeBorne,
+  isFeeBorne,
+  PaymentOutcome,
+  Settlement,
+  SettlementFee,
+  SettlementLine,
+} from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
 /**
  * A line of a settlement's history that Tally learned in this book, and where it stands in that history (its position, from 1): the
@@ -91,6 +102,8 @@ export interface PlannedRefund {
 export interface PaymentLink {
   readonly paymentId: string;
   readonly payUrl: string;
+  /** The provider's fee for the payment, in the hundredths of its currency: a whole number, 0 or more, less than the amount (request 38). */
+  readonly fee: number;
 }
 
 /**
@@ -139,6 +152,8 @@ export class SettlementBook extends AggregateRoot {
     version: number,
     /** The settlements of the group, as read, and those recorded since, in the order they were kept. */
     private readonly settlements: Settlement[],
+    /** Who bears the provider's fee of the group's payments, as its owner last said; the payee until then (request 38). */
+    private policy: FeeBorne = 'payee',
   ) {
     super(id, version);
   }
@@ -146,6 +161,37 @@ export class SettlementBook extends AggregateRoot {
   /** The book of a group that has no settlement yet: it is opened by its first settlement, at version 0. */
   static open(groupId: Id): SettlementBook {
     return new SettlementBook(Id.generate(), groupId, 0, []);
+  }
+
+  /** Who bears the provider's fee of the group's payments now (request 38). */
+  get feePolicy(): FeeBorne {
+    return this.policy;
+  }
+
+  /**
+   * The owner says who bears the provider's fee of the group's payments from now on (request 38). Only the owner, and only in a group that
+   * is not archived, by an account that is not suspended; a settlement already asked for keeps the fee it was asked with. Recorded as
+   * FeePolicySet.
+   */
+  setFeePolicy({
+    owner,
+    borneBy,
+    archived,
+    suspended,
+  }: {
+    owner: boolean;
+    borneBy: string;
+    archived: boolean;
+    suspended: boolean;
+  }): IResult {
+    if (archived) return Result.fail(new GroupArchived('Settlements'));
+    if (suspended) return Result.fail(new AccountSuspended('Settlements'));
+    if (!owner) return Result.fail(new OnlyTheOwnerMayChangeFeePolicy());
+    if (!isFeeBorne(borneBy)) return Result.fail(new InvalidFeePolicy());
+
+    this.policy = borneBy;
+    this.record(FeePolicySetEvent.set({ groupId: this.groupId.value, borneBy }));
+    return Result.ok();
   }
 
   /** The group whose book was merged into this one (request 31), or null: its settlements are this book's once it is saved. */
@@ -172,13 +218,15 @@ export class SettlementBook extends AggregateRoot {
     groupId,
     version,
     settlements,
+    feePolicy = 'payee',
   }: {
     id: string;
     groupId: string;
     version: number;
     settlements: Settlement[];
+    feePolicy?: FeeBorne;
   }): SettlementBook {
-    return new SettlementBook(new Id(id), new Id(groupId), version, [...settlements]);
+    return new SettlementBook(new Id(id), new Id(groupId), version, [...settlements], feePolicy);
   }
 
   /** The settlements recorded in this book since it was read, in the order they were recorded. */
@@ -308,9 +356,14 @@ export class SettlementBook extends AggregateRoot {
    */
   recordPayment(planned: PlannedPayment, link: PaymentLink | null, decision: Decision): IResult<Settlement> {
     if (!link) return Result.fail(new ProviderUnavailable());
+    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= planned.amount) {
+      return Result.fail(new ProviderFeeInvalid());
+    }
     const decided = this.decide(decision);
     if (decided.isFailure()) return decided;
 
+    // The fee is fixed now, with who bears it as the owner last said: changing the policy later changes no payment asked for before.
+    const fee: SettlementFee = { amount: link.fee, borneBy: this.policy };
     const settlement = new Settlement(
       planned.id,
       this.groupId,
@@ -322,6 +375,7 @@ export class SettlementBook extends AggregateRoot {
       planned.at,
       { paymentId: link.paymentId, payUrl: link.payUrl },
       [{ status: 'pending', at: planned.at }],
+      fee,
     );
     this.keep(settlement);
     this.record(
@@ -539,8 +593,8 @@ export class SettlementBook extends AggregateRoot {
     return this.waiting.reduce(
       (sum, settlement) =>
         sum +
-        (settlement.payer.value === member.value ? settlement.amount : 0) -
-        (settlement.payee.value === member.value ? settlement.amount : 0),
+        (settlement.payer.value === member.value ? settlement.settledAmount : 0) -
+        (settlement.payee.value === member.value ? settlement.settledAmount : 0),
       0,
     );
   }

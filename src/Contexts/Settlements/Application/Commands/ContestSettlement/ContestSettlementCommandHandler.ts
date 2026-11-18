@@ -48,7 +48,7 @@ export class ContestSettlementCommandHandler extends CommandHandler<ContestSettl
         by: move.by.value,
         action: move.action,
         subjectId: move.settlement.id.value,
-        amount: move.settlement.amount,
+        amount: move.settlement.settledAmount,
       });
     }
 

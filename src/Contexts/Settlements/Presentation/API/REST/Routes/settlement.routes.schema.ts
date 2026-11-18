@@ -42,6 +42,11 @@ const SettlementSchema = {
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string' },
     payUrl: { type: 'string', minLength: 1 },
+    fee: {
+      type: 'object',
+      required: ['amount', 'borneBy'],
+      properties: { amount: { type: 'integer', minimum: 0 }, borneBy: { enum: ['payer', 'payee', 'shared'] } },
+    },
     history: {
       type: 'array',
       minItems: 1,
@@ -90,6 +95,25 @@ export const PayThroughProviderBodySchema = {
   type: 'object',
   required: ['to', 'amount'],
   properties: { to: { type: 'string' }, amount: { type: 'integer' } },
+} as const;
+
+/** The shape of a body only: who bears the fee is one of three, whether it is allowed is the book's, behind the 202 (request 38). */
+export const SetFeePolicyBodySchema = {
+  type: 'object',
+  required: ['borneBy'],
+  properties: { borneBy: { type: 'string' } },
+} as const;
+
+/** A read: who bears the provider's fee of the group's payments, to a member of the group only; anyone else is told it does not exist (request 38). */
+export const GetFeePolicyResSchema = {
+  200: {
+    description: 'Success',
+    type: 'object',
+    required: ['borneBy'],
+    properties: { borneBy: { enum: ['payer', 'payee', 'shared'] } },
+  },
+  401: RefusedSchema,
+  404: RefusedSchema,
 } as const;
 
 /** The provider's webhook, as it is sent: its shape only; whether the signature is the provider's is checked before the body is read. */

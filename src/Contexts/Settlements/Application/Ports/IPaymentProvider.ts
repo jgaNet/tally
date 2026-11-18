@@ -11,10 +11,14 @@ export interface PaymentLinkRequest {
   payee: string;
 }
 
-/** The provider's answer to a payment: its id for the payment, and the link the payer pays at. */
+/**
+ * The provider's answer to a payment: its id for the payment, the link the payer pays at, and the provider's fee for it, in the
+ * hundredths of the payment's currency (request 38). An answer without a fee is no answer at all.
+ */
 export interface PaymentLink {
   paymentId: string;
   payUrl: string;
+  fee: number;
 }
 
 /** What the provider is asked to refund: the provider's id for the payment, and the settlement's id as the reference. */

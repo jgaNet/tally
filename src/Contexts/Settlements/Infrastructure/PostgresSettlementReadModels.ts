@@ -9,9 +9,13 @@ import {
   ISettledAmountsQueries,
   SettledAmountOf,
 } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettledAmountsQueries';
-import { SettlementLine, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { FeeBorne, SettlementLine, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 import { createSettlementsTables } from '@Contexts/Settlements/Infrastructure/SettlementsTables';
-import { historyOfGroup, SettlementRow } from '@Contexts/Settlements/Infrastructure/PostgresSettlementBookRepository';
+import {
+  feeOf,
+  historyOfGroup,
+  SettlementRow,
+} from '@Contexts/Settlements/Infrastructure/PostgresSettlementBookRepository';
 
 /**
  * The settlements' read models, in the application's file. `findById` and `ofGroup` are read outside any transaction, so they wait
@@ -30,7 +34,7 @@ export class PostgresSettlementReadModels
   async findById(id: string): Promise<SettlementReadModel | null> {
     return this.database.exclusive(async () => {
       const row = await this.database.get<SettlementRow>(
-        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
+        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
          FROM settlements WHERE id = ?`,
         id,
       );
@@ -46,7 +50,7 @@ export class PostgresSettlementReadModels
       const history = await historyOfGroup(this.database, groupId);
       return (
         await this.database.all<SettlementRow>(
-          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
+          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
            FROM settlements WHERE group_id = ? ORDER BY seq`,
           groupId,
         )
@@ -69,7 +73,7 @@ export class PostgresSettlementReadModels
       const history = await historyOfGroup(this.database, groupId);
       return (
         await this.database.all<SettlementRow>(
-          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
+          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
            FROM settlements
            WHERE group_id = ? AND status IN ('paid', 'refunding') AND (payer = ? OR payee = ?)
            ORDER BY recorded_at, seq`,
@@ -87,11 +91,22 @@ export class PostgresSettlementReadModels
             method: row.method,
             payer: row.payer,
             payee: row.payee,
-            amount: row.amount,
+            amount: row.settled_amount ?? row.amount,
             countedFrom: counted ? counted.at.toISOString() : row.recorded_at,
           };
         })
         .sort((a, b) => Date.parse(a.countedFrom) - Date.parse(b.countedFrom));
+    });
+  }
+
+  /** Who bears the provider's fee of the group's payments, as its owner last said; the payee when no book says otherwise (request 38). */
+  async feePolicyOf(groupId: string): Promise<FeeBorne> {
+    return this.database.exclusive(async () => {
+      const row = await this.database.get<{ fee_policy: FeeBorne }>(
+        'SELECT fee_policy FROM settlement_books WHERE group_id = ?',
+        groupId,
+      );
+      return row ? row.fee_policy : 'payee';
     });
   }
 
@@ -123,7 +138,7 @@ export class PostgresSettlementReadModels
   async contested(): Promise<SettlementReadModel[]> {
     return this.database.exclusive(async () => {
       const rows = await this.database.all<SettlementRow>(
-        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
+        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
          FROM settlements WHERE status = 'contested' ORDER BY seq`,
       );
       const historyByGroup = new Map<string, Map<string, SettlementLine[]>>();
@@ -171,9 +186,9 @@ export class PostgresSettlementReadModels
     return (
       await this.database.all<{ member_id: string; amount: number }>(
         `SELECT member_id, SUM(delta) AS amount FROM (
-           SELECT payer AS member_id, amount AS delta FROM settlements WHERE group_id = ? AND status IN (${marks})
+           SELECT payer AS member_id, COALESCE(settled_amount, amount) AS delta FROM settlements WHERE group_id = ? AND status IN (${marks})
            UNION ALL
-           SELECT payee AS member_id, -amount AS delta FROM settlements WHERE group_id = ? AND status IN (${marks})
+           SELECT payee AS member_id, -COALESCE(settled_amount, amount) AS delta FROM settlements WHERE group_id = ? AND status IN (${marks})
          ) GROUP BY member_id`,
         groupId,
         ...statuses,
@@ -184,15 +199,19 @@ export class PostgresSettlementReadModels
   }
 }
 
-const toReadModel = (row: SettlementRow, history: readonly SettlementLine[]): SettlementReadModel => ({
-  id: row.id,
-  groupId: row.group_id,
-  from: row.payer,
-  to: row.payee,
-  amount: row.amount,
-  method: row.method,
-  status: row.status,
-  at: row.recorded_at,
-  ...(row.pay_url ? { payUrl: row.pay_url } : {}),
-  history: history.map(line => ({ status: line.status, at: line.at.toISOString() })),
-});
+const toReadModel = (row: SettlementRow, history: readonly SettlementLine[]): SettlementReadModel => {
+  const fee = feeOf(row);
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    from: row.payer,
+    to: row.payee,
+    amount: row.amount,
+    method: row.method,
+    status: row.status,
+    at: row.recorded_at,
+    ...(row.pay_url ? { payUrl: row.pay_url } : {}),
+    ...(fee ? { fee } : {}),
+    history: history.map(line => ({ status: line.status, at: line.at.toISOString() })),
+  };
+};

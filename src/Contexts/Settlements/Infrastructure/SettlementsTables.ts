@@ -84,4 +84,11 @@ export function createSettlementsTables(database: PostgresDatabase): void {
     account_id TEXT NOT NULL,
     version INTEGER NOT NULL
   )`);
+  // Who bears the provider's fee of a group's payments, as its owner said (request 38): a book's column, the payee until it is said. A
+  // payment through the provider keeps the fee it was asked with, and what it settles (`settled_amount`, its amount less the payer's part);
+  // a settlement with no fee keeps neither, and settles its amount.
+  database.declare("ALTER TABLE settlement_books ADD COLUMN IF NOT EXISTS fee_policy TEXT NOT NULL DEFAULT 'payee'");
+  database.declare('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS settled_amount INTEGER');
+  database.declare('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_amount INTEGER');
+  database.declare('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_borne_by TEXT');
 }

@@ -125,3 +125,21 @@ export class ProviderRefundUnavailable extends SettlementsException {
     super('ProviderRefundUnavailable', 'The payment provider did not accept the refund');
   }
 }
+
+export class OnlyTheOwnerMayChangeFeePolicy extends SettlementsException {
+  constructor() {
+    super('OnlyTheOwnerMayChangeFeePolicy', "Only the owner of the group may say who bears the provider's fee");
+  }
+}
+
+export class InvalidFeePolicy extends SettlementsException {
+  constructor() {
+    super('InvalidFeePolicy', "The provider's fee is borne by the payer, the payee or both, shared");
+  }
+}
+
+export class ProviderFeeInvalid extends SettlementsException {
+  constructor() {
+    super('ProviderFeeInvalid', "The payment provider's fee is a whole number, 0 or more, less than the amount");
+  }
+}

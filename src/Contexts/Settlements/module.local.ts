@@ -23,6 +23,7 @@ import {
 } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
 import {
   GetContestsQueryHandler,
+  GetFeePolicyQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetSettlementQueryHandler,
@@ -60,6 +61,10 @@ import {
   DecideContestCommandEvent,
   DecideContestCommandHandler,
 } from '@Contexts/Settlements/Application/Commands/DecideContest';
+import {
+  SetFeePolicyCommandEvent,
+  SetFeePolicyCommandHandler,
+} from '@Contexts/Settlements/Application/Commands/SetFeePolicy';
 import { GroupsMergedIntegrationEventHandler } from '@Contexts/Settlements/Application/Events/GroupsMerged/GroupsMergedIntegrationEventHandler';
 import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupsIntegrationEvents';
 
@@ -151,6 +156,10 @@ export const localSettlementsModule = new Module({
       event: DecideContestCommandEvent,
       handlers: [new DecideContestCommandHandler(books, systemClock, audit, administratorLog)],
     },
+    {
+      event: SetFeePolicyCommandEvent,
+      handlers: [new SetFeePolicyCommandHandler(books, members)],
+    },
   ],
   integrationEvents: [
     {
@@ -165,5 +174,6 @@ export const localSettlementsModule = new Module({
     new GetPayoutAccountQueryHandler(payoutAccountReadModels),
     new GetNettingQueryHandler(nettingReadModels),
     new GetContestsQueryHandler(readModels),
+    new GetFeePolicyQueryHandler(readModels, members),
   ],
 });

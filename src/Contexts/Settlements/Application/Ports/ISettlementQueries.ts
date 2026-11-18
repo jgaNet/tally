@@ -1,4 +1,5 @@
 import { SettlementReadModel } from '@Contexts/Settlements/Application/ReadModel/SettlementReadModel';
+import { FeeBorne } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
 /** Settlements' read side: a settlement as it was recorded, or null when there is none under the id. */
 export interface ISettlementQueries {
@@ -10,4 +11,6 @@ export interface ISettlementQueries {
   ofGroup(groupId: string): Promise<SettlementReadModel[]>;
   /** Every settlement contested now, the earliest contested first, each with its history (request 33). */
   contested(): Promise<SettlementReadModel[]>;
+  /** Who bears the provider's fee of the group's payments, as its owner last said; the payee when none has said (request 38). */
+  feePolicyOf(groupId: string): Promise<FeeBorne>;
 }

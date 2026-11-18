@@ -65,7 +65,7 @@ beforeAll(async () => {
       const paymentId = `pay_${issued.length + 1}`;
       issued.push({ paymentId, ...body });
       response.writeHead(201, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ id: paymentId, payUrl: `https://pay.example/${paymentId}` }));
+      response.end(JSON.stringify({ id: paymentId, fee: 0, payUrl: `https://pay.example/${paymentId}` }));
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));

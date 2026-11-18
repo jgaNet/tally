@@ -33,6 +33,7 @@ why, what it costs, and when to revisit it.
 | [26](0026-an-account-is-deleted-by-its-person-and-stays-as-a-placeholder-the-other-contexts-refuse-by-one-name.md) | An account is deleted by its person on the Account in Groups, and stays as a placeholder; what would start something new with it is refused by one name, decided by each context through the port it owns |
 | [27](0027-notice-preferences-are-an-aggregate-of-notifications-read-by-each-notice-as-it-is-made.md) | Notice preferences are an aggregate of Notifications, read by each notice as it is made, and a reminder not made is not recorded |
 | [28](0028-spending-insights-are-a-query-of-ledger-over-its-shares-with-the-groups-read-through-the-ports-it-owns.md) | Spending insights are a query of Ledger over its own shares, and the groups a person is in are read through the port Ledger owns |
+| [29](0029-the-provider-fee-is-borne-by-the-group-policy-of-the-book-and-a-settlement-settles-what-remains.md) | Who bears the provider's fee is the book's policy, set by the owner, and a settlement through the provider settles what remains after its payer's part |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

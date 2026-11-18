@@ -11,8 +11,10 @@ import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Applicat
 import { RefundSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
 import { ContestSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/ContestSettlement';
 import { DecideContestCommandEvent } from '@Contexts/Settlements/Application/Commands/DecideContest';
+import { SetFeePolicyCommandEvent } from '@Contexts/Settlements/Application/Commands/SetFeePolicy';
 import {
   GetContestsQueryHandler,
+  GetFeePolicyQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetSettlementQueryHandler,
@@ -121,6 +123,19 @@ export class FastifySettlementController {
     const result = await this.#module.getQuery(GetContestsQueryHandler).handle(undefined, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  async getFeePolicy(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetFeePolicyQueryHandler)
+      .handle({ groupId: req.params.id }, req.executionContext);
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  async setFeePolicy(req: FastifyRequest<{ Params: { id: string }; Body: { borneBy: string } }>, reply: FastifyReply) {
+    const { borneBy } = req.body;
+    return acceptCommand(req, reply, this.#module, SetFeePolicyCommandEvent.set({ groupId: req.params.id, borneBy }));
   }
 
   private refuse(reply: FastifyReply, error: Exception, context: ExecutionContext) {

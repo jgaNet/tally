@@ -40,7 +40,7 @@ export class ReceivePaymentWebhookCommandHandler extends CommandHandler<ReceiveP
         by: move.by.value,
         action: move.action,
         subjectId: move.settlement.id.value,
-        amount: move.settlement.amount,
+        amount: move.settlement.settledAmount,
       });
     }
 

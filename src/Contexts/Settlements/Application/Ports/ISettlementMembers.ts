@@ -9,6 +9,11 @@ export interface ISettlementMembers {
   /** Whether the account is a current member of the group. */
   isMemberOf(groupId: string, accountId: string): Promise<boolean>;
   /**
+   * The account's role in the group now: `owner` for the one who created it, `member` for whoever joined, null when it is not a member
+   * (request 38): read by the command that only the owner may run, inside its transaction, so it takes no lock. Groups decides it and answers.
+   */
+  roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null>;
+  /**
    * Whether the group is archived (request 27): read by each command that would settle or refund in it, inside its transaction, so it
    * takes no lock; the command refuses by GroupArchived. Groups decides it and answers (ADR 18).
    */
