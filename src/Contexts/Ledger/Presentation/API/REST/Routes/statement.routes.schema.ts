@@ -5,9 +5,11 @@ const RefusedSchema = {
 
 const StatementEntrySchema = {
   type: 'object',
-  required: ['expenseId', 'date', 'description', 'paid', 'share', 'balance'],
+  required: ['kind', 'date', 'description', 'paid', 'share', 'balance'],
   properties: {
+    kind: { type: 'string', enum: ['expense', 'settlement'] },
     expenseId: { type: 'string' },
+    settlementId: { type: 'string' },
     date: { type: 'string' },
     description: { type: 'string' },
     paid: { type: 'integer' },
@@ -26,9 +28,18 @@ const StatementSchema = {
   },
 } as const;
 
-/** A read (request 8): a member's statement, to a member of the group only; a member who has never been one does not exist. */
+/** A read (request 8, and its settlements of request 29): a member's statement, to a member of the group only; a member who has never been one does not exist. */
 export const GetStatementResSchema = {
   200: { description: 'Success', ...StatementSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;
+
+/**
+ * The same statement as CSV (request 29). Its 200 is text, which the controller sends as it is: no schema serialises it, so only the
+ * refusals, which are JSON, are described here.
+ */
+export const GetStatementCsvResSchema = {
   401: RefusedSchema,
   404: RefusedSchema,
 } as const;

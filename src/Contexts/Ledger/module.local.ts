@@ -51,6 +51,7 @@ import {
   GetGroupBudgetsQueryHandler,
   GetGroupExpensesQueryHandler,
   GetGroupRecurringExpensesQueryHandler,
+  GetMemberStatementCsvQueryHandler,
   GetMemberStatementQueryHandler,
   GetOfferedRateQueryHandler,
   GetRecurringExpenseQueryHandler,
@@ -131,6 +132,8 @@ const receipts = new SqliteReceiptRepository(database);
  * through the ports Ledger owns, each written by the context that made the change.
  */
 const audit = new SqliteAuditLog(database);
+// What a member's statement reads (requests 8 and 29): the group's members, when each expense was recorded, and the settlements counted.
+const statementSources = { groupMembers: members, audit, settled };
 const settlementAudit = new SettlementAuditFromSettlements(() => settlementsAudit);
 const passedBalances = new PassedBalancesFromGroups(() => groupAudit);
 const receiptReadModels = new SqliteReceiptReadModels(database);
@@ -227,7 +230,8 @@ export const localLedgerModule = new Module({
     new GetReceiptQueryHandler(receiptReadModels, expenseReadModels, members),
     new GetGroupExpensesQueryHandler(expenseReadModels, members),
     new GetGroupAuditQueryHandler(audit, settlementAudit, passedBalances, members),
-    new GetMemberStatementQueryHandler(expenseReadModels, members),
+    new GetMemberStatementQueryHandler(expenseReadModels, statementSources),
+    new GetMemberStatementCsvQueryHandler(expenseReadModels, statementSources),
     new GetOfferedRateQueryHandler(offeredRates, members, currencies, systemClock),
     new GetRecurringExpenseQueryHandler(recurringReadModels, members),
     new GetGroupRecurringExpensesQueryHandler(recurringReadModels, members),

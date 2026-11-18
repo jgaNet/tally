@@ -1,15 +1,15 @@
-import { ISettledAmounts, SettledAmount } from '@Contexts/Ledger/Application/Ports/ISettledAmounts';
+import { CountedSettlement, ISettledAmounts, SettledAmount } from '@Contexts/Ledger/Application/Ports/ISettledAmounts';
 import { ISettledAmountsQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettledAmountsQueries';
 
-/**
- * Ledger's port to Settlements, answered over Settlements' read model (ADR 7): the change each member's settlements make to
- * their balance, read through the port Settlements publishes. The read model is a function, the one Settlements' wiring
- * exports, because the two wiring files import each other (ADR 4): it is read when the settled amounts are asked.
- */
+/** Ledger's `ISettledAmounts`, answered over Settlements' read model, which the wiring of Settlements gives it when it is asked (ADR 4). */
 export class SettledAmountsFromSettlements implements ISettledAmounts {
   constructor(private settlements: () => ISettledAmountsQueries) {}
 
   async settledOf(groupId: string): Promise<SettledAmount[]> {
     return this.settlements().settledOf(groupId);
+  }
+
+  async countedOf(groupId: string, memberId: string): Promise<CountedSettlement[]> {
+    return this.settlements().countedOf(groupId, memberId);
   }
 }

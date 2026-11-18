@@ -68,7 +68,23 @@ async function statement(token: string, groupId: string, memberId: string): Prom
   return http.get(`${api}/groups/${groupId}/members/${memberId}/statement`, { token });
 }
 
-type Entry = { expenseId: string; date: string; description: string; paid: number; share: number; balance: number };
+/** Records a settlement in cash, paid by `from` to the caller, and follows its operation. */
+async function settle(token: string, groupId: string, body: { from: string; amount: number }): Promise<Operation> {
+  const answer = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, { token, body });
+  if (answer.status !== 202) return { status: `HTTP ${answer.status}` } as Operation;
+  return outcome((answer.body as { operationId: string }).operationId, token);
+}
+
+type Entry = {
+  kind: 'expense' | 'settlement';
+  expenseId?: string;
+  settlementId?: string;
+  date: string;
+  description: string;
+  paid: number;
+  share: number;
+  balance: number;
+};
 type Statement = { memberId: string; balance: number; entries: Entry[] };
 
 /** A day long past, which every expense may be spent on. */
@@ -179,9 +195,33 @@ describe("a member's statement", () => {
       memberId: alice.id,
       balance: 450,
       entries: [
-        { expenseId: expect.any(String), date: PAST_DAY, description: 'Fuel', paid: 0, share: 150, balance: -150 },
-        { expenseId: expect.any(String), date: PAST_DAY, description: 'Tea', paid: 200, share: 100, balance: -50 },
-        { expenseId: expect.any(String), date: LATER_DAY, description: 'Dinner', paid: 1000, share: 500, balance: 450 },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: PAST_DAY,
+          description: 'Fuel',
+          paid: 0,
+          share: 150,
+          balance: -150,
+        },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: PAST_DAY,
+          description: 'Tea',
+          paid: 200,
+          share: 100,
+          balance: -50,
+        },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: LATER_DAY,
+          description: 'Dinner',
+          paid: 1000,
+          share: 500,
+          balance: 450,
+        },
       ],
     } satisfies Statement);
 
@@ -234,8 +274,122 @@ describe('Groups → Ledger', () => {
       memberId: bob.id,
       balance: 50,
       entries: [
-        { expenseId: expect.any(String), date: PAST_DAY, description: 'Bread', paid: 100, share: 50, balance: 50 },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: PAST_DAY,
+          description: 'Bread',
+          paid: 100,
+          share: 50,
+          balance: 50,
+        },
       ],
     } satisfies Statement);
+  });
+
+  it('lists the settlements the balances count beside the expenses, each on the day it started to count', async () => {
+    const alice = await signedIn('st-settle-alice@example.com', 'Alice');
+    const bob = await signedIn('st-settle-bob@example.com', 'Bob');
+    const groupId = await createGroup(alice.token, 'Settled');
+    await join(alice.token, groupId, bob.token);
+    await record(alice.token, groupId, {
+      description: 'Dinner',
+      amount: 300,
+      date: PAST_DAY,
+      splitBetween: [alice.id, bob.id],
+    });
+    // Bob pays Alice 100 in cash, which Alice records as its payee: counted from the moment it is recorded.
+    expect(await settle(alice.token, groupId, { from: bob.id, amount: 100 })).toMatchObject({ status: 'SUCCESS' });
+
+    const bobs = await statement(bob.token, groupId, bob.id);
+    expect(bobs.body).toEqual({
+      memberId: bob.id,
+      balance: -50,
+      entries: [
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: PAST_DAY,
+          description: 'Dinner',
+          paid: 0,
+          share: 150,
+          balance: -150,
+        },
+        {
+          kind: 'settlement',
+          settlementId: expect.any(String),
+          date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+          description: 'Settlement in cash',
+          paid: 100,
+          share: 0,
+          balance: -50,
+        },
+      ],
+    } satisfies Statement);
+
+    const alices = await statement(alice.token, groupId, alice.id);
+    expect(alices.body).toEqual({
+      memberId: alice.id,
+      balance: 50,
+      entries: [
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: PAST_DAY,
+          description: 'Dinner',
+          paid: 300,
+          share: 150,
+          balance: 150,
+        },
+        {
+          kind: 'settlement',
+          settlementId: expect.any(String),
+          date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+          description: 'Settlement in cash',
+          paid: 0,
+          share: 100,
+          balance: 50,
+        },
+      ],
+    } satisfies Statement);
+  });
+
+  it('reads the statement as CSV: a header, one CRLF line per entry in the same order, and quotes only where a field needs them', async () => {
+    const alice = await signedIn('st-csv-alice@example.com', 'Alice');
+    const bob = await signedIn('st-csv-bob@example.com', 'Bob');
+    const groupId = await createGroup(alice.token, 'Exported');
+    await join(alice.token, groupId, bob.token);
+    await record(alice.token, groupId, {
+      description: 'Pizza, "large"',
+      amount: 300,
+      date: PAST_DAY,
+      splitBetween: [alice.id, bob.id],
+    });
+    expect(await settle(alice.token, groupId, { from: bob.id, amount: 100 })).toMatchObject({ status: 'SUCCESS' });
+
+    const json = (await statement(bob.token, groupId, bob.id)).body as Statement;
+    const [expense, settlement] = json.entries;
+    const answer = await http.get(`${api}/groups/${groupId}/members/${bob.id}/statement.csv`, { token: bob.token });
+    expect(answer.status).toBe(200);
+    expect(answer.headers.get('content-type')).toMatch(/^text\/csv/);
+    expect(answer.body).toBe(
+      [
+        'date,kind,id,description,paid,share,balance',
+        `${PAST_DAY},expense,${expense.expenseId},"Pizza, ""large""",0,150,-150`,
+        `${settlement.date},settlement,${settlement.settlementId},Settlement in cash,100,0,-50`,
+        '',
+      ].join('\r\n'),
+    );
+  });
+
+  it('answers the CSV statement with the same refusals as the statement: 401 without a caller, 404 to a non-member', async () => {
+    const ann = await signedIn('st-csv-refuse-ann@example.com', 'Ann');
+    const stranger = await signedIn('st-csv-refuse-stranger@example.com', 'Stranger');
+    const groupId = await createGroup(ann.token, 'Closed');
+
+    expect(await http.get(`${api}/groups/${groupId}/members/${ann.id}/statement.csv`)).toMatchObject({ status: 401 });
+    expect(
+      await http.get(`${api}/groups/${groupId}/members/${ann.id}/statement.csv`, { token: stranger.token }),
+    ).toMatchObject({ status: 404 });
   });
 });

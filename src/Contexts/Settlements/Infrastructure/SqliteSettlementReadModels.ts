@@ -5,6 +5,7 @@ import { IWaitingPaymentsQueries } from '@Contexts/Settlements/Domain/Settlement
 import { ISettlementQueries } from '@Contexts/Settlements/Application/Ports/ISettlementQueries';
 import { SettlementReadModel } from '@Contexts/Settlements/Application/ReadModel/SettlementReadModel';
 import {
+  CountedSettlementOf,
   ISettledAmountsQueries,
   SettledAmountOf,
 } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettledAmountsQueries';
@@ -55,6 +56,42 @@ export class SqliteSettlementReadModels
 
   async settledOf(groupId: string): Promise<SettledAmountOf[]> {
     return this.effectOf(groupId, ['paid', 'refunding']);
+  }
+
+  /**
+   * The settlements a member pays or receives that the balances count (paid, or being refunded), the earliest counted first, each with
+   * the instant it started to count: the first time it was paid (its history, ADR 19 and request 19), or its recording when none of its
+   * history says so (a settlement stored before its history was kept). Read in the statement, outside any transaction, so it takes the
+   * file's lock when it is not held already.
+   */
+  async countedOf(groupId: string, memberId: string): Promise<CountedSettlementOf[]> {
+    return this.database.exclusive(() => {
+      const history = historyOfGroup(this.database, groupId);
+      return this.database
+        .all<SettlementRow>(
+          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url
+           FROM settlements
+           WHERE group_id = ? AND status IN ('paid', 'refunding') AND (payer = ? OR payee = ?)
+           ORDER BY recorded_at, rowid`,
+          groupId,
+          memberId,
+          memberId,
+        )
+        .map(row => {
+          const counted = (history.get(row.id) ?? []).find(
+            line => line.status === 'paid' || line.status === 'refunding',
+          );
+          return {
+            settlementId: row.id,
+            method: row.method,
+            payer: row.payer,
+            payee: row.payee,
+            amount: row.amount,
+            countedFrom: counted ? counted.at.toISOString() : row.recorded_at,
+          };
+        })
+        .sort((a, b) => Date.parse(a.countedFrom) - Date.parse(b.countedFrom));
+    });
   }
 
   async pendingEffectOf(groupId: string): Promise<SettledAmountOf[]> {

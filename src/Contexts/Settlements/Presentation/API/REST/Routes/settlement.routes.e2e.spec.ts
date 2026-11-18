@@ -297,7 +297,7 @@ describe('settle in cash (request 12)', () => {
     expect(await http.get(`${api}/settlements/${settlementId}`)).toMatchObject({ status: 401 });
   });
 
-  it('counts a settlement in the balance a member leaves with, and not in a statement, which is the expenses alone', async () => {
+  it('counts a settlement in the balance a member leaves with, and lists it in the statement beside the expenses', async () => {
     const ann = await signedIn('sc-leave-ann@example.com', 'Ann');
     const bob = await signedIn('sc-leave-bob@example.com', 'Bob');
     const groupId = await createGroup(ann.token, 'Leaving');
@@ -318,7 +318,14 @@ describe('settle in cash (request 12)', () => {
     expect(await settle(ann.token, groupId, { from: bob.id, amount: 20 })).toMatchObject({ status: 'SUCCESS' });
     expect(await http.get(`${api}/groups/${groupId}/members/${bob.id}/statement`, { token: bob.token })).toMatchObject({
       status: 200,
-      body: { memberId: bob.id, balance: -20 },
+      body: {
+        memberId: bob.id,
+        balance: 0,
+        entries: [
+          { kind: 'expense', description: 'Taxi', paid: 0, share: 20, balance: -20 },
+          { kind: 'settlement', description: 'Settlement in cash', paid: 20, share: 0, balance: 0 },
+        ],
+      },
     });
 
     // Bob's settlement is counted in his balance, which is 0 now: leaving passes nothing, and Ann's balance is 0 too.
