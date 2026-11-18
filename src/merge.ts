@@ -26,7 +26,7 @@ interface KeptMembershipRow {
  * Refused, in this order: `404` when the caller is not a current member of either group (as if it did not exist); `422` as
  * `GroupsAreTheSame` when both are one group; `409` as `GroupIsArchived` when either is archived (see {@link assertNotArchived});
  * `403` as `NotOwner` when the caller does not own both; `422` as `CurrenciesDiffer` when their currencies differ; `409` as
- * `SettlementIsInProgress` while a settlement through the provider in the group merged is `pending` or `refunding`.
+ * `SettlementIsInProgress` while a settlement through the provider in the group merged is `pending`, `refunding` or `contested`.
  *
  * Once it is done: the members of the group merged join the group kept, after its members, in the order they had joined the
  * group merged (a member of both stays where they are; a former member of the group merged is a former member of the group
@@ -61,7 +61,7 @@ export async function mergeGroups(
     const waiting = await tx
       .prepare(
         `SELECT 1 FROM settlements
-         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')`,
+         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding', 'contested')`,
       )
       .get(mergedId);
     if (waiting !== undefined) {

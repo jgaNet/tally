@@ -20,8 +20,9 @@ interface BalanceRow {
 export interface BalanceOptions {
   /**
    * When true, a settlement waiting at the payment provider counts as if it were paid: what is still
-   * owed is what is owed less what is waiting to be paid. Off by default: the group's balances count a
-   * settlement once it is paid, and not before.
+   * owed is what is owed less what is waiting to be paid. A settlement contested by its payee waits the same
+   * way (until an administrator decides it), so it counts too. Off by default: the group's balances count a
+   * settlement once it is paid, and not while it is contested, and not before.
    */
   readonly includePending?: boolean;
 }
@@ -30,7 +31,7 @@ export interface BalanceOptions {
  * The statuses of the settlements that count, as a constant chosen here, never a value from a request.
  */
 function countedStatuses(options: BalanceOptions): string {
-  return options.includePending ? `'paid', 'refunding', 'pending'` : `'paid', 'refunding'`;
+  return options.includePending ? `'paid', 'refunding', 'pending', 'contested'` : `'paid', 'refunding'`;
 }
 
 /**
@@ -95,7 +96,8 @@ export async function balanceOfMembership(db: Querier, groupId: string, accountI
  *
  * A settlement counts once it is `paid`, and goes on counting while it is `refunding`, since the money has not
  * gone back yet; a `refunded`, `failed` one never counts. With `includePending`, a `pending` one counts too, as
- * if paid.
+ * if paid. A `contested` one does not count, as it is as it was before it was paid; with `includePending`, it counts
+ * too, as it waits for an administrator to decide.
  *
  * It is one statement, so it reads one consistent state of the database: an expense recorded by another
  * server is either wholly counted or not at all. Reading never changes what is stored.

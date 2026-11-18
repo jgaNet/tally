@@ -1,6 +1,8 @@
 import cors from '@fastify/cors';
 import Fastify, { FastifyInstance } from 'fastify';
+import { registerAdminRoutes } from './routes/admin';
 import { registerAuditRoutes } from './routes/audit';
+import { administratorEmailsOf } from './administrators';
 import { openDatabase } from './database';
 import { sendError } from './http';
 import type { ProviderConfig } from './provider';
@@ -63,6 +65,9 @@ function secondsFrom(value: string | undefined, fallback: number): number {
  *
  * The receipts attached to expenses are kept in the receipts store at `receiptsUrl` (`RECEIPTS_URL`), the base of its API;
  * without it, attaching a receipt is refused. The store has `receiptsTimeoutMs` (5000 by default) to answer.
+ *
+ * The administrators are the accounts whose email is one of `adminEmails` (`ADMIN_EMAILS`, a list separated by commas,
+ * whatever its case). They decide the settlements contested by their payees (see `routes/admin.ts`).
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
@@ -76,6 +81,7 @@ export async function createApplication({
   ratesTimeoutMs = 5000,
   receiptsUrl = process.env.RECEIPTS_URL,
   receiptsTimeoutMs = 5000,
+  adminEmails = process.env.ADMIN_EMAILS,
   jobsIntervalSeconds = secondsFrom(process.env.JOBS_INTERVAL_SECONDS, 60),
   reminderPeriodSeconds = secondsFrom(process.env.REMINDER_PERIOD_SECONDS, DEFAULT_REMINDER_PERIOD_SECONDS),
   clock = () => new Date(),
@@ -91,6 +97,7 @@ export async function createApplication({
   ratesTimeoutMs?: number;
   receiptsUrl?: string;
   receiptsTimeoutMs?: number;
+  adminEmails?: string;
   jobsIntervalSeconds?: number;
   reminderPeriodSeconds?: number;
   clock?: () => Date;
@@ -98,6 +105,7 @@ export async function createApplication({
   // An empty value is no value: no file to move, and no database is a mistake.
   if (!databaseUrl) throw new Error('DATABASE_URL names the PostgreSQL database Tally keeps its state in.');
   const db = await openDatabase({ url: databaseUrl, legacyPath: databasePath || undefined });
+  const administrators = administratorEmailsOf(adminEmails);
   // An empty value is no value: the provider is not configured.
   const provider: ProviderConfig = {
     url: providerUrl || undefined,
@@ -142,6 +150,7 @@ export async function createApplication({
       registerTemplateRoutes(api, db);
       registerOperationRoutes(api, db);
       registerAuditRoutes(api, db);
+      registerAdminRoutes(api, db, administrators);
     },
     { prefix: `/${apiPrefix}` },
   );

@@ -4,6 +4,7 @@ import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
 import type { ProviderConfig } from '../provider';
 import {
+  contestSettlement,
   findSettlementOfMember,
   recordCashSettlement,
   refundSettlement,
@@ -38,7 +39,8 @@ const REQUEST_PROVIDER_SETTLEMENT_BODY = {
   properties: { to: { type: 'string' }, amount: { type: 'number' } },
 };
 
-const SETTLEMENT = {
+/** A settlement, as a member of its group reads it, and as an administrator reads a contested one. */
+export const SETTLEMENT = {
   type: 'object',
   required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
   properties: {
@@ -48,7 +50,7 @@ const SETTLEMENT = {
     to: { type: 'string' },
     amount: { type: 'integer' },
     method: { enum: ['cash', 'provider', 'net'] },
-    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string' },
     payUrl: { type: 'string' },
     history: {
@@ -58,7 +60,7 @@ const SETTLEMENT = {
         type: 'object',
         required: ['status', 'at'],
         properties: {
-          status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+          status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
           at: { type: 'string' },
         },
       },
@@ -129,6 +131,13 @@ export function registerSettlementRoutes(server: FastifyInstance, db: Database, 
   server.post<{ Params: { id: string } }>('/settlements/:id/refund', async (request, reply) => {
     const caller = await requireCaller(db, request);
     await refundSettlement(db, provider, { settlementId: request.params.id, accountId: caller.id });
+    return reply.code(204).send();
+  });
+
+  // The payee is the caller, who says the money did not reach them; a caller who is not a member sees no settlement.
+  server.post<{ Params: { id: string } }>('/settlements/:id/contest', async (request, reply) => {
+    const caller = await requireCaller(db, request);
+    await contestSettlement(db, { settlementId: request.params.id, accountId: caller.id });
     return reply.code(204).send();
   });
 

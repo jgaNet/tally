@@ -169,7 +169,7 @@ export async function isOrWasMember(db: Querier, accountId: string, groupId: str
  * did not exist). The owner, who created the group, cannot leave it (`403`). Whatever the member's balance,
  * they may leave: it passes to the owner (see {@link balancesOfGroup}), in this same step, so the balances
  * still add up to 0. But not while a settlement through the payment provider that they pay or receive is
- * `pending` or `refunding` (`409`): they leave once it has ended. A member who left is no longer among the
+ * `pending`, `refunding` or `contested` (`409`): they leave once it has ended. A member who left is no longer among the
  * group's members or balances, and the group is not among their groups; their expenses stay as they were.
  * The check and the leaving are one transaction, so an expense or settlement recorded at the same moment
  * is either counted before the member leaves, or refused because they are no longer a member. An archived group
@@ -187,7 +187,7 @@ export async function leaveGroup(db: Database, input: { groupId: string; account
     const waiting = await tx
       .prepare(
         `SELECT 1 FROM settlements
-         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')
+         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding', 'contested')
            AND (payer_id = ? OR payee_id = ?)`,
       )
       .get(groupId, accountId, accountId);
@@ -219,7 +219,7 @@ export async function leaveGroup(db: Database, input: { groupId: string; account
 
 /**
  * Archives the group, which its owner does, once every member's balance is 0 and no settlement through the provider is
- * `pending` or `refunding`. The group stays, for the record, and nothing in it changes any more; `archivedAt` says when it
+ * `pending`, `refunding` or `contested`. The group stays, for the record, and nothing in it changes any more; `archivedAt` says when it
  * was archived. Refused with `404` when `accountId` is not a current member of the group, with `409` as `GroupIsArchived`
  * when it is archived already, with `403` as `NotOwner` when the caller is another member, with `409` as
  * `BalancesAreNotZero` when a balance is not 0, and with `409` as `SettlementIsInProgress` when a settlement through the
@@ -241,7 +241,7 @@ export async function archiveGroup(db: Database, input: { groupId: string; accou
     const waiting = await tx
       .prepare(
         `SELECT 1 FROM settlements
-         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')`,
+         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding', 'contested')`,
       )
       .get(groupId);
     if (waiting !== undefined) {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recordAdminLog } from './admin-log';
 import { recordAudit } from './audit';
 import { type Balance, balancesOfGroup } from './balances';
 import type { Database, Querier } from './database';
@@ -74,9 +75,11 @@ export interface Settlement {
   readonly method: 'cash' | 'provider' | 'net';
   /**
    * `pending` while the provider has not ended the payment; `failed` when it failed, and it never counts. A `paid`
-   * one is `refunding` once its refund is asked of the provider, and `refunded` once the provider says so.
+   * one is `refunding` once its refund is asked of the provider, and `refunded` once the provider says so. A `paid`
+   * one through the provider is `contested` once its payee says the money did not arrive, and then `paid` again, or
+   * `annulled` (it never counts), as an administrator decides.
    */
-  readonly status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+  readonly status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
   readonly at: string;
   /** The link where the payer pays, through the provider; a settlement in cash has none. */
   readonly payUrl?: string;
@@ -489,6 +492,157 @@ export async function settlementsOfGroup(db: Database, readerId: string, groupId
       )
       .all<SettlementRow>(groupId);
     const histories = await historiesOf(snapshot, groupId);
+    return rows.map(row => settlementOf(row, histories.get(row.id) ?? []));
+  });
+}
+
+/**
+ * Contests the settlement `settlementId`, which `accountId` (the caller) must be the payee of: the payee says the money did
+ * not reach them. Only a settlement through the provider that is `paid` is contested, and once: a settlement contested before,
+ * even one an administrator has decided was paid, is refused. Its payer and payee must be current members of the group, and
+ * the group must not be archived.
+ *
+ * It is `contested` from then on: the balances do not count it, as they were before it was paid, while the rules that wait
+ * for a payment at the provider still count it as paid (see `balances.ts`). A webhook about its payment changes nothing.
+ * It is recorded in its history, and in the audit of the group as a `settlement-contested` by its payee, with its amount.
+ *
+ * Refused with `404` when the caller is not a current member of the settlement's group, as if it did not exist; with `409`
+ * as `GroupIsArchived` when the group is archived; with `403` as `NotThePayee` when the caller is not the payee; with `409`
+ * as `NotPaidThroughProvider` when the settlement was not paid through the provider, as `SettlementIsNotPaid` when it is not
+ * `paid`, as `SettlementWasContested` when it was contested before, as `RefundIsInProgress` when a refund of it is being asked
+ * of the provider, and as `MemberHasLeft` when its payer or payee has left the group. Refused, nothing changes.
+ *
+ * The check and the contest are one transaction, so two contests at once cannot both be made.
+ */
+export async function contestSettlement(
+  db: Database,
+  input: { settlementId: string; accountId: string },
+): Promise<void> {
+  const { settlementId, accountId } = input;
+  await inTransaction(db, async tx => {
+    const row = await tx
+      .prepare(
+        `SELECT s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status FROM settlements s
+         JOIN group_members m ON m.group_id = s.group_id
+         WHERE s.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
+      )
+      .get<{
+        group_id: string;
+        payer_id: string;
+        payee_id: string;
+        amount: number;
+        method: Settlement['method'];
+        status: Settlement['status'];
+      }>(settlementId, accountId);
+    if (!row) throw new Refusal(404, 'SettlementNotFound', 'No settlement has this id.');
+    const group = await findGroup(tx, row.group_id);
+    if (group) assertNotArchived(group);
+    if (row.payee_id !== accountId) {
+      throw new Refusal(403, 'NotThePayee', 'Only the member who was paid can contest the settlement.');
+    }
+    if (row.method !== 'provider') {
+      throw new Refusal(409, 'NotPaidThroughProvider', 'Only a settlement paid through the provider can be contested.');
+    }
+    if (row.status !== 'paid') {
+      throw new Refusal(409, 'SettlementIsNotPaid', 'Only a settlement that is paid can be contested.');
+    }
+    const contestedBefore = await tx
+      .prepare(`SELECT 1 FROM settlement_statuses WHERE settlement_id = ? AND status = 'contested'`)
+      .get(settlementId);
+    if (contestedBefore !== undefined) {
+      throw new Refusal(409, 'SettlementWasContested', 'A settlement is contested once.');
+    }
+    if (refundsInFlight.has(settlementId)) throw new Refusal(409, 'RefundIsInProgress', REFUND_IN_PROGRESS);
+    const members = (await membersOfGroup(tx, row.group_id)).map(member => member.memberId);
+    if (!members.includes(row.payer_id) || !members.includes(row.payee_id)) {
+      throw new Refusal(409, 'MemberHasLeft', 'Both members of the settlement must be in the group to contest it.');
+    }
+    const at = new Date().toISOString();
+    await tx.prepare(`UPDATE settlements SET status = 'contested' WHERE id = ?`).run(settlementId);
+    await recordStatus(tx, settlementId, 'contested', at);
+    await recordAudit(tx, {
+      groupId: row.group_id,
+      at,
+      by: accountId,
+      action: 'settlement-contested',
+      subjectId: settlementId,
+      amount: Number(row.amount),
+    });
+  });
+}
+
+/**
+ * The administrator `administratorId` decides the contested settlement `settlementId`: `paid` when the money arrived, which
+ * makes it `paid` again and counted as it was before it was contested (its `settlement-paid` audit entry is by the
+ * administrator); otherwise `annulled`, which nothing counts any more, so what was owed is owed again. Either way the decision
+ * is entered in the administrators' log (see `admin-log.ts`).
+ *
+ * Refused with `404` when there is no settlement with this id, and with `409` as `SettlementIsNotContested` when it is not
+ * contested: only a contested settlement is decided, once. The check and the decision are one transaction.
+ */
+export async function decideContest(
+  db: Database,
+  input: { settlementId: string; administratorId: string; paid: boolean },
+): Promise<void> {
+  const { settlementId, administratorId, paid } = input;
+  await inTransaction(db, async tx => {
+    const row = await tx
+      .prepare('SELECT group_id, amount, status FROM settlements WHERE id = ?')
+      .get<{ group_id: string; amount: number; status: Settlement['status'] }>(settlementId);
+    if (!row) throw new Refusal(404, 'SettlementNotFound', 'No settlement has this id.');
+    if (row.status !== 'contested') {
+      throw new Refusal(409, 'SettlementIsNotContested', 'Only a contested settlement is decided.');
+    }
+    const at = new Date().toISOString();
+    const status = paid ? 'paid' : 'annulled';
+    await tx.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(status, settlementId);
+    await recordStatus(tx, settlementId, status, at);
+    if (paid) {
+      await recordAudit(tx, {
+        groupId: row.group_id,
+        at,
+        by: administratorId,
+        action: 'settlement-paid',
+        subjectId: settlementId,
+        amount: Number(row.amount),
+      });
+    }
+    await recordAdminLog(tx, {
+      at,
+      by: administratorId,
+      action: paid ? 'decided-paid' : 'decided-annulled',
+      subjectId: settlementId,
+    });
+  });
+}
+
+/**
+ * The settlements contested now, as {@link findSettlementOfMember} reads each (whatever the group, and whoever reads them: the
+ * administrators do, see `routes/admin.ts`), the earliest contested first. It reads one consistent state of the database and
+ * changes nothing.
+ */
+export async function contestedSettlements(db: Database): Promise<Settlement[]> {
+  return inReadSnapshot(db, async snapshot => {
+    const rows = await snapshot
+      .prepare(
+        `SELECT ${SETTLEMENT_COLUMNS} FROM settlements s
+         WHERE s.status = 'contested'
+         ORDER BY (SELECT MIN(h.seq) FROM settlement_statuses h WHERE h.settlement_id = s.id AND h.status = 'contested') ASC,
+                  s.seq ASC`,
+      )
+      .all<SettlementRow>();
+    const histories = new Map<string, StatusChange[]>();
+    const statusRows = await snapshot
+      .prepare(
+        `SELECT settlement_id, status, at FROM settlement_statuses
+         WHERE settlement_id IN (SELECT id FROM settlements WHERE status = 'contested') ORDER BY seq ASC`,
+      )
+      .all<StatusRow>();
+    for (const row of statusRows) {
+      const history = histories.get(row.settlement_id) ?? [];
+      history.push({ status: row.status, at: row.at });
+      histories.set(row.settlement_id, history);
+    }
     return rows.map(row => settlementOf(row, histories.get(row.id) ?? []));
   });
 }

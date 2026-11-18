@@ -95,8 +95,8 @@ function byDateThenInstant(a: CountedEntry, b: CountedEntry): number {
  * (else `404`, as if the group did not exist). `memberId` must be a member of the group, or have left it (else `404`).
  *
  * A settlement is counted as the balances count it (see `balances.ts`): a cash one from when it is recorded, a
- * provider one from when it is paid until it is refunded. So a `pending`, `failed` or `refunded` settlement is
- * left out, and a `refunding` one is listed, since the money has not gone back yet. Its date is the UTC day of
+ * provider one from when it is paid until it is refunded. So a `pending`, `failed`, `refunded`, `contested` or `annulled`
+ * settlement is left out, and a `refunding` one is listed, since the money has not gone back yet. Its date is the UTC day of
  * the first `paid` in its history. It reads one consistent state of the database and changes nothing.
  */
 export async function statementOfMember(

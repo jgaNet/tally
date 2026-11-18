@@ -17,6 +17,7 @@ const AUDIT_ENTRY = {
         'expense-deleted',
         'settlement-paid',
         'settlement-refunded',
+        'settlement-contested',
         'balance-passed',
       ],
     },
