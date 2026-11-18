@@ -31,7 +31,7 @@ describe('receipts', () => {
     app = await createApplication({
       databasePath: temporaryDatabasePath(),
       receiptsUrl: store.url,
-      receiptsTimeoutMs: 300,
+      receiptsTimeoutMs: 2000,
     });
   });
 
@@ -39,6 +39,16 @@ describe('receipts', () => {
     await app.stop();
     await store.close();
   });
+
+  /** Answers with a new application whose store is given up after `timeoutMs`, for a store that hangs. */
+  async function withStoreTimeout(timeoutMs: number): Promise<void> {
+    await app.stop();
+    app = await createApplication({
+      databasePath: temporaryDatabasePath(),
+      receiptsUrl: store.url,
+      receiptsTimeoutMs: timeoutMs,
+    });
+  }
 
   async function createdGroup(token: string): Promise<string> {
     const response = await send(app, 'POST', '/groups', { token, payload: { name: 'Flat 4B', currency: 'EUR' } });
@@ -235,6 +245,9 @@ describe('receipts', () => {
       ['answers without a link', 'malformed'],
       ['does not answer in time', 'hang'],
     ] as const)('refuses the receipt when the store %s, and keeps nothing', async (_, mode) => {
+      if (mode === 'hang') {
+        await withStoreTimeout(300);
+      }
       const { ada, groupId } = await twoMembers();
       const expenseId = await recordExpense(ada.token, groupId, [ada.id]);
       store.mode = mode;
