@@ -7,3 +7,4 @@ export { rateRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/rate.r
 export { recurringRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/recurring.routes';
 export { statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/statement.routes';
 export { receiptRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/receipt.routes';
+export { insightRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/insight.routes';

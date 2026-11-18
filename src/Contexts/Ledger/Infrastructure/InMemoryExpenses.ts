@@ -132,6 +132,11 @@ export class InMemoryGroupMembers implements IGroupMembers {
     return (this.members.get(groupId) ?? []).includes(accountId.value);
   }
 
+  /** The groups the test gives the account is a member of: every group whose members it is in, the archived ones too. */
+  async groupsOf(accountId: Id): Promise<string[]> {
+    return [...this.members].filter(([, members]) => members.includes(accountId.value)).map(([groupId]) => groupId);
+  }
+
   async roleOf(groupId: string, accountId: Id): Promise<GroupRole | null> {
     const members = this.members.get(groupId) ?? [];
     if (!members.includes(accountId.value)) return null;

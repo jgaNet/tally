@@ -107,6 +107,18 @@ export class PostgresGroupReadModels implements IGroupQueries, IGroupMembersQuer
     );
   }
 
+  /** The groups the account is a member of now (request 37), read by a query outside any transaction, so it waits for one in progress. */
+  async groupIdsOf(accountId: string): Promise<string[]> {
+    return this.database.exclusive(async () =>
+      (
+        await this.database.all<{ group_id: string }>(
+          'SELECT group_id FROM group_members WHERE account_id = ? AND left_at IS NULL ORDER BY group_id',
+          accountId,
+        )
+      ).map(row => row.group_id),
+    );
+  }
+
   /** Whether the account has been a member, now or before it left (ADR 4): a former member's statement is still read. */
   async hasBeenMemberOf(groupId: string, accountId: string): Promise<boolean> {
     return this.database.exclusive(

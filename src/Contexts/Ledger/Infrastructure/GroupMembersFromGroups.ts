@@ -31,6 +31,10 @@ export class GroupMembersFromGroups implements IGroupMembers {
     return this.groups().isMemberOf(groupId, accountId.value);
   }
 
+  async groupsOf(accountId: Id): Promise<string[]> {
+    return this.groups().groupIdsOf(accountId.value);
+  }
+
   async roleOf(groupId: string, accountId: Id): Promise<GroupRole | null> {
     return this.groups().roleOf(groupId, accountId.value);
   }

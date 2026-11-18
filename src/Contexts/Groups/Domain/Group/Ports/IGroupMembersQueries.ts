@@ -12,6 +12,11 @@ export interface IGroupMembersQueries {
   /** Whether the account is a member of the group now, read by a query outside any transaction. */
   isMemberOf(groupId: string, accountId: string): Promise<boolean>;
   /**
+   * The groups the account is a current member of, archived ones included (request 37): read by a query outside any transaction, to say
+   * what a person spent across them. A merged group is gone, and what it held is in the group it was merged into.
+   */
+  groupIdsOf(accountId: string): Promise<string[]>;
+  /**
    * The account's role in the group now: `owner` for the one who created it, `member` for whoever joined, null when it is
    * not a member or there is no such group. Read by the command deciding on it, inside its own transaction: no lock.
    */

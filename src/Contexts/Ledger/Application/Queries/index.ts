@@ -10,3 +10,4 @@ export { GetGroupRecurringExpensesQueryHandler } from '@Contexts/Ledger/Applicat
 export { GetGroupBudgetsQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupBudgets';
 export { GetGroupTemplatesQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupTemplates';
 export { GetReceiptQueryHandler } from '@Contexts/Ledger/Application/Queries/GetReceipt';
+export { GetMyInsightsQueryHandler } from '@Contexts/Ledger/Application/Queries/GetMyInsights';

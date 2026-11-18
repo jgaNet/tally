@@ -58,6 +58,7 @@ import {
   GetGroupTemplatesQueryHandler,
   GetReceiptQueryHandler,
   GetGroupAuditQueryHandler,
+  GetMyInsightsQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { PostgresAuditLog } from '@Contexts/Ledger/Infrastructure/PostgresAuditLog';
 import { SettlementAuditFromSettlements } from '@Contexts/Ledger/Infrastructure/SettlementAuditFromSettlements';
@@ -76,6 +77,7 @@ import { PostgresExpenseReadModels } from '@Contexts/Ledger/Infrastructure/Postg
 import { PostgresExpenseRepository } from '@Contexts/Ledger/Infrastructure/PostgresExpenseRepository';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { PostgresMemberBalances } from '@Contexts/Ledger/Infrastructure/PostgresMemberBalances';
+import { PostgresSpendingReadModels } from '@Contexts/Ledger/Infrastructure/PostgresSpendingReadModels';
 import { PostgresRecurringExpenseReadModels } from '@Contexts/Ledger/Infrastructure/PostgresRecurringExpenseReadModels';
 import { PostgresRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/PostgresRecurringExpenseRepository';
 import { IMemberBalancesQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalancesQueries';
@@ -120,6 +122,8 @@ const recurringExpenses = new PostgresRecurringExpenseRepository(database);
 const recurringReadModels = new PostgresRecurringExpenseReadModels(database);
 /** The budgets (request 24): one per group and category, and what a month spends in each, read from the expenses above. */
 const budgets = new PostgresBudgetRepository(database);
+/** A person's shares by group, month and category (request 37), read from the expenses above, outside any transaction. */
+const spending = new PostgresSpendingReadModels(database);
 const budgetReadModels = new PostgresBudgetReadModels(database);
 /** The split templates (request 25): saved under a name in a group, and the splits expenses are split by in place of their own. */
 const splitTemplates = new PostgresSplitTemplateRepository(database);
@@ -245,5 +249,6 @@ export const localLedgerModule = new Module({
     new GetOfferedRateQueryHandler(offeredRates, members, currencies, systemClock),
     new GetRecurringExpenseQueryHandler(recurringReadModels, members),
     new GetGroupRecurringExpensesQueryHandler(recurringReadModels, members),
+    new GetMyInsightsQueryHandler(spending, members, currencies),
   ],
 });

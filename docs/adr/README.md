@@ -31,6 +31,8 @@ why, what it costs, and when to revisit it.
 | [24](0024-a-contest-is-held-by-the-book-and-the-administrators-log-is-written-by-settlements.md) | Administrators are a role given at sign-in, a contest is held by the settlement's book, and the administrators' log is written by Settlements and read by Groups through a port Groups owns |
 | [25](0025-an-account-is-suspended-by-an-administrator-and-every-start-it-makes-is-refused-by-one-name.md) | An account is suspended by an administrator on the Account in Groups, and what a suspended account starts is refused by one name, decided by each context through the port it owns |
 | [26](0026-an-account-is-deleted-by-its-person-and-stays-as-a-placeholder-the-other-contexts-refuse-by-one-name.md) | An account is deleted by its person on the Account in Groups, and stays as a placeholder; what would start something new with it is refused by one name, decided by each context through the port it owns |
+| [27](0027-notice-preferences-are-an-aggregate-of-notifications-read-by-each-notice-as-it-is-made.md) | Notice preferences are an aggregate of Notifications, read by each notice as it is made, and a reminder not made is not recorded |
+| [28](0028-spending-insights-are-a-query-of-ledger-over-its-shares-with-the-groups-read-through-the-ports-it-owns.md) | Spending insights are a query of Ledger over its own shares, and the groups a person is in are read through the port Ledger owns |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

@@ -36,6 +36,11 @@ export interface IGroupMembers {
   /** Whether the account is a current member of the group: read by a query, outside any transaction. */
   isMember(groupId: string, accountId: Id): Promise<boolean>;
   /**
+   * The groups the account is a current member of, archived ones included, none when it is in none (request 37): read by the query
+   * that says what a person spent across them, outside any transaction.
+   */
+  groupsOf(accountId: Id): Promise<string[]>;
+  /**
    * The role of the account in the group, or null when it is not a member (or there is no such group): read by a command
    * deciding who may change an expense, inside its own transaction, so it takes no lock.
    */
