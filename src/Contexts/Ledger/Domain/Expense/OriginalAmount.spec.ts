@@ -89,3 +89,40 @@ describe('OriginalAmount: a stored one', () => {
     expect(() => OriginalAmount.fromSnapshot({ currency: 'USD', amount: 1, rate: '0' })).toThrow();
   });
 });
+
+describe('OriginalAmount.takeRate (request 22)', () => {
+  const offered = (rate: string) => ({ kind: 'offered' as const, rate });
+
+  it('takes the offer when the rate is left out, and refuses when there is none', () => {
+    expect(OriginalAmount.takeRate({ offer: offered('0.95') }).data).toEqual({ rate: '0.95', source: 'offered' });
+    expect(OriginalAmount.takeRate({ offer: { kind: 'none' } }).error).toMatchObject({ type: 'NoRateOffered' });
+    expect(OriginalAmount.takeRate({ offer: { kind: 'unconfigured' } }).error).toMatchObject({
+      type: 'NoRateOffered',
+    });
+  });
+
+  it('keeps the payer’s rate, whatever it is, when no rates service is configured', () => {
+    expect(OriginalAmount.takeRate({ rate: '1.0625', offer: { kind: 'unconfigured' } }).data).toEqual({
+      rate: '1.0625',
+      source: 'unchecked',
+    });
+  });
+
+  it('checks a stated rate against the offer at exactly 2 % either side, and refuses beyond it', () => {
+    const check = (rate: string) => OriginalAmount.takeRate({ rate, offer: offered('0.95') });
+    expect(check('0.931').data).toEqual({ rate: '0.931', source: 'checked' });
+    expect(check('0.969').data).toEqual({ rate: '0.969', source: 'checked' });
+    expect(check('0.93').error).toMatchObject({ type: 'RateOutsideBand' });
+    expect(check('0.97').error).toMatchObject({ type: 'RateOutsideBand' });
+  });
+
+  it('refuses a stated rate when no rate is offered to compare it with, and a rate of 0 or of another shape', () => {
+    expect(OriginalAmount.takeRate({ rate: '1', offer: { kind: 'none' } }).error).toMatchObject({
+      type: 'NoRateOffered',
+    });
+    expect(OriginalAmount.takeRate({ rate: '0', offer: offered('0.95') }).error).toMatchObject({ type: 'InvalidRate' });
+    expect(OriginalAmount.takeRate({ rate: '1e3', offer: { kind: 'unconfigured' } }).error).toMatchObject({
+      type: 'InvalidRate',
+    });
+  });
+});

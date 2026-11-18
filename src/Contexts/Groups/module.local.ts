@@ -60,6 +60,9 @@ export const groupMembershipInCommand: IGroupMembership = new SqliteGroupMembers
 /** The currency of a group, as another context's command reads it (ADR 8), inside the command's transaction. */
 export const groupCurrencyInCommand: IGroupCurrency = new SqliteGroupCurrency(database);
 
+/** The currency of a group, as another context's query reads it (request 22), outside any transaction. */
+export const groupCurrencyForQueries: IGroupCurrency = new SqliteGroupCurrency(database);
+
 /** Says who is calling, for the transport: the context that owns accounts provides it. */
 export const authenticate = authenticateWith(tokens);
 

@@ -120,3 +120,21 @@ export class InvalidRate extends ExpenseException {
     super('InvalidRate', 'The rate must be a decimal number greater than 0, with at most 6 digits after the point');
   }
 }
+
+export class NoRateOffered extends ExpenseException {
+  constructor() {
+    super(
+      'NoRateOffered',
+      'No rate is offered for this currency on this day, so the expense cannot be recorded at a rate; give the rate, or record it another day',
+    );
+  }
+}
+
+export class RateOutsideBand extends ExpenseException {
+  constructor(offered: string) {
+    super(
+      'RateOutsideBand',
+      `The rate must be within 2 % of the rate offered for that day (${offered}); give the offered rate, or one within 2 % of it`,
+    );
+  }
+}

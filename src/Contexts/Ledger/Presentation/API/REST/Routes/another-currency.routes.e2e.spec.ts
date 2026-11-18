@@ -206,7 +206,6 @@ describe('recording an expense in another currency', () => {
   it.each([
     ['both an amount and an original', { amount: 10, original: { currency: 'USD', amount: 10, rate: '1' } }],
     ['neither', {}],
-    ['an original without its rate', { original: { currency: 'USD', amount: 10 } }],
     ['a rate that is a number, not a string', { original: { currency: 'USD', amount: 10, rate: 1.5 } }],
   ])('refuses %s at once with 400', async (_, amountFields) => {
     const { alice, bob, groupId } = await twoMembers();
@@ -215,6 +214,19 @@ describe('recording an expense in another currency', () => {
       token: alice.token,
     });
     expect(answer.status).toBe(400);
+  });
+
+  // Request 22: the rate may be left out; with no rates service configured (none here), no rate is offered, so it is refused.
+  it('refuses an original whose rate is left out, by name, when no rate is offered (request 22)', async () => {
+    const { alice, bob, groupId } = await twoMembers();
+    const { answer, done } = await send('POST', `/groups/${groupId}/expenses`, alice.token, {
+      description: 'No rate',
+      original: { currency: 'USD', amount: 10 },
+      date: today(),
+      splitBetween: [bob.id, alice.id],
+    });
+    expect(answer.status).toBe(202);
+    expect(done).toMatchObject({ status: 'ERROR', error: { type: 'NoRateOffered' } });
   });
 });
 

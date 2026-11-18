@@ -17,9 +17,10 @@ import { accountRoutes, groupRoutes, invitationRoutes } from '@Contexts/Groups/P
 import {
   groupBalanceSums,
   groupBalanceSumsInCommand,
-  localLedgerModule,
+  ledgerModuleWith,
   memberBalanceSumsInCommand,
 } from '@Contexts/Ledger/module.local';
+import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
 import {
   memberDebtsWith,
   memberPaymentsWaitingInCommand,
@@ -31,7 +32,12 @@ import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Ro
 import { debtSweepWith, localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { SettlementsOutstandingDebts } from '@Contexts/Notifications/Infrastructure/SettlementsOutstandingDebts';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/API/REST/Routes';
-import { balanceRoutes, expenseRoutes, statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes';
+import {
+  balanceRoutes,
+  expenseRoutes,
+  rateRoutes,
+  statementRoutes,
+} from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
  * The composition root: the transport, the one event bus (which records every operation), the
@@ -73,6 +79,9 @@ export async function createApplication({
     // The payment provider (ADR 8): its API is PROVIDER_URL; without it, paying through the provider is refused.
     new HttpPaymentProvider(process.env.PROVIDER_URL),
   );
+  // The rates service (request 22, ADR 15): its API is RATES_URL; without it, no rate is offered, and an expense in another
+  // currency is recorded at the rate its payer states, as request 21 has it.
+  const localLedgerModule = ledgerModuleWith(new HttpOfferedRates(process.env.RATES_URL));
   const app = new FastifyApplication({
     logger,
     apiPrefix,
@@ -93,6 +102,7 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', rateRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', settlementRoutes, {
       settlementsModule: localSettlementsModule,
       // The secret the provider signs its webhooks with (ADR 8), read here, at the transport that checks them.

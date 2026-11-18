@@ -1,10 +1,13 @@
 import { IResult, Result, ValueObject } from '@Architecture/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
+import { RateOffer, RateSource } from '@Contexts/Ledger/Domain/Expense/RateOffer';
 import {
   InvalidAmount,
   InvalidOriginalAmount,
   InvalidOriginalCurrency,
   InvalidRate,
+  NoRateOffered,
+  RateOutsideBand,
   SameCurrencyAsGroup,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 
@@ -12,7 +15,7 @@ import {
 export interface OriginalSnapshot {
   currency: string;
   amount: number;
-  /** The rate as the payer gave it: kept as the string it was written as, read back the same. */
+  /** The rate as the payer gave it, or as the offer gave it: kept as the string it was written as, read back the same. */
   rate: string;
 }
 
@@ -21,6 +24,9 @@ export interface OriginalSnapshot {
  * and the rate, what one of that currency is worth in the group's currency. The amount in the group's currency is the
  * original amount times the rate, rounded to the nearest whole number, a half rounded up, in exact decimal arithmetic:
  * the rate is read as a whole number of millionths, never a floating point number.
+ *
+ * The rate is taken by `takeRate()` (request 22, ADR 15): left out, it is the rate offered for the day; given, it is kept
+ * when no rates service is configured, and otherwise refused by name unless it is within 2 % of the offer.
  */
 export class OriginalAmount extends ValueObject<OriginalSnapshot> {
   /** Tally's currencies, as Groups has them (request 2): the group's own is not one an expense is paid in other than. */
@@ -34,9 +40,45 @@ export class OriginalAmount extends ValueObject<OriginalSnapshot> {
   }
 
   /**
+   * Whether an expense may be paid in `currency` when the group is in `groupCurrency`: one of Tally's, and not the group's.
+   */
+  static checkCurrency(currency: string, groupCurrency: string): IResult {
+    if (!(OriginalAmount.CURRENCIES as readonly string[]).includes(currency)) {
+      return Result.fail(new InvalidOriginalCurrency(OriginalAmount.CURRENCIES));
+    }
+    if (currency === groupCurrency) return Result.fail(new SameCurrencyAsGroup());
+    return Result.ok();
+  }
+
+  /**
+   * The rate an expense is recorded at (request 22, ADR 15), from the rate the payer states, if any, and the rate offered
+   * for the day. Left out, the offer is taken, and a refusal when there is none (NoRateOffered). Given, the rate must be a
+   * decimal number greater than 0 (InvalidRate); with no rates service (`unconfigured`) it is taken as the payer's, as
+   * request 21 takes it; with a service that offers no rate (`none`) it is refused (NoRateOffered), and with an offer it is
+   * refused unless it differs from the offer by no more than 2 % of the offer (RateOutsideBand). Exact decimal arithmetic.
+   */
+  static takeRate({ rate, offer }: { rate?: string; offer: RateOffer }): IResult<{ rate: string; source: RateSource }> {
+    if (rate === undefined) {
+      if (offer.kind !== 'offered') return Result.fail(new NoRateOffered());
+      return Result.ok({ rate: offer.rate, source: 'offered' });
+    }
+    if (!OriginalAmount.RATE.test(rate) || OriginalAmount.scaledRate(rate) === 0n) {
+      return Result.fail(new InvalidRate());
+    }
+    if (offer.kind === 'unconfigured') return Result.ok({ rate, source: 'unchecked' });
+    if (offer.kind === 'none') return Result.fail(new NoRateOffered());
+    // Within 2 % of the offer: |given - offered| <= offered / 50, in millionths, with no rounding.
+    const given = OriginalAmount.scaledRate(rate);
+    const offered = OriginalAmount.scaledRate(offer.rate);
+    const difference = given > offered ? given - offered : offered - given;
+    if (difference * 50n > offered) return Result.fail(new RateOutsideBand(offer.rate));
+    return Result.ok({ rate, source: 'checked' });
+  }
+
+  /**
    * An amount paid in `currency`, when the group is in `groupCurrency`. The currency must be one of Tally's and not the
    * group's; the amount a whole number of hundredths from 1 to 100 000 000; the rate a decimal number greater than 0 with
-   * at most six digits after the point.
+   * at most six digits after the point. The rate is the one `takeRate()` decided.
    */
   static create({
     currency,
@@ -49,10 +91,8 @@ export class OriginalAmount extends ValueObject<OriginalSnapshot> {
     rate: string;
     groupCurrency: string;
   }): IResult<OriginalAmount> {
-    if (!(OriginalAmount.CURRENCIES as readonly string[]).includes(currency)) {
-      return Result.fail(new InvalidOriginalCurrency(OriginalAmount.CURRENCIES));
-    }
-    if (currency === groupCurrency) return Result.fail(new SameCurrencyAsGroup());
+    const inCurrency = OriginalAmount.checkCurrency(currency, groupCurrency);
+    if (inCurrency.isFailure()) return inCurrency;
     if (!Number.isInteger(amount) || amount < 1 || amount > Amount.MAX) {
       return Result.fail(new InvalidOriginalAmount(Amount.MAX));
     }

@@ -25,8 +25,11 @@ export interface SplitRequest {
 export interface OriginalRequest {
   currency: string;
   amount: number;
-  /** What one of that currency is worth in the group's currency, written as a decimal string, as the payer states it. */
-  rate: string;
+  /**
+   * What one of that currency is worth in the group's currency, written as a decimal string, as the payer states it; left
+   * out, the rate offered for its day is taken (request 22, ADR 15).
+   */
+  rate?: string;
 }
 
 /** An expense as it is stored and reconstituted: plain values, its shares in the order of the split, its version included. */

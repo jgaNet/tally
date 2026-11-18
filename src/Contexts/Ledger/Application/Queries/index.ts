@@ -2,3 +2,4 @@ export * from '@Contexts/Ledger/Application/Queries/GetExpense/GetExpenseQueryHa
 export * from '@Contexts/Ledger/Application/Queries/GetGroupBalances/GetGroupBalancesQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetGroupExpenses/GetGroupExpensesQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetMemberStatement/GetMemberStatementQueryHandler';
+export * from '@Contexts/Ledger/Application/Queries/GetOfferedRate/GetOfferedRateQueryHandler';

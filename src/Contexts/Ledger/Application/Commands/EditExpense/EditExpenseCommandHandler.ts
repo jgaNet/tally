@@ -7,6 +7,7 @@ import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
+import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
 import { priceExpense } from '@Contexts/Ledger/Application/Commands/priceExpense';
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense/EditExpenseCommandEvent';
 
@@ -15,19 +16,23 @@ import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/E
  * expense is read afresh and decided on what it is now: a member who is not in the group does not see it at all, and
  * one who is, but neither paid it nor owns the group, is refused by the aggregate. The shares are computed again, under
  * the rules of recording (the same members, or the same kind of split with the new values); the payer stays the one who
- * paid.
+ * paid. An expense in another currency takes the rate offered for its day when it gives none (request 22).
  */
 export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommandEvent> {
   constructor(
     private readonly expenses: IExpenseRepository,
     private readonly groupMembers: IGroupMembers,
     private readonly groupCurrency: IGroupCurrency,
+    private readonly offeredRates: IOfferedRates,
     private readonly clock: Clock,
   ) {
     super();
   }
 
-  async execute({ payload }: EditExpenseCommandEvent, context: ExecutionContext): Promise<IResult<{ id: string }>> {
+  async execute(
+    { payload }: EditExpenseCommandEvent,
+    context: ExecutionContext,
+  ): Promise<IResult<{ id: string; rateSource: string | null }>> {
     const caller = requireSignedIn(context, 'Ledger');
     if (caller.isFailure()) return caller;
 
@@ -39,10 +44,10 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
 
     const description = Description.create(payload.description);
     if (description.isFailure()) return description;
-    const priced = await priceExpense(payload, expense.groupId, this.groupCurrency);
-    if (priced.isFailure()) return priced;
     const date = ExpenseDate.create(payload.date, now);
     if (date.isFailure()) return date;
+    const priced = await priceExpense(payload, expense.groupId, date.data, this.groupCurrency, this.offeredRates);
+    if (priced.isFailure()) return priced;
     const split = Split.fromRequest({ amount: priced.data.amount, payer: expense.payer, request: payload });
     if (split.isFailure()) return split;
 
@@ -63,6 +68,6 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     const saved = await this.expenses.save(edited.data);
     if (saved.isFailure()) return saved;
     await publishDomainEvents(edited.data, context);
-    return Result.ok({ id: expense._id.value });
+    return Result.ok({ id: expense._id.value, rateSource: priced.data.rateSource });
   }
 }

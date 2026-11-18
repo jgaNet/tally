@@ -9,7 +9,7 @@ export class EditExpenseCommandEvent extends CommandEvent<
   {
     expenseId: string;
     description: string;
-    /** The amount in the group's currency, or `original` what was paid in another one (exactly one of the two, request 21). */
+    /** The amount in the group's currency, or `original` what was paid in another one (exactly one of the two, request 21); its rate may be left out (request 22). */
     amount?: number;
     original?: OriginalRequest;
     date: string;

@@ -76,13 +76,14 @@ const ExactlyOneOfTheSplits = [
 
 /*
  * The amount: `amount`, in the group's currency, or `original`, what was paid in another one, never both and never neither
- * (request 21). What `original` holds is the domain's to decide, as the amount is: the transport sees its shape only.
+ * (request 21). What `original` holds is the domain's to decide, as the amount is: the transport sees its shape only. Its
+ * `rate` may be left out, and the rate offered for the day is taken (request 22).
  */
 const AmountFields = {
   amount: { type: 'integer' },
   original: {
     type: 'object',
-    required: ['currency', 'amount', 'rate'],
+    required: ['currency', 'amount'],
     properties: {
       currency: { type: 'string' },
       amount: { type: 'integer' },

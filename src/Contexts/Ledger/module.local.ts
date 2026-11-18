@@ -1,7 +1,12 @@
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { groupCurrencyInCommand, groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
+import {
+  groupCurrencyForQueries,
+  groupCurrencyInCommand,
+  groupMembership,
+  groupMembershipInCommand,
+} from '@Contexts/Groups/module.local';
 import { settlementEffects, settlementEffectsInCommand } from '@Contexts/Settlements/module.local';
 import { IMemberBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalanceSums';
 import { SqliteMemberBalanceSums } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalanceSums';
@@ -18,6 +23,7 @@ import {
   GetGroupBalancesQueryHandler,
   GetGroupExpensesQueryHandler,
   GetMemberStatementQueryHandler,
+  GetOfferedRateQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
 import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
@@ -30,6 +36,7 @@ import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/SqliteSt
 import { IGroupBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupBalanceSums';
 import { ExpenseRecordedEventHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedEventHandler';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3, ADR 7): the expenses of each group, recorded with their equal
@@ -78,50 +85,60 @@ export const groupBalanceSumsInCommand: IGroupBalanceSums = new SqliteGroupBalan
   membersInCommand,
 );
 
-export const localLedgerModule = new Module({
-  name: 'Ledger',
-  commands: [
-    {
-      event: RecordExpenseCommandEvent,
-      handlers: [
-        new RecordExpenseCommandHandler(
-          new SqliteExpenseRepository(database),
-          new GroupsMembers(groupMembershipInCommand),
-          new GroupsGroupCurrency(groupCurrencyInCommand),
-          systemClock,
-        ),
-      ],
-    },
-    {
-      event: EditExpenseCommandEvent,
-      handlers: [
-        new EditExpenseCommandHandler(
-          new SqliteExpenseRepository(database),
-          new GroupsMembers(groupMembershipInCommand),
-          new GroupsGroupCurrency(groupCurrencyInCommand),
-          systemClock,
-        ),
-      ],
-    },
-    {
-      event: DeleteExpenseCommandEvent,
-      handlers: [
-        new DeleteExpenseCommandHandler(
-          new SqliteExpenseRepository(database),
-          new GroupsMembers(groupMembershipInCommand),
-          systemClock,
-        ),
-      ],
-    },
-  ],
-  domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedEventHandler()] }],
-  queries: [
-    new GetExpenseQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
-    new GetGroupBalancesQueryHandler(
-      new SqliteBalanceQueries(database, settledForQueries, membersForQueries),
-      membersForQueries,
-    ),
-    new GetGroupExpensesQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
-    new GetMemberStatementQueryHandler(new SqliteStatementQueries(database), new GroupsMembers(groupMembership)),
-  ],
-});
+export function ledgerModuleWith(rates: IOfferedRates): Module {
+  return new Module({
+    name: 'Ledger',
+    commands: [
+      {
+        event: RecordExpenseCommandEvent,
+        handlers: [
+          new RecordExpenseCommandHandler(
+            new SqliteExpenseRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            new GroupsGroupCurrency(groupCurrencyInCommand),
+            rates,
+            systemClock,
+          ),
+        ],
+      },
+      {
+        event: EditExpenseCommandEvent,
+        handlers: [
+          new EditExpenseCommandHandler(
+            new SqliteExpenseRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            new GroupsGroupCurrency(groupCurrencyInCommand),
+            rates,
+            systemClock,
+          ),
+        ],
+      },
+      {
+        event: DeleteExpenseCommandEvent,
+        handlers: [
+          new DeleteExpenseCommandHandler(
+            new SqliteExpenseRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            systemClock,
+          ),
+        ],
+      },
+    ],
+    domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedEventHandler()] }],
+    queries: [
+      new GetExpenseQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
+      new GetGroupBalancesQueryHandler(
+        new SqliteBalanceQueries(database, settledForQueries, membersForQueries),
+        membersForQueries,
+      ),
+      new GetGroupExpensesQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
+      new GetMemberStatementQueryHandler(new SqliteStatementQueries(database), new GroupsMembers(groupMembership)),
+      new GetOfferedRateQueryHandler(
+        rates,
+        new GroupsGroupCurrency(groupCurrencyForQueries),
+        new GroupsMembers(groupMembership),
+        systemClock,
+      ),
+    ],
+  });
+}

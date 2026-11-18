@@ -4,3 +4,5 @@ export * from './expense.routes';
 export * from './expense.routes.schema';
 export * from './statement.routes';
 export * from './statement.routes.schema';
+export * from './rate.routes';
+export * from './rate.routes.schema';
