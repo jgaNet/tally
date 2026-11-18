@@ -3,16 +3,20 @@ import type { FastifyInstance } from 'fastify';
 import { writeAudit } from './audit';
 import { type Balance, listBalancesIncludingWaiting } from './balances';
 import type { Database, Queryable } from './database';
-import { findGroupOf, refuseIfArchived } from './groups';
+import { CURRENCIES, findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
 import { isDeleted } from './accounts';
 import { feeBorneByOf, type FeeBearer, type SettlementFee } from './fee-policy';
+import { AMOUNT_MAX, type Original } from './expenses';
+import { todayUtc } from './days';
 import { payoutAccountOf } from './payout-accounts';
+import { convertedAmount, offeredRate, rateMillionths, type RatesConfig } from './rates';
 import { Refusal } from './refusal';
 import { addHistory, forgetHistory, historyOf, moveSettlement, type StatusEntry } from './settlement-history';
 import {
   assertProviderConfigured,
   createProviderPayment,
+  providerUnavailable,
   refundProviderPayment,
   type ProviderConfig,
 } from './provider';
@@ -83,6 +87,9 @@ export function suggestSettlements(balances: Balance[]): Transfer[] {
  * What it settles is `settled`: the amount, less the part of the provider's `fee` its payer bears. Everything that counts
  * a settlement counts this, and the amount is the one asked for. A settlement through the provider asked for since fees
  * were kept has the `fee` the provider said and who bore it, fixed when its payment was asked for.
+ *
+ * A settlement paid in another currency than its group's has `original`: the currency, the amount paid in it, and the rate
+ * it was converted at, fixed when it was decided. Its `amount` and its `fee` are in the group's currency.
  */
 export interface Settlement {
   id: string;
@@ -95,21 +102,39 @@ export interface Settlement {
   at: string;
   payUrl?: string;
   fee?: SettlementFee;
+  original?: Original;
   settled: number;
   /** Every status the settlement has had, the earliest first, each with the moment Tally learned it. */
   history: StatusEntry[];
 }
 
-/** What the payee records: the payer's account id, and the amount in hundredths of the group's currency. */
-export interface NewCashSettlement {
-  from: string;
+/**
+ * What a settlement is paid in, as it is priced when it is asked for: its `amount` in hundredths of the group's currency. When
+ * it is paid in another currency, `original` is what is paid, and `millionths` the rate it is converted at, in millionths.
+ */
+export interface Pricing {
   amount: number;
+  original?: Original;
+  millionths?: bigint;
 }
 
-/** What the payer asks: the payee's account id, and the amount in hundredths of the group's currency. */
-export interface NewProviderSettlement {
+/** What the payee records: the payer's account id, and what is paid, priced. */
+export interface NewCashSettlement extends Pricing {
+  from: string;
+}
+
+/** What the payer asks: the payee's account id, and what is paid, priced. */
+export interface NewProviderSettlement extends Pricing {
   to: string;
-  amount: number;
+}
+
+/**
+ * What a member gives for a settlement: its amount in hundredths of the group's currency, or `original`, what is paid in
+ * another currency, with its amount in hundredths of that currency. Exactly one of them is given; the rate is never given.
+ */
+export interface GivenAmount {
+  amount?: number;
+  original?: { currency: string; amount: number };
 }
 
 interface SettlementRow {
@@ -124,7 +149,17 @@ interface SettlementRow {
   created_at: string;
   fee_amount: number | null;
   fee_borne_by: FeeBearer | null;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
   settled: number;
+}
+
+/** The original columns of a settlement's row: its currency, amount and rate, or three nulls for one in the group's currency. */
+function originalValues(pricing: Pricing): [string | null, number | null, string | null] {
+  return pricing.original === undefined
+    ? [null, null, null]
+    : [pricing.original.currency, pricing.original.amount, pricing.original.rate];
 }
 
 /** A refusal of a rule that is about the settlement, not about the shape of the request. */
@@ -156,6 +191,74 @@ async function checkLimits(
 }
 
 /**
+ * What a settlement is paid in, as it is asked for: its amount in the group's currency. Given an amount, that is the amount.
+ * Given `original`, the amount paid in another currency is converted at the rate the rates service offers for its currency to
+ * the group's today, in UTC, which is taken whatever the payer says: the amount is the original times the rate, rounded as an
+ * expense's is. Nothing is asked of the rates service but this rate, and no rate offered refuses the settlement, so nothing is kept.
+ * The group is read here, outside any write, because its currency is needed; the rates service is not asked inside a transaction.
+ * A given amount or original that is not the one of the two, or that is not a whole number, is the wrong shape.
+ */
+export async function priceOf(
+  db: Queryable,
+  rates: RatesConfig,
+  accountId: string,
+  groupId: string,
+  given: GivenAmount,
+): Promise<Pricing> {
+  if (given.original === undefined) {
+    if (given.amount === undefined) throw wrongAmountShape();
+    return { amount: given.amount };
+  }
+  if (given.amount !== undefined) throw wrongAmountShape();
+  const group = await findGroupOf(db, accountId, groupId);
+  if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  const { currency, amount } = given.original;
+  if (!(CURRENCIES as readonly string[]).includes(currency) || currency === group.currency) {
+    refuse(
+      422,
+      'InvalidCurrency',
+      `The original currency must be one of ${CURRENCIES.join(', ')}, other than the group's currency, ${group.currency}.`,
+    );
+  }
+  if (!Number.isInteger(amount) || amount < 1 || amount > AMOUNT_MAX) {
+    refuse(422, 'InvalidAmount', `The amount must be from 1 to ${AMOUNT_MAX}, in hundredths of the currency.`);
+  }
+  const rate = await offeredRate(rates, { from: currency, to: group.currency, date: todayUtc() });
+  const millionths = rate === undefined ? undefined : rateMillionths(rate);
+  if (rate === undefined || millionths === undefined) {
+    refuse(
+      422,
+      'NoRateOffered',
+      `There is no rate offered for ${currency} to ${group.currency} today, so the settlement cannot be paid in ${currency}.`,
+    );
+  }
+  const converted = convertedAmount(amount, millionths);
+  if (converted < 1n || converted > BigInt(AMOUNT_MAX)) {
+    refuse(422, 'InvalidAmount', `The amount in ${group.currency}, as converted, must be from 1 to ${AMOUNT_MAX}.`);
+  }
+  return { amount: Number(converted), original: { currency, amount, rate }, millionths };
+}
+
+function wrongAmountShape(): Refusal {
+  return new Refusal(
+    400,
+    'InvalidRequest',
+    "The settlement needs one amount: amount, in the group's currency, or original.",
+  );
+}
+
+/**
+ * The provider's fee in the group's currency, as the settlement keeps it: the fee the provider states, in the payment's currency,
+ * converted at the settlement's rate when it is paid in another currency, rounded as an amount is. A fee that is not less than the
+ * amount it is taken from, once converted, is no answer from the provider, as one that is not less than the amount is not.
+ */
+export function feeInGroupCurrency(pricing: Pricing, fee: number): number {
+  const converted = pricing.millionths === undefined ? fee : Number(convertedAmount(fee, pricing.millionths));
+  if (converted >= pricing.amount) throw providerUnavailable();
+  return converted;
+}
+
+/**
  * Records that the payer `from` paid the account, the payee, the amount in cash, and returns its id. The
  * payee is the account that records it, and must be a member of the group; for anyone else the group does
  * not exist. The payer must be another member of the group.
@@ -184,9 +287,10 @@ export async function recordCashSettlement(
     await checkLimits(tx, groupId, input.from, payeeId, input.amount);
     const at = new Date().toISOString();
     await tx.run(
-      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
-       VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?)`,
-      [id, groupId, input.from, payeeId, input.amount, at],
+      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at,
+         original_currency, original_amount, original_rate)
+       VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?, ?, ?, ?)`,
+      [id, groupId, input.from, payeeId, input.amount, at, ...originalValues(input)],
     );
     await addHistory(tx, id, 'paid', at);
     await writeAudit(tx, groupId, { by: payeeId, action: 'settlement-paid', subjectId: id, amount: input.amount, at });
@@ -231,9 +335,10 @@ export async function reserveProviderSettlement(
     const feeBorneBy = await feeBorneByOf(tx, groupId);
     const at = new Date().toISOString();
     await tx.run(
-      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at, fee_borne_by)
-       VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?, ?)`,
-      [id, groupId, payerId, input.to, input.amount, at, feeBorneBy],
+      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at, fee_borne_by,
+         original_currency, original_amount, original_rate)
+       VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?, ?, ?, ?, ?)`,
+      [id, groupId, payerId, input.to, input.amount, at, feeBorneBy, ...originalValues(input)],
     );
     await addHistory(tx, id, 'pending', at);
   });
@@ -369,7 +474,7 @@ export async function hasWaitingSettlement(db: Queryable, groupId: string, accou
 }
 
 const settlementColumns =
-  't.id, t.group_id, t.payer_id, t.payee_id, t.amount, t.method, t.status, t.pay_url, t.created_at, t.fee_amount, t.fee_borne_by, t.settled';
+  't.id, t.group_id, t.payer_id, t.payee_id, t.amount, t.method, t.status, t.pay_url, t.created_at, t.fee_amount, t.fee_borne_by, t.original_currency, t.original_amount, t.original_rate, t.settled';
 
 /** The settlement as it is read, with its history. */
 async function toSettlement(db: Queryable, row: SettlementRow): Promise<Settlement> {
@@ -388,6 +493,9 @@ async function toSettlement(db: Queryable, row: SettlementRow): Promise<Settleme
   if (row.method === 'provider' && row.pay_url !== null) settlement.payUrl = row.pay_url;
   if (row.fee_amount !== null && row.fee_borne_by !== null) {
     settlement.fee = { amount: row.fee_amount, borneBy: row.fee_borne_by };
+  }
+  if (row.original_currency !== null && row.original_amount !== null && row.original_rate !== null) {
+    settlement.original = { currency: row.original_currency, amount: row.original_amount, rate: row.original_rate };
   }
   return settlement;
 }
@@ -522,6 +630,21 @@ const idSchema = {
   properties: { id: { type: 'string' } },
 };
 
+/** The amount of a settlement as a member gives it: an amount in the group's currency, or what is paid in another currency. */
+const givenAmountProperties = {
+  amount: { type: 'integer' },
+  original: {
+    type: 'object',
+    required: ['currency', 'amount'],
+    properties: { currency: { type: 'string' }, amount: { type: 'integer' } },
+  },
+};
+
+/** Exactly one of the two amounts is given: the wrong shape otherwise. */
+const exactlyOneGivenAmount = {
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
+};
+
 export const settlementSchema = {
   type: 'object',
   required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
@@ -539,6 +662,15 @@ export const settlementSchema = {
       type: 'object',
       required: ['amount', 'borneBy'],
       properties: { amount: { type: 'integer', minimum: 0 }, borneBy: { enum: ['payer', 'payee', 'shared'] } },
+    },
+    original: {
+      type: 'object',
+      required: ['currency', 'amount', 'rate'],
+      properties: {
+        currency: { type: 'string', enum: [...CURRENCIES] },
+        amount: { type: 'integer', minimum: 1 },
+        rate: { type: 'string', pattern: '^\\d+(\\.\\d{1,6})?$' },
+      },
     },
     history: {
       type: 'array',
@@ -563,7 +695,12 @@ export const settlementSchema = {
  * A cash settlement is recorded by its payee, a member of the group; a settlement through the provider is
  * asked for by its payer. A settlement is read by the members of its group; for anyone else it does not exist.
  */
-export function registerSettlementRoutes(app: FastifyInstance, db: Database, provider: ProviderConfig): void {
+export function registerSettlementRoutes(
+  app: FastifyInstance,
+  db: Database,
+  provider: ProviderConfig,
+  rates: RatesConfig,
+): void {
   app.get<{ Params: { id: string } }>(
     '/groups/:id/settlements/suggested',
     { schema: { response: { 200: { type: 'array', items: transferSchema } } } },
@@ -576,32 +713,36 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
     },
   );
 
-  app.post<{ Params: { id: string }; Body: NewCashSettlement }>(
+  app.post<{ Params: { id: string }; Body: GivenAmount & { from: string } }>(
     '/groups/:id/settlements/cash',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['from', 'amount'],
-          properties: { from: { type: 'string' }, amount: { type: 'integer' } },
+          required: ['from'],
+          properties: { from: { type: 'string' }, ...givenAmountProperties },
+          ...exactlyOneGivenAmount,
         },
         response: { 201: idSchema },
       },
     },
     async (request, reply) => {
       const accountId = await requireCaller(db, request);
-      return reply.code(201).send({ id: await recordCashSettlement(db, accountId, request.params.id, request.body) });
+      const pricing = await priceOf(db, rates, accountId, request.params.id, request.body);
+      const id = await recordCashSettlement(db, accountId, request.params.id, { from: request.body.from, ...pricing });
+      return reply.code(201).send({ id });
     },
   );
 
-  app.post<{ Params: { id: string }; Body: NewProviderSettlement }>(
+  app.post<{ Params: { id: string }; Body: GivenAmount & { to: string } }>(
     '/groups/:id/settlements/provider',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['to', 'amount'],
-          properties: { to: { type: 'string' }, amount: { type: 'integer' } },
+          required: ['to'],
+          properties: { to: { type: 'string' }, ...givenAmountProperties },
+          ...exactlyOneGivenAmount,
         },
         response: { 201: idSchema },
       },
@@ -609,20 +750,31 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
     async (request, reply) => {
       const accountId = await requireCaller(db, request);
       assertProviderConfigured(provider);
-      const { id, currency } = await reserveProviderSettlement(db, accountId, request.params.id, request.body);
+      const groupId = request.params.id;
+      // Priced before anything is written or the provider is asked: a settlement with no rate offered is refused here.
+      const pricing = await priceOf(db, rates, accountId, groupId, request.body);
+      const { id, currency } = await reserveProviderSettlement(db, accountId, groupId, {
+        to: request.body.to,
+        ...pricing,
+      });
       try {
         // The payee's payout account as it is at the moment the provider is asked.
         const payee = await payoutAccountOf(db, request.body.to);
         if (payee === undefined) {
           refuse(409, 'PayoutAccountRequired', 'The payee has no payout account at the payment provider.');
         }
+        // The provider is asked for what is paid, in its currency: the original when there is one.
         const payment = await createProviderPayment(provider, {
           reference: id,
-          amount: request.body.amount,
-          currency,
+          amount: pricing.original?.amount ?? pricing.amount,
+          currency: pricing.original?.currency ?? currency,
           payee,
         });
-        await attachPayment(db, id, payment);
+        await attachPayment(db, id, {
+          id: payment.id,
+          payUrl: payment.payUrl,
+          fee: feeInGroupCurrency(pricing, payment.fee),
+        });
       } catch (error) {
         await releaseSettlement(db, id);
         throw error;

@@ -27,7 +27,7 @@ export interface ProviderPayment {
  * A refusal for a request the provider could not answer: it did not answer as it should, or in time. `about` says
  * what was asked of it.
  */
-function providerUnavailable(about = 'a payment'): Refusal {
+export function providerUnavailable(about = 'a payment'): Refusal {
   return new Refusal(424, 'ProviderUnavailable', `The payment provider did not answer ${about}.`);
 }
 

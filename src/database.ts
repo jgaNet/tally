@@ -169,7 +169,14 @@ CREATE TABLE settlements (
       ELSE 0
     END
   ) STORED,
+  -- What the settlement was paid in, when in another currency than its group's: that currency, the amount paid in it, in
+  -- hundredths, and the rate it was converted at, as the rates service offered it (a decimal string). Its amount is the
+  -- amount in the group's currency. All three are null for a settlement in the group's currency.
+  original_currency TEXT CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD')),
+  original_amount BIGINT CHECK (original_amount >= 1),
+  original_rate TEXT,
   CHECK ((method = 'net') = (netting_id IS NOT NULL)),
+  CHECK ((original_currency IS NULL) = (original_amount IS NULL) AND (original_amount IS NULL) = (original_rate IS NULL)),
   CHECK (fee_amount IS NULL OR (method = 'provider' AND fee_borne_by IS NOT NULL AND fee_amount >= 0 AND fee_amount < amount))
 );
 CREATE INDEX settlements_group ON settlements (group_id);

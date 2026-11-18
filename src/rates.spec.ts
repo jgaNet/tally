@@ -1,76 +1,12 @@
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { Application } from './app';
 import { todayUtc } from './days';
-import { ada, call, startApplication, temporaryDatabase } from './test-support';
+import { ada, call, FakeRates, startApplication, startFakeRates, temporaryDatabase } from './test-support';
 
 const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
 const outsiderAccount = { email: 'outsider@example.com', password: 'outside-2000', name: 'Outsider' };
 
 const DAY = '2026-11-01';
 const NEXT_DAY = '2026-11-02';
-
-/** One request asked of the fake rates service: the currencies of the rate, and the day asked for, if one was. */
-interface RatesRequest {
-  from: string;
-  to: string;
-  date: string | null;
-}
-
-/** How the fake rates service answers: its status, and the body it sends, as JSON, or as the `raw` text when given. */
-interface RatesAnswer {
-  status: number;
-  body?: unknown;
-  raw?: string;
-  delayMs?: number;
-}
-
-interface FakeRates {
-  /** The base of its API, as `RATES_URL` gives it: no trailing slash. */
-  readonly url: string;
-  /** Every request it has received, the earliest first. */
-  readonly requests: RatesRequest[];
-  /** How it answers the next request. By default, `404`: it has no rate. */
-  answer: (request: RatesRequest) => RatesAnswer;
-  stop(): Promise<void>;
-}
-
-/** A rates service on a port of its own, which a test may make answer as it likes. */
-async function startFakeRates(): Promise<FakeRates> {
-  const requests: RatesRequest[] = [];
-  const rates: FakeRates = {
-    url: '',
-    requests,
-    answer: () => ({ status: 404 }),
-    stop: async () => undefined,
-  };
-  const server = createServer((incoming, outgoing) => {
-    const url = new URL(incoming.url ?? '', 'http://rates.invalid');
-    const [, , from = '', to = ''] = url.pathname.split('/');
-    const request: RatesRequest = {
-      from: decodeURIComponent(from),
-      to: decodeURIComponent(to),
-      date: url.searchParams.get('date'),
-    };
-    requests.push(request);
-    const answer = rates.answer(request);
-    setTimeout(() => {
-      outgoing.writeHead(answer.status, { 'content-type': 'application/json' });
-      outgoing.end(answer.raw ?? (answer.body === undefined ? '' : JSON.stringify(answer.body)));
-    }, answer.delayMs ?? 0);
-  });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address() as AddressInfo;
-  Object.assign(rates, {
-    url: `http://127.0.0.1:${port}`,
-    stop: () =>
-      new Promise<void>(resolve => {
-        server.closeAllConnections();
-        server.close(() => resolve());
-      }),
-  });
-  return rates;
-}
 
 describe('the rates offered', () => {
   let database: ReturnType<typeof temporaryDatabase>;

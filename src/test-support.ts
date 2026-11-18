@@ -221,3 +221,65 @@ export async function countRows(url: string, table: string): Promise<number> {
   const [row] = await readRows(url, `SELECT COUNT(*) AS n FROM ${table}`);
   return Number(row.n);
 }
+
+/** One request asked of the fake rates service: the currencies of the rate, and the day asked for, if one was. */
+export interface RatesRequest {
+  from: string;
+  to: string;
+  date: string | null;
+}
+
+/** How the fake rates service answers: its status, and the body it sends, as JSON, or as the `raw` text when given. */
+export interface RatesAnswer {
+  status: number;
+  body?: unknown;
+  raw?: string;
+  delayMs?: number;
+}
+
+export interface FakeRates {
+  /** The base of its API, as `RATES_URL` gives it: no trailing slash. */
+  readonly url: string;
+  /** Every request it has received, the earliest first. */
+  readonly requests: RatesRequest[];
+  /** How it answers the next request. By default, `404`: it has no rate. */
+  answer: (request: RatesRequest) => RatesAnswer;
+  stop(): Promise<void>;
+}
+
+/** A rates service on a port of its own, which a test may make answer as it likes. */
+export async function startFakeRates(): Promise<FakeRates> {
+  const requests: RatesRequest[] = [];
+  const rates: FakeRates = {
+    url: '',
+    requests,
+    answer: () => ({ status: 404 }),
+    stop: async () => undefined,
+  };
+  const server = createServer((incoming, outgoing) => {
+    const url = new URL(incoming.url ?? '', 'http://rates.invalid');
+    const [, , from = '', to = ''] = url.pathname.split('/');
+    const request: RatesRequest = {
+      from: decodeURIComponent(from),
+      to: decodeURIComponent(to),
+      date: url.searchParams.get('date'),
+    };
+    requests.push(request);
+    const answer = rates.answer(request);
+    setTimeout(() => {
+      outgoing.writeHead(answer.status, { 'content-type': 'application/json' });
+      outgoing.end(answer.raw ?? (answer.body === undefined ? '' : JSON.stringify(answer.body)));
+    }, answer.delayMs ?? 0);
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  Object.assign(rates, {
+    url: `http://127.0.0.1:${port}`,
+    stop: () =>
+      new Promise<void>(resolve => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  });
+  return rates;
+}

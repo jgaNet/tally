@@ -129,7 +129,7 @@ export async function createApplication({
       registerBalanceRoutes(instance, db);
       registerHistoryRoutes(instance, db);
       registerFeePolicyRoutes(instance, db);
-      registerSettlementRoutes(instance, db, provider);
+      registerSettlementRoutes(instance, db, provider, rates);
       registerNettingRoutes(instance, db);
       registerProviderWebhookRoutes(instance, db, provider);
       registerNoticeRoutes(instance, db);

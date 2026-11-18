@@ -10,13 +10,14 @@ import { isMember } from './members';
 import { isDeleted } from './accounts';
 import { writeExpenseNotices } from './notices';
 import { Refusal } from './refusal';
-import { MILLIONTHS, offeredRate, rateMillionths, type RatesConfig } from './rates';
+import { convertedAmount, offeredRate, rateMillionths, type RatesConfig } from './rates';
 import { requireCaller } from './sessions';
 import { templateSplitOf } from './templates';
 import { refuseIfSuspended } from './suspensions';
 
 const DESCRIPTION_MAX = 100;
-const AMOUNT_MAX = 100_000_000;
+/** The largest amount, in hundredths of a currency, that an expense or a settlement in another currency may be. */
+export const AMOUNT_MAX = 100_000_000;
 
 /** How an expense is split: equally between its members, by exact amounts, or by a number of shares each. */
 export type SplitKind = 'equal' | 'exact' | 'shares';
@@ -278,15 +279,6 @@ function rateOf(given: string | undefined, offer: RateOffer, about: string): Con
     }
   }
   return payers;
-}
-
-/**
- * The amount in the group's currency of an amount paid in another, at a rate in millionths: the product, rounded to the
- * nearest whole number, a half rounded up. Everything is in whole numbers, so the rounding is exact.
- */
-function convertedAmount(original: number, millionths: bigint): bigint {
-  const product = BigInt(original) * millionths;
-  return (2n * product + MILLIONTHS) / (2n * MILLIONTHS);
 }
 
 /**

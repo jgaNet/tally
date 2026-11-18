@@ -29,6 +29,15 @@ export function rateMillionths(rate: string): bigint | undefined {
 }
 
 /**
+ * The amount in the group's currency of an amount paid in another, at a rate in millionths: the product, rounded to the
+ * nearest whole number, a half rounded up. Everything is in whole numbers, so the rounding is exact.
+ */
+export function convertedAmount(original: number, millionths: bigint): bigint {
+  const product = BigInt(original) * millionths;
+  return (2n * product + MILLIONTHS) / (2n * MILLIONTHS);
+}
+
+/**
  * The rate the rates service offers for one `from` in `to` on `date`: its `rate`, when it answers `200` with a rate written
  * as a rate is. Any other answer, a `404` included, an answer that is not one, or none within the time allowed, offers no rate.
  */
