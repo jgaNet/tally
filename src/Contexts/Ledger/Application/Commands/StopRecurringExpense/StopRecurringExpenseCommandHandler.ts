@@ -27,7 +27,11 @@ export class StopRecurringExpenseCommandHandler extends CommandHandler<StopRecur
     const role = await this.groupMembers.roleOf(recurring.groupId.value, caller.data);
     if (!role) return Result.fail(notFound(payload.recurringExpenseId));
 
-    const stopped = recurring.stop({ by: caller.data, byOwner: role === 'owner' });
+    const stopped = recurring.stop({
+      by: caller.data,
+      byOwner: role === 'owner',
+      archived: await this.groupMembers.archivedOf(recurring.groupId.value),
+    });
     if (stopped.isFailure()) return stopped;
 
     const removed = await this.recurringExpenses.remove(stopped.data);

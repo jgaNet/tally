@@ -78,6 +78,18 @@ export class SqliteSettlementReadModels
     );
   }
 
+  /** Whether any payment in the group waits at the provider, read inside the command archiving the group (request 27). */
+  async isWaitingIn(groupId: string): Promise<boolean> {
+    return (
+      this.database.get<{ found: number }>(
+        `SELECT 1 AS found FROM settlements
+         WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')
+         LIMIT 1`,
+        groupId,
+      ) !== undefined
+    );
+  }
+
   /** The change the settlements with these statuses make to each member's balance: up for a payer, down for a payee. */
   private effectOf(groupId: string, statuses: SettlementStatus[]): SettledAmountOf[] {
     const marks = statuses.map(() => '?').join(', ');

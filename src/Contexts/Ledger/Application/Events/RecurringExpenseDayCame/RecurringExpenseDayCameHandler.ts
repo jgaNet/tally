@@ -1,3 +1,4 @@
+import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { Clock, EventHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
@@ -19,6 +20,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
     private groupCurrency: IGroupCurrency,
     private clock: Clock,
     private balances: IBalanceCounts,
+    private groupMembers: IGroupMembers,
   ) {
     super();
   }
@@ -43,6 +45,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
       groupMembers: payload.members.map(member => new Id(member)),
       groupCurrency: currency,
       offer: null,
+      archived: await this.groupMembers.archivedOf(payload.groupId),
       now: this.clock(),
     });
     if (expense.isFailure()) return expense;

@@ -5,4 +5,9 @@
  */
 export interface IMemberBalancesQueries {
   balanceOf(groupId: string, memberId: string): Promise<number>;
+  /**
+   * Every member's balance in the group, one per member that has any (0 for the rest): read by Groups when it archives the group, to
+   * decide that every balance is 0 (request 27), inside its transaction, so it takes no lock.
+   */
+  allBalancesOf(groupId: string): Promise<number[]>;
 }

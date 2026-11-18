@@ -1,3 +1,4 @@
+import { GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import {
@@ -54,6 +55,7 @@ export class SplitTemplate extends AggregateRoot {
     split,
     groupMembers,
     nameTaken,
+    archived,
   }: {
     groupId: Id;
     createdBy: Id;
@@ -61,7 +63,10 @@ export class SplitTemplate extends AggregateRoot {
     split: TemplateSplit;
     groupMembers: Id[];
     nameTaken: boolean;
+    /** Whether the group is archived, read by the handler: an archived group saves no template (request 27). */
+    archived: boolean;
   }): IResult<SplitTemplate> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     const decided = SplitTemplate.decide({ name, split, groupMembers, nameTaken });
     if (decided.isFailure()) return decided;
 
@@ -81,6 +86,7 @@ export class SplitTemplate extends AggregateRoot {
     split,
     groupMembers,
     nameTaken,
+    archived,
   }: {
     by: Id;
     byOwner: boolean;
@@ -88,7 +94,10 @@ export class SplitTemplate extends AggregateRoot {
     split: TemplateSplit;
     groupMembers: Id[];
     nameTaken: boolean;
+    /** Whether the group is archived, read by the handler (request 27). */
+    archived: boolean;
   }): IResult<SplitTemplate> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!this.mayChange(by, byOwner)) return Result.fail(new NotTheSaverOrTheOwner());
     const decided = SplitTemplate.decide({ name, split, groupMembers, nameTaken });
     if (decided.isFailure()) return decided;
@@ -106,7 +115,8 @@ export class SplitTemplate extends AggregateRoot {
   }
 
   /** Removes the template: only its saver or the group's owner may. The repository deletes it. */
-  remove({ by, byOwner }: { by: Id; byOwner: boolean }): IResult<SplitTemplate> {
+  remove({ by, byOwner, archived }: { by: Id; byOwner: boolean; archived: boolean }): IResult<SplitTemplate> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!this.mayChange(by, byOwner)) return Result.fail(new NotTheSaverOrTheOwner());
 
     this.record(TemplateRemovedEvent.set({ templateId: this._id.value, groupId: this.groupId.value }));

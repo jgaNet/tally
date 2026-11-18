@@ -1,8 +1,10 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchived } from '@SharedKernel/Domain/GroupArchived';
 
 import { GroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 import {
   BalancePassedEvent,
+  GroupArchivedEvent,
   GroupCreatedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
@@ -11,7 +13,10 @@ import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
   AlreadyAMember,
+  ArchiveWaitsForPayment,
+  BalancesNotSettled,
   NotAMember,
+  OnlyTheOwnerMayArchive,
   OwnerCannotLeave,
   PaymentWaitingAtProvider,
 } from '@Contexts/Groups/Domain/Group/GroupExceptions';
@@ -53,6 +58,8 @@ export class Group extends AggregateRoot {
     /** The balances passed to the owner when members left, in the order they passed. */
     readonly passages: Passage[],
     readonly createdAt: Date,
+    /** When the owner archived the group, or null while it is open: an archived group stays archived, and changes nothing (request 27). */
+    public archivedAt: Date | null,
     version: number,
   ) {
     super(id, version);
@@ -79,6 +86,7 @@ export class Group extends AggregateRoot {
       [],
       [],
       now,
+      null,
       0,
     );
     group.record(GroupCreatedEvent.set({ groupId: group._id.value, ownerId: ownerId.value }));
@@ -91,11 +99,13 @@ export class Group extends AggregateRoot {
     const createdAt = new Date(snapshot.createdAt);
     const joinedAt = snapshot.members.map(member => new Date(member.joinedAt));
     const leftAt = snapshot.departed.map(member => new Date(member.leftAt));
+    const archivedAt = snapshot.archivedAt ? new Date(snapshot.archivedAt) : null;
     const current = new Set(snapshot.members.map(member => member.accountId));
     if (
       name.isFailure() ||
       currency.isFailure() ||
       Number.isNaN(createdAt.getTime()) ||
+      (archivedAt !== null && Number.isNaN(archivedAt.getTime())) ||
       !snapshot.members.length ||
       snapshot.members[0].accountId !== snapshot.ownerId ||
       joinedAt.some(date => Number.isNaN(date.getTime())) ||
@@ -121,8 +131,14 @@ export class Group extends AggregateRoot {
         amount: passage.amount,
       })),
       createdAt,
+      archivedAt,
       snapshot.version,
     );
+  }
+
+  /** Whether the owner has archived the group: then nothing in it changes, and every change asks it first (request 27). */
+  isArchived(): boolean {
+    return this.archivedAt !== null;
   }
 
   /** Whether this account is one of the group's current members: the owner, or whoever joined and has not left. */
@@ -140,6 +156,7 @@ export class Group extends AggregateRoot {
    * already. A former member joins again the same way: it is taken out of the departed and joins last.
    */
   join({ accountId, now }: { accountId: Id; now: Date }): IResult {
+    if (this.isArchived()) return Result.fail(new GroupArchived('Groups'));
     if (this.isMember(accountId)) return Result.fail(new AlreadyAMember());
     const index = this.departed.findIndex(member => member.accountId.value === accountId.value);
     if (index >= 0) this.departed.splice(index, 1);
@@ -166,6 +183,7 @@ export class Group extends AggregateRoot {
     paymentWaiting: boolean;
     now: Date;
   }): IResult {
+    if (this.isArchived()) return Result.fail(new GroupArchived('Groups'));
     if (!this.isMember(accountId)) return Result.fail(new NotAMember());
     if (accountId.value === this.ownerId.value) return Result.fail(new OwnerCannotLeave());
     if (paymentWaiting) return Result.fail(new PaymentWaitingAtProvider());
@@ -186,12 +204,40 @@ export class Group extends AggregateRoot {
     return Result.ok();
   }
 
+  /**
+   * The owner archives the group, at `now`, the application's clock, read by the handler. It is decided once every member's balance
+   * is 0 (`balances`, read by the handler from Ledger) and no payment a member pays or receives is waiting at the provider
+   * (`paymentWaiting`, read from Settlements). Only the owner may, and an archived group is not archived again: the refusal is
+   * GroupArchived, the same as any other change in it.
+   */
+  archive({
+    accountId,
+    balances,
+    paymentWaiting,
+    now,
+  }: {
+    accountId: Id;
+    balances: number[];
+    paymentWaiting: boolean;
+    now: Date;
+  }): IResult {
+    if (this.isArchived()) return Result.fail(new GroupArchived('Groups'));
+    if (accountId.value !== this.ownerId.value) return Result.fail(new OnlyTheOwnerMayArchive());
+    if (balances.some(balance => balance !== 0)) return Result.fail(new BalancesNotSettled());
+    if (paymentWaiting) return Result.fail(new ArchiveWaitsForPayment());
+
+    this.archivedAt = now;
+    this.record(GroupArchivedEvent.set({ groupId: this._id.value, archivedBy: accountId.value }));
+    return Result.ok();
+  }
+
   toSnapshot(): GroupSnapshot {
     return {
       id: this._id.value,
       name: this.name.value,
       currency: this.currency.value,
       ownerId: this.ownerId.value,
+      archivedAt: this.archivedAt ? this.archivedAt.toISOString() : null,
       members: this.members.map(member => ({
         accountId: member.accountId.value,
         joinedAt: member.joinedAt.toISOString(),

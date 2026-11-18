@@ -81,7 +81,19 @@ export class InMemoryBalances implements IBalanceCounts, IBalanceQueries {
  * them), so the first member is the owner.
  */
 export class InMemoryGroupMembers implements IGroupMembers {
-  constructor(private members: Map<string, string[]>) {}
+  constructor(
+    private members: Map<string, string[]>,
+    private archived: Set<string> = new Set(),
+  ) {}
+
+  /** The test archives a group: every change in it is then refused by GroupArchived. */
+  archive(groupId: string): void {
+    this.archived.add(groupId);
+  }
+
+  async archivedOf(groupId: string): Promise<boolean> {
+    return this.archived.has(groupId);
+  }
 
   async membersOf(groupId: string): Promise<Id[]> {
     return (this.members.get(groupId) ?? []).map(memberId => new Id(memberId));

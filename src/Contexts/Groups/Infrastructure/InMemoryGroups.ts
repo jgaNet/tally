@@ -78,6 +78,10 @@ export class InMemoryWaitingPayments implements IWaitingPayments {
   async waitingOf(groupId: string, accountId: Id): Promise<boolean> {
     return this.waiting.has(`${groupId}/${accountId.value}`);
   }
+
+  async waitingIn(groupId: string): Promise<boolean> {
+    return [...this.waiting].some(key => key.startsWith(`${groupId}/`));
+  }
 }
 
 /** The balances a member has in a group, as the test gives them: keyed by the group's id and the member's, 0 when not given. */
@@ -91,6 +95,10 @@ export class InMemoryMemberBalances implements IMemberBalances {
   async balanceOf(groupId: string, accountId: Id): Promise<number> {
     return this.balances.get(`${groupId}/${accountId.value}`) ?? 0;
   }
+
+  async allBalancesOf(groupId: string): Promise<number[]> {
+    return [...this.balances].filter(([key]) => key.startsWith(`${groupId}/`)).map(([, balance]) => balance);
+  }
 }
 
 const isMember = (snapshot: GroupSnapshot, accountId: string): boolean =>
@@ -101,4 +109,5 @@ const toReadModel = (snapshot: GroupSnapshot): GroupReadModel => ({
   name: snapshot.name,
   currency: snapshot.currency,
   ownerId: snapshot.ownerId,
+  ...(snapshot.archivedAt ? { archivedAt: snapshot.archivedAt } : {}),
 });

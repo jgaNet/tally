@@ -8,6 +8,11 @@ export interface ISettlementMembers {
   membersOf(groupId: string): Promise<string[]>;
   /** Whether the account is a current member of the group. */
   isMemberOf(groupId: string, accountId: string): Promise<boolean>;
+  /**
+   * Whether the group is archived (request 27): read by each command that would settle or refund in it, inside its transaction, so it
+   * takes no lock; the command refuses by GroupArchived. Groups decides it and answers (ADR 18).
+   */
+  archivedOf(groupId: string): Promise<boolean>;
   /** The group's currency, or null when there is no such group. */
   currencyOf(groupId: string): Promise<string | null>;
   /** Every group with a current member, each with its current members in the order they joined (ADR 10). */

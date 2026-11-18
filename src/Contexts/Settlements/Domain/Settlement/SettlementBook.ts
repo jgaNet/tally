@@ -1,3 +1,4 @@
+import { GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
 import {
@@ -46,6 +47,8 @@ export interface Decision {
   payeeIsMember: boolean;
   payerBalance: number;
   payeeBalance: number;
+  /** Whether the group is archived, read by the handler: an archived group takes no settlement (request 27). */
+  archived: boolean;
 }
 
 /**
@@ -273,7 +276,8 @@ export class SettlementBook extends AggregateRoot {
    * First half of a refund: the rules decided now. Only the payee of a settlement paid through the provider refunds it, and only
    * while it is paid; both members must still be members of the group, so that the balances still add up to 0. Nothing is recorded.
    */
-  decideRefund(settlementId: Id, caller: Id, members: string[]): IResult<PlannedRefund> {
+  decideRefund(settlementId: Id, caller: Id, members: string[], archived: boolean): IResult<PlannedRefund> {
+    if (archived) return Result.fail(new GroupArchived('Settlements'));
     const settlement = this.findSettlement(settlementId);
     if (!settlement)
       return Result.fail(new NotFoundException('Settlements', 'Settlement not found', { id: settlementId.value }));
@@ -291,8 +295,15 @@ export class SettlementBook extends AggregateRoot {
    * refunding (it still counts, the money is not back). A refusal by the provider (`accepted` false) changes nothing. `now` is when
    * Tally learned the provider accepted the refund.
    */
-  recordRefund(settlementId: Id, caller: Id, members: string[], accepted: boolean, now: Date): IResult<Settlement> {
-    const decided = this.decideRefund(settlementId, caller, members);
+  recordRefund(
+    settlementId: Id,
+    caller: Id,
+    members: string[],
+    accepted: boolean,
+    now: Date,
+    archived: boolean,
+  ): IResult<Settlement> {
+    const decided = this.decideRefund(settlementId, caller, members, archived);
     if (decided.isFailure()) return decided;
     if (!accepted) return Result.fail(new ProviderRefundUnavailable());
 
@@ -316,7 +327,8 @@ export class SettlementBook extends AggregateRoot {
    * provider (a waiting payment from the payer lowers what they owe; one to the payee lowers what they are owed).
    */
   private decide(decision: Decision): IResult<void> {
-    const { payer, payee, amount, payerIsMember, payeeIsMember, payerBalance, payeeBalance } = decision;
+    const { payer, payee, amount, payerIsMember, payeeIsMember, payerBalance, payeeBalance, archived } = decision;
+    if (archived) return Result.fail(new GroupArchived('Settlements'));
     if (!Number.isInteger(amount) || amount < 1) return Result.fail(new InvalidSettlementAmount());
     if (!payerIsMember) return Result.fail(new PayerNotAMember());
     if (!payeeIsMember) return Result.fail(new PayeeNotAMember());

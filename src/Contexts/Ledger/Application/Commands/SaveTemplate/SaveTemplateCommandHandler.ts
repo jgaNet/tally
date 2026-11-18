@@ -37,6 +37,7 @@ export class SaveTemplateCommandHandler extends CommandHandler<SaveTemplateComma
       split: payload.split,
       groupMembers: members,
       nameTaken: await this.templates.nameTaken(groupId, payload.name, null),
+      archived: await this.groupMembers.archivedOf(payload.groupId),
     });
     if (saved.isFailure()) return saved;
 

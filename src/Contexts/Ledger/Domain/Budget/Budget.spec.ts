@@ -12,7 +12,7 @@ import { InvalidAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions
 const group = new Id('flat');
 const members = [new Id('ann'), new Id('ben')];
 const set = (amount = 400) =>
-  Budget.set({ groupId: group, category: 'groceries', amount, byOwner: true }).data as Budget;
+  Budget.set({ groupId: group, category: 'groceries', amount, byOwner: true, archived: false }).data as Budget;
 
 describe('Budget', () => {
   it('is set by the owner, under an id it generates, and records that it was set', () => {
@@ -26,37 +26,41 @@ describe('Budget', () => {
   });
 
   it('is refused to a member who is not the owner, and with an amount outside 1 to 100 000 000', () => {
-    expect(Budget.set({ groupId: group, category: 'rent', amount: 1, byOwner: false }).error).toBeInstanceOf(
-      NotTheOwnerOfTheGroup,
-    );
+    expect(
+      Budget.set({ groupId: group, category: 'rent', amount: 1, byOwner: false, archived: false }).error,
+    ).toBeInstanceOf(NotTheOwnerOfTheGroup);
     for (const amount of [0, -1, 1.5, 100_000_001]) {
-      expect(Budget.set({ groupId: group, category: 'rent', amount, byOwner: true }).error).toBeInstanceOf(
-        InvalidAmount,
-      );
+      expect(
+        Budget.set({ groupId: group, category: 'rent', amount, byOwner: true, archived: false }).error,
+      ).toBeInstanceOf(InvalidAmount);
     }
-    expect(Budget.set({ groupId: group, category: 'rent', amount: 100_000_000, byOwner: true }).isSuccess()).toBe(true);
+    expect(
+      Budget.set({ groupId: group, category: 'rent', amount: 100_000_000, byOwner: true, archived: false }).isSuccess(),
+    ).toBe(true);
   });
 
   it('is replaced by setting it again, by the owner only, keeping its id', () => {
     const budget = set();
-    const replaced = budget.replace({ amount: 500, byOwner: true }).data as Budget;
+    const replaced = budget.replace({ amount: 500, byOwner: true, archived: false }).data as Budget;
 
     expect(replaced._id.value).toBe(budget._id.value);
     expect(replaced.amount.value).toBe(500);
-    expect(budget.replace({ amount: 500, byOwner: false }).error).toBeInstanceOf(NotTheOwnerOfTheGroup);
-    expect(budget.replace({ amount: 0, byOwner: true }).error).toBeInstanceOf(InvalidAmount);
+    expect(budget.replace({ amount: 500, byOwner: false, archived: false }).error).toBeInstanceOf(
+      NotTheOwnerOfTheGroup,
+    );
+    expect(budget.replace({ amount: 0, byOwner: true, archived: false }).error).toBeInstanceOf(InvalidAmount);
   });
 
   it('is removed by the owner only, once', () => {
     const budget = set();
-    expect(budget.unset({ byOwner: false }).error).toBeInstanceOf(NotTheOwnerOfTheGroup);
+    expect(budget.unset({ byOwner: false, archived: false }).error).toBeInstanceOf(NotTheOwnerOfTheGroup);
 
-    const removed = budget.unset({ byOwner: true }).data as Budget;
+    const removed = budget.unset({ byOwner: true, archived: false }).data as Budget;
     expect(removed.removed).toBe(true);
     expect(removed.pullDomainEvents()).toEqual([
       BudgetRemovedEvent.set({ budgetId: budget._id.value, groupId: 'flat', category: 'groceries' }),
     ]);
-    expect(removed.unset({ byOwner: true }).error).toBeInstanceOf(BudgetNotSet);
+    expect(removed.unset({ byOwner: true, archived: false }).error).toBeInstanceOf(BudgetNotSet);
   });
 
   it('is passed when a month spends more than it, for the first time, and tells the members', () => {
@@ -91,10 +95,10 @@ describe('Budget', () => {
 
   it('remembers the months it was passed in when it is removed and set again, and is passed by none while removed', () => {
     const passed = set().pass({ month: '2026-11', spent: 401, members });
-    const removed = passed.unset({ byOwner: true }).data as Budget;
+    const removed = passed.unset({ byOwner: true, archived: false }).data as Budget;
     expect(removed.pass({ month: '2026-12', spent: 999, members })).toBe(removed);
 
-    const again = removed.replace({ amount: 100, byOwner: true }).data as Budget;
+    const again = removed.replace({ amount: 100, byOwner: true, archived: false }).data as Budget;
     expect(again.pass({ month: '2026-11', spent: 999, members })).toBe(again);
     expect(again.pass({ month: '2026-12', spent: 999, members })).not.toBe(again);
   });

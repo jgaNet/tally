@@ -16,6 +16,10 @@ export class SettlementMembersFromGroups implements ISettlementMembers {
     return this.groups().isMemberOf(groupId, accountId);
   }
 
+  async archivedOf(groupId: string): Promise<boolean> {
+    return this.groups().isArchivedOf(groupId);
+  }
+
   async currencyOf(groupId: string): Promise<string | null> {
     return this.groups().currencyOf(groupId);
   }

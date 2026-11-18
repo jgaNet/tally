@@ -11,6 +11,8 @@ const GroupSchema = {
     name: { type: 'string' },
     currency: { type: 'string' },
     ownerId: { type: 'string' },
+    // Present only once the group is archived (request 27).
+    archivedAt: { type: 'string' },
   },
 } as const;
 

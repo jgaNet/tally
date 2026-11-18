@@ -32,6 +32,7 @@ export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCom
     const deleted = expense.delete({
       by: caller.data,
       byOwner: role === 'owner',
+      archived: await this.groupMembers.archivedOf(expense.groupId.value),
       groupMembers: await this.groupMembers.membersOf(expense.groupId.value),
     });
     if (deleted.isFailure()) return deleted;

@@ -27,6 +27,7 @@ export class SetBudgetCommandHandler extends CommandHandler<SetBudgetCommandEven
 
     const role = await this.groupMembers.roleOf(payload.groupId, caller.data);
     if (!role) return Result.fail(new NotFoundException('Ledger', 'Group not found', { id: payload.groupId }));
+    const archived = await this.groupMembers.archivedOf(payload.groupId);
 
     const category = Category.create(payload.category);
     if (category.isFailure()) return category;
@@ -34,8 +35,14 @@ export class SetBudgetCommandHandler extends CommandHandler<SetBudgetCommandEven
     const groupId = new Id(payload.groupId);
     const existing = await this.budgets.findByGroupAndCategory(groupId, category.data.value);
     const set = existing
-      ? existing.replace({ amount: payload.amount, byOwner: role === 'owner' })
-      : Budget.set({ groupId, category: category.data.value, amount: payload.amount, byOwner: role === 'owner' });
+      ? existing.replace({ amount: payload.amount, byOwner: role === 'owner', archived })
+      : Budget.set({
+          groupId,
+          category: category.data.value,
+          amount: payload.amount,
+          byOwner: role === 'owner',
+          archived,
+        });
     if (set.isFailure()) return set;
 
     const saved = await this.budgets.save(set.data);

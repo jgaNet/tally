@@ -11,6 +11,7 @@ interface Row {
   name: string;
   currency: string;
   owner_id: string;
+  archived_at: string | null;
 }
 
 interface MemberRow {
@@ -114,6 +115,18 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
     );
   }
 
+  /**
+   * Whether the group is archived (request 27): read inside the command deciding a change, so it takes no lock (as `memberIdsOf` does).
+   * A group that is not there is not archived: the command that asks answers its own refusal for it.
+   */
+  async isArchivedOf(groupId: string): Promise<boolean> {
+    const row = this.database.get<{ archived_at: string | null }>(
+      'SELECT archived_at FROM groups WHERE id = ?',
+      groupId,
+    );
+    return row?.archived_at != null;
+  }
+
   /** The group's currency, read inside the command pricing a payment, so it takes no lock (as `memberIdsOf` does). */
   async currencyOf(groupId: string): Promise<string | null> {
     return (
@@ -160,11 +173,14 @@ export class SqliteGroupReadModels implements IGroupQueries, IGroupMembersQuerie
   }
 }
 
-const SELECT = 'SELECT g.id AS id, g.name AS name, g.currency AS currency, g.owner_id AS owner_id FROM groups g';
+const SELECT =
+  'SELECT g.id AS id, g.name AS name, g.currency AS currency, g.owner_id AS owner_id, g.archived_at AS archived_at FROM groups g';
 
 const toReadModel = (row: Row): GroupReadModel => ({
   id: row.id,
   name: row.name,
   currency: row.currency,
   ownerId: row.owner_id,
+  // Present only once the group is archived: an open group has no `archivedAt` (request 27).
+  ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
 });

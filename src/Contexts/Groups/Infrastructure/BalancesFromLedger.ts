@@ -14,4 +14,8 @@ export class BalancesFromLedger implements IMemberBalances {
   async balanceOf(groupId: string, accountId: Id): Promise<number> {
     return this.ledger().balanceOf(groupId, accountId.value);
   }
+
+  async allBalancesOf(groupId: string): Promise<number[]> {
+    return this.ledger().allBalancesOf(groupId);
+  }
 }

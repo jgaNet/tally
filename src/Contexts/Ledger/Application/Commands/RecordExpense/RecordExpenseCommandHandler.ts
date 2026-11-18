@@ -65,6 +65,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       groupMembers: members,
       groupCurrency: currency,
       offer,
+      archived: await this.groupMembers.archivedOf(payload.groupId),
       now: this.clock(),
     });
     if (expense.isFailure()) return expense;

@@ -14,4 +14,8 @@ export class WaitingPaymentsFromSettlements implements IWaitingPayments {
   async waitingOf(groupId: string, accountId: Id): Promise<boolean> {
     return this.settlements().isWaitingFor(groupId, accountId.value);
   }
+
+  async waitingIn(groupId: string): Promise<boolean> {
+    return this.settlements().isWaitingIn(groupId);
+  }
 }

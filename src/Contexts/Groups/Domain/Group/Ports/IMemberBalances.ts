@@ -7,4 +7,9 @@ import { Id } from '@Architecture/Domain';
  */
 export interface IMemberBalances {
   balanceOf(groupId: string, accountId: Id): Promise<number>;
+  /**
+   * Every balance kept in the group, one per member (0 for a member with nothing recorded): read by the command archiving the group,
+   * which is decided once they are all 0 (request 27). Read inside the command's transaction, so it takes no lock.
+   */
+  allBalancesOf(groupId: string): Promise<number[]>;
 }

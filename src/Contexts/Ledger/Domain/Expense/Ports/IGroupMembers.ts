@@ -16,6 +16,11 @@ export interface PassedBalance {
  * Groups' read model.
  */
 export interface IGroupMembers {
+  /**
+   * Whether the group is archived (request 27): read by each command that would change something in it, inside its own transaction,
+   * so it takes no lock; the command refuses by GroupArchived. Groups decides it and answers (ADR 18).
+   */
+  archivedOf(groupId: string): Promise<boolean>;
   /** The group's current members in join order, none when there is no such group: read by the command deciding a split. */
   membersOf(groupId: string): Promise<Id[]>;
   /** Whether the account is a current member of the group: read by a query, outside any transaction. */

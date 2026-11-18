@@ -30,6 +30,7 @@ const saved = (name = 'Flat') =>
     split: { kind: 'equal', members: ['ann', 'ben'] },
     groupMembers: members,
     nameTaken: false,
+    archived: false,
   }).data as SplitTemplate;
 
 describe('SplitTemplate', () => {
@@ -63,6 +64,7 @@ describe('SplitTemplate', () => {
       },
       groupMembers: members,
       nameTaken: false,
+      archived: false,
     }).data as SplitTemplate;
 
     expect(template.split).toEqual({
@@ -77,7 +79,15 @@ describe('SplitTemplate', () => {
   it('has a name of 1 to 60 characters, not only spaces, and a name free in its group', () => {
     const split = { kind: 'equal' as const, members: ['ann'] };
     const attempt = (name: string, nameTaken = false) =>
-      SplitTemplate.register({ groupId: group, createdBy: ann, name, split, groupMembers: members, nameTaken });
+      SplitTemplate.register({
+        groupId: group,
+        createdBy: ann,
+        name,
+        split,
+        groupMembers: members,
+        nameTaken,
+        archived: false,
+      });
 
     expect(attempt('   ').error).toBeInstanceOf(InvalidTemplateName);
     expect(attempt('x'.repeat(61)).error).toBeInstanceOf(InvalidTemplateName);
@@ -94,6 +104,7 @@ describe('SplitTemplate', () => {
         split,
         groupMembers: members,
         nameTaken: false,
+        archived: false,
       });
 
     expect(register({ kind: 'equal', members: [] }).error).toBeInstanceOf(EmptyTemplateSplit);
@@ -113,6 +124,7 @@ describe('SplitTemplate', () => {
       split: { kind: 'equal', members: ['ben'] },
       groupMembers: members,
       nameTaken: false,
+      archived: false,
     });
 
     expect(replaced.error).toBeInstanceOf(NotTheSaverOrTheOwner);
@@ -123,6 +135,7 @@ describe('SplitTemplate', () => {
       split: { kind: 'equal', members: ['ben'] },
       groupMembers: members,
       nameTaken: false,
+      archived: false,
     }).data as SplitTemplate;
     expect(byOwner.toSnapshot()).toMatchObject({ name: 'Ben', createdBy: 'ann', version: 0 });
     expect(byOwner.pullDomainEvents()).toEqual([
@@ -133,8 +146,8 @@ describe('SplitTemplate', () => {
   it('is removed by its saver or the owner, and records that it was removed', () => {
     const template = saved();
 
-    expect(template.remove({ by: ben, byOwner: false }).error).toBeInstanceOf(NotTheSaverOrTheOwner);
-    expect(template.remove({ by: ann, byOwner: false }).isSuccess()).toBe(true);
+    expect(template.remove({ by: ben, byOwner: false, archived: false }).error).toBeInstanceOf(NotTheSaverOrTheOwner);
+    expect(template.remove({ by: ann, byOwner: false, archived: false }).isSuccess()).toBe(true);
     expect(template.pullDomainEvents()).toEqual([
       TemplateSavedEvent.set({ templateId: template._id.value, groupId: 'flat' }),
       TemplateRemovedEvent.set({ templateId: template._id.value, groupId: 'flat' }),

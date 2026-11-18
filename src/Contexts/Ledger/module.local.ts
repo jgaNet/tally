@@ -149,7 +149,7 @@ export const localLedgerModule = new Module({
     { event: BudgetPassedEvent, handlers: [new BudgetPassedHandler()] },
     {
       event: RecurringExpenseDayCameEvent,
-      handlers: [new RecurringExpenseDayCameHandler(expenses, currencies, systemClock, balances)],
+      handlers: [new RecurringExpenseDayCameHandler(expenses, currencies, systemClock, balances, members)],
     },
   ],
   commands: [

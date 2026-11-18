@@ -47,6 +47,8 @@ export function createGroupsTables(database: SqliteDatabase): void {
   )`);
 
   addColumnUnlessThere(database, 'groups', 'version', 'INTEGER NOT NULL DEFAULT 1');
+  // When the owner archived the group (request 27): NULL while it is open, and an archived group changes nothing.
+  addColumnUnlessThere(database, 'groups', 'archived_at', 'TEXT');
   addColumnUnlessThere(database, 'group_members', 'joined_at', "TEXT NOT NULL DEFAULT ''");
   addColumnUnlessThere(database, 'group_members', 'left_at', 'TEXT');
   database.exec(`UPDATE group_members SET joined_at = (

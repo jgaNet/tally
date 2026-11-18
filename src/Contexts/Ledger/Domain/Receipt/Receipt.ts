@@ -1,3 +1,4 @@
+import { GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import { ExpenseConcernsAFormerMember, NotThePayerOrTheOwner } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
@@ -26,6 +27,8 @@ export interface AttachInput {
   by: Id;
   byOwner: boolean;
   groupMembers: Id[];
+  /** Whether the group is archived, read by the handler: an archived group takes no receipt (request 27). */
+  archived: boolean;
   file: ReceiptFile;
   stored: StoredReceipt;
 }
@@ -68,7 +71,9 @@ export class Receipt extends AggregateRoot {
     by,
     byOwner,
     groupMembers,
-  }: Pick<AttachInput, 'expense' | 'by' | 'byOwner' | 'groupMembers'>): IResult<void> {
+    archived,
+  }: Pick<AttachInput, 'expense' | 'by' | 'byOwner' | 'groupMembers' | 'archived'>): IResult<void> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!byOwner && by.value !== expense.paidBy.value) return Result.fail(new NotThePayerOrTheOwner());
     const isCurrent = (memberId: Id) => groupMembers.some(member => member.value === memberId.value);
     if (!expense.involved.every(isCurrent)) return Result.fail(new ExpenseConcernsAFormerMember());

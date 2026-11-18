@@ -1,3 +1,4 @@
+import { GroupArchived } from '@SharedKernel/Domain';
 import { CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
@@ -26,6 +27,9 @@ export class RemoveBudgetCommandHandler extends CommandHandler<RemoveBudgetComma
 
     const role = await this.groupMembers.roleOf(payload.groupId, caller.data);
     if (!role) return Result.fail(new NotFoundException('Ledger', 'Group not found', { id: payload.groupId }));
+    // An archived group is refused by its rule before the owner's check and the budget's lookup, for every member alike (request 27).
+    const archived = await this.groupMembers.archivedOf(payload.groupId);
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (role !== 'owner') return Result.fail(new NotTheOwnerOfTheGroup());
 
     const category = Category.create(payload.category);
@@ -34,7 +38,7 @@ export class RemoveBudgetCommandHandler extends CommandHandler<RemoveBudgetComma
     const budget = await this.budgets.findByGroupAndCategory(new Id(payload.groupId), category.data.value);
     if (!budget) return Result.fail(new BudgetNotSet());
 
-    const removed = budget.unset({ byOwner: true });
+    const removed = budget.unset({ byOwner: true, archived });
     if (removed.isFailure()) return removed;
 
     const saved = await this.budgets.save(removed.data);

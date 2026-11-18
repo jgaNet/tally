@@ -70,6 +70,24 @@ export class SqliteMemberBalances implements IBalanceCounts, IBalanceQueries, IM
     return recorded + (settled?.amount ?? 0) + passed;
   }
 
+  /**
+   * Every member's balance in the group: the members with a row, and those a passage or a settlement names (the owner of a passage has
+   * no row of its own when it only received one). Read inside the transaction of the caller, so it takes no lock.
+   */
+  async allBalancesOf(groupId: string): Promise<number[]> {
+    const memberIds = new Set(
+      this.database
+        .all<{ member_id: string }>('SELECT member_id FROM member_balances WHERE group_id = ?', groupId)
+        .map(row => row.member_id),
+    );
+    for (const passage of await this.groupMembers.passedBalancesOf(groupId)) {
+      memberIds.add(passage.from.value);
+      memberIds.add(passage.to.value);
+    }
+    for (const settled of await this.settled.settledOf(groupId)) memberIds.add(settled.memberId);
+    return Promise.all([...memberIds].map(memberId => this.balanceOf(groupId, memberId)));
+  }
+
   async balancesOf(groupId: string): Promise<MemberBalanceReadModel[]> {
     const release = await this.database.lock();
     try {

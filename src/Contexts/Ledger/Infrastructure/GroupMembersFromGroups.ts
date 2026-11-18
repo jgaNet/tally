@@ -15,6 +15,10 @@ export class GroupMembersFromGroups implements IGroupMembers {
     return (await this.groups().memberIdsOf(groupId)).map(memberId => new Id(memberId));
   }
 
+  async archivedOf(groupId: string): Promise<boolean> {
+    return this.groups().isArchivedOf(groupId);
+  }
+
   async isMember(groupId: string, accountId: Id): Promise<boolean> {
     return this.groups().isMemberOf(groupId, accountId.value);
   }

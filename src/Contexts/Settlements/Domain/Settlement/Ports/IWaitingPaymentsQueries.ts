@@ -5,4 +5,6 @@
  */
 export interface IWaitingPaymentsQueries {
   isWaitingFor(groupId: string, memberId: string): Promise<boolean>;
+  /** Whether any payment in the group is pending, or being refunded, at the provider: read when the group is archived (request 27). */
+  isWaitingIn(groupId: string): Promise<boolean>;
 }

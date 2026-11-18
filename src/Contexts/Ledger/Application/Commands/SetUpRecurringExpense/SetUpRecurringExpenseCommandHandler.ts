@@ -39,6 +39,7 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
       split: payload.split,
       category: payload.category,
       groupMembers: members,
+      archived: await this.groupMembers.archivedOf(payload.groupId),
       now: this.clock(),
     });
     if (recurring.isFailure()) return recurring;

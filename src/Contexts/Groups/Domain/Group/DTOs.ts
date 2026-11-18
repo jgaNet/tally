@@ -34,5 +34,7 @@ export interface GroupSnapshot {
   /** The balances passed to the owner when members left, in the order they passed (request 20). */
   passages: PassageSnapshot[];
   createdAt: string;
+  /** When the owner archived the group (an ISO string), or null or absent while it is open (request 27). */
+  archivedAt?: string | null;
   version: number;
 }

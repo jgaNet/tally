@@ -27,7 +27,11 @@ export class RemoveTemplateCommandHandler extends CommandHandler<RemoveTemplateC
     const role = await this.groupMembers.roleOf(template.groupId.value, caller.data);
     if (!role) return Result.fail(notFound(payload.templateId));
 
-    const removed = template.remove({ by: caller.data, byOwner: role === 'owner' });
+    const removed = template.remove({
+      by: caller.data,
+      byOwner: role === 'owner',
+      archived: await this.groupMembers.archivedOf(template.groupId.value),
+    });
     if (removed.isFailure()) return removed;
 
     const deleted = await this.templates.remove(removed.data);

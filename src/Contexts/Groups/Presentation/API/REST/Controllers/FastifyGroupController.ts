@@ -6,6 +6,7 @@ import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/Acce
 
 import {
   AcceptInvitationCommandEvent,
+  ArchiveGroupCommandEvent,
   CreateGroupCommandEvent,
   CreateInvitationCommandEvent,
   LeaveGroupCommandEvent,
@@ -56,6 +57,10 @@ export class FastifyGroupController {
 
   async acceptInvitation(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     return acceptCommand(req, reply, this.#module, AcceptInvitationCommandEvent.set({ invitationId: req.params.id }));
+  }
+
+  async archiveGroup(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, ArchiveGroupCommandEvent.set({ groupId: req.params.id }));
   }
 
   async leaveGroup(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

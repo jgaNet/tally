@@ -1,3 +1,4 @@
+import { GroupArchived } from '@SharedKernel/Domain';
 import { Clock, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture/Domain';
 
@@ -40,6 +41,8 @@ export class RecurringExpenseSweepJob {
     for (let attempt = 1; ; attempt++) {
       const result = await context.withTransaction(() => this.decideInTransaction(id, today, context));
       if (!result.isFailure()) return result.data;
+      // An archived group records nothing, by the sweep's own choice (request 27): that is not a failure to report.
+      if (result.error instanceof GroupArchived) return 'stop';
 
       const conflict = result.error instanceof ConcurrencyConflictException;
       if (conflict && attempt < CONFLICT_ATTEMPTS) continue;
@@ -59,7 +62,11 @@ export class RecurringExpenseSweepJob {
     if (!recurring || !recurring.dayHasCome(today)) return Result.ok('stop');
 
     const members = await this.groupMembers.membersOf(recurring.groupId.value);
-    const decided = recurring.recordDay({ today, groupMembers: members });
+    const decided = recurring.recordDay({
+      today,
+      groupMembers: members,
+      archived: await this.groupMembers.archivedOf(recurring.groupId.value),
+    });
     if (decided.isFailure()) return decided;
 
     if (decided.data.ended) {

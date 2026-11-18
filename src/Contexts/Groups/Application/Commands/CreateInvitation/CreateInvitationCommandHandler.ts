@@ -29,11 +29,18 @@ export class CreateInvitationCommandHandler extends CommandHandler<CreateInvitat
       return Result.fail(new NotFoundException('Groups', 'Group not found', { id: payload.groupId }));
     }
 
-    const invitation = Invitation.issue({ groupId: group._id, invitedBy: caller.data, now: this.clock() });
-    const saved = await this.invitations.save(invitation);
+    const invitation = Invitation.issue({
+      groupId: group._id,
+      invitedBy: caller.data,
+      now: this.clock(),
+      archived: group.isArchived(),
+    });
+    if (invitation.isFailure()) return invitation;
+
+    const saved = await this.invitations.save(invitation.data);
     if (saved.isFailure()) return saved;
 
-    await this.publishDomainEvents(invitation, context);
-    return Result.ok(invitation._id.value);
+    await this.publishDomainEvents(invitation.data, context);
+    return Result.ok(invitation.data._id.value);
   }
 }

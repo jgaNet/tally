@@ -30,6 +30,7 @@ export class ReplaceTemplateCommandHandler extends CommandHandler<ReplaceTemplat
     const replaced = template.replaceWith({
       by: caller.data,
       byOwner: role === 'owner',
+      archived: await this.groupMembers.archivedOf(template.groupId.value),
       name: payload.name,
       split: payload.split,
       groupMembers: await this.groupMembers.membersOf(template.groupId.value),

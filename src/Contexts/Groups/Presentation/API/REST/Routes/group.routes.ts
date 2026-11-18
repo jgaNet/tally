@@ -64,6 +64,13 @@ export const groupRoutes = function (
     controller.acceptInvitation.bind(controller),
   );
 
+  // Archiving is answered later: the owner archives once every balance is 0 and nothing waits at the provider (request 27).
+  fastify.post(
+    '/groups/:id/archive',
+    { schema: { tags: ['groups'], response: LaterCommandResSchema } },
+    controller.archiveGroup.bind(controller),
+  );
+
   // Leaving is answered later, as joining is: once the member's balance in the group is 0 (request 9).
   fastify.post(
     '/groups/:id/leave',

@@ -1,4 +1,5 @@
-import { AggregateRoot, Id } from '@Architecture/Domain';
+import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchived } from '@SharedKernel/Domain/GroupArchived';
 
 import { InvitationSnapshot } from '@Contexts/Groups/Domain/Invitation/DTOs';
 import { InvitationCreatedEvent } from '@Contexts/Groups/Domain/Invitation/Events/InvitationEvents';
@@ -24,7 +25,19 @@ export class Invitation extends AggregateRoot {
    * the handler: the creation time is a parameter, never a default. Named `issue` rather than `create`: the conventions
    * check attributes a call of `X.create()` to every aggregate that has a `create`, and Group's would be counted here.
    */
-  static issue({ groupId, invitedBy, now }: { groupId: Id; invitedBy: Id; now: Date }): Invitation {
+  static issue({
+    groupId,
+    invitedBy,
+    now,
+    archived,
+  }: {
+    groupId: Id;
+    invitedBy: Id;
+    now: Date;
+    /** Whether the group is archived, read by the handler from Groups: an archived group takes no invitation (request 27). */
+    archived: boolean;
+  }): IResult<Invitation> {
+    if (archived) return Result.fail(new GroupArchived('Groups'));
     const invitation = new Invitation(Id.generate(), groupId, invitedBy, now);
     invitation.record(
       InvitationCreatedEvent.set({
@@ -33,7 +46,7 @@ export class Invitation extends AggregateRoot {
         invitedBy: invitedBy.value,
       }),
     );
-    return invitation;
+    return Result.ok(invitation);
   }
 
   static fromSnapshot(snapshot: InvitationSnapshot): Invitation {

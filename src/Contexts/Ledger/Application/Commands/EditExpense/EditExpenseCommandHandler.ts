@@ -52,6 +52,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     const edited = expense.edit({
       by: caller.data,
       byOwner: role === 'owner',
+      archived: await this.groupMembers.archivedOf(expense.groupId.value),
       version: payload.version,
       description: payload.description,
       money: payload.money,

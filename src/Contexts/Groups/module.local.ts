@@ -5,6 +5,8 @@ import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import {
   AcceptInvitationCommandEvent,
   AcceptInvitationCommandHandler,
+  ArchiveGroupCommandEvent,
+  ArchiveGroupCommandHandler,
   CreateGroupCommandEvent,
   CreateGroupCommandHandler,
   CreateInvitationCommandEvent,
@@ -87,6 +89,10 @@ export const localGroupsModule = new Module({
     {
       event: LeaveGroupCommandEvent,
       handlers: [new LeaveGroupCommandHandler(groups, balances, waiting, systemClock)],
+    },
+    {
+      event: ArchiveGroupCommandEvent,
+      handlers: [new ArchiveGroupCommandHandler(groups, balances, waiting, systemClock)],
     },
   ],
   queries: [

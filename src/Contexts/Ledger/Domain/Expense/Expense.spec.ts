@@ -18,6 +18,7 @@ const recordExpense = (overrides: Partial<Parameters<typeof Expense.create>[0]> 
   Expense.create({
     groupId: group,
     paidBy: alice,
+    archived: false,
     description: 'Groceries',
     money: { amount: 1000 },
     date: '2026-03-10',
@@ -408,6 +409,7 @@ const savedExpense = (overrides: Partial<Parameters<typeof Expense.create>[0]> =
 const editing = (overrides: Partial<Parameters<Expense['edit']>[0]> = {}) => ({
   by: alice,
   byOwner: false,
+  archived: false,
   version: 1,
   description: 'Groceries, again',
   money: { amount: 900 },
@@ -470,14 +472,14 @@ describe('Expense, edited and deleted', () => {
   });
 
   it('is edited by the owner of its group, who keeps the payer as well', () => {
-    const edited = savedExpense().edit(editing({ by: carl, byOwner: true }));
+    const edited = savedExpense().edit(editing({ by: carl, byOwner: true, archived: false }));
 
     expect(edited.isSuccess()).toBe(true);
     expect((edited.data as Expense).paidBy.value).toBe('alice');
   });
 
   it('refuses an edit by a member who is neither the payer nor the owner', () => {
-    const refused = savedExpense().edit(editing({ by: bob, byOwner: false }));
+    const refused = savedExpense().edit(editing({ by: bob, byOwner: false, archived: false }));
 
     expect(refused).toMatchObject({ error: { type: 'NotThePayerOrTheOwner' } });
   });
@@ -518,7 +520,7 @@ describe('Expense, edited and deleted', () => {
 
   it('is deleted by its payer or the owner, and records the deletion', () => {
     const saved = savedExpense();
-    const deleted = saved.delete({ by: alice, byOwner: false, groupMembers: [alice, bob, carl] });
+    const deleted = saved.delete({ by: alice, byOwner: false, archived: false, groupMembers: [alice, bob, carl] });
 
     expect(deleted.isSuccess()).toBe(true);
     expect((deleted.data as Expense).pullDomainEvents()).toEqual([
@@ -527,7 +529,9 @@ describe('Expense, edited and deleted', () => {
   });
 
   it('refuses a deletion by a member who is neither the payer nor the owner', () => {
-    expect(savedExpense().delete({ by: bob, byOwner: false, groupMembers: [alice, bob, carl] })).toMatchObject({
+    expect(
+      savedExpense().delete({ by: bob, byOwner: false, archived: false, groupMembers: [alice, bob, carl] }),
+    ).toMatchObject({
       error: { type: 'NotThePayerOrTheOwner' },
     });
   });
@@ -539,13 +543,15 @@ describe('an expense that concerns a member who has left the group', () => {
   const withCarl = () => savedExpense({ paidBy: alice, split: equally(['alice', 'bob', 'carl']) });
 
   it('cannot be edited, by its payer or by the owner', () => {
-    expect(withCarl().edit(editing({ by: alice, byOwner: true, groupMembers: current }))).toMatchObject({
+    expect(
+      withCarl().edit(editing({ by: alice, byOwner: true, archived: false, groupMembers: current })),
+    ).toMatchObject({
       error: { type: 'ExpenseConcernsAFormerMember' },
     });
   });
 
   it('cannot be deleted, by its payer or by the owner', () => {
-    expect(withCarl().delete({ by: alice, byOwner: true, groupMembers: current })).toMatchObject({
+    expect(withCarl().delete({ by: alice, byOwner: true, archived: false, groupMembers: current })).toMatchObject({
       error: { type: 'ExpenseConcernsAFormerMember' },
     });
   });
@@ -553,10 +559,12 @@ describe('an expense that concerns a member who has left the group', () => {
   it('cannot be edited nor deleted when the one who left is its payer', () => {
     const paidByCarl = savedExpense({ paidBy: carl, split: equally(['carl', 'alice']) });
 
-    expect(paidByCarl.edit(editing({ by: carl, byOwner: false, groupMembers: current }))).toMatchObject({
+    expect(
+      paidByCarl.edit(editing({ by: carl, byOwner: false, archived: false, groupMembers: current })),
+    ).toMatchObject({
       error: { type: 'ExpenseConcernsAFormerMember' },
     });
-    expect(paidByCarl.delete({ by: carl, byOwner: false, groupMembers: current })).toMatchObject({
+    expect(paidByCarl.delete({ by: carl, byOwner: false, archived: false, groupMembers: current })).toMatchObject({
       error: { type: 'ExpenseConcernsAFormerMember' },
     });
   });
@@ -564,7 +572,7 @@ describe('an expense that concerns a member who has left the group', () => {
   it('is changeable again once the one who left is a member again', () => {
     expect(
       withCarl()
-        .edit(editing({ by: alice, byOwner: true, groupMembers: [alice, bob, carl] }))
+        .edit(editing({ by: alice, byOwner: true, archived: false, groupMembers: [alice, bob, carl] }))
         .isSuccess(),
     ).toBe(true);
   });
@@ -579,6 +587,7 @@ describe('Expense, its category (request 24)', () => {
     const edited = recorded.edit({
       by: alice,
       byOwner: false,
+      archived: false,
       version: recorded.version,
       description: 'Groceries',
       money: { amount: 1000 },

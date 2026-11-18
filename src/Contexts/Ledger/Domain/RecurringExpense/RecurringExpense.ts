@@ -1,3 +1,4 @@
+import { GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
@@ -73,6 +74,7 @@ export class RecurringExpense extends AggregateRoot {
     split,
     category,
     groupMembers,
+    archived,
     now,
   }: {
     groupId: Id;
@@ -84,8 +86,11 @@ export class RecurringExpense extends AggregateRoot {
     /** What its expenses are for; `other` when none is given (request 24). */
     category?: string;
     groupMembers: Id[];
+    /** Whether the group is archived, read by the handler: an archived group sets up no recurring expense (request 27). */
+    archived: boolean;
     now: Date;
   }): IResult<RecurringExpense> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     const text = Description.create(description);
     if (text.isFailure()) return text;
     const day = StartsOn.create(startsOn, now.toISOString().slice(0, 10));
@@ -136,7 +141,17 @@ export class RecurringExpense extends AggregateRoot {
    * otherwise the recurring expense ends (`ended`), and records no expense. `today` is the day of the application's clock, read
    * by the sweep. The returned aggregate keeps this version.
    */
-  recordDay({ today, groupMembers }: { today: string; groupMembers: Id[] }): IResult<RecurringExpense> {
+  recordDay({
+    today,
+    groupMembers,
+    archived,
+  }: {
+    today: string;
+    groupMembers: Id[];
+    /** Whether the group is archived, read by the sweep: an archived group records no expense of its own (request 27). */
+    archived: boolean;
+  }): IResult<RecurringExpense> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!this.dayHasCome(today)) return Result.fail(new DayNotYetCome());
 
     const isCurrent = (memberId: Id) => groupMembers.some(member => member.value === memberId.value);
@@ -168,7 +183,8 @@ export class RecurringExpense extends AggregateRoot {
   }
 
   /** Stops it: only its payer, or the owner of its group (`byOwner`, read by the handler), may. It is deleted; no expense follows. */
-  stop({ by, byOwner }: { by: Id; byOwner: boolean }): IResult<RecurringExpense> {
+  stop({ by, byOwner, archived }: { by: Id; byOwner: boolean; archived: boolean }): IResult<RecurringExpense> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!byOwner && by.value !== this.paidBy.value) return Result.fail(new NotThePayerOrTheOwnerOfRecurring());
     this.record(RecurringExpenseStoppedEvent.set({ recurringExpenseId: this._id.value, groupId: this.groupId.value }));
     return Result.ok(this);

@@ -13,6 +13,7 @@ const members = ['alice', 'bob', 'carol'].map(id => new Id(id));
 const setUp = (overrides: Partial<Parameters<typeof RecurringExpense.setUp>[0]> = {}) =>
   RecurringExpense.setUp({
     groupId: group,
+    archived: false,
     paidBy: new Id('alice'),
     description: 'Rent',
     amount: 90000,
@@ -71,7 +72,7 @@ describe('RecurringExpense', () => {
     it('records the day under a new id it carries, and moves the next day to the same day of the next month', () => {
       const set = setUp().data as RecurringExpense;
 
-      const decided = set.recordDay({ today: '2026-09-05', groupMembers: members });
+      const decided = set.recordDay({ today: '2026-09-05', groupMembers: members, archived: false });
 
       expect(decided.isSuccess()).toBe(true);
       expect(decided.data).toMatchObject({ next: '2026-10-05', ended: false });
@@ -93,7 +94,7 @@ describe('RecurringExpense', () => {
     it('is refused for a day that has not come yet', () => {
       const set = setUp().data as RecurringExpense;
 
-      const decided = set.recordDay({ today: '2026-09-04', groupMembers: members });
+      const decided = set.recordDay({ today: '2026-09-04', groupMembers: members, archived: false });
 
       expect(decided.isFailure() && decided.error.type).toBe('DayNotYetCome');
     });
@@ -101,7 +102,7 @@ describe('RecurringExpense', () => {
     it('ends, and records no expense, when a member of its split has left the group', () => {
       const set = setUp().data as RecurringExpense;
 
-      const decided = set.recordDay({ today: '2026-09-05', groupMembers: [new Id('alice')] });
+      const decided = set.recordDay({ today: '2026-09-05', groupMembers: [new Id('alice')], archived: false });
 
       expect(decided.isSuccess()).toBe(true);
       expect(decided.data!.ended).toBe(true);
@@ -115,7 +116,7 @@ describe('RecurringExpense', () => {
     it('is refused to a member who is neither its payer nor the owner', () => {
       const set = setUp().data as RecurringExpense;
 
-      const stopped = set.stop({ by: new Id('bob'), byOwner: false });
+      const stopped = set.stop({ by: new Id('bob'), byOwner: false, archived: false });
 
       expect(stopped.isFailure() && stopped.error.type).toBe('NotThePayerOrTheOwnerOfRecurring');
     });
@@ -123,8 +124,8 @@ describe('RecurringExpense', () => {
     it('is allowed to the payer, and to the owner of the group', () => {
       const set = setUp().data as RecurringExpense;
 
-      expect(set.stop({ by: new Id('alice'), byOwner: false }).isSuccess()).toBe(true);
-      expect(set.stop({ by: new Id('carol'), byOwner: true }).isSuccess()).toBe(true);
+      expect(set.stop({ by: new Id('alice'), byOwner: false, archived: false }).isSuccess()).toBe(true);
+      expect(set.stop({ by: new Id('carol'), byOwner: true, archived: false }).isSuccess()).toBe(true);
     });
   });
 });

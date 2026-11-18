@@ -33,8 +33,9 @@ export class RefundSettlementCommandHandler extends CommandHandler<RefundSettlem
     if (!book) return Result.fail(notFound(payload.settlementId));
     const members = await this.members.membersOf(book.groupId.value);
     if (!members.includes(caller.data.value)) return Result.fail(notFound(payload.settlementId));
+    const archived = await this.members.archivedOf(book.groupId.value);
 
-    const planned = book.decideRefund(settlementId, caller.data, members);
+    const planned = book.decideRefund(settlementId, caller.data, members, archived);
     if (planned.isFailure()) return planned;
 
     const accepted = await this.provider.requestRefund({
@@ -48,6 +49,7 @@ export class RefundSettlementCommandHandler extends CommandHandler<RefundSettlem
       await this.members.membersOf(book.groupId.value),
       accepted,
       this.clock(),
+      archived,
     );
     if (recorded.isFailure()) return recorded;
 

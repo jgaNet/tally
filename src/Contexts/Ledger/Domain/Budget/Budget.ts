@@ -1,3 +1,4 @@
+import { GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
@@ -44,12 +45,16 @@ export class Budget extends AggregateRoot {
     category,
     amount,
     byOwner,
+    archived,
   }: {
     groupId: Id;
     category: CategoryName;
     amount: number;
     byOwner: boolean;
+    /** Whether the group is archived, read by the handler: an archived group sets no budget (request 27). */
+    archived: boolean;
   }): IResult<Budget> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!byOwner) return Result.fail(new NotTheOwnerOfTheGroup());
     const value = Amount.create(amount);
     if (value.isFailure()) return value;
@@ -67,7 +72,8 @@ export class Budget extends AggregateRoot {
   }
 
   /** Sets the budget again, with another amount (or after it was removed): the months it was passed in are kept. */
-  replace({ amount, byOwner }: { amount: number; byOwner: boolean }): IResult<Budget> {
+  replace({ amount, byOwner, archived }: { amount: number; byOwner: boolean; archived: boolean }): IResult<Budget> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!byOwner) return Result.fail(new NotTheOwnerOfTheGroup());
     const value = Amount.create(amount);
     if (value.isFailure()) return value;
@@ -85,7 +91,8 @@ export class Budget extends AggregateRoot {
   }
 
   /** Unsets the budget: only the group's owner may, and only a budget that is set. */
-  unset({ byOwner }: { byOwner: boolean }): IResult<Budget> {
+  unset({ byOwner, archived }: { byOwner: boolean; archived: boolean }): IResult<Budget> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!byOwner) return Result.fail(new NotTheOwnerOfTheGroup());
     if (this.removed) return Result.fail(new BudgetNotSet());
 

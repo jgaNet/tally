@@ -53,6 +53,7 @@ describe('SettlementBook history (request 19: every status a settlement had, whe
     const book = SettlementBook.open(new Id('group'));
 
     const recorded = book.recordCash({
+      archived: false,
       payer: new Id('bob'),
       payee: new Id('ann'),
       amount: 10,

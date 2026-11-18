@@ -11,6 +11,7 @@ interface GroupRow {
   currency: string;
   owner_id: string;
   created_at: string;
+  archived_at: string | null;
   version: number;
 }
 
@@ -41,7 +42,7 @@ export class SqliteGroupRepository implements IGroupRepository {
 
   async findById(id: Id): Promise<Group | null> {
     const row = this.database.get<GroupRow>(
-      'SELECT id, name, currency, owner_id, created_at, version FROM groups WHERE id = ?',
+      'SELECT id, name, currency, owner_id, created_at, archived_at, version FROM groups WHERE id = ?',
       id.value,
     );
     if (!row) return null;
@@ -74,26 +75,30 @@ export class SqliteGroupRepository implements IGroupRepository {
         amount: passage.amount,
       })),
       createdAt: row.created_at,
+      archivedAt: row.archived_at,
       version: row.version,
     });
   }
 
   async save(group: Group): Promise<IResult> {
-    const { id, name, currency, ownerId, members, departed, passages, createdAt, version } = group.toSnapshot();
+    const { id, name, currency, ownerId, members, departed, passages, createdAt, archivedAt, version } =
+      group.toSnapshot();
     if (version === 0) {
       this.database.run(
-        'INSERT INTO groups (id, name, currency, owner_id, created_at, version) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO groups (id, name, currency, owner_id, created_at, archived_at, version) VALUES (?, ?, ?, ?, ?, ?, ?)',
         id,
         name,
         currency,
         ownerId,
         createdAt,
+        archivedAt ?? null,
         1,
       );
     } else {
       const changed = this.database.run(
-        'UPDATE groups SET version = ? WHERE id = ? AND version = ?',
+        'UPDATE groups SET version = ?, archived_at = ? WHERE id = ? AND version = ?',
         version + 1,
+        archivedAt ?? null,
         id,
         version,
       );

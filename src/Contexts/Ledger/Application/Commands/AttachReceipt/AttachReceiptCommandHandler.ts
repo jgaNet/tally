@@ -48,6 +48,7 @@ export class AttachReceiptCommandHandler extends CommandHandler<AttachReceiptCom
       },
       by: caller.data,
       byOwner: role === 'owner',
+      archived: await this.groupMembers.archivedOf(expense.groupId),
       groupMembers: await this.groupMembers.membersOf(expense.groupId),
       file: file.data,
     };

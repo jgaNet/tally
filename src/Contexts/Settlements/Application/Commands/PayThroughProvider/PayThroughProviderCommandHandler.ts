@@ -39,9 +39,17 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     if (!members.includes(caller.data.value)) return Result.fail(notFound(payload.groupId));
     const currency = await this.members.currencyOf(payload.groupId);
     if (currency === null) return Result.fail(notFound(payload.groupId));
+    const archived = await this.members.archivedOf(payload.groupId);
 
     const book = (await this.books.findByGroupId(groupId)) ?? SettlementBook.open(groupId);
-    const decision = await this.decide(payload.groupId, caller.data.value, payload.to, payload.amount, members);
+    const decision = await this.decide(
+      payload.groupId,
+      caller.data.value,
+      payload.to,
+      payload.amount,
+      members,
+      archived,
+    );
     const payee = await this.payoutAccounts.findByOwner(new Id(payload.to));
 
     const planned = book.planPayment({ ...decision, now: this.clock(), payeeAccount: payee?.accountId ?? null });
@@ -57,7 +65,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     const recorded = book.recordPayment(
       planned.data,
       link,
-      await this.decide(payload.groupId, caller.data.value, payload.to, payload.amount, members),
+      await this.decide(payload.groupId, caller.data.value, payload.to, payload.amount, members, archived),
     );
     if (recorded.isFailure()) return recorded;
 
@@ -75,6 +83,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     payee: string,
     amount: number,
     members: string[],
+    archived: boolean,
   ): Promise<Decision> {
     return {
       payer: new Id(payer),
@@ -84,6 +93,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
       payeeIsMember: members.includes(payee),
       payerBalance: await this.balances.balanceOf(groupId, payer),
       payeeBalance: await this.balances.balanceOf(groupId, payee),
+      archived,
     };
   }
 }

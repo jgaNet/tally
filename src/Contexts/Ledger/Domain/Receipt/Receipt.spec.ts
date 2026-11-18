@@ -21,7 +21,16 @@ const png = ReceiptFile.restore('image/png', 80);
 const stored = { fileId: 'file-1', url: 'http://receipts.test/files/file-1' };
 
 const attach = (overrides: Partial<Parameters<typeof Receipt.attach>[0]> = {}) =>
-  Receipt.attach({ expense, by: ben, byOwner: false, groupMembers: members, file: jpeg, stored, ...overrides });
+  Receipt.attach({
+    expense,
+    by: ben,
+    byOwner: false,
+    archived: false,
+    groupMembers: members,
+    file: jpeg,
+    stored,
+    ...overrides,
+  });
 
 describe('Receipt', () => {
   it('is attached by the payer, and records ReceiptAttached with the expense and its group', () => {
@@ -41,8 +50,8 @@ describe('Receipt', () => {
   });
 
   it('is attached by the group’s owner, and refused to any other member', () => {
-    expect(attach({ by: ann, byOwner: true }).isSuccess()).toBe(true);
-    const refused = attach({ by: cy, byOwner: false });
+    expect(attach({ by: ann, byOwner: true, archived: false }).isSuccess()).toBe(true);
+    const refused = attach({ by: cy, byOwner: false, archived: false });
     expect(refused.isFailure() && refused.error).toBeInstanceOf(NotThePayerOrTheOwner);
   });
 
@@ -65,6 +74,7 @@ describe('Receipt', () => {
       expense,
       by: ben,
       byOwner: false,
+      archived: false,
       groupMembers: members,
       file: png,
       stored: { fileId: 'file-2', url: 'http://receipts.test/files/file-2' },

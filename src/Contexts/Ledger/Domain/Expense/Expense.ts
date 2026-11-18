@@ -1,3 +1,4 @@
+import { GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 import { CurrencyCode } from '@SharedKernel/Domain/Currency';
 
@@ -77,6 +78,7 @@ export class Expense extends AggregateRoot {
     groupMembers,
     groupCurrency,
     offer,
+    archived,
     now,
   }: {
     /** The id the expense is born with: given when a recurring expense's day already named it (ADR 14); otherwise generated. */
@@ -93,8 +95,11 @@ export class Expense extends AggregateRoot {
     groupCurrency: CurrencyCode;
     /** The rates service's answer for what was paid, read by the handler when the money is in another currency (request 22). */
     offer: RateOffer | null;
+    /** Whether the group is archived, read by the handler: an archived group takes no expense (request 27). */
+    archived: boolean;
     now: Date;
   }): IResult<Expense> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     const decided = Expense.decide({
       paidBy,
       description,
@@ -146,6 +151,7 @@ export class Expense extends AggregateRoot {
   edit({
     by,
     byOwner,
+    archived,
     version,
     description,
     money,
@@ -159,6 +165,8 @@ export class Expense extends AggregateRoot {
   }: {
     by: Id;
     byOwner: boolean;
+    /** Whether the group is archived, read by the handler (request 27). */
+    archived: boolean;
     version: number;
     description: string;
     money: MoneyInput;
@@ -170,6 +178,7 @@ export class Expense extends AggregateRoot {
     offer: RateOffer | null;
     now: Date;
   }): IResult<Expense> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!this.mayChange(by, byOwner)) return Result.fail(new NotThePayerOrTheOwner());
     if (this.concernsAFormerMember(groupMembers)) return Result.fail(new ExpenseConcernsAFormerMember());
     if (version !== this.version) return Result.fail(new ExpenseChanged());
@@ -210,7 +219,18 @@ export class Expense extends AggregateRoot {
    * Deletes the expense: it is gone from every read once the repository removes it. Only its payer or the owner may, and not
    * an expense that concerns a member who has left (`groupMembers` are the group's current members, read by the handler).
    */
-  delete({ by, byOwner, groupMembers }: { by: Id; byOwner: boolean; groupMembers: Id[] }): IResult<Expense> {
+  delete({
+    by,
+    byOwner,
+    groupMembers,
+    archived,
+  }: {
+    by: Id;
+    byOwner: boolean;
+    groupMembers: Id[];
+    archived: boolean;
+  }): IResult<Expense> {
+    if (archived) return Result.fail(new GroupArchived('Ledger'));
     if (!this.mayChange(by, byOwner)) return Result.fail(new NotThePayerOrTheOwner());
     if (this.concernsAFormerMember(groupMembers)) return Result.fail(new ExpenseConcernsAFormerMember());
 

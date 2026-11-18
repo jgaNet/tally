@@ -40,6 +40,27 @@ export class OwnerCannotLeave extends GroupException {
   }
 }
 
+/** Only the owner of a group may archive it. */
+export class OnlyTheOwnerMayArchive extends GroupException {
+  constructor() {
+    super('OnlyTheOwnerMayArchive', 'Only the owner of a group may archive it');
+  }
+}
+
+/** A group is archived once every balance in it is 0: one that is not is still owed. */
+export class BalancesNotSettled extends GroupException {
+  constructor() {
+    super('BalancesNotSettled', 'A group can be archived only once every balance in it is 0');
+  }
+}
+
+/** A group is not archived while a payment in it is waiting at the provider (pending or being refunded). */
+export class ArchiveWaitsForPayment extends GroupException {
+  constructor() {
+    super('ArchiveWaitsForPayment', 'A group cannot be archived while a payment in it is waiting at the provider');
+  }
+}
+
 /** A member cannot leave while a payment they pay or receive through the provider is pending or being refunded (request 20). */
 export class PaymentWaitingAtProvider extends GroupException {
   constructor() {

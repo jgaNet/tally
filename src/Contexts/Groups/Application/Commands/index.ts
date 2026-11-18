@@ -8,3 +8,5 @@ export { AcceptInvitationCommandEvent } from '@Contexts/Groups/Application/Comma
 export { AcceptInvitationCommandHandler } from '@Contexts/Groups/Application/Commands/AcceptInvitation/AcceptInvitationCommandHandler';
 export { LeaveGroupCommandEvent } from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandEvent';
 export { LeaveGroupCommandHandler } from '@Contexts/Groups/Application/Commands/LeaveGroup/LeaveGroupCommandHandler';
+export { ArchiveGroupCommandEvent } from '@Contexts/Groups/Application/Commands/ArchiveGroup/ArchiveGroupCommandEvent';
+export { ArchiveGroupCommandHandler } from '@Contexts/Groups/Application/Commands/ArchiveGroup/ArchiveGroupCommandHandler';
