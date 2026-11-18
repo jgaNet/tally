@@ -37,6 +37,8 @@ export interface StatementRowView {
   readonly description: string;
   readonly paid: number;
   readonly share: number;
+  /** When the expense was recorded, ISO 8601: the order of the lines on the same date (request 29 orders settlements by it too). */
+  readonly recordedAt: string;
 }
 
 /**

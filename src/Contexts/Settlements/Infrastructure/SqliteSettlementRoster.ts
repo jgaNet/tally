@@ -1,6 +1,10 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
-import { ISettlementRoster, SettledChange } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
+import {
+  CountedSettlement,
+  ISettlementRoster,
+  SettledChange,
+} from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
 import { SettlementAuditEntry } from '@Contexts/Settlements/Domain/Settlement/SettlementAudit';
 
 /**
@@ -25,6 +29,35 @@ export class SqliteSettlementRoster implements ISettlementRoster {
         .all(groupId, groupId),
     ) as { memberId: string; change: number }[];
     return rows.map(({ memberId, change }) => ({ memberId, change }));
+  }
+
+  async countedOf(groupId: string, memberId: string): Promise<CountedSettlement[]> {
+    const rows = this.database.read(db =>
+      db
+        .prepare(
+          `SELECT s.id AS settlement_id, s.payer_id, s.payee_id, s.amount, s.method, a.at AS counted_from
+             FROM settlements s
+             JOIN settlement_audit a ON a.subject_id = s.id AND a.action = 'settlement-paid'
+            WHERE s.group_id = ? AND s.status IN ('paid', 'refunding') AND (s.payer_id = ? OR s.payee_id = ?)
+            ORDER BY a.at, a.seq`,
+        )
+        .all(groupId, memberId, memberId),
+    ) as {
+      settlement_id: string;
+      payer_id: string;
+      payee_id: string;
+      amount: number;
+      method: CountedSettlement['method'];
+      counted_from: string;
+    }[];
+    return rows.map(row => ({
+      settlementId: row.settlement_id,
+      from: row.payer_id,
+      to: row.payee_id,
+      amount: row.amount,
+      method: row.method,
+      countedFrom: row.counted_from,
+    }));
   }
 
   async auditOf(groupId: string): Promise<SettlementAuditEntry[]> {

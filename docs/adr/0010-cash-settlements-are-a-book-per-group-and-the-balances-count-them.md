@@ -1,5 +1,7 @@
 # 10. Cash settlements are decided in a book per group, and the balances count them
 
+> Superseded in part by [24](0024-a-statement-lists-the-settlements-the-balances-count-and-its-csv-is-the-same-statement.md): a member's statement lists the settlements the balances count (request 29). The rest of this record stands.
+
 ## Context
 
 Request 12 of Tally (a member paid in cash by another records it; it never pays more than is owed; two decided at once are decided

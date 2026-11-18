@@ -10,7 +10,7 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
  * A settlement in cash over HTTP, against a database file (request 12, fragment 12): recorded by its payee, read back by a member of
- * its group, counted by the balances, the suggestions and leaving at once, not by the statement; refused when it is more than is owed,
+ * its group, counted by the balances, the suggestions, leaving and the statement at once; refused when it is more than is owed,
  * and two decided at once on two servers over one file, one of them kept and the other refused.
  */
 let directory: string;
@@ -92,7 +92,7 @@ const threeOwing = async () => {
 };
 
 describe('a cash settlement', () => {
-  it('is recorded by its payee, read back by a member, and counted by the balances, not by the statement', async () => {
+  it('is recorded by its payee, read back by a member, and counted by the balances and the statement', async () => {
     const groupId = await threeOwing();
 
     const recorded = await settle(ann.token, groupId, { from: bob.id, amount: 1000 });
@@ -119,11 +119,11 @@ describe('a cash settlement', () => {
       { memberId: cy.id, balance: -1000 },
     ]);
 
-    // The statement lists expenses only: Bob's is what the expense gives him, not what he has settled.
+    // The statement lists the settlement beside the expenses (request 29): Bob's balance is 0 now, as the group's balances give it.
     const statement = await http.request('GET', `${api}/groups/${groupId}/members/${bob.id}/statement`, {
       token: ann.token,
     });
-    expect((statement.body as { balance: number }).balance).toBe(-1000);
+    expect((statement.body as { balance: number }).balance).toBe(0);
 
     // Every balance is even now, so the suggestion has no transfer left to make.
     const suggested = await http.request('GET', `${api}/groups/${groupId}/settlements/suggested`, { token: bob.token });

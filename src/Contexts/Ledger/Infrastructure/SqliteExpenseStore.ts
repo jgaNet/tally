@@ -234,7 +234,7 @@ export class SqliteExpenseStore implements IExpenseStore {
     const rows = this.database.read(db =>
       db
         .prepare(
-          `SELECT e.id, e.spent_on, e.description, e.amount, e.paid_by, s.amount AS share
+          `SELECT e.id, e.spent_on, e.description, e.amount, e.paid_by, s.amount AS share, r.recorded_at
              FROM expenses e
              JOIN expense_recordings r ON r.expense_id = e.id
              LEFT JOIN expense_shares s ON s.expense_id = e.id AND s.member_id = ?
@@ -249,6 +249,7 @@ export class SqliteExpenseStore implements IExpenseStore {
       description: row.description,
       paid: row.paid_by === memberId ? row.amount : 0,
       share: row.share ?? 0,
+      recordedAt: row.recorded_at,
     }));
   }
 
@@ -372,6 +373,7 @@ interface StatementRow {
   amount: number;
   paid_by: string;
   share: number | null;
+  recorded_at: string;
 }
 
 interface BalanceRow {

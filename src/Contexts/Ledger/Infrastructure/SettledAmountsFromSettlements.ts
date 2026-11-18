@@ -1,5 +1,5 @@
 import { ISettlementRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
-import { ISettledAmounts, SettledChange } from '@Contexts/Ledger/Application/ISettledAmounts';
+import { CountedSettlement, ISettledAmounts, SettledChange } from '@Contexts/Ledger/Application/ISettledAmounts';
 
 /** Settlements' read model of what its settlements move, as Settlements gives it to the other contexts: the type the wiring is given. */
 export type SettlementsRoster = ISettlementRoster;
@@ -14,5 +14,9 @@ export class SettledAmountsFromSettlements implements ISettledAmounts {
 
   async settledOf(groupId: string): Promise<SettledChange[]> {
     return this.roster.settledOf(groupId);
+  }
+
+  async countedOf(groupId: string, memberId: string): Promise<CountedSettlement[]> {
+    return this.roster.countedOf(groupId, memberId);
   }
 }

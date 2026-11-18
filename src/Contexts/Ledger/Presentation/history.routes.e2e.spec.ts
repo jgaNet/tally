@@ -194,8 +194,24 @@ describe("a member's statement", () => {
       memberId: ann.id,
       balance: 1550,
       entries: [
-        { expenseId: expect.any(String), date: DAY_1, description: 'First', paid: 3000, share: 1000, balance: 2000 },
-        { expenseId: expect.any(String), date: DAY_1, description: 'Third', paid: 0, share: 450, balance: 1550 },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: DAY_1,
+          description: 'First',
+          paid: 3000,
+          share: 1000,
+          balance: 2000,
+        },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: DAY_1,
+          description: 'Third',
+          paid: 0,
+          share: 450,
+          balance: 1550,
+        },
       ],
     });
 
@@ -204,9 +220,33 @@ describe("a member's statement", () => {
       memberId: carol.id,
       balance: -850,
       entries: [
-        { expenseId: expect.any(String), date: DAY_1, description: 'First', paid: 0, share: 1000, balance: -1000 },
-        { expenseId: expect.any(String), date: DAY_1, description: 'Third', paid: 900, share: 450, balance: -550 },
-        { expenseId: expect.any(String), date: DAY_2, description: 'Second', paid: 0, share: 300, balance: -850 },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: DAY_1,
+          description: 'First',
+          paid: 0,
+          share: 1000,
+          balance: -1000,
+        },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: DAY_1,
+          description: 'Third',
+          paid: 900,
+          share: 450,
+          balance: -550,
+        },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: DAY_2,
+          description: 'Second',
+          paid: 0,
+          share: 300,
+          balance: -850,
+        },
       ],
     });
 
@@ -275,7 +315,15 @@ describe("a member's statement", () => {
       memberId: bob.id,
       balance: -500,
       entries: [
-        { expenseId: expect.any(String), date: DAY_1, description: 'Kept', paid: 0, share: 500, balance: -500 },
+        {
+          kind: 'expense',
+          expenseId: expect.any(String),
+          date: DAY_1,
+          description: 'Kept',
+          paid: 0,
+          share: 500,
+          balance: -500,
+        },
       ],
     });
   });
@@ -306,7 +354,9 @@ describe('Groups → Ledger', () => {
     expect(read.body).toEqual({
       memberId: ann.id,
       balance: -125,
-      entries: [{ expenseId: recorded, date: DAY_1, description: 'Bread', paid: 0, share: 125, balance: -125 }],
+      entries: [
+        { kind: 'expense', expenseId: recorded, date: DAY_1, description: 'Bread', paid: 0, share: 125, balance: -125 },
+      ],
     });
   });
 });

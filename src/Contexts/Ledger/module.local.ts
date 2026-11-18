@@ -3,7 +3,7 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { getGroupBalances } from '@Contexts/Ledger/Application/Balances';
-import { getGroupExpenses, getMemberStatement } from '@Contexts/Ledger/Application/History';
+import { getGroupExpenses, getMemberStatement, getMemberStatementCsv } from '@Contexts/Ledger/Application/History';
 import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
 import { getOfferedRate } from '@Contexts/Ledger/Application/Rates';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
@@ -129,7 +129,8 @@ export function ledgerWiring(
       getOfferedRate(groupMembers, groupCurrency, rates, systemClock),
       getGroupBalances(expenses, groupMembers, settled),
       getGroupExpenses(expenses, groupMembers),
-      getMemberStatement(expenses, groupMembers),
+      getMemberStatement(expenses, groupMembers, settled),
+      getMemberStatementCsv(expenses, groupMembers, settled),
       setUpRecurringExpense(recurring, groupMembers, systemClock),
       stopRecurringExpense(recurring, groupMembers, systemClock),
       getRecurringExpense(recurring, groupMembers),

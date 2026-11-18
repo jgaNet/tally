@@ -246,7 +246,7 @@ describe('Ledger → Settlements (GroupBalances)', () => {
 });
 
 describe('Settlements → Ledger (SettledAmounts)', () => {
-  it('a settlement made in Settlements, found by its own id, is counted by the balances Ledger reads and not by the statement', async () => {
+  it('a settlement made in Settlements, found by its own id, is counted by the balances Ledger reads and by the statement (request 29)', async () => {
     const groupId = await groupWithBob();
     await http.request('POST', `${api}/groups/${groupId}/expenses`, {
       token: ann.token,
@@ -270,6 +270,6 @@ describe('Settlements → Ledger (SettledAmounts)', () => {
     const statement = await http.request('GET', `${api}/groups/${groupId}/members/${bob.id}/statement`, {
       token: ann.token,
     });
-    expect((statement.body as { balance: number }).balance).toBe(-500);
+    expect((statement.body as { balance: number }).balance).toBe(-200);
   });
 });
