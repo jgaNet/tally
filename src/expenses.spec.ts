@@ -966,4 +966,212 @@ describe('expenses', () => {
       ]);
     });
   });
+
+  describe('an expense in another currency', () => {
+    const francs = (fields: Record<string, unknown> = {}) => ({
+      currency: 'CHF',
+      amount: 1234,
+      rate: '1.0625',
+      ...fields,
+    });
+
+    /** Records an expense paid in francs, in place of the euros of the default expense, and answers its id. */
+    async function recordedInFrancs(fields: Record<string, unknown> = {}, token = adaToken): Promise<string> {
+      const answer = await record({ amount: undefined, original: francs(), ...fields }, token);
+      expect(answer.status).toBe(201);
+      return answer.body.id;
+    }
+
+    /** An edit of the default expense in francs, in place of its euros. */
+    const changeToFrancs = (id: string, fields: Record<string, unknown> = {}, token = adaToken) =>
+      change(id, { amount: undefined, original: francs(), ...fields }, token);
+
+    it('converts the amount in francs to the group currency at the rate given, and keeps the francs, the rate and the amount', async () => {
+      const id = await recordedInFrancs();
+      expect(await readExpense(id)).toMatchObject({
+        amount: 1311,
+        original: { currency: 'CHF', amount: 1234, rate: '1.0625' },
+      });
+    });
+
+    it('rounds the converted amount to the nearest whole number, a half rounded up', async () => {
+      expect(
+        await readExpense(await recordedInFrancs({ original: francs({ amount: 1000, rate: '0.9545' }) })),
+      ).toMatchObject({
+        amount: 955,
+      });
+      expect(await readExpense(await recordedInFrancs({ original: francs({ amount: 1, rate: '0.5' }) }))).toMatchObject(
+        {
+          amount: 1,
+        },
+      );
+      expect(
+        await readExpense(await recordedInFrancs({ original: francs({ amount: 1000, rate: '1.0625' }) })),
+      ).toMatchObject({
+        amount: 1063,
+      });
+    });
+
+    it('keeps the rate as the same string it was given, with or without digits after the point', async () => {
+      for (const rate of ['1', '12.5', '0.954500']) {
+        const id = await recordedInFrancs({ original: francs({ amount: 1000, rate }) });
+        expect((await readExpense(id)).original.rate).toBe(rate);
+      }
+      const smallest = await recordedInFrancs({ original: francs({ amount: 100_000_000, rate: '0.000001' }) });
+      expect(await readExpense(smallest)).toMatchObject({ amount: 100, original: { rate: '0.000001' } });
+      expect(
+        await readExpense(await recordedInFrancs({ original: francs({ amount: 10, rate: '12.5' }) })),
+      ).toMatchObject({
+        amount: 125,
+      });
+    });
+
+    it('splits the amount in the group currency, equally, and its shares add up to it', async () => {
+      const id = await recordedInFrancs({ original: francs({ amount: 1000, rate: '1.0625' }) });
+      const body = await readExpense(id);
+      expect(body.amount).toBe(1063);
+      expect(body.shares.reduce((sum: number, share: { amount: number }) => sum + share.amount, 0)).toBe(1063);
+    });
+
+    it('counts the amount in the group currency in the balances, as the payer paid it', async () => {
+      await recordedInFrancs();
+      expect(await balancesOf()).toEqual([
+        { memberId: adaId, balance: 874 },
+        { memberId: graceId, balance: -437 },
+        { memberId: linusId, balance: -437 },
+      ]);
+    });
+
+    it('takes an exact split to add up to the amount in the group currency, not to the amount in francs', async () => {
+      const original = francs({ amount: 1000, rate: '0.9545' });
+      const refused = await record({
+        amount: undefined,
+        original,
+        splitBetween: undefined,
+        splitExactly: [{ memberId: adaId, amount: 1000 }],
+      });
+      expect(refused).toEqual(refusal('InvalidSplit'));
+      const accepted = await record({
+        amount: undefined,
+        original,
+        splitBetween: undefined,
+        splitExactly: [{ memberId: adaId, amount: 955 }],
+      });
+      expect(accepted.status).toBe(201);
+    });
+
+    it('lists the expenses of the group with their originals, and only the expenses in another currency have one', async () => {
+      const inFrancs = await recordedInFrancs();
+      const inEuros = await recordedExpense({ date: '2026-11-02' });
+      const listed = (await call(app, 'GET', `/groups/${groupId}/expenses`, { token: adaToken })).body;
+      expect(listed.find((expense: { id: string }) => expense.id === inFrancs)).toMatchObject({
+        amount: 1311,
+        original: { currency: 'CHF', amount: 1234, rate: '1.0625' },
+      });
+      expect(listed.find((expense: { id: string }) => expense.id === inEuros)).not.toHaveProperty('original');
+    });
+
+    it('reads an expense in the group currency without original', async () => {
+      const id = await recordedExpense();
+      expect(await readExpense(id)).not.toHaveProperty('original');
+    });
+
+    it('refuses an original in the group currency, or in a currency that is not one of Tally', async () => {
+      expect(await record({ amount: undefined, original: francs({ currency: 'EUR' }) })).toEqual(
+        refusal('InvalidCurrency'),
+      );
+      expect(await record({ amount: undefined, original: francs({ currency: 'JPY' }) })).toEqual(
+        refusal('InvalidCurrency'),
+      );
+    });
+
+    it.each([0, 100_000_001])('refuses an original amount of %i, which is outside 1 to 100 000 000', async amount => {
+      expect(await record({ amount: undefined, original: francs({ amount }) })).toEqual(refusal('InvalidAmount'));
+    });
+
+    it('accepts an original amount of exactly 1 and of exactly 100 000 000', async () => {
+      expect((await record({ amount: undefined, original: francs({ amount: 1, rate: '1' }) })).status).toBe(201);
+      expect((await record({ amount: undefined, original: francs({ amount: 100_000_000, rate: '1' }) })).status).toBe(
+        201,
+      );
+    });
+
+    it.each([
+      ['the rate 0', '0'],
+      ['the rate 0.000000', '0.000000'],
+      ['a negative rate', '-1'],
+      ['a rate with 7 digits after the point', '1.1234567'],
+      ['a rate with a comma', '1,5'],
+      ['a rate that is not a number', 'abc'],
+      ['an empty rate', ''],
+    ])('refuses %s', async (_, rate) => {
+      expect(await record({ amount: undefined, original: francs({ rate }) })).toEqual(refusal('InvalidRate'));
+    });
+
+    it('refuses a rate that is a number rather than a string, with 400', async () => {
+      expect((await record({ amount: undefined, original: francs({ rate: 0.9545 }) })).status).toBe(400);
+    });
+
+    it('refuses an amount in the group currency that is converted to 0, or above 100 000 000', async () => {
+      expect(await record({ amount: undefined, original: francs({ amount: 1, rate: '0.4' }) })).toEqual(
+        refusal('InvalidAmount'),
+      );
+      expect(await record({ amount: undefined, original: francs({ amount: 100_000_000, rate: '1.5' }) })).toEqual(
+        refusal('InvalidAmount'),
+      );
+    });
+
+    it('refuses a body with both amount and original, or with neither, with 400', async () => {
+      expect((await record({ original: francs() })).status).toBe(400);
+      expect((await record({ amount: undefined, original: undefined })).status).toBe(400);
+    });
+
+    it('refuses an original that is not an object with its three fields, with 400', async () => {
+      expect((await record({ amount: undefined, original: 'CHF 1234' })).status).toBe(400);
+      expect((await record({ amount: undefined, original: { currency: 'CHF', amount: 1234 } })).status).toBe(400);
+    });
+
+    it('keeps the expense in the group currency when an edit gives it an amount, and drops the original', async () => {
+      const id = await recordedInFrancs();
+      const answer = await change(id, { amount: 500, original: undefined, version: 1 });
+      expect(answer.status).toBe(204);
+      const body = await readExpense(id);
+      expect(body).toMatchObject({ amount: 500, version: 2 });
+      expect(body).not.toHaveProperty('original');
+    });
+
+    it('turns an expense in the group currency into one in another currency when an edit gives an original', async () => {
+      const id = await recordedExpense();
+      const answer = await change(id, {
+        amount: undefined,
+        original: francs({ amount: 2000, rate: '0.5' }),
+        version: 1,
+      });
+      expect(answer.status).toBe(204);
+      expect(await readExpense(id)).toMatchObject({
+        amount: 1000,
+        version: 2,
+        original: { currency: 'CHF', amount: 2000, rate: '0.5' },
+      });
+    });
+
+    it('converts an edit in another currency at its new rate, and the balances count the new amount', async () => {
+      const id = await recordedInFrancs();
+      expect((await changeToFrancs(id, { version: 1, original: francs({ rate: '2' }) })).status).toBe(204);
+      expect(await readExpense(id)).toMatchObject({ amount: 2468, original: { rate: '2' } });
+      expect(await balancesOf()).toEqual([
+        { memberId: adaId, balance: 1644 },
+        { memberId: graceId, balance: -822 },
+        { memberId: linusId, balance: -822 },
+      ]);
+    });
+
+    it('refuses an edit to an original in the group currency, and keeps the expense as it was', async () => {
+      const id = await recordedInFrancs();
+      expect(await changeToFrancs(id, { version: 1, original: francs({ currency: 'EUR' }) })).toEqual(
+        refusal('InvalidCurrency'),
+      );
+      expect(await readExpense(id)).toMatchObject({ amount: 1311, version: 1 });
+    });
+  });
 });

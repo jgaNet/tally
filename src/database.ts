@@ -271,6 +271,15 @@ const MIGRATIONS: readonly string[] = [
   -- passed to them. The offsets of a group add up to 0, which keeps its balances at a total of 0.
   ALTER TABLE group_members ADD COLUMN balance_offset INTEGER NOT NULL DEFAULT 0;
   `,
+  `
+  -- An expense may be paid in another currency than its group's: its original currency, the amount paid in it, in
+  -- hundredths of that currency, and the rate it was converted at, as its payer gave it (a decimal string). Its
+  -- amount is the amount in the group's currency. All three are null for an expense in the group's currency, which
+  -- every expense recorded before this is.
+  ALTER TABLE expenses ADD COLUMN original_currency TEXT;
+  ALTER TABLE expenses ADD COLUMN original_amount INTEGER;
+  ALTER TABLE expenses ADD COLUMN original_rate TEXT;
+  `,
 ];
 
 /**

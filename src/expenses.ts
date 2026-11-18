@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { inTransaction } from './database';
-import { findGroupOf } from './groups';
+import { CURRENCIES, findGroupOf } from './groups';
 import { isMember } from './members';
 import { writeExpenseNotices } from './notices';
 import { Refusal } from './refusal';
@@ -43,16 +43,29 @@ export interface Expense {
   splitKind: SplitKind;
   /** 1 when the expense is recorded, one more at each edit. */
   version: number;
+  /** What was paid in another currency than the group's, as it was given. Absent for an expense in the group's currency. */
+  original?: Original;
 }
 
 /**
- * What a member records: the amount is in hundredths of the group's currency, like every amount. The split
- * is given exactly one way: `splitBetween` for an equal split, `splitExactly` for amounts, `splitByShares`
- * for shares.
+ * An amount paid in another currency than the group's: `amount` is in hundredths of `currency`, and `rate` is what one
+ * of `currency` is worth in the group's currency, as the payer gave it: a decimal string.
+ */
+export interface Original {
+  currency: string;
+  amount: number;
+  rate: string;
+}
+
+/**
+ * What a member records: the amount is in hundredths of the group's currency, like every amount, or `original`, what was
+ * paid in another currency. Exactly one of the two is given. The split is given exactly one way: `splitBetween` for an
+ * equal split, `splitExactly` for amounts, `splitByShares` for shares.
  */
 export interface NewExpense {
   description: string;
-  amount: number;
+  amount?: number;
+  original?: Original;
   date: string;
   splitBetween?: string[];
   splitExactly?: ExactShare[];
@@ -64,7 +77,8 @@ export interface ExpenseEdit extends NewExpense {
   version: number;
 }
 
-interface ExpenseRow {
+/** An expense as its row keeps it, with the columns of what was paid in another currency. */
+export interface ExpenseRow {
   id: string;
   group_id: string;
   description: string;
@@ -73,6 +87,28 @@ interface ExpenseRow {
   paid_by: string;
   split_kind: SplitKind;
   version: number;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
+}
+
+/** The expense a row keeps, with the shares it is split into, in the order of their split. */
+export function expenseOf(row: ExpenseRow, shares: Share[]): Expense {
+  const expense: Expense = {
+    id: row.id,
+    groupId: row.group_id,
+    description: row.description,
+    amount: row.amount,
+    date: row.date,
+    paidBy: row.paid_by,
+    shares,
+    splitKind: row.split_kind,
+    version: row.version,
+  };
+  if (row.original_currency !== null && row.original_amount !== null && row.original_rate !== null) {
+    expense.original = { currency: row.original_currency, amount: row.original_amount, rate: row.original_rate };
+  }
+  return expense;
 }
 
 interface ShareRow {
@@ -132,6 +168,65 @@ function checkAmount(amount: number): void {
   if (amount < 1 || amount > AMOUNT_MAX) {
     refuse('InvalidAmount', `The amount must be from 1 to ${AMOUNT_MAX}, in hundredths of the currency.`);
   }
+}
+
+/** A rate, as a decimal string: whole digits, and at most 6 digits after the point. */
+const RATE_SHAPE = /^(\d+)(?:\.(\d{1,6}))?$/;
+/** A rate is kept as a whole number of millionths, so that the conversion is exact. */
+const MILLIONTHS = 1_000_000n;
+
+/** The rate as a whole number of millionths. A rate that is not a decimal greater than 0 is refused. */
+function parseRate(rate: string): bigint {
+  const match = RATE_SHAPE.exec(rate);
+  const millionths = match ? BigInt(match[1] + (match[2] ?? '').padEnd(6, '0')) : 0n;
+  if (millionths <= 0n) {
+    refuse('InvalidRate', 'The rate must be a decimal number greater than 0, with at most 6 digits after the point.');
+  }
+  return millionths;
+}
+
+/**
+ * The amount in the group's currency of an amount paid in another, at a rate in millionths: the product, rounded to the
+ * nearest whole number, a half rounded up. Everything is in whole numbers, so the rounding is exact.
+ */
+function convertedAmount(original: number, millionths: bigint): bigint {
+  const product = BigInt(original) * millionths;
+  return (2n * product + MILLIONTHS) / (2n * MILLIONTHS);
+}
+
+/**
+ * The amount of an expense in the group's currency, and the original it was paid in when it was paid in another
+ * currency. The input gives exactly one of `amount` and `original`; the request's schema refuses the others as the
+ * wrong shape, and this holds the same rule for whatever else reaches it.
+ */
+function amountOf(
+  input: Pick<NewExpense, 'amount' | 'original'>,
+  groupCurrency: string,
+): { amount: number; original?: Original } {
+  const { amount, original } = input;
+  const wrongShape = () =>
+    new Refusal(400, 'InvalidRequest', "The expense needs one amount: amount, in the group's currency, or original.");
+  if (original === undefined) {
+    if (amount === undefined) throw wrongShape();
+    checkAmount(amount);
+    return { amount };
+  }
+  if (amount !== undefined) throw wrongShape();
+  if (!(CURRENCIES as readonly string[]).includes(original.currency) || original.currency === groupCurrency) {
+    refuse(
+      'InvalidCurrency',
+      `The original currency must be one of ${CURRENCIES.join(', ')}, other than the group's currency, ${groupCurrency}.`,
+    );
+  }
+  checkAmount(original.amount);
+  const converted = convertedAmount(original.amount, parseRate(original.rate));
+  if (converted < 1n || converted > BigInt(AMOUNT_MAX)) {
+    refuse('InvalidAmount', `The amount in ${groupCurrency}, as converted, must be from 1 to ${AMOUNT_MAX}.`);
+  }
+  return {
+    amount: Number(converted),
+    original: { currency: original.currency, amount: original.amount, rate: original.rate },
+  };
 }
 
 /** Whether `date` names a day of the calendar, as `YYYY-MM-DD`. */
@@ -235,9 +330,10 @@ function writeShares(db: DatabaseSync, expenseId: string, shares: readonly Share
  * The account must be a member of the group; for anyone else the group does not exist.
  */
 export function createExpense(db: DatabaseSync, accountId: string, groupId: string, input: NewExpense): string {
-  if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  const group = findGroupOf(db, accountId, groupId);
+  if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
   const description = checkDescription(input.description);
-  checkAmount(input.amount);
+  const { amount, original } = amountOf(input, group.currency);
   checkDate(input.date);
   const id = randomUUID();
   const recordedAt = new Date().toISOString();
@@ -245,10 +341,22 @@ export function createExpense(db: DatabaseSync, accountId: string, groupId: stri
   inTransaction(db, () => {
     const split = splitOf(input);
     checkSplit(db, groupId, accountId, membersOf(split));
-    const shares = sharesOf(split, input.amount);
+    const shares = sharesOf(split, amount);
     db.prepare(
-      'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)',
-    ).run(id, groupId, description, input.amount, input.date, accountId, split.kind, recordedAt);
+      'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, created_at, original_currency, original_amount, original_rate) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)',
+    ).run(
+      id,
+      groupId,
+      description,
+      amount,
+      input.date,
+      accountId,
+      split.kind,
+      recordedAt,
+      original?.currency ?? null,
+      original?.amount ?? null,
+      original?.rate ?? null,
+    );
     writeShares(db, id, shares);
     writeExpenseNotices(db, { id, groupId, paidBy: accountId, at: recordedAt }, shares);
   });
@@ -259,7 +367,8 @@ export function createExpense(db: DatabaseSync, accountId: string, groupId: stri
 export function findExpenseOf(db: DatabaseSync, accountId: string, expenseId: string): Expense | undefined {
   const row = db
     .prepare(
-      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.version
+      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.version,
+         e.original_currency, e.original_amount, e.original_rate
        FROM expenses e JOIN group_members m ON m.group_id = e.group_id
        WHERE e.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
@@ -268,17 +377,10 @@ export function findExpenseOf(db: DatabaseSync, accountId: string, expenseId: st
   const shares = db
     .prepare('SELECT account_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position')
     .all(expenseId) as unknown as ShareRow[];
-  return {
-    id: row.id,
-    groupId: row.group_id,
-    description: row.description,
-    amount: row.amount,
-    date: row.date,
-    paidBy: row.paid_by,
-    shares: shares.map(share => ({ memberId: share.account_id, amount: share.amount })),
-    splitKind: row.split_kind,
-    version: row.version,
-  };
+  return expenseOf(
+    row,
+    shares.map(share => ({ memberId: share.account_id, amount: share.amount })),
+  );
 }
 
 /**
@@ -321,15 +423,27 @@ export function editExpense(db: DatabaseSync, accountId: string, expenseId: stri
     if (edit.version !== expense.version) {
       throw new Refusal(409, 'ExpenseChanged', 'The expense changed since this version was read: read it again.');
     }
+    const group = findGroupOf(db, accountId, expense.groupId);
+    if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
     const description = checkDescription(edit.description);
-    checkAmount(edit.amount);
+    const { amount, original } = amountOf(edit, group.currency);
     checkDate(edit.date);
     const split = splitOf(edit);
     checkSplit(db, expense.groupId, expense.paidBy, membersOf(split));
-    const shares = sharesOf(split, edit.amount);
+    const shares = sharesOf(split, amount);
     db.prepare(
-      'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, version = version + 1 WHERE id = ? AND version = ?',
-    ).run(description, edit.amount, edit.date, split.kind, expenseId, edit.version);
+      'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, original_currency = ?, original_amount = ?, original_rate = ?, version = version + 1 WHERE id = ? AND version = ?',
+    ).run(
+      description,
+      amount,
+      edit.date,
+      split.kind,
+      original?.currency ?? null,
+      original?.amount ?? null,
+      original?.rate ?? null,
+      expenseId,
+      edit.version,
+    );
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     writeShares(db, expenseId, shares);
   });
@@ -378,6 +492,15 @@ export const expenseSchema = {
     },
     splitKind: { enum: ['equal', 'exact', 'shares'] },
     version: { type: 'integer', minimum: 1 },
+    original: {
+      type: 'object',
+      required: ['currency', 'amount', 'rate'],
+      properties: {
+        currency: { type: 'string', enum: [...CURRENCIES] },
+        amount: { type: 'integer' },
+        rate: { type: 'string' },
+      },
+    },
   },
 };
 
@@ -407,6 +530,20 @@ const exactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 };
 
+/** The amount of an expense: in the group's currency, or `original`, what was paid in another. Exactly one of them. */
+const amountProperties = {
+  amount: { type: 'integer' },
+  original: {
+    type: 'object',
+    required: ['currency', 'amount', 'rate'],
+    properties: { currency: { type: 'string' }, amount: { type: 'integer' }, rate: { type: 'string' } },
+  },
+};
+
+const exactlyOneAmount = {
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
+};
+
 export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync): void {
   app.post<{ Params: { id: string }; Body: NewExpense }>(
     '/groups/:id/expenses',
@@ -414,14 +551,14 @@ export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync): v
       schema: {
         body: {
           type: 'object',
-          required: ['description', 'amount', 'date'],
+          required: ['description', 'date'],
           properties: {
             description: { type: 'string' },
-            amount: { type: 'integer' },
+            ...amountProperties,
             date: { type: 'string' },
             ...splitProperties,
           },
-          ...exactlyOneSplit,
+          allOf: [exactlyOneSplit, exactlyOneAmount],
         },
         response: { 201: idSchema },
       },
@@ -445,15 +582,15 @@ export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync): v
       schema: {
         body: {
           type: 'object',
-          required: ['description', 'amount', 'date', 'version'],
+          required: ['description', 'date', 'version'],
           properties: {
             description: { type: 'string' },
-            amount: { type: 'integer' },
+            ...amountProperties,
             date: { type: 'string' },
             version: { type: 'integer', minimum: 1 },
             ...splitProperties,
           },
-          ...exactlyOneSplit,
+          allOf: [exactlyOneSplit, exactlyOneAmount],
         },
       },
     },

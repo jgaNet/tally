@@ -119,6 +119,9 @@ describe('the database', () => {
                  ('n2', 'a', 'expense', 'g', 'e2', 6, '2026-11-02T00:00:00.000Z');
         DROP TABLE settlement_history;
         ALTER TABLE payment_decisions DROP COLUMN decided_at;
+        ALTER TABLE expenses DROP COLUMN original_rate;
+        ALTER TABLE expenses DROP COLUMN original_amount;
+        ALTER TABLE expenses DROP COLUMN original_currency;
         PRAGMA user_version = 13;
       `);
     } finally {
@@ -127,7 +130,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
       expect(db.prepare('SELECT id FROM notices ORDER BY rowid').all()).toEqual([{ id: 'n1' }, { id: 'n2' }]);
       db.prepare(
         "INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('r', 'a', 'reminder', 'g', NULL, 2500, '2026-11-09T00:00:00.000Z')",
@@ -142,7 +145,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
     } finally {
       db.close();
     }
@@ -157,6 +160,9 @@ describe('the database', () => {
       before.exec('DROP TABLE notices');
       before.exec('DROP TABLE settlement_history');
       before.exec('ALTER TABLE payment_decisions DROP COLUMN decided_at');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
       before.exec('PRAGMA user_version = 12');
     } finally {
       before.close();
@@ -164,7 +170,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
       expect(db.prepare('SELECT COUNT(*) AS count FROM notices').get()).toEqual({ count: 0 });
       expect(() =>
         db.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
@@ -205,6 +211,9 @@ describe('the database', () => {
       before.exec('DROP TABLE debt_notes');
       before.exec('DROP TABLE notices');
       before.exec('DROP TABLE settlement_history');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
       before.exec('PRAGMA user_version = 5');
     } finally {
       before.close();
@@ -243,6 +252,9 @@ describe('the database', () => {
       before.exec('DROP TABLE debt_notes');
       before.exec('DROP TABLE notices');
       before.exec('DROP TABLE settlement_history');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
       before.exec('PRAGMA user_version = 6');
     } finally {
       before.close();
@@ -284,6 +296,9 @@ describe('the database', () => {
       before.exec('DROP TABLE debt_notes');
       before.exec('DROP TABLE notices');
       before.exec('DROP TABLE settlement_history');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
       before.exec('PRAGMA user_version = 7');
     } finally {
       before.close();
@@ -331,6 +346,9 @@ describe('the database', () => {
         DROP TABLE debt_notes;
         DROP TABLE notices;
         DROP TABLE settlement_history;
+        ALTER TABLE expenses DROP COLUMN original_rate;
+        ALTER TABLE expenses DROP COLUMN original_amount;
+        ALTER TABLE expenses DROP COLUMN original_currency;
         PRAGMA user_version = 8;
       `);
     } finally {
@@ -339,7 +357,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -391,6 +409,9 @@ describe('the database', () => {
         DROP TABLE debt_notes;
         DROP TABLE notices;
         DROP TABLE settlement_history;
+        ALTER TABLE expenses DROP COLUMN original_rate;
+        ALTER TABLE expenses DROP COLUMN original_amount;
+        ALTER TABLE expenses DROP COLUMN original_currency;
         PRAGMA user_version = 10;
       `);
     } finally {
@@ -399,7 +420,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
       expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
         { id: 's', status: 'paid', provider_id: 'pay_9' },
       ]);
@@ -436,6 +457,9 @@ describe('the database', () => {
         DROP TABLE notices;
         DROP TABLE settlement_history;
         ALTER TABLE payment_decisions DROP COLUMN decided_at;
+        ALTER TABLE expenses DROP COLUMN original_rate;
+        ALTER TABLE expenses DROP COLUMN original_amount;
+        ALTER TABLE expenses DROP COLUMN original_currency;
         PRAGMA user_version = 11;
       `);
     } finally {
@@ -444,7 +468,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
       expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
       db.exec(
         "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
@@ -483,6 +507,9 @@ describe('the database', () => {
           ('waiting', 'g', 'b', 'a', 300, 'provider', 'pending', NULL, NULL, '2026-11-03T00:00:00.000Z'),
           ('settled', 'g', 'b', 'a', 200, 'provider', 'paid', 'pay_1', 'https://pay.example/pay_1', '2026-11-04T00:00:00.000Z');
         INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_1', 'paid');
+        ALTER TABLE expenses DROP COLUMN original_rate;
+        ALTER TABLE expenses DROP COLUMN original_amount;
+        ALTER TABLE expenses DROP COLUMN original_currency;
         PRAGMA user_version = 14;
       `);
     } finally {
@@ -491,7 +518,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 16 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 17 });
       const history = (id: string) =>
         db.prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq').all(id);
       expect(history('cash')).toEqual([{ status: 'paid', at: '2026-11-02T00:00:00.000Z' }]);
@@ -525,5 +552,38 @@ describe('the database', () => {
     } finally {
       db.close();
     }
+  });
+
+  it("reads the expenses of a file recorded before expenses could be paid in another currency as in the group's", async () => {
+    const first = await start();
+    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
+    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
+    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
+      .id;
+    const expenseId = (
+      await call(first, 'POST', `/groups/${groupId}/expenses`, {
+        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
+        token,
+      })
+    ).body.id;
+    await first.stop();
+    apps.pop();
+
+    // The file as it was before an expense could be paid in another currency: no columns for it, one version less.
+    const before = new DatabaseSync(database.path);
+    try {
+      const current = Number((before.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
+      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
+      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
+      before.exec(`PRAGMA user_version = ${current - 1}`);
+    } finally {
+      before.close();
+    }
+
+    const second = await start();
+    const body = (await call(second, 'GET', `/expenses/${expenseId}`, { token })).body;
+    expect(body).toMatchObject({ amount: 1000, splitKind: 'equal' });
+    expect(body).not.toHaveProperty('original');
   });
 });

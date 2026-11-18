@@ -1,21 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { type Expense, expenseSchema, type SplitKind } from './expenses';
+import { type Expense, type ExpenseRow, expenseOf, expenseSchema } from './expenses';
 import { findGroupOf } from './groups';
 import { hasBeenMember } from './members';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
 /** One row per share of an expense, with the expense's own fields repeated on each of its rows. */
-interface GroupExpenseRow {
-  id: string;
-  group_id: string;
-  description: string;
-  amount: number;
-  date: string;
-  paid_by: string;
-  split_kind: SplitKind;
-  version: number;
+interface GroupExpenseRow extends ExpenseRow {
   share_member: string;
   share_amount: number;
 }
@@ -55,6 +47,7 @@ export function listExpenses(db: DatabaseSync, groupId: string): Expense[] {
   const rows = db
     .prepare(
       `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.version,
+         e.original_currency, e.original_amount, e.original_rate,
          s.account_id AS share_member, s.amount AS share_amount
        FROM expenses e JOIN expense_shares s ON s.expense_id = e.id
        WHERE e.group_id = ?
@@ -65,17 +58,7 @@ export function listExpenses(db: DatabaseSync, groupId: string): Expense[] {
   let current: Expense | undefined;
   for (const row of rows) {
     if (current?.id !== row.id) {
-      current = {
-        id: row.id,
-        groupId: row.group_id,
-        description: row.description,
-        amount: row.amount,
-        date: row.date,
-        paidBy: row.paid_by,
-        shares: [],
-        splitKind: row.split_kind,
-        version: row.version,
-      };
+      current = expenseOf(row, []);
       expenses.push(current);
     }
     current.shares.push({ memberId: row.share_member, amount: row.share_amount });
