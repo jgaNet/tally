@@ -143,4 +143,43 @@ describe('Ledger → Notifications', () => {
     expect(await noticesOf(ada, 0)).toEqual([]);
     expect((await http.request('GET', `${api}/notices`)).status).toBe(401);
   });
+  it('tells every member of the group, the payer too, when the expense Ledger recorded passes the budget of its category, by the ids Ledger answered', async () => {
+    const { ada, grace, linus, groupId } = await groupOfThree();
+    const month = new Date(String((await http.request('GET', `${api}/accounts/me`)).headers.get('date')))
+      .toISOString()
+      .slice(0, 7);
+    const date = `${month}-01`;
+    expect(
+      (
+        await http.request('PUT', `${api}/groups/${groupId}/budgets/groceries`, {
+          body: { amount: 200 },
+          token: ada.token,
+        })
+      ).status,
+    ).toBe(204);
+
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: {
+        description: 'Market',
+        amount: 300,
+        date,
+        category: 'groceries',
+        splitBetween: [ada.id, grace.id, linus.id],
+      },
+      token: grace.token,
+    });
+    expect(recorded.status).toBe(201);
+
+    for (const person of [ada, grace, linus]) {
+      let budgetNotices: unknown[] = [];
+      for (let poll = 0; poll < 120 && budgetNotices.length === 0; poll++) {
+        const answer = await http.request('GET', `${api}/notices`, { token: person.token });
+        budgetNotices = (answer.body as { kind: string }[]).filter(notice => notice.kind === 'budget');
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      expect(budgetNotices).toEqual([
+        expect.objectContaining({ groupId, category: 'groceries', month, budget: 200, amount: 300 }),
+      ]);
+    }
+  });
 });

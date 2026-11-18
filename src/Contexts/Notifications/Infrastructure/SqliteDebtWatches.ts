@@ -4,7 +4,7 @@ import { DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 
 import { NoticesDatabase } from './NoticesDatabase';
-import { insertNotice } from './SqliteNotices';
+import { INSERT_NOTICE, insertNotice } from './SqliteNotices';
 
 type WatchRow = {
   id: string;
@@ -64,12 +64,7 @@ export class SqliteDebtWatches implements IDebtWatches {
           .run(id, groupId, memberId, notedSince, remindedAt, watch.version + 1);
       }
       if (reminder) {
-        insertNotice(
-          connection.prepare(
-            'INSERT INTO notifications_notices (id, member_id, kind, group_id, expense_id, amount, at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          ),
-          reminder,
-        );
+        insertNotice(connection.prepare(INSERT_NOTICE), reminder);
       }
     });
   }

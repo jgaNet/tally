@@ -116,3 +116,25 @@ function amountOf(value: number) {
   );
   return decision.data!.state.amount;
 }
+
+describe('the category of an expense (request 24)', () => {
+  const facts = { memberIds: ['ada', 'grace'], groupCurrency: 'EUR', offered: { kind: 'not-asked' } as never };
+  const command = {
+    description: 'Market',
+    date: '2026-11-17',
+    split: { kind: 'equal' as const, memberIds: ['ada', 'grace'] },
+    payer: 'ada',
+    amount: 1000,
+  };
+  const at = new Date('2026-11-18T10:00:00Z');
+
+  it('is other when none is given, and the one given when it is one of the eight', () => {
+    expect(decideRecordExpense(facts, command, at).data!.state.category).toBe('other');
+    expect(decideRecordExpense(facts, { ...command, category: 'travel' }, at).data!.state.category).toBe('travel');
+  });
+
+  it('is refused when it is not one of the eight', () => {
+    const decision = decideRecordExpense(facts, { ...command, category: 'pets' }, at);
+    expect(decision.error!.type).toBe('InvalidExpenseCategory');
+  });
+});

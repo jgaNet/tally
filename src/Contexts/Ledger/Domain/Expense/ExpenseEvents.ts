@@ -1,5 +1,6 @@
 import { DomainEvent } from '@Architecture/Domain';
 
+import { ExpenseCategory } from './ExpenseCategory';
 import { Share, SplitKind } from './Split';
 
 /**
@@ -14,6 +15,9 @@ export class ExpenseRecordedEvent extends DomainEvent<{
   amount: number;
   splitKind: SplitKind;
   shares: readonly Share[];
+  /** What it was for and the day it was for (request 24), which the budget of its month is checked with. */
+  category: ExpenseCategory;
+  date: string;
 }> {}
 
 /**
@@ -27,6 +31,8 @@ export class ExpenseEditedEvent extends DomainEvent<{
   paidBy: string;
   amount: number;
   splitKind: SplitKind;
+  category: ExpenseCategory;
+  date: string;
 }> {}
 
 /**

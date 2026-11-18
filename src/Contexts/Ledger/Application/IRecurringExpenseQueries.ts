@@ -1,3 +1,5 @@
+import { ExpenseCategory } from '@Contexts/Ledger/Domain/Expense/ExpenseCategory';
+
 /** A member's share of a recurring expense split by exact amounts (request 7, request 23). */
 export interface RecurringAmountView {
   memberId: string;
@@ -22,6 +24,7 @@ export interface RecurringExpenseView {
   amount: number;
   startsOn: string;
   next: string;
+  category: ExpenseCategory;
   splitBetween?: string[];
   splitExactly?: RecurringAmountView[];
   splitByShares?: RecurringSharesView[];

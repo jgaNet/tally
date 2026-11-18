@@ -87,6 +87,7 @@ describe('recording an expense in another currency', () => {
       date: '2020-01-15',
       paidBy: ada.id,
       splitKind: 'equal',
+      category: 'other',
       shares: [
         { memberId: ada.id, amount: 656 },
         { memberId: grace.id, amount: 655 },

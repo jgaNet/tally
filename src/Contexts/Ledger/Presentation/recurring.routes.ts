@@ -13,7 +13,7 @@ import {
 import { hasSplitShape, isObject, splitOf } from './splitBody';
 
 const SHAPE_REFUSAL =
-  'The body must have description (a string), amount (a whole number), startsOn (a string, written YYYY-MM-DD), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares })';
+  'The body must have description (a string), amount (a whole number), startsOn (a string, written YYYY-MM-DD), category (a string, when given), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares })';
 
 /** A body of a recurring expense is shaped as an expense's is, with `startsOn` in place of a date. Whether its values are allowed is the domain's. */
 const hasShape = (body: unknown): body is Record<string, unknown> =>
@@ -21,6 +21,7 @@ const hasShape = (body: unknown): body is Record<string, unknown> =>
   typeof body.description === 'string' &&
   Number.isInteger(body.amount) &&
   typeof body.startsOn === 'string' &&
+  (body.category === undefined || typeof body.category === 'string') &&
   hasSplitShape(body);
 
 /** The recurring expenses' routes, under `/v1` (request 23). */
@@ -47,6 +48,7 @@ export const recurringRoutes: FastifyPluginCallback<{ module: LiteModule }> = (f
           amount: body.amount as number,
           startsOn: body.startsOn as string,
           split: splitOf(body),
+          category: body.category as string | undefined,
         } as SetUpRecurringExpenseInput,
         { created: true },
       );

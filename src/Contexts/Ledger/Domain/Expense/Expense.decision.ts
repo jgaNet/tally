@@ -2,6 +2,7 @@ import { IResult, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
 
 import { ExpenseAmount } from './ExpenseAmount';
+import { categoryOf, ExpenseCategory } from './ExpenseCategory';
 import { ExpenseDate } from './ExpenseDate';
 import { ExpenseDescription } from './ExpenseDescription';
 import {
@@ -30,6 +31,8 @@ export type RecordExpenseCommand = {
   date: string;
   split: SplitRequest;
   payer: string;
+  /** What it was for (request 24); `other` when none is given. */
+  category?: string;
 } & GivenAmount;
 
 /**
@@ -42,6 +45,8 @@ export type EditExpenseCommand = {
   date: string;
   split: SplitRequest;
   version: number;
+  /** What it was for (request 24); `other` when none is given. */
+  category?: string;
 } & GivenAmount;
 
 /** What a deletion says: only who asks for it (the caller). */
@@ -56,6 +61,7 @@ export interface NewExpenseValues {
   original: OriginalAmount | undefined;
   date: ExpenseDate;
   split: Split;
+  category: ExpenseCategory;
 }
 
 /**
@@ -119,6 +125,7 @@ export const decideEditExpense: Decision<NewExpenseValues, EditExpenseCommand, n
       date: command.date,
       split: command.split,
       payer: expense.paidBy,
+      category: command.category,
     },
     { memberIds, groupCurrency, offered },
     now,
@@ -182,8 +189,9 @@ function newValues(
     date: rawDate,
     split: request,
     payer,
+    category: rawCategory,
     ...given
-  }: { description: string; date: string; split: SplitRequest; payer: string } & GivenAmount,
+  }: { description: string; date: string; split: SplitRequest; payer: string; category?: string } & GivenAmount,
   { memberIds, groupCurrency, offered }: GroupFacts,
   now: Date,
 ) {
@@ -199,11 +207,14 @@ function newValues(
   }
   const split = Split.create({ amount: money.data.amount, request, payer });
   if (split.isFailure()) return split;
+  const category = categoryOf(rawCategory);
+  if (category.isFailure()) return category;
   return decided({
     description: description.data,
     amount: money.data.amount,
     original: money.data.original,
     date: date.data,
     split: split.data,
+    category: category.data,
   });
 }

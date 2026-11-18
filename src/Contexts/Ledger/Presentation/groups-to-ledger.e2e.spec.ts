@@ -343,4 +343,27 @@ describe('Groups → Ledger', () => {
       original: { currency: 'USD', amount: 1000, rate: '0.9' },
     });
   });
+  it('reads, from Groups, who the owner of the group made in Groups is: only they set its budgets, and every member reads them by the id Groups answered', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as { id: string };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+
+    const byMember = await http.request('PUT', `${api}/groups/${groupId}/budgets/groceries`, {
+      body: { amount: 40000 },
+      token: grace.token,
+    });
+    expect(byMember.status).toBe(403);
+    const byOwner = await http.request('PUT', `${api}/groups/${groupId}/budgets/groceries`, {
+      body: { amount: 40000 },
+      token: ada.token,
+    });
+    expect(byOwner.status).toBe(204);
+    const read = await http.request('GET', `${api}/groups/${groupId}/budgets`, { token: grace.token });
+    expect(read.body).toEqual([{ category: 'groceries', amount: 40000, spent: 0 }]);
+  });
 });

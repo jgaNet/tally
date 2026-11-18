@@ -108,6 +108,7 @@ describe('setting up a recurring expense', () => {
       amount: 90000,
       startsOn: FUTURE_START,
       next: FUTURE_START,
+      category: 'other',
       splitBetween: [ada.id, grace.id],
     });
   });

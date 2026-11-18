@@ -21,6 +21,7 @@ const stored: ExpenseSnapshot = {
     { memberId: owner, amount: 333 },
     { memberId: other, amount: 333 },
   ],
+  category: 'other',
   version: 1,
 };
 const access = {

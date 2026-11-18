@@ -27,7 +27,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
   }
 
   async execute(event: RecurringExpenseDayCameEvent, context: ExecutionContext): Promise<IResult<unknown>> {
-    const { expenseId, groupId, paidBy, description, amount, day, split } = event.payload;
+    const { expenseId, groupId, paidBy, description, amount, day, split, category } = event.payload;
     if (await this.expenses.get(expenseId)) return Result.ok(undefined);
 
     const members = await this.groupMembers.membersOf(groupId, paidBy);
@@ -52,6 +52,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
       original: undefined,
       date: expenseDate.data,
       split: shares.data,
+      category,
     });
     await this.expenses.insert(expense);
     await publishDomainEvents(expense, context);

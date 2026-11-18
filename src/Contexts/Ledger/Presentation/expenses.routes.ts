@@ -19,7 +19,7 @@ import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 import { hasSplitShape, isObject, splitOf } from './splitBody';
 
 const SHAPE_REFUSAL =
-  'The body must have description (a string), date (a string), exactly one of amount (a whole number) or original ({ currency, amount (a whole number), rate (a string, when given) }), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares })';
+  'The body must have description (a string), date (a string), category (a string, when given), exactly one of amount (a whole number) or original ({ currency, amount (a whole number), rate (a string, when given) }), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares })';
 const EDIT_SHAPE_REFUSAL = `${SHAPE_REFUSAL}, and version (a whole number)`;
 
 /**
@@ -54,7 +54,14 @@ const amountOf = (body: Record<string, unknown>): GivenAmount => {
 const hasExpenseFields = (body: unknown): body is Record<string, unknown> => {
   if (!isObject(body)) return false;
   const { description, date } = body;
-  return typeof description === 'string' && typeof date === 'string' && hasAmountShape(body) && hasSplitShape(body);
+  const { category } = body;
+  return (
+    typeof description === 'string' &&
+    typeof date === 'string' &&
+    (category === undefined || typeof category === 'string') &&
+    hasAmountShape(body) &&
+    hasSplitShape(body)
+  );
 };
 
 /**
@@ -91,6 +98,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
           description: body.description as string,
           date: body.date as string,
           split: splitOf(body),
+          category: body.category as string | undefined,
           ...amountOf(body),
         } as RecordExpenseInput,
         { created: true },
@@ -120,6 +128,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         date: body.date as string,
         split: splitOf(body),
         version: body.version as number,
+        category: body.category as string | undefined,
         ...amountOf(body),
       } as EditExpenseInput);
     },

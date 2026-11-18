@@ -15,6 +15,7 @@ import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 import { sweepRecurringExpenses } from '@Contexts/Ledger/Application/RecurringExpenses';
+import { budgetRoutes } from '@Contexts/Ledger/Presentation/budgets.routes';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
 import { localSettlementsModule, providerSignedBy } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
@@ -62,6 +63,7 @@ export async function createApplication({
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
+    .registerRoutes('/', budgetRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { module: localSettlementsModule, providerSignedBy })
     .registerRoutes('/', noticeRoutes, { module: localNotificationsModule });
 

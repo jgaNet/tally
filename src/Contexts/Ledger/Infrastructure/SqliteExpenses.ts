@@ -1,4 +1,5 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
+import { ExpenseCategory } from '@Contexts/Ledger/Domain/Expense/ExpenseCategory';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IExpenseRepository } from '@Contexts/Ledger/Application/IExpenseRepository';
 import {
@@ -23,10 +24,11 @@ type ExpenseRow = {
   paid_by: string;
   version: number;
   split_kind: 'equal' | 'exact' | 'shares';
+  category: ExpenseCategory;
 };
 /** The columns of an expense a read selects, in the order `expenseRow` maps them. */
 const EXPENSE_COLUMNS =
-  'id, group_id, description, amount, original_currency, original_amount, original_rate, date, paid_by, version, split_kind';
+  'id, group_id, description, amount, original_currency, original_amount, original_rate, date, paid_by, version, split_kind, category';
 type ShareRow = { member_id: string; amount: number };
 type BalanceRow = { member_id: string; balance: number };
 type Share = { memberId: string; amount: number };
@@ -56,20 +58,21 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       paidBy: view.paidBy,
       splitKind: view.splitKind,
       shares: view.shares,
+      category: view.category,
       version: view.version,
     });
   }
 
   async insert(expense: Expense): Promise<void> {
-    const { id, groupId, description, amount, original, date, paidBy, splitKind, shares, version } =
+    const { id, groupId, description, amount, original, date, paidBy, splitKind, shares, category, version } =
       expense.toSnapshot();
     const connection = this.database.connection;
     await this.database.file.transaction(() => {
       connection
         .prepare(
           'INSERT INTO ledger_expenses (id, group_id, description, amount, original_currency, original_amount, original_rate, ' +
-            'date, paid_by, version, split_kind, recorded_seq) ' +
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM ledger_expenses))',
+            'date, paid_by, version, split_kind, category, recorded_seq) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM ledger_expenses))',
         )
         .run(
           id,
@@ -83,6 +86,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
           paidBy,
           version + 1,
           splitKind,
+          category,
         );
       this.#insertShares(id, shares);
       this.#moveBalances(groupId, paidBy, amount, shares, 1);
@@ -90,7 +94,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
   }
 
   async save(expense: Expense): Promise<void> {
-    const { id, groupId, description, amount, original, date, paidBy, splitKind, shares, version } =
+    const { id, groupId, description, amount, original, date, paidBy, splitKind, shares, category, version } =
       expense.toSnapshot();
     const connection = this.database.connection;
     await this.database.file.transaction(() => {
@@ -101,7 +105,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       connection
         .prepare(
           'UPDATE ledger_expenses SET description = ?, amount = ?, original_currency = ?, original_amount = ?, ' +
-            'original_rate = ?, date = ?, split_kind = ?, version = ? WHERE id = ?',
+            'original_rate = ?, date = ?, split_kind = ?, category = ?, version = ? WHERE id = ?',
         )
         .run(
           description,
@@ -111,6 +115,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
           original?.rate ?? null,
           date,
           splitKind,
+          category,
           version + 1,
           id,
         );
@@ -206,6 +211,15 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
     return rows.map(row => viewOf(row, sharesByExpense.get(row.id) ?? []));
   }
 
+  async spentByCategory(groupId: string, month: string): Promise<ReadonlyMap<ExpenseCategory, number>> {
+    const rows = this.database.connection
+      .prepare(
+        'SELECT category, SUM(amount) AS spent FROM ledger_expenses WHERE group_id = ? AND substr(date, 1, 7) = ? GROUP BY category',
+      )
+      .all(groupId, month) as { category: ExpenseCategory; spent: number }[];
+    return new Map(rows.map(row => [row.category, row.spent]));
+  }
+
   async isInvolved(groupId: string, memberId: string): Promise<boolean> {
     const row = this.database.connection
       .prepare(
@@ -272,6 +286,7 @@ function viewOf(row: ExpenseRow, shares: Share[]): ExpenseView {
     paidBy: row.paid_by,
     splitKind: row.split_kind,
     shares,
+    category: row.category,
     version: row.version,
   };
 }

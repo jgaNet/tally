@@ -83,6 +83,7 @@ describe('recording an expense', () => {
       date: '2020-01-15',
       paidBy: ada.id,
       splitKind: 'equal',
+      category: 'other',
       shares: [
         { memberId: ada.id, amount: 334 },
         { memberId: grace.id, amount: 333 },

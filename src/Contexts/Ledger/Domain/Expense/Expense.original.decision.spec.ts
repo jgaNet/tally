@@ -78,6 +78,7 @@ describe('editing an expense paid in another currency (request 21)', () => {
         { memberId: grace, amount: 333 },
         { memberId: linus, amount: 333 },
       ],
+      category: 'other' as const,
       version: 1,
     };
     const access = {
@@ -93,6 +94,7 @@ describe('editing an expense paid in another currency (request 21)', () => {
         description: 'Groceries',
         date: '2026-11-15',
         split: { kind: 'equal', memberIds: [ada, grace, linus] },
+        category: 'other' as const,
         version: 1,
         amount: 1000,
         ...overrides,
@@ -127,6 +129,7 @@ describe('a stored expense paid in another currency', () => {
       { memberId: grace, amount: 437 },
       { memberId: linus, amount: 437 },
     ],
+    category: 'other' as const,
     version: 1,
   };
 

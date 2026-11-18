@@ -10,11 +10,15 @@ export interface NoticeSnapshot {
   groupId: string;
   /** The expense an `expense` notice is about; a reminder has none. */
   expenseId?: string;
+  /** What a `budget` notice (request 24) is about: the category and the month it passed its budget, and the budget. */
+  category?: string;
+  month?: string;
+  budget?: number;
   amount: number;
   at: string;
 }
 
-export type NoticeKind = 'expense' | 'reminder';
+export type NoticeKind = 'expense' | 'reminder' | 'budget';
 
 /**
  * One message owed to one member about one fact, made once from the fact (conventions/domain.yaml): that a member's share of an
@@ -28,6 +32,7 @@ export class Notice extends AggregateRoot {
   readonly #expenseId: string | undefined;
   readonly #amount: number;
   readonly #at: string;
+  readonly #passed: { category: string; month: string; budget: number } | undefined;
 
   private constructor(
     id: Id,
@@ -37,6 +42,7 @@ export class Notice extends AggregateRoot {
     expenseId: string | undefined,
     amount: number,
     at: string,
+    passed?: { category: string; month: string; budget: number },
   ) {
     super(id, 0);
     this.#kind = kind;
@@ -45,6 +51,7 @@ export class Notice extends AggregateRoot {
     this.#expenseId = expenseId;
     this.#amount = amount;
     this.#at = at;
+    this.#passed = passed;
   }
 
   /**
@@ -114,6 +121,52 @@ export class Notice extends AggregateRoot {
     return notice;
   }
 
+  /**
+   * One notice for each member of the group when a month's spending in a category passed its budget (request 24): `spent` is what the month
+   * spends, `budget` what it passed, `month` is `YYYY-MM`. The payer receives one too: every member is told. Made at `at` (the application's
+   * clock, handed in by the reaction). Each notice records `NoticeIssued`.
+   */
+  static budgetPassed({
+    groupId,
+    category,
+    month,
+    budget,
+    spent,
+    memberIds,
+    at,
+  }: {
+    groupId: string;
+    category: string;
+    month: string;
+    budget: number;
+    spent: number;
+    memberIds: readonly string[];
+    at: Date;
+  }): Notice[] {
+    const when = at.toISOString();
+    return memberIds.map(memberId => {
+      const notice = new Notice(Id.generate(), memberId, groupId, 'budget', undefined, spent, when, {
+        category,
+        month,
+        budget,
+      });
+      notice.record(
+        NoticeIssuedEvent.set({
+          noticeId: notice._id.value,
+          memberId,
+          kind: 'budget',
+          groupId,
+          category,
+          month,
+          budget,
+          amount: spent,
+          at: when,
+        }),
+      );
+      return notice;
+    });
+  }
+
   /** The notice as it is stored. */
   toSnapshot(): NoticeSnapshot {
     return {
@@ -122,6 +175,7 @@ export class Notice extends AggregateRoot {
       kind: this.#kind,
       groupId: this.#groupId,
       ...(this.#expenseId === undefined ? {} : { expenseId: this.#expenseId }),
+      ...(this.#passed === undefined ? {} : this.#passed),
       amount: this.#amount,
       at: this.#at,
     };

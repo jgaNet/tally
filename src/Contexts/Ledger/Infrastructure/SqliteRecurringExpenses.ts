@@ -1,5 +1,6 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { RecurringExpense, RecurringExpenseSnapshot } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
+import { ExpenseCategory } from '@Contexts/Ledger/Domain/Expense/ExpenseCategory';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 import { IRecurringExpenseRepository } from '@Contexts/Ledger/Application/IRecurringExpenseRepository';
 import { IRecurringExpenseQueries, RecurringExpenseView } from '@Contexts/Ledger/Application/IRecurringExpenseQueries';
@@ -15,10 +16,11 @@ type RecurringRow = {
   starts_on: string;
   next: string;
   split_kind: 'equal' | 'exact' | 'shares';
+  category: ExpenseCategory;
   version: number;
 };
 type ShareRow = { member_id: string; share_value: number };
-const RECURRING_COLUMNS = 'id, group_id, paid_by, description, amount, starts_on, next, split_kind, version';
+const RECURRING_COLUMNS = 'id, group_id, paid_by, description, amount, starts_on, next, split_kind, category, version';
 
 /**
  * The recurring expenses in SQLite (request 23): the repository the set-up, stop and sweep use cases load and write, and the read side the
@@ -49,8 +51,8 @@ export class SqliteRecurringExpenses implements IRecurringExpenseRepository, IRe
     await this.database.file.transaction(() => {
       connection
         .prepare(
-          'INSERT INTO ledger_recurring_expenses (id, group_id, paid_by, description, amount, starts_on, next, split_kind, version) ' +
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO ledger_recurring_expenses (id, group_id, paid_by, description, amount, starts_on, next, split_kind, category, version) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         )
         .run(
           snapshot.id,
@@ -61,6 +63,7 @@ export class SqliteRecurringExpenses implements IRecurringExpenseRepository, IRe
           snapshot.startsOn,
           snapshot.next,
           snapshot.split.kind,
+          snapshot.category,
           snapshot.version + 1,
         );
       this.#insertShares(snapshot.id, snapshot.split);
@@ -155,6 +158,7 @@ export class SqliteRecurringExpenses implements IRecurringExpenseRepository, IRe
       startsOn: row.starts_on,
       next: row.next,
       split: this.#splitOf(row),
+      category: row.category,
       version: row.version,
     };
   }
@@ -169,6 +173,7 @@ export class SqliteRecurringExpenses implements IRecurringExpenseRepository, IRe
       amount: row.amount,
       startsOn: row.starts_on,
       next: row.next,
+      category: row.category,
     };
     if (split.kind === 'equal') return { ...view, splitBetween: [...split.memberIds] };
     if (split.kind === 'exact') return { ...view, splitExactly: split.amounts.map(line => ({ ...line })) };

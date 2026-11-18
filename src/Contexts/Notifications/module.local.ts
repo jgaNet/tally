@@ -1,6 +1,8 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
+import { BudgetPassedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/BudgetIntegrationEvents';
 import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/ExpenseIntegrationEvents';
+import { BudgetPassedIntegrationEventHandler } from '@Contexts/Notifications/Application/Events/BudgetPassedIntegrationEventHandler';
 import { ExpenseRecordedIntegrationEventHandler } from '@Contexts/Notifications/Application/Events/ExpenseRecordedIntegrationEventHandler';
 import { sweepDebts } from '@Contexts/Notifications/Application/Reminders';
 import { getMyNotices } from '@Contexts/Notifications/Application/Notices';
@@ -36,6 +38,10 @@ export const localNotificationsModule = new LiteModule({
     {
       event: ExpenseRecordedIntegrationEvent,
       handlers: [new ExpenseRecordedIntegrationEventHandler(notices, systemClock)],
+    },
+    {
+      event: BudgetPassedIntegrationEvent,
+      handlers: [new BudgetPassedIntegrationEventHandler(notices, systemClock)],
     },
   ],
 });

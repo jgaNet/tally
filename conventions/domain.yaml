@@ -75,6 +75,10 @@ contexts:
         meaning: what a member owes, or is owed, in a group, read from the expenses' shares and payers.
       - term: Recurring expense
         meaning: an expense its payer pays every month, from a day of the month on, recorded on each of its days by the background job, until it is stopped or a member it concerns has left.
+      - term: Category
+        meaning: what an expense was for, one of eight, other when none is given; a recurring expense gives its expenses one.
+      - term: Budget
+        meaning: what the group agrees to spend in a category in a month, set and removed by the owner; it remembers the months it was passed in, so that it is passed once a month.
       - term: Original amount
         meaning: what an expense was paid in another currency, with the rate its payer stated; its amount in the group's currency is the original times the rate, rounded.
   - id: Settlements
@@ -97,6 +101,8 @@ contexts:
     language:
       - term: Notice
         meaning: one message owed to one member about one fact, made once from the fact.
+      - term: Budget notice
+        meaning: a notice every member receives, the payer too, when a month's spending in a category passes its budget, once a month.
       - term: Reminder
         meaning: a notice the sweep makes for a lasting debt, at most once a week per member and group.
 relationships:
@@ -159,7 +165,8 @@ relationships:
     why: >-
       A member is told when an expense concerns them. Ledger says it in its public words (ExpenseRecorded, Tally's
       first integration event), through the outbox; Notifications turns it into one notice per member, which keeps the
-      telling out of the ledger's transactions (T9). Carried since feature 17 (ADR 14).
+      telling out of the ledger's transactions (T9). Carried since feature 17 (ADR 14). It carries BudgetPassed too since
+      feature 24 (ADR 21): a month passing a category's budget, with the members to tell.
   - upstream: Settlements
     downstream: Notifications
     patterns: [customer-supplier, anti-corruption-layer]

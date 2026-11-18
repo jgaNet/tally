@@ -11,8 +11,12 @@ import {
   getOfferedRate,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
-import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/ExpenseEvents';
+import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/BudgetEvents';
+import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/ExpenseEvents';
+import { getGroupBudgets, removeBudget, setBudget } from '@Contexts/Ledger/Application/Budgets';
 import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpenseEvents';
+import { BudgetPassedHandler } from '@Contexts/Ledger/Application/Events/BudgetPassedHandler';
+import { ExpenseBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseBudgetHandler';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { RecurringExpenseDayCameHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCameHandler';
 import {
@@ -22,6 +26,7 @@ import {
   stopRecurringExpense,
   sweepRecurringExpenses,
 } from '@Contexts/Ledger/Application/RecurringExpenses';
+import { SqliteBudgets } from '@Contexts/Ledger/Infrastructure/SqliteBudgets';
 import { SqliteRecurringExpenses } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenses';
 import { BalancesCountingSettlements } from '@Contexts/Ledger/Infrastructure/BalancesCountingSettlements';
 import { GroupCurrencyOfGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyOfGroups';
@@ -44,6 +49,8 @@ const database = new LedgerDatabase(
 const expenses = new SqliteExpenses(database);
 /** The recurring expenses (request 23), in the same file as the expenses they record. */
 const recurringExpenses = new SqliteRecurringExpenses(database);
+/** The monthly budgets of the categories (request 24), in the same file as the expenses they are held against. */
+const budgets = new SqliteBudgets(database);
 const groupMembers = new GroupMembersOfGroups(() => groupsMembersReadModel);
 /** The currency of a group, which an expense paid in another currency is counted against (request 21, ADR 18), read at a request too. */
 const groupCurrency = new GroupCurrencyOfGroups(() => groupsMembersReadModel);
@@ -68,7 +75,12 @@ export const ledgerBalancesReadModel = balancesCountingSettlements;
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
   domainEvents: [
-    { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] },
+    {
+      event: ExpenseRecordedEvent,
+      handlers: [new ExpenseRecordedHandler(), new ExpenseBudgetHandler(budgets, expenses, groupMembers, systemClock)],
+    },
+    { event: ExpenseEditedEvent, handlers: [new ExpenseBudgetHandler(budgets, expenses, groupMembers, systemClock)] },
+    { event: BudgetPassedEvent, handlers: [new BudgetPassedHandler()] },
     { event: RecurringExpenseDayCameEvent, handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers)] },
   ],
   useCases: [
@@ -85,5 +97,8 @@ export const localLedgerModule = new LiteModule({
     getRecurringExpense(recurringExpenses, groupMembers),
     getGroupRecurringExpenses(recurringExpenses, groupMembers),
     sweepRecurringExpenses(recurringExpenses, groupMembers, systemClock),
+    setBudget(budgets, groupMembers, systemClock),
+    removeBudget(budgets, groupMembers, systemClock),
+    getGroupBudgets(budgets, expenses, groupMembers, systemClock),
   ],
 });

@@ -54,6 +54,19 @@ export class LedgerDatabase {
           version INTEGER NOT NULL DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS ledger_recurring_by_group ON ledger_recurring_expenses (group_id);
+        CREATE TABLE IF NOT EXISTS ledger_budgets (
+          id TEXT PRIMARY KEY,
+          group_id TEXT NOT NULL,
+          category TEXT NOT NULL,
+          amount INTEGER,
+          version INTEGER NOT NULL,
+          UNIQUE (group_id, category)
+        );
+        CREATE TABLE IF NOT EXISTS ledger_budget_passed_months (
+          budget_id TEXT NOT NULL REFERENCES ledger_budgets (id),
+          month TEXT NOT NULL,
+          PRIMARY KEY (budget_id, month)
+        );
         CREATE TABLE IF NOT EXISTS ledger_recurring_shares (
           recurring_id TEXT NOT NULL REFERENCES ledger_recurring_expenses (id),
           position INTEGER NOT NULL,
@@ -112,6 +125,19 @@ export class LedgerDatabase {
           ALTER TABLE ledger_expenses ADD COLUMN original_amount INTEGER;
           ALTER TABLE ledger_expenses ADD COLUMN original_rate TEXT;
         `);
+    }
+    const hasCategory = connection
+      .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'category'")
+      .get();
+    if (!hasCategory) {
+      // Request 24: every expense recorded before it is `other`, as is every recurring expense set up before it.
+      connection.exec("ALTER TABLE ledger_expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'");
+    }
+    const hasRecurringCategory = connection
+      .prepare("SELECT 1 FROM pragma_table_info('ledger_recurring_expenses') WHERE name = 'category'")
+      .get();
+    if (!hasRecurringCategory) {
+      connection.exec("ALTER TABLE ledger_recurring_expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'");
     }
     const hasBalances = connection
       .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_balances'")

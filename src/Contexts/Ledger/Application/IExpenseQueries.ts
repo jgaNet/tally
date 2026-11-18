@@ -1,3 +1,4 @@
+import { ExpenseCategory } from '@Contexts/Ledger/Domain/Expense/ExpenseCategory';
 import { IBalanceQueries } from '@Contexts/Ledger/Domain/IBalanceQueries';
 
 /** One member's share, as `GetExpense` answers it. */
@@ -28,6 +29,8 @@ export interface ExpenseView {
   paidBy: string;
   splitKind: 'equal' | 'exact' | 'shares';
   shares: ShareView[];
+  /** What it was for (request 24). */
+  category: ExpenseCategory;
   version: number;
 }
 
@@ -74,4 +77,9 @@ export interface IExpenseQueries extends IBalanceQueries {
   isInvolved(groupId: string, memberId: string): Promise<boolean>;
   /** The expense, if it is recorded. Who may read it is the use case's to say (a member of its group). */
   expenseOf(id: string): Promise<ExpenseView | undefined>;
+  /**
+   * What a month spends in each category of the group (request 24): the sum of the amounts of its expenses, deleted ones left out, whose
+   * date is in `month` (`YYYY-MM`, UTC). A category that spends nothing is not in it.
+   */
+  spentByCategory(groupId: string, month: string): Promise<ReadonlyMap<ExpenseCategory, number>>;
 }

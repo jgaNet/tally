@@ -170,3 +170,14 @@ export class InvalidExpenseRateException extends Exception {
     });
   }
 }
+
+/** The category is one of groceries, rent, utilities, transport, food, travel, leisure and other (request 24). */
+export class InvalidExpenseCategoryException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidExpenseCategory',
+      message: 'The category must be one of groceries, rent, utilities, transport, food, travel, leisure, other',
+    });
+  }
+}

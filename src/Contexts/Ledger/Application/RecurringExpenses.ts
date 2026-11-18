@@ -21,6 +21,8 @@ export interface SetUpRecurringExpenseInput {
   amount: number;
   startsOn: string;
   split: SplitRequest;
+  /** What its expenses are for (request 24); `other` when none is given. */
+  category?: string;
 }
 
 /**
@@ -31,7 +33,7 @@ export interface SetUpRecurringExpenseInput {
 export const setUpRecurringExpense = command(
   'SetUpRecurringExpense',
   (recurring: IRecurringExpenseRepository, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ groupId, description, amount, startsOn, split }: SetUpRecurringExpenseInput, context) => {
+    async ({ groupId, description, amount, startsOn, split, category }: SetUpRecurringExpenseInput, context) => {
       return recurring.inTransaction(async () => {
         const payer = callerOf(context);
         const members = await groupMembers.membersOf(groupId, payer);
@@ -39,7 +41,7 @@ export const setUpRecurringExpense = command(
 
         const decision = decideSetUpRecurringExpense(
           { memberIds: memberIdsOf(members) },
-          { description, amount, startsOn, split, payer },
+          { description, amount, startsOn, split, payer, category },
           clock(),
         );
         if (decision.isFailure()) return decision;
@@ -51,6 +53,7 @@ export const setUpRecurringExpense = command(
           amount: decision.data.state.amount,
           startsOn: decision.data.state.startsOn,
           split: decision.data.state.split,
+          category: decision.data.state.category,
         });
         await recurring.insert(created);
         await publishDomainEvents(created, context);

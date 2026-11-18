@@ -96,3 +96,33 @@ describe('Notice.remind', () => {
     expect(event).toBeInstanceOf(NoticeIssuedEvent);
   });
 });
+
+describe('Notice.budgetPassed', () => {
+  it('makes one notice for each member named, the payer’s too, with the category, the month, the budget and what the month spends', () => {
+    const notices = Notice.budgetPassed({
+      groupId: 'group-1',
+      category: 'groceries',
+      month: '2026-03',
+      budget: 400,
+      spent: 560,
+      memberIds: ['ada', 'grace'],
+      at,
+    });
+
+    expect(notices.map(notice => notice.toSnapshot())).toEqual([
+      {
+        id: expect.any(String),
+        memberId: 'ada',
+        kind: 'budget',
+        groupId: 'group-1',
+        category: 'groceries',
+        month: '2026-03',
+        budget: 400,
+        amount: 560,
+        at: at.toISOString(),
+      },
+      expect.objectContaining({ memberId: 'grace', kind: 'budget', amount: 560 }),
+    ]);
+    expect(notices[0].pullDomainEvents().map(event => event.name)).toEqual(['NoticeIssuedEvent']);
+  });
+});

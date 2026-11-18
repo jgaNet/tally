@@ -48,6 +48,12 @@ export class NoticesDatabase {
         if (!columns.some(column => column.name === 'kind')) {
           connection.exec("ALTER TABLE notifications_notices ADD COLUMN kind TEXT NOT NULL DEFAULT 'expense'");
         }
+        // Request 24: a budget's notice names its category, its month and its budget; the others have none.
+        if (!columns.some(column => column.name === 'category')) {
+          connection.exec(
+            'ALTER TABLE notifications_notices ADD COLUMN category TEXT; ALTER TABLE notifications_notices ADD COLUMN month TEXT; ALTER TABLE notifications_notices ADD COLUMN budget INTEGER',
+          );
+        }
       });
     }
     return connection;

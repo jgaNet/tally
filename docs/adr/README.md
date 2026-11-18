@@ -25,6 +25,7 @@ why, what it costs, and when to revisit it.
 | [18](0018-an-expense-in-another-currency-and-the-group-currency-port.md) | An expense in another currency is counted in the group's currency, through a port Ledger owns; the currencies are the shared kernel's |
 | [19](0019-an-offered-rate-is-a-port-ledger-owns-and-no-rate-is-not-no-service.md) | An offered rate is a port Ledger owns; "no rate" and "no rates service" are different answers, and the band is the expense's rule |
 | [20](0020-recurring-expenses-a-sweep-of-the-job-and-a-policy-on-its-fact.md) | Recurring expenses: an aggregate of Ledger, a sweep of the background job, and a policy on the day's fact |
+| [21](0021-budgets-an-aggregate-that-remembers-its-months-and-a-fact-notifications-reads.md) | Budgets: an aggregate of Ledger that remembers the months it was passed in, decided by a policy on the expense, told to Notifications as `BudgetPassed` |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

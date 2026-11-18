@@ -31,6 +31,8 @@ export type RecordExpenseInput = {
   description: string;
   date: string;
   split: SplitRequest;
+  /** What it was for (request 24); `other` when none is given. */
+  category?: string;
 } & GivenAmount;
 
 /**
@@ -43,6 +45,7 @@ export type EditExpenseInput = {
   date: string;
   split: SplitRequest;
   version: number;
+  category?: string;
 } & GivenAmount;
 
 /**
@@ -59,7 +62,7 @@ export const recordExpense = command(
     offeredRates: IOfferedRates,
     clock: Clock,
   ) =>
-    async ({ groupId, description, date, split, ...given }: RecordExpenseInput, context) => {
+    async ({ groupId, description, date, split, category, ...given }: RecordExpenseInput, context) => {
       return expenses.inTransaction(async () => {
         const payer = callerOf(context);
         const members = await groupMembers.membersOf(groupId, payer);
@@ -70,7 +73,7 @@ export const recordExpense = command(
 
         const decision = decideRecordExpense(
           { memberIds: memberIdsOf(members), groupCurrency: currency, offered },
-          { description, date, split, payer, ...(given as GivenAmount) },
+          { description, date, split, payer, category, ...(given as GivenAmount) },
           clock(),
         );
         if (decision.isFailure()) return decision;
@@ -98,7 +101,7 @@ export const editExpense = command(
     offeredRates: IOfferedRates,
     clock: Clock,
   ) =>
-    async ({ id, description, date, split, version, ...given }: EditExpenseInput, context) => {
+    async ({ id, description, date, split, version, category, ...given }: EditExpenseInput, context) => {
       return expenses.inTransaction(async () => {
         const by = callerOf(context);
         const expense = await expenses.get(id);
@@ -118,7 +121,7 @@ export const editExpense = command(
             groupCurrency: currency,
             offered,
           },
-          { by, description, date, split, version, ...(given as GivenAmount) },
+          { by, description, date, split, version, category, ...(given as GivenAmount) },
           clock(),
         );
         if (decision.isFailure()) return decision;

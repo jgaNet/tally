@@ -2,6 +2,7 @@ import { NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
 
 import { ExpenseAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
+import { categoryOf, ExpenseCategory } from '@Contexts/Ledger/Domain/Expense/ExpenseCategory';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
 import { SplitMemberNotInGroupException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { memberIdsOfSplit, Split, SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
@@ -16,6 +17,8 @@ export interface SetUpRecurringExpenseCommand {
   startsOn: string;
   split: SplitRequest;
   payer: string;
+  /** What its expenses are for (request 24); `other` when none is given. */
+  category?: string;
 }
 
 /** The members of the group, as the caller may see them: every split member must be one of them. */
@@ -30,6 +33,7 @@ export interface SetUpValues {
   startsOn: string;
   split: SplitRequest;
   payer: string;
+  category: ExpenseCategory;
 }
 
 /**
@@ -54,12 +58,15 @@ export const decideSetUpRecurringExpense: Decision<SetUpValues, SetUpRecurringEx
   // The split is checked now, as an expense's is: its shape, its payer among its members, and the amounts it gives.
   const split = Split.create({ amount: amount.data, request: command.split, payer: command.payer });
   if (split.isFailure()) return split;
+  const category = categoryOf(command.category);
+  if (category.isFailure()) return category;
   return decided({
     description: description.data.value,
     amount: amount.data.value,
     startsOn: startsOn.data,
     split: command.split,
     payer: command.payer,
+    category: category.data,
   });
 };
 

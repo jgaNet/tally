@@ -7,10 +7,14 @@ import { DomainEvent } from '@Architecture/Domain';
 export class NoticeIssuedEvent extends DomainEvent<{
   noticeId: string;
   memberId: string;
-  kind: 'expense' | 'reminder';
+  kind: 'expense' | 'reminder' | 'budget';
   groupId: string;
   /** The expense an `expense` notice is about; a reminder has none. */
   expenseId?: string;
+  /** What a `budget` notice is about (request 24): the category, the month (`YYYY-MM`) and the budget it passed. */
+  category?: string;
+  month?: string;
+  budget?: number;
   amount: number;
   at: string;
 }> {}

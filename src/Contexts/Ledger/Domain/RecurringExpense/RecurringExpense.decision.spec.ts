@@ -62,6 +62,7 @@ describe('setting up', () => {
       amount: 100,
       startsOn: '2026-11-05',
       split: base.split,
+      category: 'other',
     });
     expect(recurring.toSnapshot().next).toBe('2026-11-05');
     expect(recurring.pullDomainEvents().map(event => event.name)).toEqual(['RecurringExpenseSetUpEvent']);
@@ -76,6 +77,7 @@ describe('a run over a recurring expense', () => {
     amount: 100,
     startsOn: '2026-09-05',
     split: base.split,
+    category: 'other',
   }).toSnapshot();
 
   it('records each day that came, and ends when a member it concerns is not in the group', () => {
