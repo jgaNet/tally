@@ -135,13 +135,20 @@ async function statementOf(
   return Result.ok({ memberId, balance, entries });
 }
 
+/** How a statement names a settlement the balances count, by how it was paid (request 29, and by netting: request 32). */
+const SETTLEMENT_DESCRIPTIONS: Record<CountedSettlement['method'], string> = {
+  cash: 'Settlement in cash',
+  provider: 'Settlement through the provider',
+  net: 'Settlement by netting',
+};
+
 /** A settlement the balances count, as a statement line of the member: what they paid or were paid, on the day it started to count. */
 function settlementLine(settlement: CountedSettlement, memberId: string): UnbalancedLine {
   return {
     kind: 'settlement',
     settlementId: settlement.settlementId,
     date: new Date(settlement.countedFrom).toISOString().slice(0, 10),
-    description: settlement.method === 'cash' ? 'Settlement in cash' : 'Settlement through the provider',
+    description: SETTLEMENT_DESCRIPTIONS[settlement.method],
     paid: settlement.from === memberId ? settlement.amount : 0,
     share: settlement.to === memberId ? settlement.amount : 0,
   };

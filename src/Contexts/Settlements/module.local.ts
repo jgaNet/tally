@@ -14,6 +14,8 @@ import {
   refundSettlement,
 } from '@Contexts/Settlements/Application/Settlements';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
+import { getNetting, netDebts } from '@Contexts/Settlements/Application/Nettings';
+import { PostgresNettingStore, nettingTablesSchema } from '@Contexts/Settlements/Infrastructure/PostgresNettingStore';
 import { ISettlementRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
 import { IWaitingPaymentRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingPaymentRoster';
 import { PostgresWaitingPaymentRoster } from '@Contexts/Settlements/Infrastructure/PostgresWaitingPaymentRoster';
@@ -48,6 +50,7 @@ import {
  */
 export const settlementsSchema = [
   ...settlementsTablesSchema,
+  ...nettingTablesSchema,
   ...payoutAccountsTablesSchema,
   ...settlementAuditTablesSchema,
 ];
@@ -101,6 +104,7 @@ export function settlementsWiring(
   const counted = new BalancesFromLedger(balances);
   const provider = new HttpPaymentProvider(payments.providerUrl);
   const audit = new PostgresSettlementAuditLog(database);
+  const nettings = new PostgresNettingStore(database);
 
   return new LiteModule({
     name: 'Settlements',
@@ -127,6 +131,8 @@ export function settlementsWiring(
       getSettlement(store, members),
       setPayoutAccount(payouts, provider, systemClock),
       getPayoutAccount(payouts),
+      netDebts(store, nettings, members, counted, audit, systemClock),
+      getNetting(nettings),
     ],
   });
 }

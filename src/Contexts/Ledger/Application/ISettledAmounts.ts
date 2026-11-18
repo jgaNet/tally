@@ -20,7 +20,7 @@ export interface CountedSettlement {
   readonly from: string;
   readonly to: string;
   readonly amount: number;
-  readonly method: 'cash' | 'provider';
+  readonly method: 'cash' | 'provider' | 'net';
   readonly countedFrom: string;
 }
 

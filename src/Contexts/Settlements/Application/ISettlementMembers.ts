@@ -13,4 +13,16 @@ export interface ISettlementMembers {
    * refunded, or changed in it; a change is refused by the shared kernel's GroupArchived. A group that is not there answers `false`.
    */
   isArchived(groupId: string): Promise<boolean>;
+  /**
+   * The groups two accounts are both members of now (feature 32, request 32), the earliest made first, each with its currency and
+   * whether it is archived: what a netting reads to net what the two owe each other. A member who has left is not a member now.
+   */
+  groupsShared(accountId: string, otherId: string): Promise<SharedGroup[]>;
+}
+
+/** A group two accounts are both members of now, as a netting reads it: its id, its currency, and whether it is archived. */
+export interface SharedGroup {
+  readonly groupId: string;
+  readonly currency: string;
+  readonly archived: boolean;
 }

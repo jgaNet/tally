@@ -215,6 +215,39 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /**
+   * Records a settlement that nets two members' debts across their groups (request 32, the storm's NetDebts decision asks it of each
+   * group): the same rules as in cash, checked against the book as it was opened, so that no settlement pays more than is still owed.
+   * It is recorded as paid, `net`, at once, and SettlementRecorded is recorded with it. The planner never gives an archived group, so
+   * this one checks no archive. The time is `now`.
+   */
+  recordNet(draft: SettlementDraft, now: Date): IResult<Settlement> {
+    const refusal = this.#refusalOf(draft);
+    if (refusal) return Result.fail(refusal);
+
+    const settlement: Settlement = {
+      id: Id.generate().value,
+      groupId: this.groupId,
+      from: draft.from,
+      to: draft.to,
+      amount: draft.amount,
+      method: 'net',
+      status: 'paid',
+      at: now.toISOString(),
+    };
+    this.record(
+      SettlementRecordedEvent.set({
+        settlementId: settlement.id,
+        groupId: settlement.groupId,
+        from: settlement.from,
+        to: settlement.to,
+        amount: settlement.amount,
+        at: settlement.at,
+      }),
+    );
+    return Result.ok(settlement);
+  }
+
+  /**
    * The first step of a payment through the provider (request 13): the same rules as in cash, checked against the book as it was
    * opened, and then the payee must have a payout account (request 16), read by the use case from its repository: a payee without
    * one is refused by name, before the provider is asked. The settlement's identity is generated (it is the reference the provider is

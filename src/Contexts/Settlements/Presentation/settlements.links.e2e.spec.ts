@@ -65,6 +65,27 @@ const groupWithBob = async () => {
   return groupId;
 };
 
+/**
+ * Two people of their own, that no other test of this file shares a group with, so that a netting in a test is over the groups the test
+ * made, and no other (a netting spans every group the two share).
+ */
+async function strangers(tag: string) {
+  const first = await person('Xia', `xia-${tag}@example.com`);
+  const second = await person('Yan', `yan-${tag}@example.com`);
+  return { first, second };
+}
+
+/** A group made by `owner` in EUR, with `other` in it through an invitation. */
+async function groupOf(owner: { token: string }, other: { token: string }, name: string) {
+  const created = await http.request('POST', `${api}/groups`, { token: owner.token, body: { name, currency: 'EUR' } });
+  const groupId = (created.body as { id: string }).id;
+  const invitation = await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: owner.token });
+  await http.request('POST', `${api}/invitations/${(invitation.body as { id: string }).id}/accept`, {
+    token: other.token,
+  });
+  return groupId;
+}
+
 describe('Groups → Settlements (SettlementMembers)', () => {
   it('the settlements of the group Groups made are listed by the id its creation answered, each with its history (request 19)', async () => {
     const groupId = await groupWithBob();
@@ -173,6 +194,42 @@ describe('Groups → Settlements (SettlementMembers)', () => {
     expect(inCash.status).toBe(422);
     expect(inCash.body).toEqual({ type: 'SettlementNotRefundable', message: expect.any(String) });
   });
+
+  it('a netting finds the groups two members share through the roster, by the ids Groups answered, and nets in them', async () => {
+    const { first, second } = await strangers('groups');
+    const flat = await groupOf(first, second, 'Flat');
+    await http.request('POST', `${api}/groups/${flat}/expenses`, {
+      token: second.token,
+      body: { description: 'Flat', amount: 600, date: PAST_DAY, splitBetween: [first.id, second.id] },
+    });
+    // Yan owes Xia 400 in a club, so there is a debt each way to net.
+    const club = await groupOf(first, second, 'Club');
+    await http.request('POST', `${api}/groups/${club}/expenses`, {
+      token: first.token,
+      body: { description: 'Club', amount: 800, date: PAST_DAY, splitBetween: [first.id, second.id] },
+    });
+    const made = await http.request('POST', `${api}/nettings`, {
+      token: first.token,
+      body: { with: second.id, currency: 'EUR' },
+    });
+    expect(made.status).toBe(201);
+    const netting = (
+      await http.request('GET', `${api}/nettings/${(made.body as { id: string }).id}`, { token: first.token })
+    ).body as { amount: number; settlements: string[] };
+    expect(netting.amount).toBe(300);
+    // The settlement is in the group Groups made, found by the id its creation answered.
+    const settled = (await http.request('GET', `${api}/settlements/${netting.settlements[0]}`, { token: second.token }))
+      .body as {
+      groupId: string;
+    };
+    expect(settled.groupId).toBe(flat);
+
+    // Eve is no member of this group: nothing to net with her.
+    expect(
+      (await http.request('POST', `${api}/nettings`, { token: first.token, body: { with: eve.id, currency: 'EUR' } }))
+        .status,
+    ).toBe(422);
+  });
 });
 
 describe('Ledger → Settlements (GroupBalances)', () => {
@@ -243,6 +300,32 @@ describe('Ledger → Settlements (GroupBalances)', () => {
     const found = await http.request('GET', `${api}/expenses/${expenseId}`, { token: ann.token });
     expect((found.body as { id: string }).id).toBe(expenseId);
   });
+
+  it("a netting nets only what Ledger counts as still owed in each group, and the balances afterwards are the ledger's", async () => {
+    const { first, second } = await strangers('ledger');
+    const flat = await groupOf(first, second, 'Flat');
+    await http.request('POST', `${api}/groups/${flat}/expenses`, {
+      token: second.token,
+      body: { description: 'Flat', amount: 600, date: PAST_DAY, splitBetween: [first.id, second.id] },
+    });
+    const trip = await groupOf(first, second, 'Trip');
+    await http.request('POST', `${api}/groups/${trip}/expenses`, {
+      token: first.token,
+      body: { description: 'Trip', amount: 800, date: PAST_DAY, splitBetween: [first.id, second.id] },
+    });
+    // Xia owes Yan 300 in the flat; Yan owes Xia 400 in the trip: 300 is netted, and Xia is still owed 100 in the trip.
+    const made = await http.request('POST', `${api}/nettings`, {
+      token: first.token,
+      body: { with: second.id, currency: 'EUR' },
+    });
+    expect(made.status).toBe(201);
+    const balances = (await http.request('GET', `${api}/groups/${trip}/balances`, { token: first.token })).body as {
+      memberId: string;
+      balance: number;
+    }[];
+    expect(balances).toContainEqual({ memberId: first.id, balance: 100 });
+    expect(balances).toContainEqual({ memberId: second.id, balance: -100 });
+  });
 });
 
 describe('Settlements → Ledger (SettledAmounts)', () => {
@@ -271,5 +354,36 @@ describe('Settlements → Ledger (SettledAmounts)', () => {
       token: ann.token,
     });
     expect((statement.body as { balance: number }).balance).toBe(-200);
+  });
+
+  it('a netting counts in the balances and the statement Ledger reads, named as a settlement by netting', async () => {
+    const { first, second } = await strangers('statement');
+    const flat = await groupOf(first, second, 'Flat');
+    await http.request('POST', `${api}/groups/${flat}/expenses`, {
+      token: second.token,
+      body: { description: 'Flat', amount: 600, date: PAST_DAY, splitBetween: [first.id, second.id] },
+    });
+    // Yan owes Xia 400 in a club, so there is a debt each way to net.
+    const club = await groupOf(first, second, 'Club');
+    await http.request('POST', `${api}/groups/${club}/expenses`, {
+      token: first.token,
+      body: { description: 'Club', amount: 800, date: PAST_DAY, splitBetween: [first.id, second.id] },
+    });
+    expect(
+      (
+        await http.request('POST', `${api}/nettings`, {
+          token: first.token,
+          body: { with: second.id, currency: 'EUR' },
+        })
+      ).status,
+    ).toBe(201);
+
+    const statement = (
+      await http.request('GET', `${api}/groups/${flat}/members/${second.id}/statement`, { token: second.token })
+    ).body as { balance: number; entries: { kind: string; description: string; paid: number }[] };
+    expect(statement.balance).toBe(0);
+    expect(statement.entries).toContainEqual(
+      expect.objectContaining({ kind: 'settlement', description: 'Settlement by netting', paid: 0 }),
+    );
   });
 });

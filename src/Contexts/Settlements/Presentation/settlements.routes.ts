@@ -13,12 +13,16 @@ import {
 } from '@Contexts/Settlements/Application/Settlements';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
+import { getNetting, netDebts } from '@Contexts/Settlements/Application/Nettings';
 
 /** The body of a cash settlement: its shape only; whether the amount is at least 1 and allowed is the domain's (request 12). */
 type RecordCashBody = { readonly from: string; readonly amount: number };
 
 /** The body of a payment through the provider: the payee and the amount, shape only (request 13). */
 type PayThroughProviderBody = { readonly to: string; readonly amount: number };
+
+/** The body of a netting: the other member, and the currency, shape only; whether they have anything to net is the domain's (request 32). */
+type NetDebtsBody = { readonly with: string; readonly currency: string };
 
 /** The body of a payout account: the provider's id of the account, shape only; whether the provider knows it is the domain's (request 16). */
 type SetPayoutAccountBody = { readonly accountId: string };
@@ -157,6 +161,31 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
 
   fastify.get('/accounts/me/payout-account', (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getPayoutAccount), undefined),
+  );
+
+  fastify.post<{ Body: NetDebtsBody }>(
+    '/nettings',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['with', 'currency'],
+          properties: { with: { type: 'string' }, currency: { type: 'string' } },
+        },
+      },
+    },
+    (req, reply) =>
+      answerAtOnce(
+        req,
+        reply,
+        module.useCase(netDebts),
+        { with: req.body.with, currency: req.body.currency },
+        { created: true },
+      ),
+  );
+
+  fastify.get<{ Params: { id: string } }>('/nettings/:id', (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getNetting), req.params.id),
   );
 
   done();

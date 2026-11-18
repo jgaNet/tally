@@ -96,6 +96,8 @@ contexts:
         meaning: a settlement paid through the provider, pending until its webhook lands, counted once whatever the webhooks do.
       - term: PayoutAccount
         meaning: the account at the provider a person is paid on; required to be paid through the provider.
+      - term: Netting
+        meaning: what two members owe each other across the groups they share, in one currency, netted as settlements that count at once (request 32, ADR 27); all of them or none.
   - id: Notifications
     purpose: >-
       Telling members what concerns them: one notice per member when an expense includes them, a reminder, at the

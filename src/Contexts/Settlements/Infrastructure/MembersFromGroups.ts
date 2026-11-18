@@ -1,5 +1,5 @@
 import { IGroupRoster } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
-import { ISettlementMembers } from '@Contexts/Settlements/Application/ISettlementMembers';
+import { ISettlementMembers, SharedGroup } from '@Contexts/Settlements/Application/ISettlementMembers';
 
 /** The roster of groups, as Groups gives it to the other contexts (ADR 6): the type the wiring of Settlements is given. */
 export type GroupRoster = IGroupRoster;
@@ -22,5 +22,18 @@ export class MembersFromGroups implements ISettlementMembers {
 
   isArchived(groupId: string): Promise<boolean> {
     return this.roster.isArchived(groupId);
+  }
+
+  /** Every group there is, the earliest made first, that both accounts are current members of: read through the roster, one group at a time. */
+  async groupsShared(accountId: string, otherId: string): Promise<SharedGroup[]> {
+    const shared: SharedGroup[] = [];
+    for (const groupId of await this.roster.groupIds()) {
+      const members = (await this.roster.membersOf(groupId))?.map(({ memberId }) => memberId) ?? [];
+      if (!members.includes(accountId) || !members.includes(otherId)) continue;
+      const currency = await this.roster.currencyOf(groupId);
+      if (!currency) continue;
+      shared.push({ groupId, currency, archived: await this.roster.isArchived(groupId) });
+    }
+    return shared;
   }
 }

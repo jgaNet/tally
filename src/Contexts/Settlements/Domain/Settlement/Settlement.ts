@@ -1,5 +1,8 @@
-/** How a settlement is paid: in cash, recorded by its payee (request 12), or through the payment provider (request 13). */
-export type SettlementMethod = 'cash' | 'provider';
+/**
+ * How a settlement is paid: in cash, recorded by its payee (request 12), through the payment provider (request 13), or by netting two
+ * members' debts across their groups (request 32), which moves no money and counts at once.
+ */
+export type SettlementMethod = 'cash' | 'provider' | 'net';
 
 /**
  * Where a settlement stands: a provider's payment is `pending` until the provider says it ended: `paid` or `failed`, and a paid one
