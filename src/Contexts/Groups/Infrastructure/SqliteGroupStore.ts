@@ -3,6 +3,7 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import { GroupView, IGroupStore } from '@Contexts/Groups/Application/IGroupStore';
 import { BalancePass, FormerMember, Group, GroupMember, GroupSnapshot } from '@Contexts/Groups/Domain/Group/Group';
+import { GroupAuditEntry } from '@Contexts/Groups/Domain/Group/GroupAudit';
 import { IGroupRoster, PassedBalance, RosterMember } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
 
 /**
@@ -196,6 +197,29 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
         .all(groupId),
     ) as { fromId: string; toId: string; amount: number }[];
     return rows.map(row => ({ from: row.fromId, to: row.toId, amount: row.amount }));
+  }
+
+  async auditOf(groupId: string): Promise<GroupAuditEntry[]> {
+    const rows = this.database.read(db =>
+      db.prepare('SELECT * FROM group_audit WHERE group_id = ? ORDER BY at, seq').all(groupId),
+    ) as {
+      id: string;
+      group_id: string;
+      at: string;
+      by_account_id: string;
+      action: 'balance-passed';
+      subject_id: string;
+      amount: number;
+    }[];
+    return rows.map(row => ({
+      id: row.id,
+      groupId: row.group_id,
+      at: row.at,
+      by: row.by_account_id,
+      action: row.action,
+      subjectId: row.subject_id,
+      amount: row.amount,
+    }));
   }
 
   async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {

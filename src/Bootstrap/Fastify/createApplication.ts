@@ -29,6 +29,9 @@ import { templateRoutes } from '@Contexts/Ledger/Presentation/templates.routes';
 import { receiptRoutes } from '@Contexts/Ledger/Presentation/receipts.routes';
 import { sweepRecurringExpenses } from '@Contexts/Ledger/Application/RecurringExpenses';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
+import { SettlementAuditFromSettlements } from '@Contexts/Ledger/Infrastructure/SettlementAuditFromSettlements';
+import { PassedBalancesFromGroups } from '@Contexts/Ledger/Infrastructure/PassedBalancesFromGroups';
+import { auditRoutes } from '@Contexts/Ledger/Presentation/audit.routes';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
 import {
@@ -120,7 +123,20 @@ export async function createApplication({
   const rates = new HttpOfferedRates(ratesUrl);
   // The receipts store (request 26, ADR 21) is asked of RECEIPTS_URL, through a port Ledger owns: a receipt is kept there, never in Tally.
   const receiptStore = new HttpReceiptStore(receiptsUrl);
-  const ledger = ledgerWiring(database, groupMembers, groupCurrency, rates, settledAmounts, receiptStore);
+  // The audit (request 28, ADR 23) reads what Settlements and Groups wrote, through ports Ledger owns over their read models: each entry is
+  // written in the transaction of its change, in the context that made it.
+  const settlementAudit = new SettlementAuditFromSettlements(settlementRoster(database));
+  const passedBalances = new PassedBalancesFromGroups(groupRoster(database));
+  const ledger = ledgerWiring(
+    database,
+    groupMembers,
+    groupCurrency,
+    rates,
+    settledAmounts,
+    receiptStore,
+    settlementAudit,
+    passedBalances,
+  );
   // The suggested settlements read the members of a group from Groups' roster and its balances from Ledger's read model (ADR 9).
   // Paying through the provider (request 13) is asked of PROVIDER_URL, and its webhooks are checked with PROVIDER_WEBHOOK_SECRET.
   const settlements = settlementsWiring(database, groups.roster, balances, {
@@ -160,6 +176,7 @@ export async function createApplication({
     .registerRoutes('/', budgetRoutes, { module: ledger })
     .registerRoutes('/', templateRoutes, { module: ledger })
     .registerRoutes('/', receiptRoutes, { module: ledger })
+    .registerRoutes('/', auditRoutes, { module: ledger })
     .registerRoutes('/', settlementRoutes, { module: settlements })
     .registerRoutes('/', noticeRoutes, { module: notifications })
     .onStop(() => database.close());

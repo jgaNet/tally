@@ -81,6 +81,8 @@ contexts:
         meaning: what an expense is spent on, one of eight, `other` when none is given; a budget is set per category.
       - term: Budget
         meaning: the most a group's month may spend in one category, set by its owner; a month that passes it is told to every member, once.
+      - term: AuditEntry
+        meaning: one change of money in a group, who made it, when, what, about which thing and how much, written with the change and never changed; the group's audit reads them all, the oldest first.
   - id: Settlements
     purpose: >-
       Settling up between members: the settlements of each group decided in one book, in cash or through the payment
@@ -116,7 +118,8 @@ relationships:
       which role, and who has ever been one. Ledger asks in its own words, through a port it owns (GroupMembers), when
       it decides, so that a member who has just joined can be in a split at once (T3). It asks the group's currency
       too, through a port beside it (GroupCurrency): an expense paid in another currency is converted to it (request 21,
-      ADR 16).
+      ADR 16). Its audit reads the balances that passed when members left through a port it owns (PassedBalances),
+      answered over Groups' roster (request 28, ADR 23).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]
@@ -153,7 +156,9 @@ relationships:
     mechanism: owned-port
     why: >-
       A balance never misses a settlement that is paid: Ledger reads what was settled through a port it owns
-      (SettledAmounts), answered over Settlements' read model, when it reads a balance (T8, ADR 10).
+      (SettledAmounts), answered over Settlements' read model, when it reads a balance (T8, ADR 10). Its audit reads the
+      settlements' entries through a second port it owns (SettlementAudit), answered over the same read model (request
+      28, ADR 23).
   - upstream: Ledger
     downstream: Notifications
     patterns: [published-language, anti-corruption-layer]

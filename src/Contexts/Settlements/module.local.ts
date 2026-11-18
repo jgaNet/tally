@@ -30,6 +30,10 @@ import {
   SqlitePayoutAccountStore,
   payoutAccountsTablesSchema,
 } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountStore';
+import {
+  SqliteSettlementAuditLog,
+  settlementAuditTablesSchema,
+} from '@Contexts/Settlements/Infrastructure/SqliteSettlementAuditLog';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADRs 8, 9 and 10): its wiring, as data. Its tables are opened by the composition
@@ -40,7 +44,11 @@ import {
  * the same secret. A person's payout account at the provider (request 16, ADR 11) is set and read by the caller, and a payment to a
  * member is refused without one. This file imports no other context. The module lists each use case once.
  */
-export const settlementsSchema = [...settlementsTablesSchema, ...payoutAccountsTablesSchema];
+export const settlementsSchema = [
+  ...settlementsTablesSchema,
+  ...payoutAccountsTablesSchema,
+  ...settlementAuditTablesSchema,
+];
 
 /** What the payment provider needs of the environment: its API's base URL, and the secret its webhooks are signed with. */
 export interface PaymentsConfig {
@@ -90,14 +98,22 @@ export function settlementsWiring(
   const members = new MembersFromGroups(roster);
   const counted = new BalancesFromLedger(balances);
   const provider = new HttpPaymentProvider(payments.providerUrl);
+  const audit = new SqliteSettlementAuditLog(database);
 
   return new LiteModule({
     name: 'Settlements',
     useCases: [
       getSuggestedSettlements(store, members, counted),
-      recordCashSettlement(store, members, counted, systemClock),
+      recordCashSettlement(store, members, counted, audit, systemClock),
       payThroughProvider(store, members, counted, payouts, provider, systemClock),
-      receivePaymentWebhook(store, members, counted, new HmacWebhookSignature(payments.webhookSecret), systemClock),
+      receivePaymentWebhook(
+        store,
+        members,
+        counted,
+        new HmacWebhookSignature(payments.webhookSecret),
+        audit,
+        systemClock,
+      ),
       refundSettlement(store, members, counted, provider, systemClock),
       getGroupSettlements(store, members),
       getSettlement(store, members),

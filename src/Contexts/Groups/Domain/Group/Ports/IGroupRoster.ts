@@ -1,3 +1,5 @@
+import { GroupAuditEntry } from '@Contexts/Groups/Domain/Group/GroupAudit';
+
 /**
  * The roster of groups, the read-model port Groups gives other contexts (conventions/domain.yaml, ADR 6): who is a member of
  * a group now, in the order they joined, the owner first, and the role each has in it. It answers the facts another context
@@ -22,6 +24,11 @@ export interface IGroupRoster {
    * leaver's balance, passed from them to the owner. Ledger counts them in every balance it reads; a group with no leaver answers [].
    */
   passedBalancesOf(groupId: string): Promise<PassedBalance[]>;
+  /**
+   * The audit entries of the balances that passed when members left (feature 28, ADR 23), the oldest first: what Ledger's audit reads
+   * for the group. A group with no leaver answers [].
+   */
+  auditOf(groupId: string): Promise<GroupAuditEntry[]>;
 }
 
 /** A balance that passed from a member who left a group to its owner, in the group's currency's hundredths (ADR 15). */

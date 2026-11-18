@@ -20,6 +20,7 @@ import { SignedSessionTokens } from '@Contexts/Groups/Infrastructure/SignedSessi
 import { SqliteAccountStore, accountsSchema } from '@Contexts/Groups/Infrastructure/SqliteAccountStore';
 import { SqliteGroupStore, groupsTablesSchema } from '@Contexts/Groups/Infrastructure/SqliteGroupStore';
 import { SqliteInvitationStore, invitationsTablesSchema } from '@Contexts/Groups/Infrastructure/SqliteInvitationStore';
+import { SqliteGroupAuditLog, groupAuditTablesSchema } from '@Contexts/Groups/Infrastructure/SqliteGroupAuditLog';
 
 /**
  * The Groups context (conventions/domain.yaml, ADRs 1 and 5): its wiring, as data. Accounts live here (ADR 1): sign-up,
@@ -28,7 +29,12 @@ import { SqliteInvitationStore, invitationsTablesSchema } from '@Contexts/Groups
  * with their adapters and the system clock; the module lists each use case once. Invitations are an aggregate of their
  * own (feature 3): they join the groups they name, so their table comes after the groups'.
  */
-export const groupsSchema = [...accountsSchema, ...groupsTablesSchema, ...invitationsTablesSchema];
+export const groupsSchema = [
+  ...accountsSchema,
+  ...groupsTablesSchema,
+  ...invitationsTablesSchema,
+  ...groupAuditTablesSchema,
+];
 
 /**
  * The roster of groups, over the database alone: the read model other contexts read (ADR 6), built before the wiring so that
@@ -52,6 +58,7 @@ export async function groupsWiring(database: SqliteDatabase, balances: IMemberBa
   const tokens = await SignedSessionTokens.open(database);
   const groups = new SqliteGroupStore(database);
   const invitations = new SqliteInvitationStore(database);
+  const audit = new SqliteGroupAuditLog(database);
 
   const module = new LiteModule({
     name: 'Groups',
@@ -66,7 +73,7 @@ export async function groupsWiring(database: SqliteDatabase, balances: IMemberBa
       getInvitation(invitations),
       acceptInvitation(groups, invitations, systemClock),
       getGroupMembers(groups, accounts),
-      leaveGroup(groups, balances, waiting, systemClock),
+      leaveGroup(groups, balances, waiting, audit, systemClock),
       archiveGroup(groups, balances, waiting, systemClock),
     ],
   });

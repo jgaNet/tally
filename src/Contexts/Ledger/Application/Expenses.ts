@@ -4,8 +4,10 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { GroupArchivedException } from '@SharedKernel/Domain';
 
+import { IAuditLog } from '@Contexts/Ledger/Application/IAuditLog';
 import { IExpenseStore, ExpenseView } from '@Contexts/Ledger/Application/IExpenseStore';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
+import { expenseAuditId } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
 import { GroupMemberRole, IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { IOfferedRates } from '@Contexts/Ledger/Application/IOfferedRates';
 import { ISplitTemplateStore } from '@Contexts/Ledger/Application/ISplitTemplateStore';
@@ -77,6 +79,7 @@ export const recordExpense = command(
     groupMembers: IGroupMembers,
     groupCurrency: IGroupCurrency,
     rates: IOfferedRates,
+    audit: IAuditLog,
     clock: Clock,
   ) =>
     async ({ groupId, ...draft }: RecordExpenseInput, context): Promise<IResult<string>> => {
@@ -91,17 +94,28 @@ export const recordExpense = command(
       if (split.isFailure()) return Result.fail(split.error);
       const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
 
+      const now = clock();
       const recorded = Expense.register(
         { groupId, payerId, groupCurrency: currency, offered, ...draft, split: split.data },
         members.map(member => member.memberId),
         archived,
-        clock(),
+        now,
       );
       if (recorded.isFailure()) return recorded;
 
+      const snapshot = recorded.data.toSnapshot();
       await expenses.add(recorded.data);
+      await audit.record({
+        id: expenseAuditId.recorded(snapshot.id),
+        groupId,
+        at: now.toISOString(),
+        by: snapshot.paidBy,
+        action: 'expense-recorded',
+        subjectId: snapshot.id,
+        amount: snapshot.amount,
+      });
       await publishDomainEvents(recorded.data, context);
-      return Result.ok(recorded.data.toSnapshot().id);
+      return Result.ok(snapshot.id);
     },
 );
 
@@ -121,6 +135,7 @@ export const editExpense = command(
     groupMembers: IGroupMembers,
     groupCurrency: IGroupCurrency,
     rates: IOfferedRates,
+    audit: IAuditLog,
     clock: Clock,
   ) =>
     async ({ expenseId, version, ...draft }: EditExpenseInput, context): Promise<IResult<void>> => {
@@ -131,16 +146,27 @@ export const editExpense = command(
       if (split.isFailure()) return Result.fail(split.error);
       const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
 
+      const now = clock();
       const edited = expense.edit(
         { groupCurrency: currency, offered, ...draft, split: split.data },
         members.map(member => member.memberId),
         archived,
         version,
-        clock(),
+        now,
       );
       if (edited.isFailure()) return Result.fail(edited.error);
 
+      const snapshot = expense.toSnapshot();
       await expenses.save(expense);
+      await audit.record({
+        id: expenseAuditId.edited(snapshot.id, snapshot.version),
+        groupId: snapshot.groupId,
+        at: now.toISOString(),
+        by: callerOf(context),
+        action: 'expense-edited',
+        subjectId: snapshot.id,
+        amount: snapshot.amount,
+      });
       await publishDomainEvents(expense, context);
       return Result.ok(undefined);
     },
@@ -153,19 +179,36 @@ export const editExpense = command(
  */
 export const deleteExpense = command(
   'DeleteExpense',
-  (expenses: IExpenseStore, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+  (
+    expenses: IExpenseStore,
+    groupMembers: IGroupMembers,
+    groupCurrency: IGroupCurrency,
+    audit: IAuditLog,
+    clock: Clock,
+  ) =>
     async (expenseId: string, context): Promise<IResult<void>> => {
       const found = await changeable(expenses, groupMembers, groupCurrency, expenseId, context);
       if (found.isFailure()) return Result.fail(found.error);
       const { expense, members, archived } = found.data;
+      const snapshot = expense.toSnapshot();
 
+      const now = clock();
       const deleted = expense.delete(
         members.map(member => member.memberId),
         archived,
-        clock(),
+        now,
       );
       if (deleted.isFailure()) return Result.fail(deleted.error);
       await expenses.remove(expense);
+      await audit.record({
+        id: expenseAuditId.deleted(snapshot.id),
+        groupId: snapshot.groupId,
+        at: now.toISOString(),
+        by: callerOf(context),
+        action: 'expense-deleted',
+        subjectId: snapshot.id,
+        amount: snapshot.amount,
+      });
       await publishDomainEvents(expense, context);
       return Result.ok(undefined);
     },

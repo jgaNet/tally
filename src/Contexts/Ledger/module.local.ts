@@ -33,6 +33,10 @@ import { IOfferedRates } from '@Contexts/Ledger/Application/IOfferedRates';
 import { IBalanceRoster } from '@Contexts/Ledger/Domain/Expense/Ports/IBalanceRoster';
 import { SqliteBalanceRoster } from '@Contexts/Ledger/Infrastructure/SqliteBalanceRoster';
 import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseStore';
+import { SqliteAuditLog, auditTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteAuditLog';
+import { ISettlementAudit } from '@Contexts/Ledger/Application/ISettlementAudit';
+import { IPassedBalances } from '@Contexts/Ledger/Application/IPassedBalances';
+import { getGroupAudit } from '@Contexts/Ledger/Application/Audit';
 import {
   SqliteRecurringExpenseStore,
   recurringExpensesTablesSchema,
@@ -60,6 +64,7 @@ export const ledgerSchema = [
   ...budgetsTablesSchema,
   ...splitTemplatesTablesSchema,
   ...receiptsTablesSchema,
+  ...auditTablesSchema,
 ];
 
 /**
@@ -91,12 +96,15 @@ export function ledgerWiring(
   rates: IOfferedRates,
   settled: ISettledAmounts,
   receiptStore: IReceiptStore,
+  settlementAudit: ISettlementAudit,
+  passedBalances: IPassedBalances,
 ): LiteModule {
   const expenses = new SqliteExpenseStore(database);
   const recurring = new SqliteRecurringExpenseStore(database);
   const budgets = new SqliteBudgetStore(database);
   const templates = new SqliteSplitTemplateStore(database);
   const receipts = new SqliteReceiptBook(database);
+  const audit = new SqliteAuditLog(database);
 
   return new LiteModule({
     name: 'Ledger',
@@ -109,13 +117,14 @@ export function ledgerWiring(
       { event: BudgetPassedEvent, handlers: [new PublishBudgetPassedHandler()] },
       {
         event: RecurringExpenseDayCameEvent,
-        handlers: [new RecordRecurringExpenseHandler(expenses, groupMembers, groupCurrency, systemClock)],
+        handlers: [new RecordRecurringExpenseHandler(expenses, groupMembers, groupCurrency, audit, systemClock)],
       },
     ],
     useCases: [
-      recordExpense(expenses, templates, groupMembers, groupCurrency, rates, systemClock),
-      editExpense(expenses, templates, groupMembers, groupCurrency, rates, systemClock),
-      deleteExpense(expenses, groupMembers, groupCurrency, systemClock),
+      recordExpense(expenses, templates, groupMembers, groupCurrency, rates, audit, systemClock),
+      editExpense(expenses, templates, groupMembers, groupCurrency, rates, audit, systemClock),
+      deleteExpense(expenses, groupMembers, groupCurrency, audit, systemClock),
+      getGroupAudit(audit, settlementAudit, passedBalances, groupMembers),
       getExpense(expenses, groupMembers),
       getOfferedRate(groupMembers, groupCurrency, rates, systemClock),
       getGroupBalances(expenses, groupMembers, settled),

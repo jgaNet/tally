@@ -1,6 +1,7 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { ISettlementRoster, SettledChange } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
+import { SettlementAuditEntry } from '@Contexts/Settlements/Domain/Settlement/SettlementAudit';
 
 /**
  * What the paid settlements of a group do to each member's balance, in SQLite (ADR 10): a payer is moved up by what they paid, a payee
@@ -24,5 +25,33 @@ export class SqliteSettlementRoster implements ISettlementRoster {
         .all(groupId, groupId),
     ) as { memberId: string; change: number }[];
     return rows.map(({ memberId, change }) => ({ memberId, change }));
+  }
+
+  async auditOf(groupId: string): Promise<SettlementAuditEntry[]> {
+    const rows = this.database.read(db =>
+      db
+        .prepare(
+          `SELECT id, group_id, at, by_account_id, action, subject_id, amount FROM settlement_audit
+           WHERE group_id = ? ORDER BY at, seq`,
+        )
+        .all(groupId),
+    ) as {
+      id: string;
+      group_id: string;
+      at: string;
+      by_account_id: string;
+      action: SettlementAuditEntry['action'];
+      subject_id: string;
+      amount: number;
+    }[];
+    return rows.map(row => ({
+      id: row.id,
+      groupId: row.group_id,
+      at: row.at,
+      by: row.by_account_id,
+      action: row.action,
+      subjectId: row.subject_id,
+      amount: row.amount,
+    }));
   }
 }

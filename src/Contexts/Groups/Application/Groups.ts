@@ -4,8 +4,10 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 
 import { GroupView, IGroupStore } from '@Contexts/Groups/Application/IGroupStore';
 import { IAccountStore } from '@Contexts/Groups/Application/IAccountStore';
+import { IGroupAuditLog } from '@Contexts/Groups/Application/IGroupAuditLog';
 import { IMemberBalances, IWaitingPayments } from '@Contexts/Groups/Application/IMemberBalances';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
+import { balancePassedAuditId } from '@Contexts/Groups/Domain/Group/GroupAudit';
 import { GroupNotFoundException } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 
 /** One member of a group as a screen shows it: the account, its name, its role and when it joined (feature 3). */
@@ -98,7 +100,7 @@ export const getMyGroups = query(
  */
 export const leaveGroup = command(
   'LeaveGroup',
-  (groups: IGroupStore, balances: IMemberBalances, waiting: IWaitingPayments, clock: Clock) =>
+  (groups: IGroupStore, balances: IMemberBalances, waiting: IWaitingPayments, audit: IGroupAuditLog, clock: Clock) =>
     async (groupId: string, context): Promise<IResult<void>> => {
       const caller = callerOf(context);
       const group = await groups.findById(groupId);
@@ -108,10 +110,23 @@ export const leaveGroup = command(
         balance: await balances.balanceOf(groupId, caller),
         paymentWaiting: await waiting.hasWaitingPayment(groupId, caller),
       };
-      const left = group.leave(caller, reading, clock());
+      const now = clock();
+      const left = group.leave(caller, reading, now);
       if (left.isFailure()) return left;
 
       await groups.save(group);
+      // The balance the member passed is their change, in the leave's transaction; a balance of 0 passes nothing (request 28).
+      if (reading.balance !== 0) {
+        await audit.record({
+          id: balancePassedAuditId(groupId, group.passes().length - 1),
+          groupId,
+          at: now.toISOString(),
+          by: caller,
+          action: 'balance-passed',
+          subjectId: caller,
+          amount: reading.balance,
+        });
+      }
       await publishDomainEvents(group, context);
       return Result.ok(undefined);
     },

@@ -2,9 +2,11 @@ import { Id, IResult, Result } from '@Architecture/Domain';
 import { Clock, EventHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { GroupArchivedException } from '@SharedKernel/Domain';
 
+import { IAuditLog } from '@Contexts/Ledger/Application/IAuditLog';
 import { IExpenseStore } from '@Contexts/Ledger/Application/IExpenseStore';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
+import { expenseAuditId } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
 import { GroupNotFoundException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
@@ -23,6 +25,7 @@ export class RecordRecurringExpenseHandler extends EventHandler<RecurringExpense
     private readonly expenses: IExpenseStore,
     private readonly groupMembers: IGroupMembers,
     private readonly groupCurrency: IGroupCurrency,
+    private readonly audit: IAuditLog,
     private readonly clock: Clock,
   ) {
     super();
@@ -38,16 +41,27 @@ export class RecordRecurringExpenseHandler extends EventHandler<RecurringExpense
     const archived = await this.groupMembers.isArchived(groupId);
     if (archived) return Result.fail(new GroupArchivedException());
 
+    const now = this.clock();
     const recorded = Expense.register(
       { groupId, payerId: paidBy, groupCurrency: currency, description, date: day, amount, split, category },
       members.map(member => member.memberId),
       archived,
-      this.clock(),
+      now,
       new Id(expenseId),
     );
     if (recorded.isFailure()) return Result.fail(recorded.error);
 
+    // The payer is the one the change acts for: the day is recorded for them, not by a member (request 28).
     await this.expenses.add(recorded.data);
+    await this.audit.record({
+      id: expenseAuditId.recorded(expenseId),
+      groupId,
+      at: now.toISOString(),
+      by: paidBy,
+      action: 'expense-recorded',
+      subjectId: expenseId,
+      amount,
+    });
     await publishDomainEvents(recorded.data, context);
     return Result.ok(undefined);
   }

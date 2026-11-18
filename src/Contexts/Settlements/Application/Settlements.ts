@@ -7,8 +7,10 @@ import { IPaymentProvider } from '@Contexts/Settlements/Application/IPaymentProv
 import { IPayoutAccountStore } from '@Contexts/Settlements/Application/IPayoutAccountStore';
 import { ISettlementMembers } from '@Contexts/Settlements/Application/ISettlementMembers';
 import { ISettlementStore, SettlementView } from '@Contexts/Settlements/Application/ISettlementStore';
+import { ISettlementAuditLog } from '@Contexts/Settlements/Application/ISettlementAuditLog';
 import { IWebhookSignature } from '@Contexts/Settlements/Application/IWebhookSignature';
 import { openBook } from '@Contexts/Settlements/Application/OpenBook';
+import { settlementAuditId } from '@Contexts/Settlements/Domain/Settlement/SettlementAudit';
 import {
   GroupNotFoundException,
   SettlementNotFoundException,
@@ -32,7 +34,13 @@ export interface RecordCashSettlementInput {
  */
 export const recordCashSettlement = command(
   'RecordCashSettlement',
-  (store: ISettlementStore, members: ISettlementMembers, balances: IGroupBalances, clock: Clock) =>
+  (
+    store: ISettlementStore,
+    members: ISettlementMembers,
+    balances: IGroupBalances,
+    audit: ISettlementAuditLog,
+    clock: Clock,
+  ) =>
     async ({ groupId, from, amount }: RecordCashSettlementInput, context): Promise<IResult<string>> => {
       const payeeId = callerOf(context);
       const book = await openBook(store, members, balances, groupId);
@@ -42,7 +50,18 @@ export const recordCashSettlement = command(
       const recorded = book.recordCash({ from, to: payeeId, amount }, archived, clock());
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
-      await store.save(book, recorded.data, recorded.data.at);
+      const settlement = recorded.data;
+      await store.save(book, settlement, settlement.at);
+      // A cash payment counts from the moment it is recorded, and its payee recorded it (request 28).
+      await audit.record({
+        id: settlementAuditId.paid(settlement.id),
+        groupId,
+        at: settlement.at,
+        by: payeeId,
+        action: 'settlement-paid',
+        subjectId: settlement.id,
+        amount: settlement.amount,
+      });
       await publishDomainEvents(book, context);
       return Result.ok(recorded.data.id);
     },
@@ -134,6 +153,7 @@ export const receivePaymentWebhook = command(
     members: ISettlementMembers,
     balances: IGroupBalances,
     signatures: IWebhookSignature,
+    audit: ISettlementAuditLog,
     clock: Clock,
   ) =>
     async ({ body, signature, paymentId, status }: PaymentWebhookInput, context): Promise<IResult<void>> => {
@@ -150,7 +170,33 @@ export const receivePaymentWebhook = command(
       if (!changed.data) return Result.ok(undefined);
 
       // The status is learned now: its history line is the time Tally was told (request 19).
-      await store.save(book, changed.data, clock().toISOString());
+      const learnedAt = clock().toISOString();
+      const learned = changed.data;
+      await store.save(book, learned, learnedAt);
+      // The balances start to count a payment the provider says succeeded, for the payer who made it, and stop counting a refunded one,
+      // for the payee who refunded it (request 28). A failed payment changes no money, so it has no entry.
+      if (learned.status === 'paid') {
+        await audit.record({
+          id: settlementAuditId.paid(learned.id),
+          groupId: learned.groupId,
+          at: learnedAt,
+          by: learned.from,
+          action: 'settlement-paid',
+          subjectId: learned.id,
+          amount: learned.amount,
+        });
+      }
+      if (learned.status === 'refunded') {
+        await audit.record({
+          id: settlementAuditId.refunded(learned.id),
+          groupId: learned.groupId,
+          at: learnedAt,
+          by: learned.to,
+          action: 'settlement-refunded',
+          subjectId: learned.id,
+          amount: learned.amount,
+        });
+      }
       await publishDomainEvents(book, context);
       return Result.ok(undefined);
     },
