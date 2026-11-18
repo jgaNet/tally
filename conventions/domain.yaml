@@ -87,6 +87,8 @@ contexts:
         meaning: the kind an expense is in, one of eight, `other` when none is given; a budget is set per category.
       - term: Budget
         meaning: the monthly amount a group's owner sets for a category; a month whose spending passes it is told to every member once.
+      - term: SplitTemplate
+        meaning: a split saved under a name in a group (equally, or by shares); an expense may be split by it in place of its own split, and keeps its shares when the template changes or goes.
   - id: Tracker
     purpose: >-
       What became of each command: every operation the bus dispatches is recorded with its outcome, so that a

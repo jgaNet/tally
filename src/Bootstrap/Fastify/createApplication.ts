@@ -19,6 +19,7 @@ import { rateRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/rate.r
 import { localLedgerModule, recordRecurringExpenses } from '@Contexts/Ledger/module.local';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/recurring.routes';
 import { budgetRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/budget.routes';
+import { templateRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/template.routes';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes';
 import { localNotificationsModule, remindLingeringDebts } from '@Contexts/Notifications/module.local';
@@ -76,6 +77,7 @@ export async function createApplication({
     .registerRoutes('/', rateRoutes, { module: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
     .registerRoutes('/', budgetRoutes, { module: localLedgerModule })
+    .registerRoutes('/', templateRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, {
       module: localSettlementsModule,
       providerWebhookSecret: process.env.PROVIDER_WEBHOOK_SECRET ?? '',

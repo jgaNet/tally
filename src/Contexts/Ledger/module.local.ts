@@ -18,6 +18,12 @@ import {
   SetBudgetCommandHandler,
   RemoveBudgetCommandEvent,
   RemoveBudgetCommandHandler,
+  SaveTemplateCommandEvent,
+  SaveTemplateCommandHandler,
+  ReplaceTemplateCommandEvent,
+  ReplaceTemplateCommandHandler,
+  RemoveTemplateCommandEvent,
+  RemoveTemplateCommandHandler,
 } from '@Contexts/Ledger/Application/Commands';
 import {
   GetExpenseQueryHandler,
@@ -28,6 +34,7 @@ import {
   GetRecurringExpenseQueryHandler,
   GetGroupRecurringExpensesQueryHandler,
   GetGroupBudgetsQueryHandler,
+  GetGroupTemplatesQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { ExpenseRecordedBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedBudgetHandler';
@@ -40,6 +47,8 @@ import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domai
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Events/BudgetEvents';
 import { SqliteBudgetRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteBudgetRepository';
 import { SqliteBudgetQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteBudgetQueries';
+import { SqliteSplitTemplateRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteSplitTemplateRepository';
+import { SqliteSplitTemplateQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteSplitTemplateQueries';
 import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
 import { SqliteRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteRecurringExpenseRepository';
 import { SqliteRecurringExpenseQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteRecurringExpenseQueries';
@@ -80,6 +89,8 @@ const recurring = new SqliteRecurringExpenseRepository(database);
 const recurringQueries = new SqliteRecurringExpenseQueries(database);
 const budgets = new SqliteBudgetRepository(database);
 const budgetQueries = new SqliteBudgetQueries(database);
+const templates = new SqliteSplitTemplateRepository(database);
+const templateQueries = new SqliteSplitTemplateQueries(database);
 /** The policy on an expense recorded or edited (request 24): its month, in its category, is what the budget decides. */
 const budgetPolicy = new ExpenseBudgetPolicy(expenses, budgets, budgetQueries, groupMembers);
 const clock = systemClock;
@@ -92,11 +103,13 @@ export const localLedgerModule = new Module({
   commands: [
     {
       event: RecordExpenseCommandEvent,
-      handlers: [new RecordExpenseCommandHandler(groupMembers, groupCurrency, offeredRates, expenses, clock)],
+      handlers: [
+        new RecordExpenseCommandHandler(groupMembers, groupCurrency, offeredRates, expenses, clock, templates),
+      ],
     },
     {
       event: EditExpenseCommandEvent,
-      handlers: [new EditExpenseCommandHandler(groupMembers, groupCurrency, offeredRates, expenses, clock)],
+      handlers: [new EditExpenseCommandHandler(groupMembers, groupCurrency, offeredRates, expenses, clock, templates)],
     },
     {
       event: DeleteExpenseCommandEvent,
@@ -118,10 +131,23 @@ export const localLedgerModule = new Module({
       event: RemoveBudgetCommandEvent,
       handlers: [new RemoveBudgetCommandHandler(groupMembers, budgets)],
     },
+    {
+      event: SaveTemplateCommandEvent,
+      handlers: [new SaveTemplateCommandHandler(groupMembers, templates)],
+    },
+    {
+      event: ReplaceTemplateCommandEvent,
+      handlers: [new ReplaceTemplateCommandHandler(groupMembers, templates)],
+    },
+    {
+      event: RemoveTemplateCommandEvent,
+      handlers: [new RemoveTemplateCommandHandler(groupMembers, templates)],
+    },
   ],
   queries: [
     new GetExpenseQueryHandler(expenseQueries, groupMembers),
     new GetGroupBudgetsQueryHandler(budgetQueries, groupMembers, clock),
+    new GetGroupTemplatesQueryHandler(templateQueries, groupMembers),
     new GetGroupBalancesQueryHandler(balanceQueries, groupMembers),
     new GetGroupExpensesQueryHandler(expenseQueries, groupMembers),
     new GetMemberStatementQueryHandler(statementQueries, groupMembers),

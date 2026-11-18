@@ -7,6 +7,8 @@ import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpen
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { IOfferedRates, offerForExpense } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
+import { splitOfExpense } from '@Contexts/Ledger/Application/Ports/SplitOfExpense';
+import { ISplitTemplateRepository } from '@Contexts/Ledger/Domain/SplitTemplate/Ports/ISplitTemplateRepository';
 import { RecordExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/RecordExpense/RecordExpenseCommandEvent';
 
 /**
@@ -24,6 +26,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     private offeredRates: IOfferedRates,
     private expenses: IExpenseRepository,
     private clock: Clock,
+    private templates: ISplitTemplateRepository,
   ) {
     super();
   }
@@ -33,11 +36,14 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     if (caller.isFailure()) return Result.fail(caller.error);
     const payer = caller.data.value;
 
-    const { groupId, description, money, date, split, category } = event.payload;
+    const { groupId, description, money, date, category } = event.payload;
     const members = await this.groupMembers.membersOf(groupId, payer);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
     const currency = await this.groupCurrency.currencyOf(groupId, payer);
     if (!currency) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
+
+    const requested = await splitOfExpense(this.templates, groupId, event.payload);
+    if (requested.isFailure()) return Result.fail(requested.error);
 
     const today = this.clock();
     const offer = await offerForExpense(this.offeredRates, money, currency, date, today);
@@ -48,7 +54,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       groupCurrency: currency,
       date,
       paidBy: payer,
-      split,
+      split: requested.data,
       members: members.map(member => member.memberId),
       today,
       offer,

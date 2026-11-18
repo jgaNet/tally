@@ -6,6 +6,8 @@ import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpen
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { IOfferedRates, offerForExpense } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
+import { splitOfExpense } from '@Contexts/Ledger/Application/Ports/SplitOfExpense';
+import { ISplitTemplateRepository } from '@Contexts/Ledger/Domain/SplitTemplate/Ports/ISplitTemplateRepository';
 import { EditExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/EditExpense/EditExpenseCommandEvent';
 
 /**
@@ -24,6 +26,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     private offeredRates: IOfferedRates,
     private expenses: IExpenseRepository,
     private clock: Clock,
+    private templates: ISplitTemplateRepository,
   ) {
     super();
   }
@@ -33,13 +36,16 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (caller.isFailure()) return Result.fail(caller.error);
     const editor = caller.data.value;
 
-    const { expenseId, description, money, date, split, version, category } = event.payload;
+    const { expenseId, description, money, date, version, category } = event.payload;
     const expense = await this.expenses.findById(expenseId);
     if (!expense) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     const members = await this.groupMembers.membersOf(expense.groupId, editor);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     const currency = await this.groupCurrency.currencyOf(expense.groupId, editor);
     if (!currency) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
+
+    const requested = await splitOfExpense(this.templates, expense.groupId, event.payload);
+    if (requested.isFailure()) return Result.fail(requested.error);
 
     const today = this.clock();
     const offer = await offerForExpense(this.offeredRates, money, currency, date, today);
@@ -51,7 +57,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
       description,
       money,
       date,
-      split,
+      split: requested.data,
       today,
       offer,
       category,

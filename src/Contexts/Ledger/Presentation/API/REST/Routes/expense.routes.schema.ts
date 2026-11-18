@@ -46,6 +46,8 @@ const ExpenseSchema = {
  * refuse (a body with none, or with more than one, answers 400); the values of the split are the domain's.
  */
 export interface SplitBody {
+  /** The id of a template of the group, split by in place of the split the body gives (request 25). */
+  template?: string;
   /** An equal split: the members' account ids, in the order given. */
   splitBetween?: string[];
   /** A split by exact amounts: each member with the exact amount of their share. */
@@ -104,6 +106,16 @@ export const ExactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 } as const;
 
+/** Exactly one of the three splits, or the template that names one of them (request 25): each alone is required. */
+export const ExactlyOneSplitOrTemplate = {
+  oneOf: [
+    { required: ['splitBetween'] },
+    { required: ['splitExactly'] },
+    { required: ['splitByShares'] },
+    { required: ['template'] },
+  ],
+} as const;
+
 /** The amount, in the group's currency or in another one: exactly one of the two, as the split is (request 21). */
 const AmountProperties = {
   amount: { type: 'integer' },
@@ -134,9 +146,10 @@ export const CreateExpenseReqBodySchema = {
     date: { type: 'string' },
     ...AmountProperties,
     ...SplitProperties,
+    template: { type: 'string' },
     ...CategoryProperty,
   },
-  allOf: [ExactlyOneSplit, ExactlyOneAmount],
+  allOf: [ExactlyOneSplitOrTemplate, ExactlyOneAmount],
 } as const;
 
 /** Recording an expense answers its id at once, or the refusal that named the rule it broke. */
@@ -180,9 +193,10 @@ export const EditExpenseReqBodySchema = {
     version: { type: 'integer' },
     ...AmountProperties,
     ...SplitProperties,
+    template: { type: 'string' },
     ...CategoryProperty,
   },
-  allOf: [ExactlyOneSplit, ExactlyOneAmount],
+  allOf: [ExactlyOneSplitOrTemplate, ExactlyOneAmount],
 } as const;
 
 const CommandResSchema = (success: object) => ({

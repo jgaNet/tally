@@ -14,8 +14,10 @@ export interface RecordExpensePayload {
   description: string;
   money: ExpenseMoney;
   date: string;
-  /** How the expense is split: equally, by exact amounts, or by shares. */
-  split: SplitRequest;
+  /** How the expense is split: equally, by exact amounts, or by shares; or left out, when `template` names the split (request 25). */
+  split?: SplitRequest;
+  /** The id of a template of the group, whose split the expense is split by instead of `split` (request 25). */
+  template?: string;
   /** The category, one of eight; `other` when none is given (request 24). */
   category?: Category;
 }
