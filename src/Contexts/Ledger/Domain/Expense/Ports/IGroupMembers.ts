@@ -21,6 +21,11 @@ export interface IGroupMembers {
    * so it takes no lock; the command refuses by GroupArchived. Groups decides it and answers (ADR 18).
    */
   archivedOf(groupId: string): Promise<boolean>;
+  /**
+   * Whether an administrator has suspended the account (request 34): read by each command an account starts, inside its transaction, so it takes
+   * no lock; the command refuses by AccountSuspended. Groups decides it and answers.
+   */
+  suspendedOf(accountId: Id): Promise<boolean>;
   /** The group's current members in join order, none when there is no such group: read by the command deciding a split. */
   membersOf(groupId: string): Promise<Id[]>;
   /** Whether the account is a current member of the group: read by a query, outside any transaction. */

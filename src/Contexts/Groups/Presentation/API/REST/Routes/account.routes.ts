@@ -11,6 +11,7 @@ import {
   SignUpResSchema,
 } from '@Contexts/Groups/Presentation/API/REST/Routes/account.routes.schema';
 import { GetAdministratorsLogResSchema } from '@Contexts/Groups/Presentation/API/REST/Routes/admin.routes.schema';
+import { LaterCommandResSchema } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes.schema';
 
 export const accountRoutes = function (
   fastify: FastifyInstance,
@@ -36,6 +37,20 @@ export const accountRoutes = function (
     '/accounts/me',
     { schema: { tags: ['accounts'], response: GetMyAccountResSchema } },
     controller.getMyAccount.bind(controller),
+  );
+
+  // Answered later: an administrator suspends an account, so nothing it starts is done until it is reinstated (request 34).
+  fastify.put(
+    '/admin/accounts/:id/suspension',
+    { schema: { tags: ['administration'], response: LaterCommandResSchema } },
+    controller.suspendAccount.bind(controller),
+  );
+
+  // Answered later: an administrator reinstates a suspended account (request 34).
+  fastify.delete(
+    '/admin/accounts/:id/suspension',
+    { schema: { tags: ['administration'], response: LaterCommandResSchema } },
+    controller.reinstateAccount.bind(controller),
   );
 
   // The administrators' log: every decision an administrator made, the oldest first (request 33). Only an administrator reads it.

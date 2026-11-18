@@ -1,4 +1,4 @@
-import { GroupArchived } from '@SharedKernel/Domain';
+import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 import { CurrencyCode } from '@SharedKernel/Domain/Currency';
 
@@ -80,6 +80,7 @@ export class Expense extends AggregateRoot {
     groupCurrency,
     offer,
     archived,
+    suspended,
     now,
   }: {
     /** The id the expense is born with: given when a recurring expense's day already named it (ADR 14); otherwise generated. */
@@ -98,9 +99,12 @@ export class Expense extends AggregateRoot {
     offer: RateOffer | null;
     /** Whether the group is archived, read by the handler: an archived group takes no expense (request 27). */
     archived: boolean;
+    /** Whether the account that records it is suspended, read by the handler: a suspended account records no expense (request 34). */
+    suspended: boolean;
     now: Date;
   }): IResult<Expense> {
     if (archived) return Result.fail(new GroupArchived('Ledger'));
+    if (suspended) return Result.fail(new AccountSuspended('Ledger'));
     const decided = Expense.decide({
       paidBy,
       description,

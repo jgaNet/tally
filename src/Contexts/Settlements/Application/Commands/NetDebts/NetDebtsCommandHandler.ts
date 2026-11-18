@@ -37,6 +37,8 @@ export class NetDebtsCommandHandler extends CommandHandler<NetDebtsCommandEvent>
     if (caller.isFailure()) return caller;
 
     const by = caller.data;
+    // Netting starts a settlement in each shared group for the caller, so a suspended caller nets nothing (request 34).
+    const suspended = await this.members.suspendedOf(by.value);
     const withAccount = new Id(payload.with);
     const request = Netting.checkRequest({ by, withAccount, currency: payload.currency });
     if (request.isFailure()) return request;
@@ -79,6 +81,7 @@ export class NetDebtsCommandHandler extends CommandHandler<NetDebtsCommandEvent>
         payerBalance: payerIsCaller ? callerBalance : otherBalance,
         payeeBalance: payerIsCaller ? otherBalance : callerBalance,
         archived: await this.members.archivedOf(groupId),
+        suspended,
         now,
       });
       if (recorded.isFailure()) return recorded;

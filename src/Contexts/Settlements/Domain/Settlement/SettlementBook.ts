@@ -1,4 +1,4 @@
-import { GroupArchived } from '@SharedKernel/Domain';
+import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { SettlementBookMergedEvent } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
 import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
@@ -57,6 +57,8 @@ export interface Decision {
   payeeBalance: number;
   /** Whether the group is archived, read by the handler: an archived group takes no settlement (request 27). */
   archived: boolean;
+  /** Whether the account that starts the settlement is suspended, read by the handler: it starts none (request 34). */
+  suspended: boolean;
 }
 
 /**
@@ -500,8 +502,10 @@ export class SettlementBook extends AggregateRoot {
    * provider (a waiting payment from the payer lowers what they owe; one to the payee lowers what they are owed).
    */
   private decide(decision: Decision): IResult<void> {
-    const { payer, payee, amount, payerIsMember, payeeIsMember, payerBalance, payeeBalance, archived } = decision;
+    const { payer, payee, amount, payerIsMember, payeeIsMember, payerBalance, payeeBalance, archived, suspended } =
+      decision;
     if (archived) return Result.fail(new GroupArchived('Settlements'));
+    if (suspended) return Result.fail(new AccountSuspended('Settlements'));
     if (!Number.isInteger(amount) || amount < 1) return Result.fail(new InvalidSettlementAmount());
     if (!payerIsMember) return Result.fail(new PayerNotAMember());
     if (!payeeIsMember) return Result.fail(new PayeeNotAMember());

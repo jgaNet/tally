@@ -53,6 +53,15 @@ export function createGroupsTables(database: PostgresDatabase): void {
     amount INTEGER NOT NULL
   )`);
   database.declare('CREATE INDEX IF NOT EXISTS group_audit_by_group ON group_audit_entries (group_id)');
+  // The administrators' log entries Groups writes (request 34): a suspension or a reinstatement, with the administrator and the time.
+  database.declare(`CREATE TABLE IF NOT EXISTS administrator_log_entries (
+    seq BIGSERIAL,
+    id TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    by_account TEXT NOT NULL,
+    action TEXT NOT NULL,
+    subject_id TEXT NOT NULL
+  )`);
   database.declare(`CREATE TABLE IF NOT EXISTS balance_passages (
     group_id TEXT NOT NULL,
     position INTEGER NOT NULL,

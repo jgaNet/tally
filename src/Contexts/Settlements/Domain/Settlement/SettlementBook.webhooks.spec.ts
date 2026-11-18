@@ -54,6 +54,7 @@ describe('SettlementBook history (request 19: every status a settlement had, whe
 
     const recorded = book.recordCash({
       archived: false,
+      suspended: false,
       payer: new Id('bob'),
       payee: new Id('ann'),
       amount: 10,
@@ -171,6 +172,7 @@ describe('SettlementBook money moved (request 28: the changes of money the audit
 
     const recorded = book.recordCash({
       archived: false,
+      suspended: false,
       payer: new Id('bob'),
       payee: new Id('ann'),
       amount: 10,

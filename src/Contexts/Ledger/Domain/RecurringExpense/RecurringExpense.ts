@@ -1,4 +1,4 @@
-import { GroupArchived } from '@SharedKernel/Domain';
+import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
@@ -76,6 +76,7 @@ export class RecurringExpense extends AggregateRoot {
     category,
     groupMembers,
     archived,
+    suspended,
     now,
   }: {
     groupId: Id;
@@ -89,9 +90,12 @@ export class RecurringExpense extends AggregateRoot {
     groupMembers: Id[];
     /** Whether the group is archived, read by the handler: an archived group sets up no recurring expense (request 27). */
     archived: boolean;
+    /** Whether the payer, the caller, is suspended, read by the handler: a suspended account sets up none (request 34). */
+    suspended: boolean;
     now: Date;
   }): IResult<RecurringExpense> {
     if (archived) return Result.fail(new GroupArchived('Ledger'));
+    if (suspended) return Result.fail(new AccountSuspended('Ledger'));
     const text = Description.create(description);
     if (text.isFailure()) return text;
     const day = StartsOn.create(startsOn, now.toISOString().slice(0, 10));
@@ -146,13 +150,17 @@ export class RecurringExpense extends AggregateRoot {
     today,
     groupMembers,
     archived,
+    suspended,
   }: {
     today: string;
     groupMembers: Id[];
     /** Whether the group is archived, read by the sweep: an archived group records no expense of its own (request 27). */
     archived: boolean;
+    /** Whether the payer is suspended, read by the sweep: a suspended payer's day waits, recorded at the first run after the reinstatement (request 34). */
+    suspended: boolean;
   }): IResult<RecurringExpense> {
     if (archived) return Result.fail(new GroupArchived('Ledger'));
+    if (suspended) return Result.fail(new AccountSuspended('Ledger'));
     if (!this.dayHasCome(today)) return Result.fail(new DayNotYetCome());
 
     const isCurrent = (memberId: Id) => groupMembers.some(member => member.value === memberId.value);

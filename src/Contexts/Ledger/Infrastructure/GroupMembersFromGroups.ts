@@ -19,6 +19,10 @@ export class GroupMembersFromGroups implements IGroupMembers {
     return this.groups().isArchivedOf(groupId);
   }
 
+  async suspendedOf(accountId: Id): Promise<boolean> {
+    return this.groups().isSuspendedOf(accountId.value);
+  }
+
   async isMember(groupId: string, accountId: Id): Promise<boolean> {
     return this.groups().isMemberOf(groupId, accountId.value);
   }

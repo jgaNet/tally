@@ -4,7 +4,11 @@ import { Exception, NotAllowedException, NotFoundException } from '@Architecture
 import { ExecutionContext, Module } from '@Architecture/Application';
 import { acceptCommand, notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
 
-import { SignUpCommandEvent } from '@Contexts/Groups/Application/Commands';
+import {
+  ReinstateAccountCommandEvent,
+  SignUpCommandEvent,
+  SuspendAccountCommandEvent,
+} from '@Contexts/Groups/Application/Commands';
 import {
   GetAdministratorsLogQueryHandler,
   GetMyAccountQueryHandler,
@@ -37,6 +41,16 @@ export class FastifyAccountController {
     const result = await this.#module.getQuery(GetMyAccountQueryHandler).handle(undefined, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  // Answered later: an administrator suspends an account (request 34); the refusal is the operation's.
+  async suspendAccount(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, SuspendAccountCommandEvent.set({ accountId: req.params.id }));
+  }
+
+  // Answered later: an administrator reinstates a suspended account (request 34).
+  async reinstateAccount(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, ReinstateAccountCommandEvent.set({ accountId: req.params.id }));
   }
 
   async getAdministratorsLog(req: FastifyRequest, reply: FastifyReply) {

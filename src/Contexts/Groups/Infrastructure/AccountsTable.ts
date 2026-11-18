@@ -7,6 +7,7 @@ export function createAccountsTable(database: PostgresDatabase): void {
     email TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     password_hash TEXT NOT NULL,
+    suspended_at TEXT,
     version INTEGER NOT NULL
   )`);
 }

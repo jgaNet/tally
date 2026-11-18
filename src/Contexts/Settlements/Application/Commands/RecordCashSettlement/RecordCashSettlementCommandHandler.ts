@@ -48,6 +48,7 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
       payerBalance: await this.balances.balanceOf(payload.groupId, payload.from),
       payeeBalance: await this.balances.balanceOf(payload.groupId, caller.data.value),
       archived: await this.members.archivedOf(payload.groupId),
+      suspended: await this.members.suspendedOf(caller.data.value),
       now,
     });
     if (recorded.isFailure()) return recorded;

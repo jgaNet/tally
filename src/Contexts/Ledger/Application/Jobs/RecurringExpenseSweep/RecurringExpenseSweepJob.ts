@@ -1,4 +1,4 @@
-import { GroupArchived } from '@SharedKernel/Domain';
+import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { Clock, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture/Domain';
 
@@ -43,6 +43,8 @@ export class RecurringExpenseSweepJob {
       if (!result.isFailure()) return result.data;
       // An archived group records nothing, by the sweep's own choice (request 27): that is not a failure to report.
       if (result.error instanceof GroupArchived) return 'stop';
+      // A suspended payer's days wait for the first run after the reinstatement, by the sweep's own choice (request 34): not a failure.
+      if (result.error instanceof AccountSuspended) return 'stop';
 
       const conflict = result.error instanceof ConcurrencyConflictException;
       if (conflict && attempt < CONFLICT_ATTEMPTS) continue;
@@ -66,6 +68,7 @@ export class RecurringExpenseSweepJob {
       today,
       groupMembers: members,
       archived: await this.groupMembers.archivedOf(recurring.groupId.value),
+      suspended: await this.groupMembers.suspendedOf(recurring.paidBy),
     });
     if (decided.isFailure()) return decided;
 

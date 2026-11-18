@@ -12,6 +12,10 @@ import {
   CreateInvitationCommandEvent,
   CreateInvitationCommandHandler,
   LeaveGroupCommandEvent,
+  ReinstateAccountCommandEvent,
+  ReinstateAccountCommandHandler,
+  SuspendAccountCommandEvent,
+  SuspendAccountCommandHandler,
   LeaveGroupCommandHandler,
   MergeGroupsCommandEvent,
   MergeGroupsCommandHandler,
@@ -44,6 +48,7 @@ import {
 } from '@Contexts/Settlements/module.local';
 import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsFromSettlements';
 import { AdministratorDecisionsFromSettlements } from '@Contexts/Groups/Infrastructure/AdministratorDecisionsFromSettlements';
+import { PostgresAdministratorLog } from '@Contexts/Groups/Infrastructure/PostgresAdministratorLog';
 import { administratorsIn } from '@Contexts/Groups/Domain/Account/AdministratorRole';
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
 import { IGroupAuditQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupAuditQueries';
@@ -88,8 +93,14 @@ const balances = new BalancesFromLedger(() => ledgerMemberBalances);
  */
 const waiting = new WaitingPaymentsFromSettlements(() => settlementsWaitingPayments);
 
-/** The administrators' log, read from Settlements' read model when it is asked (request 33): the same wiring, read when asked. */
-const administratorDecisions = new AdministratorDecisionsFromSettlements(() => settlementsAdministratorDecisions);
+/** The administrators' entries Groups writes for its own decisions (request 34), in the application's file. */
+const administratorLog = new PostgresAdministratorLog(database);
+
+/** The administrators' log: Settlements' entries (request 33) and Groups' own (request 34), read when it is asked: the same wiring, read when asked. */
+const administratorDecisions = new AdministratorDecisionsFromSettlements(
+  administratorLog,
+  () => settlementsAdministratorDecisions,
+);
 
 /** Says who is calling, for the transport: the account a bearer token names. */
 export const authenticate = authenticateWithToken(tokens, systemClock);
@@ -119,6 +130,14 @@ export const localGroupsModule = new Module({
     {
       event: MergeGroupsCommandEvent,
       handlers: [new MergeGroupsCommandHandler(groups, waiting, systemClock)],
+    },
+    {
+      event: SuspendAccountCommandEvent,
+      handlers: [new SuspendAccountCommandHandler(accounts, administratorLog, systemClock)],
+    },
+    {
+      event: ReinstateAccountCommandEvent,
+      handlers: [new ReinstateAccountCommandHandler(accounts, administratorLog, systemClock)],
     },
   ],
   domainEvents: [{ event: GroupsMergedEvent, handlers: [new GroupsMergedHandler()] }],

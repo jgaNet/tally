@@ -70,6 +70,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       groupCurrency: currency,
       offer,
       archived: await this.groupMembers.archivedOf(payload.groupId),
+      suspended: await this.groupMembers.suspendedOf(caller.data),
       now,
     });
     if (expense.isFailure()) return expense;

@@ -12,3 +12,7 @@ export { ArchiveGroupCommandEvent } from '@Contexts/Groups/Application/Commands/
 export { ArchiveGroupCommandHandler } from '@Contexts/Groups/Application/Commands/ArchiveGroup/ArchiveGroupCommandHandler';
 export { MergeGroupsCommandEvent } from '@Contexts/Groups/Application/Commands/MergeGroups/MergeGroupsCommandEvent';
 export { MergeGroupsCommandHandler } from '@Contexts/Groups/Application/Commands/MergeGroups/MergeGroupsCommandHandler';
+export { SuspendAccountCommandEvent } from '@Contexts/Groups/Application/Commands/SuspendAccount/SuspendAccountCommandEvent';
+export { SuspendAccountCommandHandler } from '@Contexts/Groups/Application/Commands/SuspendAccount/SuspendAccountCommandHandler';
+export { ReinstateAccountCommandEvent } from '@Contexts/Groups/Application/Commands/ReinstateAccount/ReinstateAccountCommandEvent';
+export { ReinstateAccountCommandHandler } from '@Contexts/Groups/Application/Commands/ReinstateAccount/ReinstateAccountCommandHandler';

@@ -12,6 +12,7 @@ interface Row {
   email: string;
   name: string;
   password_hash: string;
+  suspended_at: string | null;
   version: number;
 }
 
@@ -34,23 +35,25 @@ export class PostgresAccountRepository implements IAccountRepository {
   }
 
   async save(account: Account): Promise<IResult> {
-    const { id, email, name, passwordHash, version } = account.toSnapshot();
+    const { id, email, name, passwordHash, suspendedAt, version } = account.toSnapshot();
     try {
       if (version === 0) {
         await this.database.run(
-          'INSERT INTO accounts (id, email, name, password_hash, version) VALUES (?, ?, ?, ?, ?)',
+          'INSERT INTO accounts (id, email, name, password_hash, suspended_at, version) VALUES (?, ?, ?, ?, ?, ?)',
           id,
           email,
           name,
           passwordHash,
+          suspendedAt,
           1,
         );
       } else {
         const changed = await this.database.run(
-          'UPDATE accounts SET email = ?, name = ?, password_hash = ?, version = ? WHERE id = ? AND version = ?',
+          'UPDATE accounts SET email = ?, name = ?, password_hash = ?, suspended_at = ?, version = ? WHERE id = ? AND version = ?',
           email,
           name,
           passwordHash,
+          suspendedAt,
           version + 1,
           id,
           version,
@@ -71,6 +74,7 @@ export class PostgresAccountRepository implements IAccountRepository {
           email: row.email,
           name: row.name,
           passwordHash: row.password_hash,
+          suspendedAt: row.suspended_at,
           version: row.version,
         })
       : null;

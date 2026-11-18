@@ -13,6 +13,11 @@ export interface ISettlementMembers {
    * takes no lock; the command refuses by GroupArchived. Groups decides it and answers (ADR 18).
    */
   archivedOf(groupId: string): Promise<boolean>;
+  /**
+   * Whether an administrator has suspended the account (request 34): read by each command an account starts, inside its transaction, so it
+   * takes no lock; the command refuses by AccountSuspended. Groups decides it and answers.
+   */
+  suspendedOf(accountId: string): Promise<boolean>;
   /** The group's currency, or null when there is no such group. */
   currencyOf(groupId: string): Promise<string | null>;
   /**

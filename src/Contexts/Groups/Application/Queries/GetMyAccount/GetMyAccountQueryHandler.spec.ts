@@ -12,8 +12,11 @@ const as = (role: Role, subjectId = '') =>
   new ExecutionContext({ traceId: 'trace', eventBus, auth: { subjectId, role } });
 
 const store = new Map([
-  ['alice', { id: 'alice', email: 'alice@example.com', name: 'Alice', passwordHash: 'secret', version: 1 }],
-  ['bob', { id: 'bob', email: 'bob@example.com', name: 'Bob', passwordHash: 'secret', version: 1 }],
+  [
+    'alice',
+    { id: 'alice', email: 'alice@example.com', name: 'Alice', passwordHash: 'secret', suspendedAt: null, version: 1 },
+  ],
+  ['bob', { id: 'bob', email: 'bob@example.com', name: 'Bob', passwordHash: 'secret', suspendedAt: null, version: 1 }],
 ]);
 const handler = new GetMyAccountQueryHandler(new InMemoryAccountReadModels(store));
 

@@ -26,6 +26,11 @@ export interface IGroupMembersQueries {
    * Read inside the command deciding the change, so it takes no lock.
    */
   isArchivedOf(groupId: string): Promise<boolean>;
+  /**
+   * Whether an administrator has suspended the account (request 34): read by the other contexts before they start anything, through the port
+   * each owns, inside the command deciding it, so it takes no lock; the command refuses by AccountSuspended.
+   */
+  isSuspendedOf(accountId: string): Promise<boolean>;
   /** The group's currency, fixed when it was created; null when there is no such group. Read by a command that prices a payment. */
   currencyOf(groupId: string): Promise<string | null>;
   /**

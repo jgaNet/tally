@@ -121,6 +121,14 @@ export class PostgresGroupReadModels implements IGroupQueries, IGroupMembersQuer
    * Whether the group is archived (request 27): read inside the command deciding a change, so it takes no lock (as `memberIdsOf` does).
    * A group that is not there is not archived: the command that asks answers its own refusal for it.
    */
+  async isSuspendedOf(accountId: string): Promise<boolean> {
+    const row = await this.database.get<{ suspended_at: string | null }>(
+      'SELECT suspended_at FROM accounts WHERE id = ?',
+      accountId,
+    );
+    return row?.suspended_at != null;
+  }
+
   async isArchivedOf(groupId: string): Promise<boolean> {
     const row = await this.database.get<{ archived_at: string | null }>(
       'SELECT archived_at FROM groups WHERE id = ?',

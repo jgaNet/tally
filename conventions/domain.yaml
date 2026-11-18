@@ -72,6 +72,8 @@ contexts:
         meaning: the balance a member had when they left, passed to the group's owner in the same step, and kept for good.
       - term: Administrator
         meaning: a signed-in account whose email the server was started with (ADMIN_EMAILS), given the role at sign-in; the only one who decides a contested settlement or reads the administrators' log.
+      - term: Suspension
+        meaning: an administrator's hold on an account, until it is reinstated (ADR 25). What the account starts is refused by one name in every group, and nothing in any group changes.
   - id: Ledger
     purpose: >-
       The expenses of each group, how each is split between its members, and what each member owes or is owed:

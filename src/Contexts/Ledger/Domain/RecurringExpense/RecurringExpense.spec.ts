@@ -14,6 +14,7 @@ const setUp = (overrides: Partial<Parameters<typeof RecurringExpense.setUp>[0]> 
   RecurringExpense.setUp({
     groupId: group,
     archived: false,
+    suspended: false,
     paidBy: new Id('alice'),
     description: 'Rent',
     amount: 90000,
@@ -72,7 +73,7 @@ describe('RecurringExpense', () => {
     it('records the day under a new id it carries, and moves the next day to the same day of the next month', () => {
       const set = setUp().data as RecurringExpense;
 
-      const decided = set.recordDay({ today: '2026-09-05', groupMembers: members, archived: false });
+      const decided = set.recordDay({ today: '2026-09-05', groupMembers: members, archived: false, suspended: false });
 
       expect(decided.isSuccess()).toBe(true);
       expect(decided.data).toMatchObject({ next: '2026-10-05', ended: false });
@@ -94,7 +95,7 @@ describe('RecurringExpense', () => {
     it('is refused for a day that has not come yet', () => {
       const set = setUp().data as RecurringExpense;
 
-      const decided = set.recordDay({ today: '2026-09-04', groupMembers: members, archived: false });
+      const decided = set.recordDay({ today: '2026-09-04', groupMembers: members, archived: false, suspended: false });
 
       expect(decided.isFailure() && decided.error.type).toBe('DayNotYetCome');
     });
@@ -102,7 +103,12 @@ describe('RecurringExpense', () => {
     it('ends, and records no expense, when a member of its split has left the group', () => {
       const set = setUp().data as RecurringExpense;
 
-      const decided = set.recordDay({ today: '2026-09-05', groupMembers: [new Id('alice')], archived: false });
+      const decided = set.recordDay({
+        today: '2026-09-05',
+        groupMembers: [new Id('alice')],
+        archived: false,
+        suspended: false,
+      });
 
       expect(decided.isSuccess()).toBe(true);
       expect(decided.data!.ended).toBe(true);

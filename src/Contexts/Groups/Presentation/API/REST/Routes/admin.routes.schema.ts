@@ -15,7 +15,7 @@ export const GetAdministratorsLogResSchema = {
         id: { type: 'string' },
         at: { type: 'string' },
         by: { type: 'string' },
-        action: { type: 'string', enum: ['decided-paid', 'decided-annulled'] },
+        action: { type: 'string', enum: ['decided-paid', 'decided-annulled', 'suspended', 'reinstated'] },
         subjectId: { type: 'string' },
       },
     },
