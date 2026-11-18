@@ -5,7 +5,8 @@ import { recordAudit } from './audit';
 import { noticeBudgetPassed } from './budgets';
 import { CATEGORIES, DEFAULT_CATEGORY, isCategory, type Category } from './categories';
 import { isCalendarDay, todayInUtc } from './days';
-import { assertNotArchived, CURRENCIES, findGroupOfMember, membersOfGroup, type Currency, type Group } from './groups';
+import { CURRENCIES, minorUnitDigitsOf, type Currency } from './currencies';
+import { assertNotArchived, findGroupOfMember, membersOfGroup, type Group } from './groups';
 import { noticeExpense } from './notices';
 import { millionthsOf, offeredRate, RATE_SHAPE, type RatesConfig } from './rates';
 import { Refusal } from './refusal';
@@ -16,7 +17,7 @@ import { assertNotSuspended } from './suspensions';
 
 /** A description has 1 to this many characters. */
 const MAX_DESCRIPTION_LENGTH = 100;
-/** An amount is in hundredths of the group's currency (as every amount of a group is), from 1 to 100 000 000. */
+/** An amount is a whole number of the minor unit of the group's currency (as every amount of a group is), from 1 to 100 000 000. */
 export const MIN_AMOUNT = 1;
 export const MAX_AMOUNT = 100_000_000;
 
@@ -33,7 +34,7 @@ export interface Share {
 }
 
 /**
- * What an expense was paid in, when it was paid in another currency: `amount` hundredths of `currency`, at `rate`
+ * What an expense was paid in, when it was paid in another currency: `amount` in `currency`'s minor unit, at `rate`
  * (what one of that currency is worth in the group's currency, as the payer stated it, kept as given).
  */
 export interface OriginalAmount {
@@ -140,12 +141,19 @@ export function sharesByCount(
 }
 
 /**
- * The original amount times its rate, rounded to the nearest whole number, a half rounded up: 1234 at `"1.0625"`
- * is 1311.125, so 1311; 1000 at `"0.9545"` is 954.5, so 955. It is computed in whole numbers (the rate in
- * millionths), so it is exact. The original amount is a whole number.
+ * The original amount, a whole number of its currency's minor unit, read in that currency's units, times its rate, written
+ * in the group's minor unit, rounded to the nearest whole number, a half rounded up. Between two currencies of the same
+ * minor unit: 1234 at `"1.0625"` is 1311.125, so 1311; 1000 at `"0.9545"` is 954.5, so 955. Across minor units: 1250 euros
+ * (hundredths) at `"161.5"` is 2018.75 yen, so 2019; 10 000 yen at `"0.0062"` is 62 euros, so 6200. It is computed in whole
+ * numbers (the rate in millionths), so it is exact.
  */
-export function convertedAmount(originalAmount: number, rate: string): number {
-  return Number((BigInt(originalAmount) * millionthsOf(rate) + 500_000n) / 1_000_000n);
+export function convertedAmount(originalAmount: number, rate: string, from: Currency, to: Currency): number {
+  // One minor unit of `to` is 10^(to - from) of `from`'s: the amount is scaled by that power of ten, the rate's millionths too.
+  const shift = minorUnitDigitsOf(to) - minorUnitDigitsOf(from);
+  const numerator = BigInt(originalAmount) * millionthsOf(rate) * 10n ** BigInt(Math.max(shift, 0));
+  const denominator = 1_000_000n * 10n ** BigInt(Math.max(-shift, 0));
+  // The denominator is even, so half of it is whole.
+  return Number((numerator + denominator / 2n) / denominator);
 }
 
 /**
@@ -259,7 +267,7 @@ function amountInGroupCurrency(
     );
   }
   const rate = rateOf(currency, groupCurrency, input.rate, offer);
-  const converted = convertedAmount(amount, rate);
+  const converted = convertedAmount(amount, rate, currency as Currency, groupCurrency);
   if (converted < MIN_AMOUNT || converted > MAX_AMOUNT) {
     throw new Refusal(
       422,

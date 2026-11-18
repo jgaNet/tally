@@ -16,7 +16,7 @@ import {
   suggestedSettlement,
 } from '../settlements';
 
-/** A settlement paid in another currency: its currency, and the amount in it, in hundredths. */
+/** A settlement paid in another currency: its currency, and the amount in it, in its minor unit. */
 interface OriginalBody {
   currency: string;
   amount: number;

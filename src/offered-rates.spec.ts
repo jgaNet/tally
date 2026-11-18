@@ -161,7 +161,7 @@ describe('the rate offered by a rates service', () => {
     it('answers 404 for the group’s own currency and for a currency that is not Tally’s, without asking the service', async () => {
       const ana = await signedUpAccount(app, { email: 'ana@example.org' });
       const groupId = await createGroup(ana.token, 'EUR');
-      for (const currency of ['EUR', 'JPY']) {
+      for (const currency of ['EUR', 'SEK']) {
         const reply = await rateOf(ana.token, groupId, currency, '2026-03-02');
         expect(reply.status).toBe(404);
         expect(reply.body).toMatchObject({ error: 'RateNotOffered' });

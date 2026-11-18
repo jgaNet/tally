@@ -301,7 +301,7 @@ describe('netting what two people owe each other across their groups', () => {
     const withSelf = await net(ann.token, ann.id);
     expect(withSelf.status).toBe(422);
     expect(withSelf.body).toMatchObject({ error: 'NettingWithSelf' });
-    const unknownCurrency = await net(ann.token, ben.id, 'JPY');
+    const unknownCurrency = await net(ann.token, ben.id, 'SEK');
     expect(unknownCurrency.status).toBe(422);
     expect(unknownCurrency.body).toMatchObject({ error: 'CurrencyIsUnsupported' });
     const noGroupTogether = await net(ann.token, stranger.id);

@@ -7,7 +7,7 @@ import { turnedOffAmong } from './notice-preferences';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
 
-/** A budget is from 1 to 100 000 000, in hundredths of the group's currency (as every amount of a group is). */
+/** A budget is from 1 to 100 000 000, in the minor unit of the group's currency (as every amount of a group is). */
 export const MIN_BUDGET = 1;
 export const MAX_BUDGET = 100_000_000;
 

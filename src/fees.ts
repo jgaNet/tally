@@ -6,7 +6,7 @@
 export const FEE_BEARERS = ['payer', 'payee', 'shared'] as const;
 export type FeeBearer = (typeof FEE_BEARERS)[number];
 
-/** The provider's fee on a settlement, in hundredths of its group's currency, and who bears it. */
+/** The provider's fee on a settlement, in the minor unit of its group's currency, and who bears it. */
 export interface Fee {
   readonly amount: number;
   readonly borneBy: FeeBearer;
@@ -19,7 +19,7 @@ export function isFeeBearer(value: unknown): value is FeeBearer {
 
 /**
  * The part of the fee the payer bears: all of it when the payer bears it, half of it when shared (rounded down, so the
- * payee bears the extra hundredth when the fee is odd), and none when the payee bears it.
+ * payee bears the extra minor unit when the fee is odd), and none when the payee bears it.
  */
 export function payerPartOf(fee: Fee): number {
   switch (fee.borneBy) {

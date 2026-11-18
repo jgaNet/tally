@@ -83,8 +83,8 @@ describe('groups', () => {
       }
     });
 
-    it.each(['JPY', 'eur', '', 'EURO', ' EUR'])(
-      'refuses the currency %j, which is not one of the six',
+    it.each(['SEK', 'eur', '', 'EURO', ' EUR'])(
+      'refuses the currency %j, which is not one of Tally’s',
       async currency => {
         const ana = await signedUpAccount(app, { email: 'ana@example.org' });
         const reply = await send(app, 'POST', '/groups', { token: ana.token, body: { name: 'Flat', currency } });

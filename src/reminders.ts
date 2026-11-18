@@ -1,12 +1,18 @@
-import type { Database } from './database';
 import { deletedAmong } from './accounts';
 import { balancesOfGroup } from './balances';
+import { type Currency, minorUnitDigitsOf } from './currencies';
+import type { Database } from './database';
 import { noticeReminder } from './notices';
 import { turnedOffAmong } from './notice-preferences';
 import { inTransaction } from './transactions';
 
-/** A member is reminded when they still owe more than this in a group (20.00 in its currency). */
-export const REMINDER_THRESHOLD = 2000;
+/**
+ * What a member of a group in `currency` is reminded above: more than 20 of the currency, which is 2000 hundredths of a
+ * euro or a dollar, 20 yen or won, and 20 000 thousandths of a dinar.
+ */
+export function reminderThresholdOf(currency: Currency): number {
+  return 20 * 10 ** minorUnitDigitsOf(currency);
+}
 
 /** A week, in seconds: how long a debt lasts before it is reminded, and how often it is reminded again. */
 export const DEFAULT_REMINDER_PERIOD_SECONDS = 604_800;
@@ -21,7 +27,7 @@ interface LastingDebtRow {
  * One run of the reminders, at `now`, over every group: what each current member still owes (counting a
  * settlement waiting at the provider as paid, as request 13 counts what is still owed) is looked at.
  *
- * - A member owing more than {@link REMINDER_THRESHOLD} who was not noted is noted from `now`. A deleted account is
+ * - A member owing more than {@link reminderThresholdOf} their group's currency who was not noted is noted from `now`. A deleted account is
  *   never noted: it is told nothing.
  * - A member owing that much or less, or no longer a member, is no longer noted: a debt that comes back is noted
  *   again from the run that sees it.
@@ -38,8 +44,8 @@ export async function sweepReminders(db: Database, now: Date, periodMs: number):
   return inTransaction(db, async tx => {
     let reminded = 0;
     const groups = await tx
-      .prepare('SELECT id FROM groups WHERE archived_at IS NULL ORDER BY created_at ASC, seq ASC')
-      .all<{ id: string }>();
+      .prepare('SELECT id, currency FROM groups WHERE archived_at IS NULL ORDER BY created_at ASC, seq ASC')
+      .all<{ id: string; currency: Currency }>();
     const watchedOf = tx.prepare('SELECT account_id, noted_at, last_reminded_at FROM lasting_debts WHERE group_id = ?');
     const note = tx.prepare('INSERT INTO lasting_debts (group_id, account_id, noted_at) VALUES (?, ?, ?)');
     const forget = tx.prepare('DELETE FROM lasting_debts WHERE group_id = ? AND account_id = ?');
@@ -48,11 +54,12 @@ export async function sweepReminders(db: Database, now: Date, periodMs: number):
     );
     for (const group of groups) {
       const owing = new Map<string, number>();
+      const threshold = reminderThresholdOf(group.currency);
       const balances = await balancesOfGroup(tx, group.id, { includePending: true });
       const balanceIds = balances.map(balance => balance.memberId);
       const deleted = await deletedAmong(tx, balanceIds);
       for (const { memberId, balance } of balances) {
-        if (-balance > REMINDER_THRESHOLD && !deleted.has(memberId)) owing.set(memberId, -balance);
+        if (-balance > threshold && !deleted.has(memberId)) owing.set(memberId, -balance);
       }
       const watched = new Map((await watchedOf.all<LastingDebtRow>(group.id)).map(row => [row.account_id, row]));
       for (const accountId of watched.keys()) {

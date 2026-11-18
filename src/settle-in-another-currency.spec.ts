@@ -272,7 +272,7 @@ describe('settling up in another currency', () => {
       const { ann, ben, groupId } = await annAndBen();
       const cases: [{ currency: string; amount: number }, string][] = [
         [{ currency: 'EUR', amount: 100 }, 'CurrencyIsTheGroupsCurrency'],
-        [{ currency: 'JPY', amount: 100 }, 'CurrencyIsUnsupported'],
+        [{ currency: 'SEK', amount: 100 }, 'CurrencyIsUnsupported'],
         [{ currency: 'CHF', amount: 0 }, 'OriginalAmountIsInvalid'],
         [{ currency: 'CHF', amount: 100_000_001 }, 'OriginalAmountIsInvalid'],
         [{ currency: 'CHF', amount: 1.5 }, 'OriginalAmountIsInvalid'],

@@ -1,17 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { recordAudit } from './audit';
 import { balanceOfMembership, balancesOfGroup } from './balances';
+import { CURRENCIES, type Currency } from './currencies';
 import type { Database, Querier } from './database';
 import { inTransaction } from './transactions';
 import { Refusal } from './refusal';
 import { characters } from './text';
 
 /**
- * The currencies a group may use. Each counts in hundredths (cents, pence): every amount of a group
- * is an integer number of hundredths of its currency. A group's currency never changes.
+ * Every amount of a group is a whole number of the minor unit of its currency (see `currencies.ts`). A group's currency
+ * never changes. The currencies are re-exported for the modules that name a group's.
  */
-export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
-export type Currency = (typeof CURRENCIES)[number];
+export { CURRENCIES, type Currency } from './currencies';
 
 const MAX_NAME_LENGTH = 60;
 

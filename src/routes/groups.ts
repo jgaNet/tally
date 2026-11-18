@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { CURRENCIES } from '../currencies';
 import type { Database } from '../database';
 import { archiveGroup, createGroup, findGroupOfMember, groupsOfMember, leaveGroup, membersOfGroup } from '../groups';
 import { requireCaller } from '../http';
@@ -23,7 +24,7 @@ const GROUP = {
   properties: {
     id: { type: 'string' },
     name: { type: 'string' },
-    currency: { type: 'string' },
+    currency: { enum: [...CURRENCIES] },
     ownerId: { type: 'string' },
     // Only an archived group has it: when it was archived.
     archivedAt: { type: 'string' },

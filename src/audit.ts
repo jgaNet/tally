@@ -24,7 +24,7 @@ export interface AuditEntry {
   readonly action: AuditAction;
   /** What the change is about: an expense, a settlement, or the member who left. */
   readonly subjectId: string;
-  /** How much money the change moved, in hundredths of the group's currency; negative for a balance passed on that owes. */
+  /** How much money the change moved, in the minor unit of the group's currency; negative for a balance passed on that owes. */
   readonly amount: number;
 }
 

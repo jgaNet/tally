@@ -14,7 +14,7 @@ export interface ProviderConfig {
 
 /**
  * What the provider answers to a payment request: its id for the payment, the link where the payer pays, and the fee
- * it keeps out of what it pays the payee, in hundredths of the payment's currency.
+ * it keeps out of what it pays the payee, in the minor unit of the payment's currency.
  */
 export interface ProviderPayment {
   readonly id: string;

@@ -12,26 +12,26 @@ function utcDay(offset: number): string {
 describe('an expense in another currency', () => {
   describe('converting the original amount', () => {
     it('rounds 1234 at 1.0625 (1311.125) down to 1311', async () => {
-      expect(convertedAmount(1234, '1.0625')).toBe(1311);
+      expect(convertedAmount(1234, '1.0625', 'CHF', 'EUR')).toBe(1311);
     });
 
     it('rounds 1000 at 0.9545 (954.5) up to 955: a half is rounded up', async () => {
-      expect(convertedAmount(1000, '0.9545')).toBe(955);
+      expect(convertedAmount(1000, '0.9545', 'CHF', 'EUR')).toBe(955);
     });
 
     it('rounds a half up whatever the rate: 1 at 0.5 is 1, and 2 at 0.25 is 1', async () => {
-      expect(convertedAmount(1, '0.5')).toBe(1);
-      expect(convertedAmount(2, '0.25')).toBe(1);
+      expect(convertedAmount(1, '0.5', 'CHF', 'EUR')).toBe(1);
+      expect(convertedAmount(2, '0.25', 'CHF', 'EUR')).toBe(1);
     });
 
     it('is exact where a binary float is not: 1000 at 1.005 is 1005', async () => {
-      expect(convertedAmount(1000, '1.005')).toBe(1005);
+      expect(convertedAmount(1000, '1.005', 'CHF', 'EUR')).toBe(1005);
     });
 
     it('keeps the amount at a rate of 1, and reads rates written as whole numbers or with 6 digits after the point', async () => {
-      expect(convertedAmount(777, '1')).toBe(777);
-      expect(convertedAmount(2, '12.5')).toBe(25);
-      expect(convertedAmount(100_000_000, '0.000001')).toBe(100);
+      expect(convertedAmount(777, '1', 'CHF', 'EUR')).toBe(777);
+      expect(convertedAmount(2, '12.5', 'CHF', 'EUR')).toBe(25);
+      expect(convertedAmount(100_000_000, '0.000001', 'CHF', 'EUR')).toBe(100);
     });
   });
 
@@ -307,7 +307,7 @@ describe('an expense in another currency', () => {
         const unknown = await record(
           ana.token,
           groupId,
-          bodyOf([ana.id], { original: { currency: 'JPY', amount: 1234, rate: '1' } }),
+          bodyOf([ana.id], { original: { currency: 'SEK', amount: 1234, rate: '1' } }),
         );
         expect(unknown.status).toBe(422);
         expect(unknown.body).toMatchObject({ error: 'CurrencyIsUnsupported' });

@@ -297,7 +297,7 @@ async function decidedAmount(
       `No rate is offered from ${currency} to ${group.currency} on this day, so the settlement cannot be decided.`,
     );
   }
-  const amount = convertedAmount(originalAmount, rate);
+  const amount = convertedAmount(originalAmount, rate, currency as Currency, group.currency);
   if (amount < MIN_AMOUNT || amount > MAX_AMOUNT) {
     throw new Refusal(
       422,
@@ -423,7 +423,10 @@ export async function requestProviderSettlement(
     payee,
   });
   // The fee the provider keeps is in the payment's currency: it is converted at the settlement's rate, as its amount is.
-  const fee = original === undefined ? payment.fee : convertedAmount(payment.fee, original.rate);
+  const fee =
+    original === undefined
+      ? payment.fee
+      : convertedAmount(payment.fee, original.rate, original.currency, currency as Currency);
   // A fee in the group's currency that is not less than the amount cannot be kept (the settlement's rules forbid it). The
   // provider has made the payment already, which its webhooks name as one Tally does not know: they change nothing.
   if (fee >= amount) {
