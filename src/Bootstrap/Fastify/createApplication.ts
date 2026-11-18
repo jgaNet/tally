@@ -24,6 +24,7 @@ import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
 import { ratesRoutes } from '@Contexts/Ledger/Presentation/rates.routes';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
 import { budgetRoutes } from '@Contexts/Ledger/Presentation/budgets.routes';
+import { templateRoutes } from '@Contexts/Ledger/Presentation/templates.routes';
 import { sweepRecurringExpenses } from '@Contexts/Ledger/Application/RecurringExpenses';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
@@ -150,6 +151,7 @@ export async function createApplication({
     .registerRoutes('/', ratesRoutes, { module: ledger })
     .registerRoutes('/', recurringRoutes, { module: ledger })
     .registerRoutes('/', budgetRoutes, { module: ledger })
+    .registerRoutes('/', templateRoutes, { module: ledger })
     .registerRoutes('/', settlementRoutes, { module: settlements })
     .registerRoutes('/', noticeRoutes, { module: notifications })
     .onStop(() => database.close());

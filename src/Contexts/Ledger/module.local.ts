@@ -13,6 +13,16 @@ import { PublishBudgetPassedHandler } from '@Contexts/Ledger/Application/Events/
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Budget';
 import { SqliteBudgetStore, budgetsTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteBudgetStore';
 import { getGroupBudgets, removeBudget, setBudget } from '@Contexts/Ledger/Application/Budgets';
+import {
+  SqliteSplitTemplateStore,
+  splitTemplatesTablesSchema,
+} from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateStore';
+import {
+  getGroupTemplates,
+  removeTemplate,
+  replaceTemplate,
+  saveTemplate,
+} from '@Contexts/Ledger/Application/SplitTemplates';
 import { ISettledAmounts } from '@Contexts/Ledger/Application/ISettledAmounts';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
@@ -41,7 +51,12 @@ import {
  * no part of Groups but the roster's type. What the settlements moved in a balance is given the same way (`settled`, ADR 10):
  * every balance Ledger reads counts the settlements recorded so far. The module lists each use case once.
  */
-export const ledgerSchema = [...ledgerTablesSchema, ...recurringExpensesTablesSchema, ...budgetsTablesSchema];
+export const ledgerSchema = [
+  ...ledgerTablesSchema,
+  ...recurringExpensesTablesSchema,
+  ...budgetsTablesSchema,
+  ...splitTemplatesTablesSchema,
+];
 
 /**
  * The balances of a group's members, as Ledger's read model gives them to Groups when a member asks to leave (feature 9), and to
@@ -74,6 +89,7 @@ export function ledgerWiring(
   const expenses = new SqliteExpenseStore(database);
   const recurring = new SqliteRecurringExpenseStore(database);
   const budgets = new SqliteBudgetStore(database);
+  const templates = new SqliteSplitTemplateStore(database);
 
   return new LiteModule({
     name: 'Ledger',
@@ -90,8 +106,8 @@ export function ledgerWiring(
       },
     ],
     useCases: [
-      recordExpense(expenses, groupMembers, groupCurrency, rates, systemClock),
-      editExpense(expenses, groupMembers, groupCurrency, rates, systemClock),
+      recordExpense(expenses, templates, groupMembers, groupCurrency, rates, systemClock),
+      editExpense(expenses, templates, groupMembers, groupCurrency, rates, systemClock),
       deleteExpense(expenses, groupMembers, groupCurrency, systemClock),
       getExpense(expenses, groupMembers),
       getOfferedRate(groupMembers, groupCurrency, rates, systemClock),
@@ -106,6 +122,10 @@ export function ledgerWiring(
       setBudget(budgets, groupMembers, systemClock),
       removeBudget(budgets, groupMembers, systemClock),
       getGroupBudgets(budgets, expenses, groupMembers, systemClock),
+      saveTemplate(templates, groupMembers, systemClock),
+      replaceTemplate(templates, groupMembers, systemClock),
+      removeTemplate(templates, groupMembers, systemClock),
+      getGroupTemplates(templates, groupMembers),
     ],
   });
 }

@@ -3,7 +3,13 @@ import { FastifyPluginCallback } from 'fastify';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
-import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import {
+  SplitGiven,
+  deleteExpense,
+  editExpense,
+  getExpense,
+  recordExpense,
+} from '@Contexts/Ledger/Application/Expenses';
 import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** The three ways a body may split an expense (request 7): exactly one of them, its shape only. */
@@ -11,6 +17,9 @@ export type SplitBody =
   | { readonly splitBetween: string[] }
   | { readonly splitExactly: { memberId: string; amount: number }[] }
   | { readonly splitByShares: { memberId: string; shares: number }[] };
+
+/** A split as a body gives it (request 25): one of the three, or `template`, the id of a template of the group, in its place. Exactly one. */
+export type SplitOrTemplateBody = SplitBody | { readonly template: string };
 
 /** An expense paid in another currency, as a body gives it (request 21): its shape only. */
 type OriginalBody = { readonly currency: string; readonly amount: number; readonly rate?: string };
@@ -27,7 +36,7 @@ type RecordExpenseBody = {
   readonly date: string;
   readonly category?: string;
 } & AmountBody &
-  SplitBody;
+  SplitOrTemplateBody;
 
 /** The body of an edit: the expense given again whole, and the version its author read (request 6). */
 type EditExpenseBody = RecordExpenseBody & { readonly version: number };
@@ -76,12 +85,24 @@ export const exactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 };
 
+/** The schema of a template in a body (request 25): the id of one of the group's templates, which the domain looks up. */
+const templateProperties = { template: { type: 'string' } };
+
+/** Exactly one of the three splits, or `template` (request 25): the schema has let through exactly one of the four keys. */
+const exactlyOneSplitOrTemplate = {
+  oneOf: [...exactlyOneSplit.oneOf, { required: ['template'] }],
+};
+
 /** The split a body gives, in the domain's words. The schema has let through exactly one of the three keys. */
 export const splitOf = (body: SplitBody): SplitDraft => {
   if ('splitBetween' in body) return { kind: 'equal', memberIds: body.splitBetween };
   if ('splitExactly' in body) return { kind: 'exact', amounts: body.splitExactly };
   return { kind: 'shares', shares: body.splitByShares };
 };
+
+/** The split a body gives, as the use case takes it (request 25): a split of its own, or the template it names. Exactly one of the four keys. */
+const splitGivenBy = (body: SplitOrTemplateBody): SplitGiven =>
+  'template' in body ? { template: body.template } : splitOf(body);
 
 /**
  * The expenses' routes (feature 4, the API's fragment 5, feature 6's fragment 7, feature 7's fragment 8, and request 21's fragment
@@ -109,8 +130,9 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
             category: { type: 'string' },
             ...amountProperties,
             ...splitProperties,
+            ...templateProperties,
           },
-          allOf: [exactlyOneAmount, exactlyOneSplit],
+          allOf: [exactlyOneAmount, exactlyOneSplitOrTemplate],
         },
       },
     },
@@ -124,7 +146,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
           description: req.body.description,
           ...amountOf(req.body),
           date: req.body.date,
-          split: splitOf(req.body),
+          split: splitGivenBy(req.body),
           category: req.body.category,
         },
         { created: true },
@@ -149,8 +171,9 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
             category: { type: 'string' },
             ...amountProperties,
             ...splitProperties,
+            ...templateProperties,
           },
-          allOf: [exactlyOneAmount, exactlyOneSplit],
+          allOf: [exactlyOneAmount, exactlyOneSplitOrTemplate],
         },
       },
     },
@@ -160,7 +183,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         description: req.body.description,
         ...amountOf(req.body),
         date: req.body.date,
-        split: splitOf(req.body),
+        split: splitGivenBy(req.body),
         version: req.body.version,
         category: req.body.category,
       }),

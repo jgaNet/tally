@@ -7,6 +7,7 @@ import { IExpenseStore, ExpenseView } from '@Contexts/Ledger/Application/IExpens
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
 import { GroupMemberRole, IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { IOfferedRates } from '@Contexts/Ledger/Application/IOfferedRates';
+import { ISplitTemplateStore } from '@Contexts/Ledger/Application/ISplitTemplateStore';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { OfferedRate, OriginalDraft } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import {
@@ -15,22 +16,33 @@ import {
   NotThePayerOrOwnerException,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
+import { TemplateNotFoundException } from '@Contexts/Ledger/Domain/SplitTemplate/SplitTemplateExceptions';
+
+/**
+ * How an expense is split as the request gives it (request 25): by a split of its own, or by the split of one of its group's templates, which
+ * it is split as if its split had been given (the template's shares are not kept, the expense's are).
+ */
+export type SplitGiven = SplitDraft | { readonly template: string };
+
+/** Whether a split is given by a template (request 25) rather than as a split of its own. */
+const isTemplateRef = (given: SplitGiven): given is { readonly template: string } => 'template' in given;
 
 /**
  * An expense as the request carries it: the group it is in, and the rest of the draft; the payer is the caller. Its amount is
  * either `amount`, in the group's currency, or `original`, in another currency at its rate (request 21): the transport gives
- * exactly one of them. The rate of an original may be left out, and is then the one offered (request 22).
+ * exactly one of them. The rate of an original may be left out, and is then the one offered (request 22). Its split is given
+ * either as a split of its own or as a template of its group (request 25): exactly one of the two.
  */
-export interface RecordExpenseInput {
+export type RecordExpenseInput = {
   readonly groupId: string;
   readonly description: string;
   readonly amount?: number;
   readonly original?: OriginalDraft;
   readonly date: string;
-  readonly split: SplitDraft;
+  readonly split: SplitGiven;
   /** What it is spent on (request 24): one of the eight, `other` when left out. */
   readonly category?: string;
-}
+};
 
 /**
  * An edit as the request carries it: the expense it changes, the expense given again whole, and the version its author read.
@@ -42,7 +54,7 @@ export interface EditExpenseInput {
   readonly amount?: number;
   readonly original?: OriginalDraft;
   readonly date: string;
-  readonly split: SplitDraft;
+  readonly split: SplitGiven;
   readonly version: number;
   /** What it is spent on (request 24), as a recording gives it. */
   readonly category?: string;
@@ -60,6 +72,7 @@ export const recordExpense = command(
   'RecordExpense',
   (
     expenses: IExpenseStore,
+    templates: ISplitTemplateStore,
     groupMembers: IGroupMembers,
     groupCurrency: IGroupCurrency,
     rates: IOfferedRates,
@@ -71,10 +84,12 @@ export const recordExpense = command(
       if (!members || !isMember(members, payerId)) return Result.fail(new GroupNotFoundException());
       const currency = await groupCurrency.currencyOf(groupId);
       if (currency === undefined) return Result.fail(new GroupNotFoundException());
+      const split = await splitOf(templates, groupId, draft.split);
+      if (split.isFailure()) return Result.fail(split.error);
       const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
 
       const recorded = Expense.register(
-        { groupId, payerId, groupCurrency: currency, offered, ...draft },
+        { groupId, payerId, groupCurrency: currency, offered, ...draft, split: split.data },
         members.map(member => member.memberId),
         clock(),
       );
@@ -98,6 +113,7 @@ export const editExpense = command(
   'EditExpense',
   (
     expenses: IExpenseStore,
+    templates: ISplitTemplateStore,
     groupMembers: IGroupMembers,
     groupCurrency: IGroupCurrency,
     rates: IOfferedRates,
@@ -107,10 +123,12 @@ export const editExpense = command(
       const found = await changeable(expenses, groupMembers, groupCurrency, expenseId, context);
       if (found.isFailure()) return Result.fail(found.error);
       const { expense, members, currency } = found.data;
+      const split = await splitOf(templates, expense.toSnapshot().groupId, draft.split);
+      if (split.isFailure()) return Result.fail(split.error);
       const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
 
       const edited = expense.edit(
-        { groupCurrency: currency, offered, ...draft },
+        { groupCurrency: currency, offered, ...draft, split: split.data },
         members.map(member => member.memberId),
         version,
         clock(),
@@ -191,6 +209,22 @@ async function changeable(
 
   return Result.ok({ expense, members, currency });
 }
+
+/**
+ * The split an expense is decided by (request 25): the one given, or the split of the template of the group it names, as if it had been
+ * given. A template that is not there, or is of another group, is `404`; whether its members are the group's is the expense's to decide, as
+ * for any split.
+ */
+const splitOf = async (
+  templates: ISplitTemplateStore,
+  groupId: string,
+  given: SplitGiven,
+): Promise<IResult<SplitDraft>> => {
+  if (!isTemplateRef(given)) return Result.ok(given);
+  const template = await templates.findById(given.template);
+  if (!template || template.groupId !== groupId) return Result.fail(new TemplateNotFoundException());
+  return Result.ok(template.splitDraft());
+};
 
 /**
  * The rate the rates service offers for an original's currency to the group's on the expense's day (request 22), asked when the
