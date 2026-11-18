@@ -41,6 +41,7 @@ export class PostgresDatabase {
     this.#client.on('error', () => undefined);
     this.#connected = this.#client.connect();
     this.#connected.catch(() => undefined);
+    everyOpened.add(this);
   }
 
   /** Says a table or an index is needed. Nothing runs until `prepare()`; saying it twice is saying it once. */
@@ -209,7 +210,6 @@ export function sharedDatabase(
   if (!database) {
     database = new PostgresDatabase(url, schema);
     opened.set(key, database);
-    everyOpened.add(database);
   }
   return database;
 }
