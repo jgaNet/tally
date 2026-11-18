@@ -329,3 +329,29 @@ describe('Recurring expenses (request 23)', () => {
     expect((await read(stranger.token, first.result as string)).status).toBe(404);
   });
 });
+
+describe('Groups → Ledger', () => {
+  it('sets a recurring expense up in a group made in Groups, and finds it and its expense by the id Groups answered', async () => {
+    const ann = await signedIn('recurring-rel-ann@example.com', 'Ann');
+    const ben = await signedIn('recurring-rel-ben@example.com', 'Ben');
+    // Groups makes the group and answers its id; a join is a fact Ledger reads at the moment it decides.
+    const groupId = await createGroup(ann.token, 'Just joined');
+    await join(ann.token, groupId, ben.token);
+
+    const set = await setUp(ann.token, groupId, {
+      description: 'Rent',
+      amount: 1001,
+      startsOn: '2026-11-05',
+      splitBetween: [ann.id, ben.id],
+    });
+    expect(set).toMatchObject({ status: 'SUCCESS', result: expect.any(String) });
+    const listed = (await http.get(`${api}/groups/${groupId}/recurring`, { token: ben.token })).body as Recurring[];
+    expect(listed).toEqual([expect.objectContaining({ id: set.result, groupId, paidBy: ann.id })]);
+
+    // The day comes: the sweep reads the group's currency through Groups, and the expense is found by the group's id.
+    await sweepRecurringExpenses(app);
+    expect(await expenses(ben.token, groupId)).toEqual([
+      expect.objectContaining({ groupId, description: 'Rent', amount: 1001, paidBy: ann.id, date: '2026-11-05' }),
+    ]);
+  });
+});
