@@ -1,6 +1,6 @@
 import type { Queryable } from './database';
 import { writeAudit } from './audit';
-import type { SettlementStatus } from './settlements';
+import type { SettlementMethod, SettlementStatus } from './settlements';
 
 /** The statuses a settlement's balances count: `paid`, and `refunding` until the refund is said to be done. */
 const COUNTED: readonly SettlementStatus[] = ['paid', 'refunding'];
@@ -11,7 +11,7 @@ interface SettlementState {
   payer_id: string;
   payee_id: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: SettlementMethod;
   status: SettlementStatus;
 }
 

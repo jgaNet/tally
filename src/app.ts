@@ -12,6 +12,7 @@ import { registerHistoryRoutes } from './history';
 import { registerInvitationRoutes } from './invitations';
 import { registerLeaveRoutes } from './leaving';
 import { registerMergeRoutes } from './merge';
+import { registerNettingRoutes } from './nettings';
 import { registerNoticeRoutes } from './notices';
 import { registerOperationRoutes } from './operations';
 import { registerPayoutAccountRoutes } from './payout-accounts';
@@ -118,6 +119,7 @@ export async function createApplication({
       registerBalanceRoutes(instance, db);
       registerHistoryRoutes(instance, db);
       registerSettlementRoutes(instance, db, provider);
+      registerNettingRoutes(instance, db);
       registerProviderWebhookRoutes(instance, db, provider);
       registerNoticeRoutes(instance, db);
       registerAuditRoutes(instance, db);

@@ -4,6 +4,7 @@ import { type Expense, type ExpenseRow, expenseOf, expenseSchema } from './expen
 import { findGroupOf } from './groups';
 import { hasBeenMember } from './members';
 import { Refusal } from './refusal';
+import type { SettlementMethod } from './settlements';
 import { requireCaller } from './sessions';
 
 /** One row per share of an expense, with the expense's own fields repeated on each of its rows. */
@@ -52,7 +53,7 @@ interface StatementRow {
 
 interface SettlementStatementRow {
   settlement_id: string;
-  method: 'cash' | 'provider';
+  method: SettlementMethod;
   payer_id: string;
   amount: number;
   counted_at: string;
@@ -94,10 +95,11 @@ export async function listExpenses(db: Queryable, groupId: string): Promise<Expe
   return expenses;
 }
 
-const SETTLEMENT_DESCRIPTIONS = {
+const SETTLEMENT_DESCRIPTIONS: Record<SettlementMethod, string> = {
   cash: 'Settlement in cash',
   provider: 'Settlement through the provider',
-} as const;
+  net: 'Settlement by netting',
+};
 
 /**
  * The statement of a member of the group: every expense of the group that is not deleted and that the member

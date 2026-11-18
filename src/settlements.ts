@@ -19,6 +19,12 @@ import { requireCaller } from './sessions';
 /** The status of a settlement: `pending`, `paid` or `failed` for one through the provider, and `refunding` or `refunded` once paid. */
 export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
 
+/**
+ * How a settlement is made: `cash` is recorded by its payee, `provider` is paid through the payment provider, and `net`
+ * is one of the settlements a netting makes across the groups two people share (see `nettings.ts`).
+ */
+export type SettlementMethod = 'cash' | 'provider' | 'net';
+
 /** One transfer that brings a balance to 0: `from` pays `to` the `amount`. Both are members' account ids. */
 export interface Transfer {
   from: string;
@@ -73,7 +79,7 @@ export interface Settlement {
   from: string;
   to: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: SettlementMethod;
   status: SettlementStatus;
   at: string;
   payUrl?: string;
@@ -99,7 +105,7 @@ interface SettlementRow {
   payer_id: string;
   payee_id: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: SettlementMethod;
   status: SettlementStatus;
   pay_url: string | null;
   created_at: string;
@@ -465,7 +471,7 @@ const settlementSchema = {
     from: { type: 'string' },
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
-    method: { enum: ['cash', 'provider'] },
+    method: { enum: ['cash', 'provider', 'net'] },
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },

@@ -126,6 +126,17 @@ CREATE TABLE expense_shares (
   PRIMARY KEY (expense_id, position)
 );
 
+-- What two people netted across their groups: the settlements of a netting are the ones whose netting_id is its id.
+CREATE TABLE nettings (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
+  id TEXT PRIMARY KEY,
+  by_id TEXT NOT NULL REFERENCES accounts (id),
+  with_id TEXT NOT NULL REFERENCES accounts (id),
+  currency TEXT NOT NULL,
+  amount BIGINT NOT NULL CHECK (amount >= 1),
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE settlements (
   seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
   id TEXT PRIMARY KEY,
@@ -133,11 +144,14 @@ CREATE TABLE settlements (
   payer_id TEXT NOT NULL REFERENCES accounts (id),
   payee_id TEXT NOT NULL REFERENCES accounts (id),
   amount BIGINT NOT NULL CHECK (amount >= 1),
-  method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+  method TEXT NOT NULL CHECK (method IN ('cash', 'provider', 'net')),
   status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
   provider_id TEXT,
   pay_url TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- The netting this settlement is one of: exactly the settlements netted are one.
+  netting_id TEXT REFERENCES nettings (id),
+  CHECK ((method = 'net') = (netting_id IS NOT NULL))
 );
 CREATE INDEX settlements_group ON settlements (group_id);
 CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
