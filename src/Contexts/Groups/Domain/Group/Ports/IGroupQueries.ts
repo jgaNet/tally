@@ -28,6 +28,12 @@ export interface IGroupQueries {
    */
   everMemberOf(accountId: string, groupId: string): Promise<boolean>;
   /**
+   * The ids of the group's current members, in the order they joined, for a background job that acts for the group and has no
+   * caller (request 23, docs/adr/0022). It answers an empty list for a group that does not exist. A read that needs a caller
+   * asks the caller's membership first, through `listMembersOf`.
+   */
+  currentMemberIdsOf(groupId: string): Promise<string[]>;
+  /**
    * What the leaves of the group passed to its owner (request 20, docs/adr/0019): the owner, and each member who left it or joined
    * it again after leaving, with the balance its leaves passed and whether it is a current member. Undefined for a group that does
    * not exist. Ledger reads it through GroupMembers when it reads the balances.

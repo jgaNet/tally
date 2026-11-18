@@ -72,7 +72,12 @@ export class Expense extends AggregateRoot {
     this.#original = original;
   }
 
+  /**
+   * `id` is given only by a recurring expense's day, which carries the id of the expense it records (request 23, docs/adr/0022):
+   * the reaction that records it then finds the expense recorded when the fact comes again. Any other creation generates it.
+   */
   static register({
+    id: givenId,
     groupId,
     description,
     date,
@@ -82,6 +87,7 @@ export class Expense extends AggregateRoot {
     at,
     ...money
   }: {
+    id?: string;
     groupId: string;
     description: string;
     date: string;
@@ -93,7 +99,7 @@ export class Expense extends AggregateRoot {
     const checked = checkExpense({ description, date, paidBy, split, members, at, ...money });
     if (checked.isFailure()) return checked;
 
-    const id = Id.generate();
+    const id = givenId === undefined ? Id.generate() : new Id(givenId);
     const expense = new Expense(
       id,
       groupId,

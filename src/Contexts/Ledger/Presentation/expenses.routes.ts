@@ -19,7 +19,7 @@ import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
  * The split a body gives, one of three (request 4, request 7): an equal split between members, the exact amount of each, or
  * the shares of each. The body says exactly one of them (`oneOf`: none or more than one is the wrong shape, `400`).
  */
-const splitBody = {
+export const splitBody = {
   properties: {
     splitBetween: { type: 'array', items: { type: 'string' } },
     splitExactly: {
@@ -96,7 +96,7 @@ interface AmountBody {
 }
 
 /** The body's split, as the use cases take it: the transport has checked that exactly one of the three is given. */
-function splitOf(body: SplitBody): SplitInput {
+export function splitOf(body: SplitBody): SplitInput {
   if (body.splitBetween) return { kind: 'equal', between: body.splitBetween };
   if (body.splitExactly) {
     return { kind: 'exact', amounts: body.splitExactly.map(({ memberId, amount }) => ({ memberId, amount })) };
@@ -105,7 +105,7 @@ function splitOf(body: SplitBody): SplitInput {
 }
 
 /** The split fields of a body, as the transport checks them. */
-interface SplitBody {
+export interface SplitBody {
   splitBetween?: string[];
   splitExactly?: Array<{ memberId: string; amount: number }>;
   splitByShares?: Array<{ memberId: string; shares: number }>;

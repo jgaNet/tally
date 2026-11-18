@@ -26,6 +26,12 @@ export interface IGroupMembers {
    * The balances read it: each such member's balance is less what passed, and the owner carries what passed.
    */
   passedBalancesOf(groupId: string): Promise<PassedBalances | undefined>;
+  /**
+   * The ids of the group's current members, in the order they joined, for a background job that acts for the group and has no
+   * caller (request 23, docs/adr/0022): a recurring expense ends when its payer or a member of its split is not among them. An
+   * empty list for a group that does not exist.
+   */
+  currentMemberIds(groupId: string): Promise<string[]>;
 }
 
 /** A member whose leaves passed a balance to the owner, as Ledger's balances count it (docs/adr/0019). */

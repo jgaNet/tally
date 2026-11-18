@@ -130,7 +130,7 @@ export class Split {
 }
 
 /** The members a split names, each as many times as it is listed. */
-function listedMembers(input: SplitInput): string[] {
+export function listedMembers(input: SplitInput): string[] {
   switch (input.kind) {
     case 'equal':
       return input.between;

@@ -95,6 +95,16 @@ export class SqliteGroupQueries implements IGroupQueries {
     });
   }
 
+  async currentMemberIdsOf(groupId: string): Promise<string[]> {
+    return this.database.exclusive(() =>
+      (
+        this.database.connection
+          .prepare('SELECT account_id FROM group_members WHERE group_id = ? AND left_at IS NULL ORDER BY position')
+          .all(groupId) as Array<{ account_id: string }>
+      ).map(row => String(row.account_id)),
+    );
+  }
+
   async everMemberOf(accountId: string, groupId: string): Promise<boolean> {
     return this.database.exclusive(() => {
       const row = this.database.connection

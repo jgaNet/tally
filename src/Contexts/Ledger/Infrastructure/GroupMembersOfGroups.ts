@@ -18,6 +18,10 @@ export class GroupMembersOfGroups implements IGroupMembers {
     return this.groups.everMemberOf(memberId, groupId);
   }
 
+  async currentMemberIds(groupId: string): Promise<string[]> {
+    return this.groups.currentMemberIdsOf(groupId);
+  }
+
   async passedBalancesOf(groupId: string): Promise<PassedBalances | undefined> {
     const passed = await this.groups.passedBalancesOf(groupId);
     return passed && { ownerId: passed.ownerId, members: passed.members.map(member => ({ ...member })) };

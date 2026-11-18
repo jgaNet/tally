@@ -26,6 +26,7 @@ why, what it costs, and when to revisit it.
 | [19](0019-a-member-leaves-at-any-balance-and-the-balance-passes-to-the-owner.md) | A member leaves at any balance, and what it owes or is owed passes to the group's owner |
 | [20](0020-an-expense-in-another-currency-is-converted-by-its-own-rate.md) | An expense in another currency is converted by the rate its payer states, and Ledger asks the group's currency through a port |
 | [21](0021-an-expense-takes-the-rate-a-rates-service-offers-or-corrects-it-within-2-percent.md) | An expense in another currency takes the rate a rates service offers, or corrects it within 2 %, and Ledger asks for it through a port |
+| [22](0022-a-recurring-expense-is-recorded-by-the-background-job-once.md) | A recurring expense is an aggregate of Ledger, and the background job records each of its days once |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

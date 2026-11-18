@@ -11,7 +11,8 @@ import { Role } from '@SharedKernel/Domain';
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { operationRoutes } from '@Bootstrap/Fastify/operations.routes';
 import { localGroupsModule, authenticatedAccountOf } from '@Contexts/Groups/module.local';
-import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { localLedgerModule, sweepRecurringExpenseDays } from '@Contexts/Ledger/module.local';
+import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule, sweepNotificationDebts } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
@@ -70,6 +71,7 @@ export async function createApplication({
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', invitationRoutes, { module: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
+    .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { module: localSettlementsModule })
     .registerRoutes('/', providerWebhookRoutes, { module: localSettlementsModule })
     .registerRoutes('/', noticeRoutes, { module: localNotificationsModule })
@@ -86,6 +88,10 @@ export async function createApplication({
   const reminderPeriodMs = Number(process.env.REMINDER_PERIOD_SECONDS || 604800) * 1000;
   app.every(Number(process.env.JOBS_INTERVAL_SECONDS || 60) * 1000, () =>
     sweepNotificationDebts(app.executionContext('sweep'), reminderPeriodMs),
+  );
+  // Each run of the background job also records the days that have come for recurring expenses (request 23, docs/adr/0022).
+  app.every(Number(process.env.JOBS_INTERVAL_SECONDS || 60) * 1000, () =>
+    sweepRecurringExpenseDays(app.executionContext('recurring')),
   );
   return app;
 }
