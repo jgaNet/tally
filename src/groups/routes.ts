@@ -11,6 +11,7 @@ import {
   membersOf,
   requireMembership,
 } from './groups';
+import { mergeGroups } from './merging';
 import { CURRENCIES } from './validation';
 
 const memberSchema = {
@@ -126,6 +127,21 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
     async (request, reply) => {
       const account = await requireAccount(db, request);
       await leaveGroup(db, request.params.id, account.id);
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { from: string } }>(
+    '/groups/:id/merge',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        body: { type: 'object', required: ['from'], properties: { from: { type: 'string' } } },
+      },
+    },
+    async (request, reply) => {
+      const account = await requireAccount(db, request);
+      await mergeGroups(db, request.params.id, request.body.from, account.id);
       return reply.code(204).send();
     },
   );

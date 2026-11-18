@@ -250,6 +250,21 @@ const migrations: readonly string[] = [
     imported_at TEXT NOT NULL
   );
   `,
+  `
+  -- A group merged into another leaves its notices as they were made, so they keep naming the group merged, which is gone.
+  ALTER TABLE notices DROP CONSTRAINT notices_group_id_fkey;
+  -- An audit entry is never changed, but when its group is merged into another it moves to that group, and nothing else
+  -- of it changes.
+  CREATE OR REPLACE FUNCTION audit_entries_never_updated() RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN
+    IF NEW.id = OLD.id AND NEW.at = OLD.at AND NEW.by_id = OLD.by_id AND NEW.action = OLD.action
+       AND NEW.subject_id = OLD.subject_id AND NEW.amount = OLD.amount AND NEW.seq = OLD.seq
+       AND NEW.group_id IS DISTINCT FROM OLD.group_id THEN
+      RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'an audit entry is never changed';
+  END $$;
+  `,
 ];
 
 /** The database: every read and write Tally makes goes through it, to the PostgreSQL database it was opened on. */
