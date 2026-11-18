@@ -1,7 +1,7 @@
 import { type Application, createApplication } from '../app';
 import { type Balance } from '../balances/balances';
 import { todayInUtc } from '../expenses/validation';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 import { type Transfer, suggestedTransfers } from './suggested';
 
 /** Balances in the order the members joined, from the ids and amounts given in that order. */
@@ -137,7 +137,7 @@ describe('the suggested transfers', () => {
     let app: Application;
 
     beforeEach(async () => {
-      app = await createApplication({ databasePath: temporaryDatabasePath() });
+      app = await createApplication({ databaseUrl: await temporaryDatabaseUrl() });
     });
 
     afterEach(async () => {

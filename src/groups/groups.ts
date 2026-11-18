@@ -38,16 +38,15 @@ const GROUP_COLUMNS = 'groups.id, groups.name, groups.currency, groups.owner_id,
  * change something in it is refused by this one rule, and changes nothing. Called after the group has been found
  * for the caller, and inside the transaction of the change, so an archiving that lands first is seen.
  */
-export function requireNotArchived(db: Database, groupId: string): void {
-  if (isArchived(db, groupId)) {
+export async function requireNotArchived(db: Database, groupId: string): Promise<void> {
+  if (await isArchived(db, groupId)) {
     throw new Refusal(409, 'GroupArchived', 'The group is archived: nothing in it changes any more.');
   }
 }
 
 /** Whether `groupId` is archived. Reading it changes nothing. */
-export function isArchived(db: Database, groupId: string): boolean {
-  const row = db.prepare('SELECT archived_at FROM groups WHERE id = ?').get(groupId) as
-    { archived_at: string | null } | undefined;
+export async function isArchived(db: Database, groupId: string): Promise<boolean> {
+  const row = await db.row<{ archived_at: string | null }>('SELECT archived_at FROM groups WHERE id = ?', [groupId]);
   return row?.archived_at != null;
 }
 
@@ -55,19 +54,19 @@ export function isArchived(db: Database, groupId: string): boolean {
  * Creates a group owned by `ownerId`, whose first member its owner is. The group and that
  * membership are written together, or not at all.
  */
-export function createGroup(db: Database, ownerId: string, input: GroupInput): string {
+export async function createGroup(db: Database, ownerId: string, input: GroupInput): Promise<string> {
   const group = validateGroup(input);
   const id = randomUUID();
   const now = new Date().toISOString();
-  inTransaction(db, () => {
-    db.prepare('INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES (?, ?, ?, ?, ?)').run(
+  await inTransaction(db, async () => {
+    await db.execute('INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES (?, ?, ?, ?, ?)', [
       id,
       group.name,
       group.currency,
       ownerId,
       now,
-    );
-    db.prepare('INSERT INTO memberships (group_id, account_id, joined_at) VALUES (?, ?, ?)').run(id, ownerId, now);
+    ]);
+    await db.execute('INSERT INTO memberships (group_id, account_id, joined_at) VALUES (?, ?, ?)', [id, ownerId, now]);
   });
   return id;
 }
@@ -76,42 +75,40 @@ export function createGroup(db: Database, ownerId: string, input: GroupInput): s
  * The group, when `accountId` is one of its members. For anyone else it is `undefined`, the same
  * as a group that does not exist.
  */
-export function groupForMember(db: Database, groupId: string, accountId: string): Group | undefined {
-  const row = db
-    .prepare(
-      `SELECT ${GROUP_COLUMNS}
-         FROM groups JOIN memberships ON memberships.group_id = groups.id
-        WHERE groups.id = ? AND memberships.account_id = ?`,
-    )
-    .get(groupId, accountId) as GroupRow | undefined;
+export async function groupForMember(db: Database, groupId: string, accountId: string): Promise<Group | undefined> {
+  const row = await db.row<GroupRow>(
+    `SELECT ${GROUP_COLUMNS}
+       FROM groups JOIN memberships ON memberships.group_id = groups.id
+      WHERE groups.id = ? AND memberships.account_id = ?`,
+    [groupId, accountId],
+  );
   return row === undefined ? undefined : toGroup(row);
 }
 
 /** The groups `accountId` is a member of, the most recently created first. */
-export function groupsOfMember(db: Database, accountId: string): Group[] {
-  const rows = db
-    .prepare(
-      `SELECT ${GROUP_COLUMNS}
-         FROM groups JOIN memberships ON memberships.group_id = groups.id
-        WHERE memberships.account_id = ?
-        ORDER BY groups.created_at DESC, groups.rowid DESC`,
-    )
-    .all(accountId) as unknown as GroupRow[];
+export async function groupsOfMember(db: Database, accountId: string): Promise<Group[]> {
+  const rows = await db.rows<GroupRow>(
+    `SELECT ${GROUP_COLUMNS}
+       FROM groups JOIN memberships ON memberships.group_id = groups.id
+      WHERE memberships.account_id = ?
+      ORDER BY groups.created_at DESC, groups.seq DESC`,
+    [accountId],
+  );
   return rows.map(toGroup);
 }
 
 /** The currency `groupId` counts in. It is fixed when the group is created. */
-export function currencyOfGroup(db: Database, groupId: string): Currency {
-  const row = db.prepare('SELECT currency FROM groups WHERE id = ?').get(groupId) as { currency: Currency };
-  return row.currency;
+export async function currencyOfGroup(db: Database, groupId: string): Promise<Currency> {
+  const row = await db.row<{ currency: Currency }>('SELECT currency FROM groups WHERE id = ?', [groupId]);
+  return (row as { currency: Currency }).currency;
 }
 
 /**
  * The group, for a member of it. Anyone else is refused with `404`, the same as a group that does
  * not exist: the group is not there for them.
  */
-export function requireMembership(db: Database, groupId: string, accountId: string): Group {
-  const group = groupForMember(db, groupId, accountId);
+export async function requireMembership(db: Database, groupId: string, accountId: string): Promise<Group> {
+  const group = await groupForMember(db, groupId, accountId);
   if (!group) {
     throw new Refusal(404, 'NotFound', 'There is no such group.');
   }
@@ -122,14 +119,13 @@ export function requireMembership(db: Database, groupId: string, accountId: stri
  * Whether `accountId` has ever been a member of `groupId`, whether or not it still is. Reading it
  * changes nothing.
  */
-export function hasBeenMember(db: Database, groupId: string, accountId: string): boolean {
-  const row = db
-    .prepare(
-      `SELECT 1 FROM memberships WHERE group_id = ? AND account_id = ?
-       UNION ALL
-       SELECT 1 FROM former_members WHERE group_id = ? AND account_id = ?`,
-    )
-    .get(groupId, accountId, groupId, accountId);
+export async function hasBeenMember(db: Database, groupId: string, accountId: string): Promise<boolean> {
+  const row = await db.row(
+    `SELECT 1 FROM memberships WHERE group_id = ? AND account_id = ?
+     UNION ALL
+     SELECT 1 FROM former_members WHERE group_id = ? AND account_id = ?`,
+    [groupId, accountId, groupId, accountId],
+  );
   return row !== undefined;
 }
 
@@ -137,13 +133,15 @@ export function hasBeenMember(db: Database, groupId: string, accountId: string):
  * The accounts among `accountIds` that are no longer members of `groupId`, each once. Those who have
  * left cannot be in a new expense, nor pay one, and an expense that names them cannot be changed.
  */
-export function leftMembersAmong(db: Database, groupId: string, accountIds: readonly string[]): string[] {
+export async function leftMembersAmong(
+  db: Database,
+  groupId: string,
+  accountIds: readonly string[],
+): Promise<string[]> {
   const current = new Set(
-    (
-      db.prepare('SELECT account_id FROM memberships WHERE group_id = ?').all(groupId) as unknown as {
-        account_id: string;
-      }[]
-    ).map(row => row.account_id),
+    (await db.rows<{ account_id: string }>('SELECT account_id FROM memberships WHERE group_id = ?', [groupId])).map(
+      row => row.account_id,
+    ),
   );
   return [...new Set(accountIds)].filter(accountId => !current.has(accountId));
 }
@@ -153,18 +151,19 @@ export function leftMembersAmong(db: Database, groupId: string, accountIds: read
  * a member is refused with `409`. Someone who left joins again as a new member, last in the order.
  * Runs inside `inTransaction`, so the check and the write cannot be split by another join.
  */
-export function joinGroup(db: Database, groupId: string, accountId: string): void {
-  const existing = db
-    .prepare('SELECT 1 FROM memberships WHERE group_id = ? AND account_id = ?')
-    .get(groupId, accountId);
+export async function joinGroup(db: Database, groupId: string, accountId: string): Promise<void> {
+  const existing = await db.row('SELECT 1 FROM memberships WHERE group_id = ? AND account_id = ?', [
+    groupId,
+    accountId,
+  ]);
   if (existing) {
     throw new Refusal(409, 'AlreadyMember', 'You are already a member of this group.');
   }
-  db.prepare('INSERT INTO memberships (group_id, account_id, joined_at) VALUES (?, ?, ?)').run(
+  await db.execute('INSERT INTO memberships (group_id, account_id, joined_at) VALUES (?, ?, ?)', [
     groupId,
     accountId,
     new Date().toISOString(),
-  );
+  ]);
 }
 
 /**
@@ -175,21 +174,20 @@ export function joinGroup(db: Database, groupId: string, accountId: string): voi
  * is read, the transfer to the owner written and the membership removed in one transaction, so no expense or
  * settlement lands between them.
  */
-export function leaveGroup(db: Database, groupId: string, accountId: string): void {
-  inTransaction(db, () => {
-    const group = requireMembership(db, groupId, accountId);
-    requireNotArchived(db, groupId);
+export async function leaveGroup(db: Database, groupId: string, accountId: string): Promise<void> {
+  await inTransaction(db, async () => {
+    const group = await requireMembership(db, groupId, accountId);
+    await requireNotArchived(db, groupId);
     if (group.ownerId === accountId) {
       throw new Refusal(403, 'OwnerCannotLeave', 'The owner cannot leave the group they created.');
     }
     // A payment waiting at the provider would still move a balance once it succeeds, and a refund waiting
     // at it once it is refunded: either must end first.
-    const waiting = db
-      .prepare(
-        `SELECT 1 FROM settlements
-          WHERE group_id = ? AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?)`,
-      )
-      .get(groupId, accountId, accountId);
+    const waiting = await db.row(
+      `SELECT 1 FROM settlements
+        WHERE group_id = ? AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?)`,
+      [groupId, accountId, accountId],
+    );
     if (waiting) {
       throw new Refusal(
         409,
@@ -197,25 +195,31 @@ export function leaveGroup(db: Database, groupId: string, accountId: string): vo
         'A payment or a refund through the provider is waiting for you: it must end first.',
       );
     }
-    const balance = balancesOf(db, groupId).find(entry => entry.memberId === accountId)?.balance ?? 0;
+    const balance = (await balancesOf(db, groupId)).find(entry => entry.memberId === accountId)?.balance ?? 0;
     const at = new Date().toISOString();
     if (balance !== 0) {
-      db.prepare('INSERT INTO balance_transfers (group_id, from_id, to_id, amount, at) VALUES (?, ?, ?, ?, ?)').run(
+      await db.execute('INSERT INTO balance_transfers (group_id, from_id, to_id, amount, at) VALUES (?, ?, ?, ?, ?)', [
         groupId,
         accountId,
         group.ownerId,
         balance,
         at,
+      ]);
+      await recordAudit(
+        db,
+        groupId,
+        { by: accountId, action: 'balance-passed', subjectId: accountId, amount: balance },
+        at,
       );
-      recordAudit(db, groupId, { by: accountId, action: 'balance-passed', subjectId: accountId, amount: balance }, at);
     }
-    db.prepare('DELETE FROM memberships WHERE group_id = ? AND account_id = ?').run(groupId, accountId);
+    await db.execute('DELETE FROM memberships WHERE group_id = ? AND account_id = ?', [groupId, accountId]);
     // A debt noted before the member left is not carried over: one who joins again is noted afresh.
-    db.prepare('DELETE FROM noted_debts WHERE group_id = ? AND account_id = ?').run(groupId, accountId);
-    db.prepare(
+    await db.execute('DELETE FROM noted_debts WHERE group_id = ? AND account_id = ?', [groupId, accountId]);
+    await db.execute(
       `INSERT INTO former_members (group_id, account_id, left_at) VALUES (?, ?, ?)
        ON CONFLICT (group_id, account_id) DO UPDATE SET left_at = excluded.left_at`,
-    ).run(groupId, accountId, new Date().toISOString());
+      [groupId, accountId, new Date().toISOString()],
+    );
   });
 }
 
@@ -225,23 +229,24 @@ export function leaveGroup(db: Database, groupId: string, accountId: string): vo
  * with `403`, and anyone outside the group with `404`. An archived group is refused with `GroupArchived`, so
  * archiving it again is too. The checks and the write are one transaction, so a settlement cannot land between them.
  */
-export function archiveGroup(db: Database, groupId: string, accountId: string, at: Date): void {
-  inTransaction(db, () => {
-    const group = requireMembership(db, groupId, accountId);
-    requireNotArchived(db, groupId);
+export async function archiveGroup(db: Database, groupId: string, accountId: string, at: Date): Promise<void> {
+  await inTransaction(db, async () => {
+    const group = await requireMembership(db, groupId, accountId);
+    await requireNotArchived(db, groupId);
     if (group.ownerId !== accountId) {
       throw new Refusal(403, 'NotPermitted', 'Only the owner of the group may archive it.');
     }
-    if (balancesOf(db, groupId).some(entry => entry.balance !== 0)) {
+    if ((await balancesOf(db, groupId)).some(entry => entry.balance !== 0)) {
       throw new Refusal(
         409,
         'BalancesNotSettled',
         'The balance of every member must be 0 before the group is archived.',
       );
     }
-    const waiting = db
-      .prepare(`SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding')`)
-      .get(groupId);
+    const waiting = await db.row(
+      `SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding')`,
+      [groupId],
+    );
     if (waiting) {
       throw new Refusal(
         409,
@@ -249,7 +254,7 @@ export function archiveGroup(db: Database, groupId: string, accountId: string, a
         'A payment or a refund through the provider is waiting: it must end first.',
       );
     }
-    db.prepare('UPDATE groups SET archived_at = ? WHERE id = ?').run(at.toISOString(), groupId);
+    await db.execute('UPDATE groups SET archived_at = ? WHERE id = ?', [at.toISOString(), groupId]);
   });
 }
 
@@ -271,17 +276,16 @@ interface MemberRow {
  * The members of a group, the earliest to join first. The owner joined when the group was made,
  * so is first. Two joins at the same instant keep the order they were written in.
  */
-export function membersOf(db: Database, groupId: string): Member[] {
-  const rows = db
-    .prepare(
-      `SELECT accounts.id AS member_id, accounts.name, groups.owner_id, memberships.joined_at
-         FROM memberships
-         JOIN accounts ON accounts.id = memberships.account_id
-         JOIN groups ON groups.id = memberships.group_id
-        WHERE memberships.group_id = ?
-        ORDER BY memberships.joined_at, memberships.rowid`,
-    )
-    .all(groupId) as unknown as MemberRow[];
+export async function membersOf(db: Database, groupId: string): Promise<Member[]> {
+  const rows = await db.rows<MemberRow>(
+    `SELECT accounts.id AS member_id, accounts.name, groups.owner_id, memberships.joined_at
+       FROM memberships
+       JOIN accounts ON accounts.id = memberships.account_id
+       JOIN groups ON groups.id = memberships.group_id
+      WHERE memberships.group_id = ?
+      ORDER BY memberships.joined_at, memberships.seq`,
+    [groupId],
+  );
   return rows.map(row => ({
     memberId: row.member_id,
     name: row.name,

@@ -7,18 +7,18 @@ import {
   send,
   signedUpAccount,
   startFakeProvider,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 describe('payout accounts', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
   let provider: FakeProvider;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
+    databaseUrl = await temporaryDatabaseUrl();
     provider = await startFakeProvider();
-    app = await createApplication({ databasePath, providerUrl: provider.url, providerTimeoutMs: 300 });
+    app = await createApplication({ databaseUrl, providerUrl: provider.url, providerTimeoutMs: 300 });
   });
 
   afterEach(async () => {
@@ -81,7 +81,7 @@ describe('payout accounts', () => {
 
     it('refuses with 409 when no provider is set up on this server, and keeps nothing', async () => {
       await app.stop();
-      app = await createApplication({ databasePath: temporaryDatabasePath() });
+      app = await createApplication({ databaseUrl: await temporaryDatabaseUrl() });
       const ada = await signedUpAccount(app);
       const response = await setAccount(ada.token, 'acct-ada');
       expect(response.statusCode).toBe(409);

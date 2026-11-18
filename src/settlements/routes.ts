@@ -58,11 +58,11 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
       },
     },
     async request => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // Only the members of a group see its settlements, those of a member who has left included; anyone
       // else is told it does not exist.
-      requireMembership(db, request.params.id, account.id);
-      return settlementsOfGroup(db, request.params.id);
+      await requireMembership(db, request.params.id, account.id);
+      return await settlementsOfGroup(db, request.params.id);
     },
   );
 
@@ -75,10 +75,10 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
       },
     },
     async request => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // Only the members of a group see its suggestions; anyone else is told it does not exist.
-      requireMembership(db, request.params.id, account.id);
-      return suggestedTransfersOf(db, request.params.id);
+      await requireMembership(db, request.params.id, account.id);
+      return await suggestedTransfersOf(db, request.params.id);
     },
   );
 
@@ -96,9 +96,9 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // The caller is the payee: the member who was paid in cash records it.
-      const id = recordCashSettlement(db, request.params.id, account.id, {
+      const id = await recordCashSettlement(db, request.params.id, account.id, {
         from: request.body.from,
         amount: request.body.amount,
       });
@@ -120,7 +120,7 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // The caller is the payer: the member who pays the payee through the provider.
       const id = await requestProviderSettlement(
         db,
@@ -142,7 +142,7 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // The caller must be the payee: only the member who was paid may refund the payment.
       await requestRefund(db, provider, request.params.id, account.id);
       return reply.code(204).send();
@@ -158,8 +158,8 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
       },
     },
     async request => {
-      const account = requireAccount(db, request);
-      return requireSettlement(db, request.params.id, account.id);
+      const account = await requireAccount(db, request);
+      return await requireSettlement(db, request.params.id, account.id);
     },
   );
 
@@ -182,7 +182,7 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
       // Once signed, it is acknowledged whatever it says: a body that is not an event changes nothing.
       const event = parseEvent(body);
       if (event !== undefined) {
-        applyProviderStatus(db, event.paymentId, event.status);
+        await applyProviderStatus(db, event.paymentId, event.status);
       }
       return reply.code(204).send();
     });

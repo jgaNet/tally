@@ -8,21 +8,21 @@ import {
   setPayoutAccount,
   signedUpAccount,
   startFakeProvider,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 const SECRET = 'shared-secret';
 
 describe('refunding a payment through the provider', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
   let provider: FakeProvider;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
+    databaseUrl = await temporaryDatabaseUrl();
     provider = await startFakeProvider();
     app = await createApplication({
-      databasePath,
+      databaseUrl,
       providerUrl: provider.url,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 300,
@@ -220,7 +220,7 @@ describe('refunding a payment through the provider', () => {
     it('is refused with 409 when no provider is set up on this server, and changes nothing', async () => {
       const { ada, grace, groupId, id } = await paidThroughProvider();
       await app.stop();
-      app = await createApplication({ databasePath, providerWebhookSecret: SECRET });
+      app = await createApplication({ databaseUrl, providerWebhookSecret: SECRET });
       const response = await refund(grace.token, id);
       expect(response.statusCode).toBe(409);
       expect(response.json().type).toBe('ProviderNotConfigured');
@@ -257,7 +257,7 @@ describe('refunding a payment through the provider', () => {
       await refund(grace.token, id);
       await webhook(paymentId, 'refunded');
       await app.stop();
-      app = await createApplication({ databasePath, providerUrl: provider.url, providerWebhookSecret: SECRET });
+      app = await createApplication({ databaseUrl, providerUrl: provider.url, providerWebhookSecret: SECRET });
       expect((await read(grace.token, id)).json().status).toBe('refunded');
       expect(await balanceOf(ada.token, groupId, ada.id)).toBe(-500);
     });

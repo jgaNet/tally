@@ -1,13 +1,37 @@
 import { type ChildProcess, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Client } from 'pg';
 import type { Application } from './app';
 
-/** A database file no other test shares. */
-export function temporaryDatabasePath(): string {
+/**
+ * A PostgreSQL database no other test shares, made on the server `DATABASE_URL` names. Its URL is answered; the
+ * database is empty, so the first application started on it prepares it.
+ */
+export async function temporaryDatabaseUrl(): Promise<string> {
+  const serverUrl = process.env.DATABASE_URL;
+  if (!serverUrl) {
+    throw new Error('DATABASE_URL must name the PostgreSQL server the tests use.');
+  }
+  const name = `tally_test_${randomUUID().replaceAll('-', '')}`;
+  const admin = new Client({ connectionString: serverUrl });
+  await admin.connect();
+  try {
+    await admin.query(`CREATE DATABASE ${name}`);
+  } finally {
+    await admin.end();
+  }
+  const url = new URL(serverUrl);
+  url.pathname = `/${name}`;
+  return url.toString();
+}
+
+/** A file, in a directory no other test shares, that a SQLite file of Tally's can be written to. */
+export function temporaryLegacyFilePath(): string {
   return join(mkdtempSync(join(tmpdir(), 'tally-test-')), 'tally.db');
 }
 
@@ -355,11 +379,17 @@ export async function freePort(): Promise<number> {
   });
 }
 
-/** Starts `src/server.ts` as its own process, on `databasePath`, and waits until it listens. */
-export async function startServerProcess(databasePath: string): Promise<{ child: ChildProcess; base: string }> {
+/**
+ * Starts `src/server.ts` as its own process, on the database `databaseUrl`, and waits until it listens. A SQLite file
+ * of Tally's, `legacyPath`, is moved into the database when it is empty, as the server does.
+ */
+export async function startServerProcess(
+  databaseUrl: string,
+  legacyPath = '',
+): Promise<{ child: ChildProcess; base: string }> {
   const port = await freePort();
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
-    env: { ...process.env, PORT: String(port), DATABASE_PATH: databasePath, API_PREFIX: 'v1' },
+    env: { ...process.env, PORT: String(port), DATABASE_URL: databaseUrl, DATABASE_PATH: legacyPath, API_PREFIX: 'v1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const base = `http://127.0.0.1:${port}/v1`;

@@ -80,8 +80,8 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database): void
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
-      const id = createTemplate(db, request.params.id, account.id, inputOf(request.body));
+      const account = await requireAccount(db, request);
+      const id = await createTemplate(db, request.params.id, account.id, inputOf(request.body));
       return reply.code(201).send({ id });
     },
   );
@@ -90,10 +90,10 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database): void
     '/groups/:id/templates',
     { schema: { params: idParams, response: { 200: { type: 'array', items: templateSchema } } } },
     async request => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // Only the members of a group see its templates; anyone else is told it does not exist.
-      requireMembership(db, request.params.id, account.id);
-      return templatesOfGroup(db, request.params.id).map(read);
+      await requireMembership(db, request.params.id, account.id);
+      return (await templatesOfGroup(db, request.params.id)).map(read);
     },
   );
 
@@ -101,13 +101,13 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database): void
     '/templates/:id',
     { schema: { params: idParams, body: templateBodySchema } },
     async (request, reply) => {
-      replaceTemplate(db, request.params.id, requireAccount(db, request).id, inputOf(request.body));
+      await replaceTemplate(db, request.params.id, (await requireAccount(db, request)).id, inputOf(request.body));
       return reply.code(204).send();
     },
   );
 
   app.delete<{ Params: { id: string } }>('/templates/:id', { schema: { params: idParams } }, async (request, reply) => {
-    removeTemplate(db, request.params.id, requireAccount(db, request).id);
+    await removeTemplate(db, request.params.id, (await requireAccount(db, request)).id);
     return reply.code(204).send();
   });
 }

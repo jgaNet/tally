@@ -1,12 +1,12 @@
 import { type Application, createApplication } from '../app';
 import { todayInUtc } from '../expenses/validation';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 describe('expenses split by a template', () => {
   let app: Application;
 
   beforeEach(async () => {
-    app = await createApplication({ databasePath: temporaryDatabasePath() });
+    app = await createApplication({ databaseUrl: await temporaryDatabaseUrl() });
   });
 
   afterEach(async () => {

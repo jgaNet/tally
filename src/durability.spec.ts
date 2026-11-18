@@ -1,15 +1,15 @@
 import { createApplication } from './app';
 import { openDatabase } from './database';
-import { exited, send, signedUpAccount, startServerProcess, temporaryDatabasePath, validSignup } from './test-support';
+import { exited, send, signedUpAccount, startServerProcess, temporaryDatabaseUrl, validSignup } from './test-support';
 
 describe('what is kept', () => {
-  it('keeps accounts, and their tokens, when the application stops and starts again on the same file', async () => {
-    const databasePath = temporaryDatabasePath();
-    const first = await createApplication({ databasePath });
+  it('keeps accounts, and their tokens, when the application stops and starts again on the same database', async () => {
+    const databaseUrl = await temporaryDatabaseUrl();
+    const first = await createApplication({ databaseUrl });
     const { id, token } = await signedUpAccount(first);
     await first.stop();
 
-    const second = await createApplication({ databasePath });
+    const second = await createApplication({ databaseUrl });
     const me = await send(second, 'GET', '/accounts/me', { token });
     expect(me.statusCode).toBe(200);
     expect(me.json().id).toBe(id);
@@ -20,10 +20,10 @@ describe('what is kept', () => {
     await second.stop();
   });
 
-  it('is shared by several applications on the same file at the same time', async () => {
-    const databasePath = temporaryDatabasePath();
-    // Both start together; each brings the schema up to date under the file's write lock.
-    const [a, b] = await Promise.all([createApplication({ databasePath }), createApplication({ databasePath })]);
+  it('is shared by several applications on the same database at the same time', async () => {
+    const databaseUrl = await temporaryDatabaseUrl();
+    // Both start together; each brings the schema up to date under the database's write lock.
+    const [a, b] = await Promise.all([createApplication({ databaseUrl }), createApplication({ databaseUrl })]);
 
     const created = await send(a, 'POST', '/accounts', { payload: validSignup });
     expect(created.statusCode).toBe(201);
@@ -43,8 +43,8 @@ describe('what is kept', () => {
   });
 
   it('keeps what was written when a server process is killed without warning', async () => {
-    const databasePath = temporaryDatabasePath();
-    const first = await startServerProcess(databasePath);
+    const databaseUrl = await temporaryDatabaseUrl();
+    const first = await startServerProcess(databaseUrl);
     const created = await fetch(`${first.base}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -56,7 +56,7 @@ describe('what is kept', () => {
     first.child.kill('SIGKILL');
     await exited(first.child);
 
-    const second = await startServerProcess(databasePath);
+    const second = await startServerProcess(databaseUrl);
     try {
       const login = await fetch(`${second.base}/accounts/login`, {
         method: 'POST',
@@ -74,21 +74,31 @@ describe('what is kept', () => {
   });
 });
 
-describe('the database file', () => {
-  it('is opened in WAL mode, so that several connections can use it', () => {
-    const databasePath = temporaryDatabasePath();
-    const writer = openDatabase(databasePath);
-    const reader = openDatabase(databasePath);
-    expect(writer.prepare('PRAGMA journal_mode').get()?.journal_mode).toBe('wal');
-    writer.close();
-    reader.close();
+describe('the database', () => {
+  it('is several connections to one PostgreSQL database: a write by one is read by the other', async () => {
+    const databaseUrl = await temporaryDatabaseUrl();
+    const writer = await openDatabase(databaseUrl);
+    const reader = await openDatabase(databaseUrl);
+    try {
+      await writer.execute(
+        `INSERT INTO accounts (id, email, email_key, name, password_salt, password_hash, created_at)
+         VALUES ('a1', 'x', 'x', 'X', 's', 'h', '2026-01-01T00:00:00.000Z')`,
+      );
+      expect(await reader.row('SELECT id FROM accounts WHERE id = ?', ['a1'])).toEqual({ id: 'a1' });
+    } finally {
+      await writer.close();
+      await reader.close();
+    }
   });
 
-  it('is brought up to date once, and opening it again changes nothing', () => {
-    const databasePath = temporaryDatabasePath();
-    openDatabase(databasePath).close();
-    const again = openDatabase(databasePath);
-    expect(again.prepare('PRAGMA user_version').get()?.user_version).toBe(23);
-    again.close();
+  it('is brought up to date once, and opening it again changes nothing', async () => {
+    const databaseUrl = await temporaryDatabaseUrl();
+    await (await openDatabase(databaseUrl)).close();
+    const again = await openDatabase(databaseUrl);
+    try {
+      expect(await again.row('SELECT version FROM tally_schema')).toEqual({ version: 1 });
+    } finally {
+      await again.close();
+    }
   });
 });

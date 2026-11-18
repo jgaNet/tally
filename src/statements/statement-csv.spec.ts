@@ -1,14 +1,14 @@
 import { type Application, createApplication } from '../app';
 import { todayInUtc } from '../expenses/validation';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 describe("a member's statement as CSV", () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {

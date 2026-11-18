@@ -57,7 +57,7 @@ export async function attachReceipt(
   accountId: string,
   bytes: Buffer,
 ): Promise<void> {
-  requireEditor(db, expenseId, accountId);
+  await requireEditor(db, expenseId, accountId);
   if (config.url === '') {
     throw new Refusal(409, 'ReceiptsNotConfigured', 'Receipts are not set up on this server.');
   }
@@ -77,15 +77,16 @@ export async function attachReceipt(
       'The receipts store did not keep the file: nothing was kept. Try again.',
     );
   }
-  inTransaction(db, () => {
-    requireEditor(db, expenseId, accountId);
-    db.prepare(
+  await inTransaction(db, async () => {
+    await requireEditor(db, expenseId, accountId);
+    await db.execute(
       `INSERT INTO receipts (expense_id, type, size, url, store_id, attached_at)
        VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (expense_id) DO UPDATE SET
          type = excluded.type, size = excluded.size, url = excluded.url,
          store_id = excluded.store_id, attached_at = excluded.attached_at`,
-    ).run(expenseId, type, bytes.length, stored.url, stored.id, new Date().toISOString());
+      [expenseId, type, bytes.length, stored.url, stored.id, new Date().toISOString()],
+    );
   });
 }
 
@@ -124,10 +125,12 @@ async function storeFile(
  * The receipt of the expense `expenseId`, for a member of its group. Anyone else is refused as if the expense did
  * not exist; an expense without a receipt is refused with `404`. Reading it changes nothing.
  */
-export function requireReceipt(db: Database, expenseId: string, accountId: string): Receipt {
-  requireExpense(db, expenseId, accountId);
-  const row = db.prepare('SELECT type, size, url FROM receipts WHERE expense_id = ?').get(expenseId) as
-    { type: ReceiptType; size: number; url: string } | undefined;
+export async function requireReceipt(db: Database, expenseId: string, accountId: string): Promise<Receipt> {
+  await requireExpense(db, expenseId, accountId);
+  const row = await db.row<{ type: ReceiptType; size: number; url: string }>(
+    'SELECT type, size, url FROM receipts WHERE expense_id = ?',
+    [expenseId],
+  );
   if (row === undefined) {
     throw new Refusal(404, 'NotFound', 'The expense has no receipt.');
   }

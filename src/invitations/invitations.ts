@@ -25,29 +25,28 @@ const keyOf = (invitationId: string): string => createHash('sha256').update(invi
  * Creates an invitation to `groupId`, made by `accountId`, who must be a member of it. The id is
  * 256 random bits, so it cannot be guessed; it stays usable until it is no longer needed.
  */
-export function createInvitation(db: Database, groupId: string, accountId: string): string {
-  requireMembership(db, groupId, accountId);
-  requireNotArchived(db, groupId);
+export async function createInvitation(db: Database, groupId: string, accountId: string): Promise<string> {
+  await requireMembership(db, groupId, accountId);
+  await requireNotArchived(db, groupId);
   const id = randomBytes(32).toString('base64url');
-  db.prepare('INSERT INTO invitations (id_hash, group_id, invited_by, created_at) VALUES (?, ?, ?, ?)').run(
+  await db.execute('INSERT INTO invitations (id_hash, group_id, invited_by, created_at) VALUES (?, ?, ?, ?)', [
     keyOf(id),
     groupId,
     accountId,
     new Date().toISOString(),
-  );
+  ]);
   return id;
 }
 
 /** The invitation with this id, or `undefined`. Reading it changes nothing and needs no membership. */
-export function findInvitation(db: Database, invitationId: string): Invitation | undefined {
-  const row = db
-    .prepare(
-      `SELECT groups.id AS group_id, groups.name AS group_name, invitations.invited_by
-         FROM invitations
-         JOIN groups ON groups.id = invitations.group_id
-        WHERE invitations.id_hash = ?`,
-    )
-    .get(keyOf(invitationId)) as InvitationRow | undefined;
+export async function findInvitation(db: Database, invitationId: string): Promise<Invitation | undefined> {
+  const row = await db.row<InvitationRow>(
+    `SELECT groups.id AS group_id, groups.name AS group_name, invitations.invited_by
+       FROM invitations
+       JOIN groups ON groups.id = invitations.group_id
+      WHERE invitations.id_hash = ?`,
+    [keyOf(invitationId)],
+  );
   if (!row) {
     return undefined;
   }
@@ -60,14 +59,14 @@ export function findInvitation(db: Database, invitationId: string): Invitation |
 }
 
 /** Makes `accountId` a member of the invitation's group. Returns the group's id. */
-export function acceptInvitation(db: Database, invitationId: string, accountId: string): string {
-  return inTransaction(db, () => {
-    const invitation = findInvitation(db, invitationId);
+export function acceptInvitation(db: Database, invitationId: string, accountId: string): Promise<string> {
+  return inTransaction(db, async () => {
+    const invitation = await findInvitation(db, invitationId);
     if (!invitation) {
       throw new Refusal(404, 'NotFound', 'There is no such invitation.');
     }
-    requireNotArchived(db, invitation.groupId);
-    joinGroup(db, invitation.groupId, accountId);
+    await requireNotArchived(db, invitation.groupId);
+    await joinGroup(db, invitation.groupId, accountId);
     return invitation.groupId;
   });
 }

@@ -27,28 +27,29 @@ interface OperationRow {
 }
 
 /** Records an operation that a request answered later with `202 { operationId }`. */
-export function recordOperation(
+export async function recordOperation(
   db: Database,
   input: { accountId: string | null; status: OperationStatus; result?: unknown; error?: OperationError },
-): string {
+): Promise<string> {
   const id = randomUUID();
-  db.prepare(
+  await db.execute(
     `INSERT INTO operations (id, account_id, status, result, error_type, error_message, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.accountId,
-    input.status,
-    input.result === undefined ? null : JSON.stringify(input.result),
-    input.error?.type ?? null,
-    input.error?.message ?? null,
-    new Date().toISOString(),
+    [
+      id,
+      input.accountId,
+      input.status,
+      input.result === undefined ? null : JSON.stringify(input.result),
+      input.error?.type ?? null,
+      input.error?.message ?? null,
+      new Date().toISOString(),
+    ],
   );
   return id;
 }
 
-export function findOperation(db: Database, id: string): Operation | undefined {
-  const row = db.prepare('SELECT * FROM operations WHERE id = ?').get(id) as OperationRow | undefined;
+export async function findOperation(db: Database, id: string): Promise<Operation | undefined> {
+  const row = await db.row<OperationRow>('SELECT * FROM operations WHERE id = ?', [id]);
   if (!row) {
     return undefined;
   }

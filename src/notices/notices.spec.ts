@@ -1,14 +1,14 @@
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 import { todayInUtc } from '../expenses/validation';
 
 describe('notices', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -244,7 +244,7 @@ describe('notices', () => {
     const before = await noticesOf(grace.token);
     await app.stop();
 
-    app = await createApplication({ databasePath });
+    app = await createApplication({ databaseUrl });
     expect(await noticesOf(grace.token)).toEqual(before);
     expect(await noticesOf(linus.token)).toEqual([expect.objectContaining({ expenseId, amount: 333 })]);
     expect(await noticesOf(ada.token)).toEqual([]);

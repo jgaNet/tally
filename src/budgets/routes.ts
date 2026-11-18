@@ -32,8 +32,8 @@ export function registerBudgetRoutes(app: FastifyInstance, db: Database): void {
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
-      setBudget(db, request.params.id, account.id, request.params.category, request.body.amount);
+      const account = await requireAccount(db, request);
+      await setBudget(db, request.params.id, account.id, request.params.category, request.body.amount);
       return reply.code(204).send();
     },
   );
@@ -42,8 +42,8 @@ export function registerBudgetRoutes(app: FastifyInstance, db: Database): void {
     '/groups/:id/budgets/:category',
     { schema: { params: budgetParams } },
     async (request, reply) => {
-      const account = requireAccount(db, request);
-      removeBudget(db, request.params.id, account.id, request.params.category);
+      const account = await requireAccount(db, request);
+      await removeBudget(db, request.params.id, account.id, request.params.category);
       return reply.code(204).send();
     },
   );
@@ -52,9 +52,9 @@ export function registerBudgetRoutes(app: FastifyInstance, db: Database): void {
     '/groups/:id/budgets',
     { schema: { params: groupParams, response: { 200: { type: 'array', items: budgetSchema } } } },
     async request => {
-      const account = requireAccount(db, request);
-      requireMembership(db, request.params.id, account.id);
-      return budgetsOf(db, request.params.id);
+      const account = await requireAccount(db, request);
+      await requireMembership(db, request.params.id, account.id);
+      return await budgetsOf(db, request.params.id);
     },
   );
 }

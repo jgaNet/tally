@@ -1,14 +1,14 @@
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 import { todayInUtc } from './validation';
 
 describe('editing and deleting an expense', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -267,7 +267,7 @@ describe('editing and deleting an expense', () => {
       const { ada, grace, linus, groupId } = await threeMembers();
       const id = await record(ada.token, groupId, expense({ amount: 300, splitBetween: [ada.id, grace.id, linus.id] }));
 
-      const other = await createApplication({ databasePath });
+      const other = await createApplication({ databaseUrl });
       try {
         const attempts = [
           { token: ada.token, amount: 300, split: [ada.id, grace.id] },
@@ -388,7 +388,7 @@ describe('editing and deleting an expense', () => {
       const before = (await readExpense(ada.token, id)).json();
       await app.stop();
 
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       expect((await readExpense(ada.token, id)).json()).toEqual(before);
       expect(before.version).toBe(2);
     });
@@ -399,7 +399,7 @@ describe('editing and deleting an expense', () => {
       expect((await send(app, 'DELETE', `/expenses/${id}`, { token: ada.token })).statusCode).toBe(204);
       await app.stop();
 
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       expect((await readExpense(ada.token, id)).statusCode).toBe(404);
       expect((await balancesOf(ada.token, groupId)).every(balance => balance.balance === 0)).toBe(true);
     });

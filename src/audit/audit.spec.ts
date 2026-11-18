@@ -13,7 +13,7 @@ import {
   startFakeProvider,
   startFakeReceiptsStore,
   startServerProcess,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
   validSignup,
 } from '../test-support';
 
@@ -37,13 +37,13 @@ function dayOfMonth(months: number, day: number): string {
 
 describe('the audit of a group', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
   let provider: FakeProvider;
   let receipts: FakeReceiptsStore;
 
   const configured = (path: string) =>
     createApplication({
-      databasePath: path,
+      databaseUrl: path,
       providerUrl: provider.url,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 300,
@@ -52,10 +52,10 @@ describe('the audit of a group', () => {
     });
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
+    databaseUrl = await temporaryDatabaseUrl();
     provider = await startFakeProvider();
     receipts = await startFakeReceiptsStore();
-    app = await configured(databasePath);
+    app = await configured(databaseUrl);
   });
 
   afterEach(async () => {
@@ -178,7 +178,7 @@ describe('the audit of a group', () => {
         payload: { description: 'Rent', amount: 90000, startsOn: dayOfMonth(0, 1), splitBetween: [ada.id, grace.id] },
       });
       expect(created.statusCode).toBe(201);
-      app.runJobs();
+      await app.runJobs();
       const expenses = await send(app, 'GET', `/groups/${groupId}/expenses`, { token: ada.token });
       const [recorded] = expenses.json<{ id: string }[]>();
       expect(await audit(ada.token, groupId)).toEqual([
@@ -457,14 +457,14 @@ describe('the audit of a group', () => {
     it('never changes or removes an entry, whatever writes to the file', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await recordExpense(grace.token, groupId, { amount: 900, splitBetween: [ada.id, grace.id] });
-      const raw = openDatabase(databasePath);
+      const raw = await openDatabase(databaseUrl);
       try {
-        expect(() => raw.prepare('UPDATE audit_entries SET amount = 1').run()).toThrow(
+        await expect(raw.execute('UPDATE audit_entries SET amount = 1')).rejects.toThrow(
           'an audit entry is never changed',
         );
-        expect(() => raw.prepare('DELETE FROM audit_entries').run()).toThrow('an audit entry is never removed');
+        await expect(raw.execute('DELETE FROM audit_entries')).rejects.toThrow('an audit entry is never removed');
       } finally {
-        raw.close();
+        await raw.close();
       }
       expect((await audit(ada.token, groupId))[0].amount).toBe(900);
     });
@@ -473,7 +473,7 @@ describe('the audit of a group', () => {
       const { ada, grace, groupId } = await adaOwesGrace();
       const id = await askForProviderPayment(ada.token, groupId, grace.id, 300);
       const body = webhookBody(lastPaymentId(), 'succeeded');
-      const other = await configured(databasePath);
+      const other = await configured(databaseUrl);
       try {
         const [a, b] = await Promise.all([deliver(app, body), deliver(other, body)]);
         expect([a.statusCode, b.statusCode]).toEqual([204, 204]);
@@ -484,7 +484,7 @@ describe('the audit of a group', () => {
     });
 
     it('keeps the entry of a change answered as done when the server is killed right after it', async () => {
-      const path = temporaryDatabasePath();
+      const path = await temporaryDatabaseUrl();
       const first = await startServerProcess(path);
       const json = { 'content-type': 'application/json' };
       let token = '';

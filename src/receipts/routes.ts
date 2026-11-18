@@ -29,7 +29,7 @@ export function registerReceiptRoutes(app: FastifyInstance, db: Database, receip
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // A request with no body at all is an empty file, which is refused as one.
       await attachReceipt(db, receipts, request.params.id, account.id, request.body ?? Buffer.alloc(0));
       return reply.code(204).send();
@@ -45,8 +45,8 @@ export function registerReceiptRoutes(app: FastifyInstance, db: Database, receip
       },
     },
     async request => {
-      const account = requireAccount(db, request);
-      return requireReceipt(db, request.params.id, account.id);
+      const account = await requireAccount(db, request);
+      return await requireReceipt(db, request.params.id, account.id);
     },
   );
 }

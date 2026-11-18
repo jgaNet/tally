@@ -1,6 +1,6 @@
 import { type Application, createApplication } from '../app';
 import { todayInUtc } from '../expenses/validation';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 /** The day `day` of the month `monthsAgo` months before the current one (UTC), as `YYYY-MM-DD`. */
 function dayOfMonth(monthsAgo: number, day: number): string {
@@ -21,11 +21,11 @@ interface BudgetNotice {
 
 describe('budget notices', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -219,8 +219,8 @@ describe('budget notices', () => {
     });
     expect(created.statusCode).toBe(201);
 
-    app.runJobs(new Date());
-    app.runJobs(new Date());
+    await app.runJobs(new Date());
+    await app.runJobs(new Date());
     const notices = await budgetNoticesOf(grace.token);
     expect(notices.map(notice => [notice.category, notice.month, notice.amount])).toEqual([
       ['groceries', currentMonth(), 25000],
@@ -232,7 +232,7 @@ describe('budget notices', () => {
     await record(ada, groupId, between, 25000);
     await app.stop();
 
-    app = await createApplication({ databasePath });
+    app = await createApplication({ databaseUrl });
     expect(await budgetNoticesOf(grace.token)).toHaveLength(1);
     await record(ada, groupId, between, 1000);
     expect(await budgetNoticesOf(grace.token)).toHaveLength(1);

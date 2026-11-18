@@ -81,42 +81,40 @@ interface Ordered {
  * A member who has left keeps their statement. Refuses with `404` when `memberId` has never been a
  * member of the group.
  */
-export function statementOf(db: Database, groupId: string, memberId: string): Statement {
-  if (!hasBeenMember(db, groupId, memberId)) {
+export async function statementOf(db: Database, groupId: string, memberId: string): Promise<Statement> {
+  if (!(await hasBeenMember(db, groupId, memberId))) {
     throw new Refusal(404, 'NotFound', 'There is no such member in this group.');
   }
 
   // One statement, so it reads one snapshot of the file. A member has at most one share in an expense.
-  const expenseRows = db
-    .prepare(
-      `SELECT expenses.id, expenses.date, expenses.description, expenses.amount, expenses.paid_by,
-              expenses.created_at, expenses.rowid AS seq, expense_shares.amount AS share
-         FROM expenses
-         LEFT JOIN expense_shares
-                ON expense_shares.expense_id = expenses.id AND expense_shares.member_id = ?
-        WHERE expenses.group_id = ?
-          AND (expenses.paid_by = ? OR expense_shares.member_id IS NOT NULL)`,
-    )
-    .all(memberId, groupId, memberId) as unknown as ExpenseRow[];
+  const expenseRows = await db.rows<ExpenseRow>(
+    `SELECT expenses.id, expenses.date, expenses.description, expenses.amount, expenses.paid_by,
+            expenses.created_at, expenses.seq AS seq, expense_shares.amount AS share
+       FROM expenses
+       LEFT JOIN expense_shares
+              ON expense_shares.expense_id = expenses.id AND expense_shares.member_id = ?
+      WHERE expenses.group_id = ?
+        AND (expenses.paid_by = ? OR expense_shares.member_id IS NOT NULL)`,
+    [memberId, groupId, memberId],
+  );
 
   // A settlement counts from the first time it was paid (its history's first `paid`), and stops counting
   // once it is refunded: the statuses the balances count are `paid` and `refunding`.
-  const settlementRows = db
-    .prepare(
-      `SELECT settlements.id, settlements.payer_id, settlements.payee_id, settlements.amount,
-              settlements.method, settlements.rowid AS seq,
-              COALESCE((SELECT settlement_statuses.at
-                          FROM settlement_statuses
-                         WHERE settlement_statuses.settlement_id = settlements.id
-                           AND settlement_statuses.status = 'paid'
-                         ORDER BY settlement_statuses.id
-                         LIMIT 1), settlements.created_at) AS counted_at
-         FROM settlements
-        WHERE settlements.group_id = ?
-          AND (settlements.payer_id = ? OR settlements.payee_id = ?)
-          AND settlements.status IN ('paid', 'refunding')`,
-    )
-    .all(groupId, memberId, memberId) as unknown as SettlementRow[];
+  const settlementRows = await db.rows<SettlementRow>(
+    `SELECT settlements.id, settlements.payer_id, settlements.payee_id, settlements.amount,
+            settlements.method, settlements.seq AS seq,
+            COALESCE((SELECT settlement_statuses.at
+                        FROM settlement_statuses
+                       WHERE settlement_statuses.settlement_id = settlements.id
+                         AND settlement_statuses.status = 'paid'
+                       ORDER BY settlement_statuses.id
+                       LIMIT 1), settlements.created_at) AS counted_at
+       FROM settlements
+      WHERE settlements.group_id = ?
+        AND (settlements.payer_id = ? OR settlements.payee_id = ?)
+        AND settlements.status IN ('paid', 'refunding')`,
+    [groupId, memberId, memberId],
+  );
 
   const ordered: Ordered[] = [
     ...expenseRows.map((row): Ordered => ({

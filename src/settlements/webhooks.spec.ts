@@ -8,21 +8,21 @@ import {
   setPayoutAccount,
   signedUpAccount,
   startFakeProvider,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 const SECRET = 'shared-secret';
 
 describe('the provider’s webhooks', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
   let provider: FakeProvider;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
+    databaseUrl = await temporaryDatabaseUrl();
     provider = await startFakeProvider();
     app = await createApplication({
-      databasePath,
+      databaseUrl,
       providerUrl: provider.url,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 300,
@@ -123,7 +123,7 @@ describe('the provider’s webhooks', () => {
 
     it('refuses every webhook when no secret is configured, as none can be checked', async () => {
       await app.stop();
-      app = await createApplication({ databasePath, providerUrl: provider.url });
+      app = await createApplication({ databaseUrl, providerUrl: provider.url });
       const { grace, id, paymentId } = await adaPaysThroughProvider();
       expect((await webhookFor(paymentId, 'succeeded', '')).statusCode).toBe(401);
       expect((await read(grace.token, id)).json().status).toBe('pending');
@@ -199,7 +199,7 @@ describe('the provider’s webhooks', () => {
       const { ada, grace, groupId, id, paymentId } = await adaPaysThroughProvider();
       await webhookFor(paymentId, 'succeeded');
       await app.stop();
-      app = await createApplication({ databasePath, providerUrl: provider.url, providerWebhookSecret: SECRET });
+      app = await createApplication({ databaseUrl, providerUrl: provider.url, providerWebhookSecret: SECRET });
       expect((await read(grace.token, id)).json()).toEqual(expect.objectContaining({ status: 'paid' }));
       expect(await balanceOfAda(ada.token, groupId, ada.id)).toBe(-200);
     });
@@ -238,7 +238,7 @@ describe('the provider’s webhooks', () => {
     it('applies a webhook that arrives after the application stopped and started again', async () => {
       const { ada, grace, groupId, id, paymentId } = await adaPaysThroughProvider();
       await app.stop();
-      app = await createApplication({ databasePath, providerUrl: provider.url, providerWebhookSecret: SECRET });
+      app = await createApplication({ databaseUrl, providerUrl: provider.url, providerWebhookSecret: SECRET });
       expect((await webhookFor(paymentId, 'succeeded')).statusCode).toBe(204);
       expect((await read(grace.token, id)).json().status).toBe('paid');
       expect(await balanceOfAda(ada.token, groupId, ada.id)).toBe(-200);
@@ -247,7 +247,7 @@ describe('the provider’s webhooks', () => {
     it('counts a payment once when the same webhook reaches two applications on the same file at once', async () => {
       const { ada, groupId, paymentId } = await adaPaysThroughProvider();
       const other = await createApplication({
-        databasePath,
+        databaseUrl,
         providerUrl: provider.url,
         providerWebhookSecret: SECRET,
       });
@@ -264,7 +264,7 @@ describe('the provider’s webhooks', () => {
     it('decides a succeeded and a failed webhook that arrive at once on two applications: the first decided stands', async () => {
       const { ada, grace, groupId, id, paymentId } = await adaPaysThroughProvider();
       const other = await createApplication({
-        databasePath,
+        databaseUrl,
         providerUrl: provider.url,
         providerWebhookSecret: SECRET,
       });

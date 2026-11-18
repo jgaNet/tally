@@ -25,8 +25,8 @@ export function registerInvitationRoutes(app: FastifyInstance, db: Database): vo
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
-      const id = createInvitation(db, request.params.id, account.id);
+      const account = await requireAccount(db, request);
+      const id = await createInvitation(db, request.params.id, account.id);
       return reply.code(201).send({ id });
     },
   );
@@ -40,8 +40,8 @@ export function registerInvitationRoutes(app: FastifyInstance, db: Database): vo
       },
     },
     async request => {
-      requireAccount(db, request);
-      const invitation = findInvitation(db, request.params.id);
+      await requireAccount(db, request);
+      const invitation = await findInvitation(db, request.params.id);
       if (!invitation) {
         throw new Refusal(404, 'NotFound', 'There is no such invitation.');
       }
@@ -58,8 +58,8 @@ export function registerInvitationRoutes(app: FastifyInstance, db: Database): vo
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
-      const groupId = acceptInvitation(db, request.params.id, account.id);
+      const account = await requireAccount(db, request);
+      const groupId = await acceptInvitation(db, request.params.id, account.id);
       return reply.code(201).send({ groupId });
     },
   );

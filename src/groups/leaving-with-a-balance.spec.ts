@@ -8,28 +8,28 @@ import {
   setPayoutAccount,
   signedUpAccount,
   startFakeProvider,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 const SECRET = 'shared-secret';
 
 describe('leaving a group with a balance', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
   let provider: FakeProvider;
 
   const start = (path: string) =>
     createApplication({
-      databasePath: path,
+      databaseUrl: path,
       providerUrl: provider.url,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 300,
     });
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
+    databaseUrl = await temporaryDatabaseUrl();
     provider = await startFakeProvider();
-    app = await start(databasePath);
+    app = await start(databaseUrl);
   });
 
   afterEach(async () => {
@@ -234,7 +234,7 @@ describe('leaving a group with a balance', () => {
       const outcomes = new Set<number>();
       for (let round = 0; round < 6; round++) {
         const { ada, grace, linus, groupId } = await adaPaidForAll();
-        const other = await start(databasePath);
+        const other = await start(databaseUrl);
         // Linus leaves while Ada records an expense of 300 that names Linus, through the other server.
         const [left, recorded] = await Promise.all([
           leave(linus.token, groupId, round % 2 === 0 ? app : other),
@@ -265,14 +265,14 @@ describe('leaving a group with a balance', () => {
           ]);
         }
         await app.stop();
-        app = await start(databasePath);
+        app = await start(databaseUrl);
       }
       expect([...outcomes].every(status => status === 201 || status === 422)).toBe(true);
     });
 
     it('records a cash settlement before the leave, or refuses it because the payer is not a member: the balances add up to 0', async () => {
       const { ada, grace, linus, groupId } = await adaPaidForAll();
-      const other = await start(databasePath);
+      const other = await start(databaseUrl);
       // Linus pays Ada 300 in cash, recorded by Ada, while Linus leaves: either order ends the same.
       const [left, settled] = await Promise.all([
         leave(linus.token, groupId, other),
@@ -297,7 +297,7 @@ describe('leaving a group with a balance', () => {
       expect((await leave(linus.token, groupId)).statusCode).toBe(204);
       await app.stop();
 
-      app = await start(databasePath);
+      app = await start(databaseUrl);
       expect(await balancesOf(ada.token, groupId)).toEqual([
         { memberId: ada.id, balance: 300 },
         { memberId: grace.id, balance: -300 },

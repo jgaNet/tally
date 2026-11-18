@@ -1,5 +1,5 @@
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 /** The `day` of the month `months` from the current one (UTC), as `YYYY-MM-DD`. */
 function dayOfMonth(months: number, day: number): string {
@@ -12,7 +12,7 @@ describe('the background job and an archived group', () => {
   let app: Application;
 
   beforeEach(async () => {
-    app = await createApplication({ databasePath: temporaryDatabasePath() });
+    app = await createApplication({ databaseUrl: await temporaryDatabaseUrl() });
   });
 
   afterEach(async () => {
@@ -60,7 +60,7 @@ describe('the background job and an archived group', () => {
     expect(archived.statusCode).toBe(204);
 
     // The day has come for both: the job records the open group's expense, and none for the archived one.
-    app.runJobs(new Date(`${startsOn}T10:00:00Z`));
+    await app.runJobs(new Date(`${startsOn}T10:00:00Z`));
     expect(await expenseCount(ada.token, archivedGroup)).toBe(0);
     expect(await expenseCount(ada.token, openGroup)).toBe(1);
   });

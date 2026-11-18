@@ -18,7 +18,7 @@ export function registerPayoutAccountRoutes(app: FastifyInstance, db: Database, 
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       await setPayoutAccount(db, provider, account.id, request.body.accountId);
       return reply.code(204).send();
     },
@@ -39,8 +39,8 @@ export function registerPayoutAccountRoutes(app: FastifyInstance, db: Database, 
       },
     },
     async request => {
-      const account = requireAccount(db, request);
-      const accountId = payoutAccountOf(db, account.id);
+      const account = await requireAccount(db, request);
+      const accountId = await payoutAccountOf(db, account.id);
       if (accountId === undefined) {
         throw new Refusal(404, 'NotFound', 'You have no payout account.');
       }

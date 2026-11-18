@@ -1,11 +1,11 @@
 import { type Application, createApplication } from '../app';
-import { send, signedUpAccount, temporaryDatabasePath, validSignup } from '../test-support';
+import { send, signedUpAccount, temporaryDatabaseUrl, validSignup } from '../test-support';
 
 describe('accounts', () => {
   let app: Application;
 
   beforeEach(async () => {
-    app = await createApplication({ databasePath: temporaryDatabasePath() });
+    app = await createApplication({ databaseUrl: await temporaryDatabaseUrl() });
   });
 
   afterEach(async () => {

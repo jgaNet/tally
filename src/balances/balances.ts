@@ -27,7 +27,7 @@ interface BalanceRow {
  * up to 0, and so do the transfers made when members left, which each move a balance from the one who
  * left to the owner. Reading changes nothing.
  */
-export function balancesOf(db: Database, groupId: string): Balance[] {
+export function balancesOf(db: Database, groupId: string): Promise<Balance[]> {
   return balancesCounting(db, groupId, `settlements.status IN ('paid', 'refunding')`);
 }
 
@@ -36,15 +36,14 @@ export function balancesOf(db: Database, groupId: string): Balance[] {
  * waiting at the provider counts as paid. What a member still owes, or is still owed, is read from
  * these. Reading changes nothing.
  */
-export function balancesWithPendingOf(db: Database, groupId: string): Balance[] {
+export function balancesWithPendingOf(db: Database, groupId: string): Promise<Balance[]> {
   return balancesCounting(db, groupId, `settlements.status IN ('pending', 'paid', 'refunding')`);
 }
 
 /** `counted` is a condition on `settlements`, written here and never from a request. */
-function balancesCounting(db: Database, groupId: string, counted: string): Balance[] {
-  const rows = db
-    .prepare(
-      `SELECT memberships.account_id AS member_id,
+async function balancesCounting(db: Database, groupId: string, counted: string): Promise<Balance[]> {
+  const rows = await db.rows<BalanceRow>(
+    `SELECT memberships.account_id AS member_id,
               (SELECT COALESCE(SUM(expenses.amount), 0)
                  FROM expenses
                 WHERE expenses.group_id = memberships.group_id
@@ -74,8 +73,8 @@ function balancesCounting(db: Database, groupId: string, counted: string): Balan
                   AND balance_transfers.from_id = memberships.account_id) AS balance
          FROM memberships
         WHERE memberships.group_id = ?
-        ORDER BY memberships.joined_at, memberships.rowid`,
-    )
-    .all(groupId) as unknown as BalanceRow[];
+        ORDER BY memberships.joined_at, memberships.seq`,
+    [groupId],
+  );
   return rows.map(row => ({ memberId: row.member_id, balance: Number(row.balance) }));
 }

@@ -1,5 +1,5 @@
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 import { todayInUtc } from '../expenses/validation';
 
 const MINUTE = 60_000;
@@ -10,11 +10,11 @@ const START = Date.parse('2026-01-05T09:00:00.000Z');
 
 describe('reminders', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -72,9 +72,9 @@ describe('reminders', () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]); // Grace owes 2001.
 
-      app.runJobs(at(START));
+      await app.runJobs(at(START));
       expect(await remindersOf(grace.token)).toEqual([]);
-      app.runJobs(at(START + WEEK - MINUTE));
+      await app.runJobs(at(START + WEEK - MINUTE));
       expect(await remindersOf(grace.token)).toEqual([]);
     });
 
@@ -82,8 +82,8 @@ describe('reminders', () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4000, [ada.id, grace.id]); // Grace owes 2000.
 
-      app.runJobs(at(START));
-      app.runJobs(at(START + 2 * WEEK));
+      await app.runJobs(at(START));
+      await app.runJobs(at(START + 2 * WEEK));
       expect(await remindersOf(grace.token)).toEqual([]);
     });
 
@@ -91,8 +91,8 @@ describe('reminders', () => {
       const { ada, grace, linus, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]); // Ada is owed; Linus owes nothing.
 
-      app.runJobs(at(START));
-      app.runJobs(at(START + 2 * WEEK));
+      await app.runJobs(at(START));
+      await app.runJobs(at(START + 2 * WEEK));
       expect(await remindersOf(ada.token)).toEqual([]);
       expect(await remindersOf(linus.token)).toEqual([]);
     });
@@ -104,9 +104,9 @@ describe('reminders', () => {
       await remindersOf(grace.token);
 
       // The first run to see the debt is at a week: it notes Grace then, so nothing is due yet.
-      app.runJobs(at(START + WEEK));
+      await app.runJobs(at(START + WEEK));
       expect(await remindersOf(grace.token)).toEqual([]);
-      app.runJobs(at(START + 2 * WEEK));
+      await app.runJobs(at(START + 2 * WEEK));
       expect(await remindersOf(grace.token)).toHaveLength(1);
     });
   });
@@ -115,11 +115,11 @@ describe('reminders', () => {
     it('reminds a member noted for a week, at the first run a week after the note', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]);
-      app.runJobs(at(START));
+      await app.runJobs(at(START));
 
-      app.runJobs(at(START + WEEK - MINUTE));
+      await app.runJobs(at(START + WEEK - MINUTE));
       expect(await remindersOf(grace.token)).toEqual([]);
-      app.runJobs(at(START + WEEK));
+      await app.runJobs(at(START + WEEK));
       expect(await remindersOf(grace.token)).toEqual([
         { id: expect.any(String), kind: 'reminder', groupId, amount: 2001, at: iso(START + WEEK) },
       ]);
@@ -128,14 +128,14 @@ describe('reminders', () => {
     it('reminds again each week while the debt lasts, and not in between', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]);
-      app.runJobs(at(START));
+      await app.runJobs(at(START));
 
-      app.runJobs(at(START + WEEK));
-      app.runJobs(at(START + WEEK + MINUTE));
-      app.runJobs(at(START + WEEK + 3 * DAY));
+      await app.runJobs(at(START + WEEK));
+      await app.runJobs(at(START + WEEK + MINUTE));
+      await app.runJobs(at(START + WEEK + 3 * DAY));
       expect(await remindersOf(grace.token)).toHaveLength(1);
-      app.runJobs(at(START + 2 * WEEK));
-      app.runJobs(at(START + 3 * WEEK));
+      await app.runJobs(at(START + 2 * WEEK));
+      await app.runJobs(at(START + 3 * WEEK));
       const reminders = await remindersOf(grace.token);
       expect(reminders.map(reminder => reminder.at)).toEqual([
         iso(START + 3 * WEEK),
@@ -147,18 +147,18 @@ describe('reminders', () => {
     it('reminds with what the member still owes, which falls as they pay', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]);
-      app.runJobs(at(START));
+      await app.runJobs(at(START));
       await paidBy(ada.token, groupId, grace.id, 501); // Grace owes 1500 now: no longer over 2000.
 
-      app.runJobs(at(START + WEEK));
+      await app.runJobs(at(START + WEEK));
       expect(await remindersOf(grace.token)).toEqual([]);
     });
 
     it('answers a reminder with its kind, group, amount and time, and no expense', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]);
-      app.runJobs(at(START));
-      app.runJobs(at(START + WEEK));
+      await app.runJobs(at(START));
+      await app.runJobs(at(START + WEEK));
 
       const [reminder] = await remindersOf(grace.token);
       expect(Object.keys(reminder).sort()).toEqual(['amount', 'at', 'groupId', 'id', 'kind']);
@@ -168,10 +168,10 @@ describe('reminders', () => {
     it('does not note or remind a member at exactly 2000, even after a week', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]);
-      app.runJobs(at(START));
+      await app.runJobs(at(START));
       await paidBy(ada.token, groupId, grace.id, 1); // Grace owes 2000.
 
-      app.runJobs(at(START + WEEK));
+      await app.runJobs(at(START + WEEK));
       expect(await remindersOf(grace.token)).toEqual([]);
     });
   });
@@ -180,18 +180,18 @@ describe('reminders', () => {
     it('stops being noted once it is 2000 or less, and is noted again from the run that sees it returned', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]); // Grace owes 2001.
-      app.runJobs(at(START));
+      await app.runJobs(at(START));
 
       // Paid down to 2000: the run that sees it drops the note.
       await paidBy(ada.token, groupId, grace.id, 1);
-      app.runJobs(at(START + DAY));
+      await app.runJobs(at(START + DAY));
       // Back over 2000 (Grace owes 2500): noted again from the run at three days, not from the first note.
       await record(ada.token, groupId, 1000, [ada.id, grace.id]);
-      app.runJobs(at(START + 3 * DAY));
+      await app.runJobs(at(START + 3 * DAY));
 
-      app.runJobs(at(START + WEEK));
+      await app.runJobs(at(START + WEEK));
       expect(await remindersOf(grace.token)).toEqual([]);
-      app.runJobs(at(START + 10 * DAY));
+      await app.runJobs(at(START + 10 * DAY));
       expect(await remindersOf(grace.token)).toEqual([
         { id: expect.any(String), kind: 'reminder', groupId, amount: 2500, at: iso(START + 10 * DAY) },
       ]);
@@ -200,7 +200,7 @@ describe('reminders', () => {
     it('drops a note for a member who has left and rejoins, so the new debt is noted afresh', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]);
-      app.runJobs(at(START));
+      await app.runJobs(at(START));
 
       // Grace settles to 0 and leaves, with no run in between: the note would be stale.
       await paidBy(ada.token, groupId, grace.id, 2001);
@@ -209,9 +209,9 @@ describe('reminders', () => {
       await joinThroughInvitation(app, ada.token, grace.token, groupId);
       await record(ada.token, groupId, 4002, [ada.id, grace.id]);
 
-      app.runJobs(at(START + WEEK));
+      await app.runJobs(at(START + WEEK));
       expect(await remindersOf(grace.token)).toEqual([]);
-      app.runJobs(at(START + 2 * WEEK));
+      await app.runJobs(at(START + 2 * WEEK));
       expect(await remindersOf(grace.token)).toHaveLength(1);
     });
   });
@@ -220,16 +220,16 @@ describe('reminders', () => {
     it('reminds a member at most once a week, however many servers run the job on the file', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]);
-      app.runJobs(at(START));
+      await app.runJobs(at(START));
 
-      const other = await createApplication({ databasePath });
+      const other = await createApplication({ databaseUrl });
       try {
-        other.runJobs(at(START + WEEK));
-        app.runJobs(at(START + WEEK));
-        other.runJobs(at(START + WEEK + MINUTE));
+        await other.runJobs(at(START + WEEK));
+        await app.runJobs(at(START + WEEK));
+        await other.runJobs(at(START + WEEK + MINUTE));
         expect(await remindersOf(grace.token)).toHaveLength(1);
 
-        app.runJobs(at(START + 2 * WEEK));
+        await app.runJobs(at(START + 2 * WEEK));
         expect(await remindersOf(grace.token)).toHaveLength(2);
       } finally {
         await other.stop();
@@ -239,23 +239,23 @@ describe('reminders', () => {
     it('keeps its notes and reminders when the application stops and starts again on the same file', async () => {
       const { ada, grace, groupId } = await threeMembers();
       await record(ada.token, groupId, 4002, [ada.id, grace.id]);
-      app.runJobs(at(START));
-      app.runJobs(at(START + WEEK));
+      await app.runJobs(at(START));
+      await app.runJobs(at(START + WEEK));
       const before = await remindersOf(grace.token);
       await app.stop();
 
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       expect(await remindersOf(grace.token)).toEqual(before);
-      app.runJobs(at(START + WEEK + MINUTE));
+      await app.runJobs(at(START + WEEK + MINUTE));
       expect(await remindersOf(grace.token)).toEqual(before);
-      app.runJobs(at(START + 2 * WEEK));
+      await app.runJobs(at(START + 2 * WEEK));
       expect(await remindersOf(grace.token)).toHaveLength(2);
     });
   });
 
   it('is run by the background job on its schedule once the application starts', async () => {
     await app.stop();
-    app = await createApplication({ databasePath, jobsIntervalSeconds: 0.02, reminderPeriodSeconds: 0.05 });
+    app = await createApplication({ databaseUrl, jobsIntervalSeconds: 0.02, reminderPeriodSeconds: 0.05 });
     const { ada, grace, groupId } = await threeMembers();
     await record(ada.token, groupId, 4002, [ada.id, grace.id]);
     await app.start(0);

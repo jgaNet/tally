@@ -1,15 +1,14 @@
-import { DatabaseSync } from 'node:sqlite';
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 import { todayInUtc } from './validation';
 
 describe('an expense in another currency', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -239,42 +238,6 @@ describe('an expense in another currency', () => {
         date: todayInUtc(),
         splitBetween: [ada.id, grace.id],
       });
-      const expense = (await readExpense(ada.token, id)).json();
-      expect(expense).not.toHaveProperty('original');
-      expect(expense.amount).toBe(1000);
-    });
-
-    it('reads an expense recorded before the schema kept originals, as it was', async () => {
-      const { ada, grace, groupId } = await twoMembers();
-      const id = await recordedId(ada.token, groupId, {
-        description: 'Groceries',
-        amount: 1000,
-        date: todayInUtc(),
-        splitBetween: [ada.id, grace.id],
-      });
-      await app.stop();
-
-      // Takes the schema back to before this step, and the audit, the categories, budgets, split templates, receipts and
-      // archiving after it, with the expense in it, and brings it up to date again.
-      const db = new DatabaseSync(databasePath);
-      const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
-      db.exec(`
-        DROP TABLE audit_entries;
-        DROP TABLE receipts;
-        DROP TABLE split_templates;
-        DROP TABLE budget_passings;
-        DROP TABLE budgets;
-        ALTER TABLE expenses DROP COLUMN category;
-        DROP TABLE recurring;
-        ALTER TABLE expenses DROP COLUMN original_currency;
-        ALTER TABLE expenses DROP COLUMN original_amount;
-        ALTER TABLE expenses DROP COLUMN original_rate;
-        ALTER TABLE groups DROP COLUMN archived_at;
-        PRAGMA user_version = ${version - 7};
-      `);
-      db.close();
-      app = await createApplication({ databasePath });
-
       const expense = (await readExpense(ada.token, id)).json();
       expect(expense).not.toHaveProperty('original');
       expect(expense.amount).toBe(1000);

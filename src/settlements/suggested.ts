@@ -52,6 +52,6 @@ export function suggestedTransfers(balances: readonly Balance[]): Transfer[] {
 }
 
 /** The suggested transfers of `groupId`, from its balances as they stand. Reading changes nothing. */
-export function suggestedTransfersOf(db: Database, groupId: string): Transfer[] {
-  return suggestedTransfers(balancesWithPendingOf(db, groupId));
+export async function suggestedTransfersOf(db: Database, groupId: string): Promise<Transfer[]> {
+  return suggestedTransfers(await balancesWithPendingOf(db, groupId));
 }

@@ -13,4 +13,5 @@ export default {
   testMatch: ['**/?(*.)+(spec|test).[jt]s?(x)'],
   testTimeout: 20000,
   modulePathIgnorePatterns: ['<rootDir>/dist/'],
+  setupFiles: ['<rootDir>/src/test-setup.ts'],
 };

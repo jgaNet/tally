@@ -32,9 +32,9 @@ export function registerRateRoutes(app: FastifyInstance, db: Database, rates: Ra
       },
     },
     async request => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // Only the members of a group see its rates; anyone else is told it does not exist.
-      const group = requireMembership(db, request.params.id, account.id);
+      const group = await requireMembership(db, request.params.id, account.id);
       const { currency } = request.params;
       const date = request.query.date ?? todayInUtc();
       if (!isOtherCurrency(currency, group.currency)) {

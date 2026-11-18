@@ -1,15 +1,15 @@
 import { createApplication, type Application } from '../app';
 import { openDatabase } from '../database';
-import { send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 import { recordOperation } from './operations';
 
 describe('operations', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -17,12 +17,12 @@ describe('operations', () => {
   });
 
   /** Records an operation as a later feature's request would: through the same file. */
-  function record(input: Parameters<typeof recordOperation>[1]): string {
-    const db = openDatabase(databasePath);
+  async function record(input: Parameters<typeof recordOperation>[1]): Promise<string> {
+    const db = await openDatabase(databaseUrl);
     try {
-      return recordOperation(db, input);
+      return await recordOperation(db, input);
     } finally {
-      db.close();
+      await db.close();
     }
   }
 
@@ -33,7 +33,7 @@ describe('operations', () => {
   });
 
   it('answers the status of an operation started without a token to anyone, with or without one', async () => {
-    const id = record({ accountId: null, status: 'PENDING' });
+    const id = await record({ accountId: null, status: 'PENDING' });
     const anonymous = await send(app, 'GET', `/operations/${id}`);
     expect(anonymous.statusCode).toBe(200);
     expect(anonymous.json()).toEqual({ status: 'PENDING' });
@@ -44,13 +44,13 @@ describe('operations', () => {
   });
 
   it('answers the result of an operation that succeeded', async () => {
-    const id = record({ accountId: null, status: 'SUCCESS', result: { id: 'thing-1' } });
+    const id = await record({ accountId: null, status: 'SUCCESS', result: { id: 'thing-1' } });
     const response = await send(app, 'GET', `/operations/${id}`);
     expect(response.json()).toEqual({ status: 'SUCCESS', result: { id: 'thing-1' } });
   });
 
   it('answers the rule that refused an operation that ended in ERROR, with its type and message', async () => {
-    const id = record({
+    const id = await record({
       accountId: null,
       status: 'ERROR',
       error: { type: 'EmailTaken', message: 'An account already uses this email.' },
@@ -65,7 +65,7 @@ describe('operations', () => {
   describe('an operation started by a signed-in request', () => {
     it('is answered to its own signed-in caller', async () => {
       const { id: accountId, token } = await signedUpAccount(app);
-      const id = record({ accountId, status: 'SUCCESS', result: { id: 'thing-2' } });
+      const id = await record({ accountId, status: 'SUCCESS', result: { id: 'thing-2' } });
       const response = await send(app, 'GET', `/operations/${id}`, { token });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ status: 'SUCCESS', result: { id: 'thing-2' } });
@@ -73,14 +73,14 @@ describe('operations', () => {
 
     it('is refused with 401 when read without a token', async () => {
       const { id: accountId } = await signedUpAccount(app);
-      const id = record({ accountId, status: 'PENDING' });
+      const id = await record({ accountId, status: 'PENDING' });
       const response = await send(app, 'GET', `/operations/${id}`);
       expect(response.statusCode).toBe(401);
     });
 
     it('answers 404 to another signed-in caller', async () => {
       const { id: accountId } = await signedUpAccount(app);
-      const id = record({ accountId, status: 'PENDING' });
+      const id = await record({ accountId, status: 'PENDING' });
       const other = await signedUpAccount(app, { email: 'grace@example.com', name: 'Grace' });
       const response = await send(app, 'GET', `/operations/${id}`, { token: other.token });
       expect(response.statusCode).toBe(404);
@@ -88,7 +88,7 @@ describe('operations', () => {
 
     it('is refused with 401 when read with a token that proves nothing', async () => {
       const { id: accountId } = await signedUpAccount(app);
-      const id = record({ accountId, status: 'PENDING' });
+      const id = await record({ accountId, status: 'PENDING' });
       const response = await send(app, 'GET', `/operations/${id}`, { token: 'not-a-real-token' });
       expect(response.statusCode).toBe(401);
     });

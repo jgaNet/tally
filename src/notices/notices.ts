@@ -71,26 +71,15 @@ export interface BudgetPassing {
  * Writes a budget notice to every member of `groupId`, the payer included. Called inside the transaction that
  * records or edits the expense that passed the budget, and only once for the group, category and month.
  */
-export function recordBudgetNotices(db: Database, passing: BudgetPassing, at: string): void {
-  const members = db
-    .prepare('SELECT account_id FROM memberships WHERE group_id = ?')
-    .all(passing.groupId) as unknown as {
-    account_id: string;
-  }[];
-  const insert = db.prepare(
-    `INSERT INTO notices (id, account_id, kind, group_id, expense_id, category, month, budget, amount, created_at)
-     VALUES (?, ?, 'budget', ?, NULL, ?, ?, ?, ?, ?)`,
-  );
+export async function recordBudgetNotices(db: Database, passing: BudgetPassing, at: string): Promise<void> {
+  const members = await db.rows<{ account_id: string }>('SELECT account_id FROM memberships WHERE group_id = ?', [
+    passing.groupId,
+  ]);
   for (const { account_id } of members) {
-    insert.run(
-      randomUUID(),
-      account_id,
-      passing.groupId,
-      passing.category,
-      passing.month,
-      passing.budget,
-      passing.amount,
-      at,
+    await db.execute(
+      `INSERT INTO notices (id, account_id, kind, group_id, expense_id, category, month, budget, amount, created_at)
+       VALUES (?, ?, 'budget', ?, NULL, ?, ?, ?, ?, ?)`,
+      [randomUUID(), account_id, passing.groupId, passing.category, passing.month, passing.budget, passing.amount, at],
     );
   }
 }
@@ -100,33 +89,32 @@ export function recordBudgetNotices(db: Database, passing: BudgetPassing, at: st
  * the transaction that records the expense, so the notices exist exactly when the expense does: none is
  * written twice, and none is left behind when the expense is refused.
  */
-export function recordExpenseNotices(
+export async function recordExpenseNotices(
   db: Database,
   expense: { id: string; groupId: string; paidBy: string; shares: readonly { memberId: string; amount: number }[] },
   at: string,
-): void {
-  const insert = db.prepare(
-    `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
-     VALUES (?, ?, 'expense', ?, ?, ?, ?)`,
-  );
+): Promise<void> {
   for (const share of expense.shares) {
     if (share.memberId === expense.paidBy) {
       continue;
     }
-    insert.run(randomUUID(), share.memberId, expense.groupId, expense.id, share.amount, at);
+    await db.execute(
+      `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
+       VALUES (?, ?, 'expense', ?, ?, ?, ?)`,
+      [randomUUID(), share.memberId, expense.groupId, expense.id, share.amount, at],
+    );
   }
 }
 
 /** The signed-in account's own notices, the most recent first. Nobody else's are read. Reading changes nothing. */
-export function noticesOf(db: Database, accountId: string): Notice[] {
-  const rows = db
-    .prepare(
-      `SELECT id, kind, group_id, expense_id, category, month, budget, amount, created_at
-         FROM notices
-        WHERE account_id = ?
-        ORDER BY created_at DESC, rowid DESC`,
-    )
-    .all(accountId) as unknown as NoticeRow[];
+export async function noticesOf(db: Database, accountId: string): Promise<Notice[]> {
+  const rows = await db.rows<NoticeRow>(
+    `SELECT id, kind, group_id, expense_id, category, month, budget, amount, created_at
+       FROM notices
+      WHERE account_id = ?
+      ORDER BY created_at DESC, seq DESC`,
+    [accountId],
+  );
   return rows.map(toNotice);
 }
 

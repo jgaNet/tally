@@ -23,10 +23,10 @@ export function registerBalanceRoutes(app: FastifyInstance, db: Database): void 
       },
     },
     async request => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // Only the members of a group see its balances; anyone else is told it does not exist.
-      requireMembership(db, request.params.id, account.id);
-      return balancesOf(db, request.params.id);
+      await requireMembership(db, request.params.id, account.id);
+      return await balancesOf(db, request.params.id);
     },
   );
 }

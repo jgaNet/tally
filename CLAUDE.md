@@ -17,6 +17,8 @@ yarn start         # the server, on $PORT (10000 by default)
 
 - `src/app.ts` — `createApplication()` builds the application and is what the server and the tests start; every route is under `/<apiPrefix>` (`/v1`).
 - `src/server.ts` — the entry point.
+- `src/database.ts` — all state is in the PostgreSQL database at `DATABASE_URL` (required). Queries go through `db.rows` / `db.row` / `db.execute`; a write runs in `inTransaction`, which takes the write lock, so one writer at a time. A SQLite file of Tally's, named by `DATABASE_PATH`, is moved into an empty database on start (`src/legacy/`); the file is read only then.
+- The tests make their own databases on the server `DATABASE_URL` names (`temporaryDatabaseUrl()` in `src/test-support.ts`).
 
 Keep the code tested: every behaviour a feature brings has a test. The requests say where data is kept.
 

@@ -37,17 +37,17 @@ export interface Settlement {
  * and at most what the payee is still owed. A payment waiting at the provider counts as paid here, so
  * it cannot be paid twice; a failed or a refunded one does not count at all.
  */
-export function checkNewSettlement(
+export async function checkNewSettlement(
   db: Database,
   groupId: string,
   payerId: string,
   payeeId: string,
   amount: number,
-): void {
-  requireMembership(db, groupId, payeeId);
-  requireNotArchived(db, groupId);
+): Promise<void> {
+  await requireMembership(db, groupId, payeeId);
+  await requireNotArchived(db, groupId);
 
-  const balances = balancesWithPendingOf(db, groupId);
+  const balances = await balancesWithPendingOf(db, groupId);
   const payer = balances.find(entry => entry.memberId === payerId);
   if (payer === undefined) {
     throw new Refusal(422, 'NotAMember', 'The member who paid must be a member of the group.');
@@ -84,18 +84,19 @@ export function recordCashSettlement(
   groupId: string,
   payeeId: string,
   input: { from: string; amount: number },
-): string {
-  return inTransaction(db, () => {
-    checkNewSettlement(db, groupId, input.from, payeeId, input.amount);
+): Promise<string> {
+  return inTransaction(db, async () => {
+    await checkNewSettlement(db, groupId, input.from, payeeId, input.amount);
     const id = randomUUID();
     const at = new Date().toISOString();
-    db.prepare(
+    await db.execute(
       `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?)`,
-    ).run(id, groupId, input.from, payeeId, input.amount, at);
-    recordStatus(db, id, 'paid', at);
+      [id, groupId, input.from, payeeId, input.amount, at],
+    );
+    await recordStatus(db, id, 'paid', at);
     // A cash settlement starts to count at once, and its payee is the one who recorded it.
-    recordAudit(db, groupId, { by: payeeId, action: 'settlement-paid', subjectId: id, amount: input.amount }, at);
+    await recordAudit(db, groupId, { by: payeeId, action: 'settlement-paid', subjectId: id, amount: input.amount }, at);
     return id;
   });
 }
@@ -116,7 +117,7 @@ const SETTLEMENT_COLUMNS = `settlements.id, settlements.group_id, settlements.pa
   settlements.amount, settlements.method, settlements.status, settlements.pay_url, settlements.created_at`;
 
 /** The settlement as the API answers it, with its history. */
-function settlementOf(db: Database, row: SettlementRow): Settlement {
+async function settlementOf(db: Database, row: SettlementRow): Promise<Settlement> {
   const settlement: Settlement = {
     id: row.id,
     groupId: row.group_id,
@@ -126,7 +127,7 @@ function settlementOf(db: Database, row: SettlementRow): Settlement {
     method: row.method,
     status: row.status,
     at: row.created_at,
-    history: historyOf(db, row.id),
+    history: await historyOf(db, row.id),
   };
   if (row.pay_url !== null) {
     settlement.payUrl = row.pay_url;
@@ -138,14 +139,17 @@ function settlementOf(db: Database, row: SettlementRow): Settlement {
  * The settlement with this id, for a member of its group. For anyone else it is `undefined`, the same
  * as a settlement that does not exist. Reading it changes nothing.
  */
-export function findSettlement(db: Database, settlementId: string, accountId: string): Settlement | undefined {
-  const row = db
-    .prepare(
-      `SELECT ${SETTLEMENT_COLUMNS}
-         FROM settlements JOIN memberships ON memberships.group_id = settlements.group_id
-        WHERE settlements.id = ? AND memberships.account_id = ?`,
-    )
-    .get(settlementId, accountId) as SettlementRow | undefined;
+export async function findSettlement(
+  db: Database,
+  settlementId: string,
+  accountId: string,
+): Promise<Settlement | undefined> {
+  const row = await db.row<SettlementRow>(
+    `SELECT ${SETTLEMENT_COLUMNS}
+       FROM settlements JOIN memberships ON memberships.group_id = settlements.group_id
+      WHERE settlements.id = ? AND memberships.account_id = ?`,
+    [settlementId, accountId],
+  );
   return row === undefined ? undefined : settlementOf(db, row);
 }
 
@@ -153,21 +157,24 @@ export function findSettlement(db: Database, settlementId: string, accountId: st
  * Every settlement of `groupId`, the most recently recorded first, each as `findSettlement` answers it.
  * It does not check who asks: the caller must be a member.
  */
-export function settlementsOfGroup(db: Database, groupId: string): Settlement[] {
-  const rows = db
-    .prepare(
-      `SELECT ${SETTLEMENT_COLUMNS}
-         FROM settlements
-        WHERE settlements.group_id = ?
-        ORDER BY settlements.created_at DESC, settlements.rowid DESC`,
-    )
-    .all(groupId) as unknown as SettlementRow[];
-  return rows.map(row => settlementOf(db, row));
+export async function settlementsOfGroup(db: Database, groupId: string): Promise<Settlement[]> {
+  const rows = await db.rows<SettlementRow>(
+    `SELECT ${SETTLEMENT_COLUMNS}
+       FROM settlements
+      WHERE settlements.group_id = ?
+      ORDER BY settlements.created_at DESC, settlements.seq DESC`,
+    [groupId],
+  );
+  const settlements: Settlement[] = [];
+  for (const row of rows) {
+    settlements.push(await settlementOf(db, row));
+  }
+  return settlements;
 }
 
 /** The settlement, for a member of its group. Anyone else is refused with `404`, as if it did not exist. */
-export function requireSettlement(db: Database, settlementId: string, accountId: string): Settlement {
-  const settlement = findSettlement(db, settlementId, accountId);
+export async function requireSettlement(db: Database, settlementId: string, accountId: string): Promise<Settlement> {
+  const settlement = await findSettlement(db, settlementId, accountId);
   if (!settlement) {
     throw new Refusal(404, 'NotFound', 'There is no such settlement.');
   }

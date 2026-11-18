@@ -1,6 +1,6 @@
 import { type Application, createApplication } from '../app';
 import { todayInUtc } from '../expenses/validation';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 /** The `day` of the month `months` from the current one (UTC), as `YYYY-MM-DD`. */
 function dayOfMonth(months: number, day: number): string {
@@ -24,11 +24,11 @@ interface Recurring {
 
 describe('recurring expenses', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -141,9 +141,9 @@ describe('recurring expenses', () => {
     expect((await send(app, 'GET', `/recurring/${id}`, { token: ada.token })).json<Recurring>().next).toBe(startsOn);
 
     const at = new Date('2026-11-10T08:00:00Z');
-    app.runJobs(at);
-    app.runJobs(at);
-    app.runJobs(new Date('2026-11-10T09:00:00Z'));
+    await app.runJobs(at);
+    await app.runJobs(at);
+    await app.runJobs(new Date('2026-11-10T09:00:00Z'));
     const dates = (await expensesOf(ada.token, groupId)).map(expense => expense.date);
     expect(dates).toEqual([dayOfMonth(0, 5), dayOfMonth(-1, 5), startsOn].filter(date => date <= '2026-11-10'));
     const expectedCount = [startsOn, dayOfMonth(-1, 5), dayOfMonth(0, 5)].filter(date => date <= '2026-11-10').length;
@@ -157,7 +157,7 @@ describe('recurring expenses', () => {
 
     // The next one is recorded on its day, not before.
     const nextDay = read.next;
-    app.runJobs(new Date(`${nextDay}T00:00:00Z`));
+    await app.runJobs(new Date(`${nextDay}T00:00:00Z`));
     expect((await expensesOf(ada.token, groupId)).length).toBe(expectedCount + 1);
     expect((await expensesOf(ada.token, groupId))[0].date).toBe(nextDay);
   });
@@ -173,7 +173,7 @@ describe('recurring expenses', () => {
         ],
       }),
     });
-    app.runJobs(new Date(`${dayOfMonth(-1, 5)}T10:00:00Z`));
+    await app.runJobs(new Date(`${dayOfMonth(-1, 5)}T10:00:00Z`));
     const [expense] = await expensesOf(ada.token, groupId);
     const balances = (await send(app, 'GET', `/groups/${groupId}/balances`, { token: ada.token })).json<
       { memberId: string; balance: number }[]
@@ -187,7 +187,7 @@ describe('recurring expenses', () => {
     expect((await send(app, 'DELETE', `/expenses/${expense.id}`, { token: grace.token })).statusCode).toBe(403);
     expect((await send(app, 'DELETE', `/expenses/${expense.id}`, { token: ada.token })).statusCode).toBe(204);
     // Deleting it does not bring it back.
-    app.runJobs(new Date(`${dayOfMonth(-1, 5)}T11:00:00Z`));
+    await app.runJobs(new Date(`${dayOfMonth(-1, 5)}T11:00:00Z`));
     expect((await expensesOf(ada.token, groupId)).length).toBe(0);
   });
 
@@ -220,11 +220,11 @@ describe('recurring expenses', () => {
       ).json<{ id: string }>().id;
     const hers = await make(grace.token);
     expect((await send(app, 'DELETE', `/recurring/${hers}`, { token: linus.token })).statusCode).toBe(403);
-    app.runJobs(new Date(`${dayOfMonth(-1, 5)}T10:00:00Z`));
+    await app.runJobs(new Date(`${dayOfMonth(-1, 5)}T10:00:00Z`));
     expect((await expensesOf(ada.token, groupId)).length).toBe(1);
     expect((await send(app, 'DELETE', `/recurring/${hers}`, { token: grace.token })).statusCode).toBe(204);
     expect((await send(app, 'GET', `/recurring/${hers}`, { token: ada.token })).statusCode).toBe(404);
-    app.runJobs(new Date(`${dayOfMonth(3, 28)}T10:00:00Z`));
+    await app.runJobs(new Date(`${dayOfMonth(3, 28)}T10:00:00Z`));
     expect((await expensesOf(ada.token, groupId)).length).toBe(1);
     const another = await make(grace.token);
     expect((await send(app, 'DELETE', `/recurring/${another}`, { token: ada.token })).statusCode).toBe(204);
@@ -243,7 +243,7 @@ describe('recurring expenses', () => {
     const byPayer = await make(grace);
     const left = await send(app, 'POST', `/groups/${groupId}/leave`, { token: grace.token });
     expect(left.statusCode).toBe(204);
-    app.runJobs(new Date(`${dayOfMonth(1, 5)}T10:00:00Z`));
+    await app.runJobs(new Date(`${dayOfMonth(1, 5)}T10:00:00Z`));
     expect((await expensesOf(ada.token, groupId)).length).toBe(0);
     for (const id of [bySplit, byPayer]) {
       expect((await send(app, 'GET', `/recurring/${id}`, { token: ada.token })).statusCode).toBe(404);
@@ -257,12 +257,12 @@ describe('recurring expenses', () => {
       token: ada.token,
       payload: rent(dayOfMonth(-2, 5), { splitBetween: [ada.id] }),
     });
-    const other = await createApplication({ databasePath });
+    const other = await createApplication({ databaseUrl });
     try {
       const at = new Date(`${dayOfMonth(0, 28)}T10:00:00Z`);
-      other.runJobs(at);
-      app.runJobs(at);
-      other.runJobs(at);
+      await other.runJobs(at);
+      await app.runJobs(at);
+      await other.runJobs(at);
       const dates = (await expensesOf(ada.token, groupId)).map(expense => expense.date);
       expect(new Set(dates).size).toBe(dates.length);
       expect(dates.length).toBe(3);

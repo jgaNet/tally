@@ -104,10 +104,15 @@ function toRecurring(row: RecurringRow): Recurring {
 }
 
 /** Sets up a recurring expense of `groupId`, `payerId` its payer, who must be a member. Returns its id. */
-export function createRecurring(db: Database, groupId: string, payerId: string, input: RecurringInput): string {
-  return inTransaction(db, () => {
-    const group = requireMembership(db, groupId, payerId);
-    requireNotArchived(db, groupId);
+export function createRecurring(
+  db: Database,
+  groupId: string,
+  payerId: string,
+  input: RecurringInput,
+): Promise<string> {
+  return inTransaction(db, async () => {
+    const group = await requireMembership(db, groupId, payerId);
+    await requireNotArchived(db, groupId);
     // The same rules as an expense's description, amount and split; the day is checked as startsOn below.
     const checked = validateExpense(
       {
@@ -117,42 +122,42 @@ export function createRecurring(db: Database, groupId: string, payerId: string, 
         split: input.split,
         category: input.category,
       },
-      memberIdsOf(db, groupId),
+      await memberIdsOf(db, groupId),
       payerId,
       group.currency,
     );
     checkStartsOn(input.startsOn);
     const id = randomUUID();
-    db.prepare(
+    await db.execute(
       `INSERT INTO recurring (id, group_id, paid_by, description, amount, split, starts_on, next_on, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      groupId,
-      payerId,
-      checked.description,
-      checked.amount,
-      JSON.stringify(checked.split),
-      input.startsOn,
-      input.startsOn,
-      checked.category,
-      new Date().toISOString(),
+      [
+        id,
+        groupId,
+        payerId,
+        checked.description,
+        checked.amount,
+        JSON.stringify(checked.split),
+        input.startsOn,
+        input.startsOn,
+        checked.category,
+        new Date().toISOString(),
+      ],
     );
     return id;
   });
 }
 
 /** The recurring expense, for a member of its group; anyone else is refused as if it did not exist. */
-export function requireRecurring(db: Database, id: string, accountId: string): Recurring {
-  const row = db
-    .prepare(
-      `SELECT ${COLUMNS.split(', ')
-        .map(column => `recurring.${column}`)
-        .join(', ')}
-         FROM recurring JOIN memberships ON memberships.group_id = recurring.group_id
-        WHERE recurring.id = ? AND memberships.account_id = ?`,
-    )
-    .get(id, accountId) as RecurringRow | undefined;
+export async function requireRecurring(db: Database, id: string, accountId: string): Promise<Recurring> {
+  const row = await db.row<RecurringRow>(
+    `SELECT ${COLUMNS.split(', ')
+      .map(column => `recurring.${column}`)
+      .join(', ')}
+       FROM recurring JOIN memberships ON memberships.group_id = recurring.group_id
+      WHERE recurring.id = ? AND memberships.account_id = ?`,
+    [id, accountId],
+  );
   if (row === undefined) {
     throw new Refusal(404, 'NotFound', 'There is no such recurring expense.');
   }
@@ -160,26 +165,30 @@ export function requireRecurring(db: Database, id: string, accountId: string): R
 }
 
 /** The group's recurring expenses, the earliest set up first. */
-export function recurringOfGroup(db: Database, groupId: string): Recurring[] {
-  const rows = db
-    .prepare(`SELECT ${COLUMNS} FROM recurring WHERE group_id = ? ORDER BY created_at, rowid`)
-    .all(groupId) as unknown as RecurringRow[];
+export async function recurringOfGroup(db: Database, groupId: string): Promise<Recurring[]> {
+  const rows = await db.rows<RecurringRow>(
+    `SELECT ${COLUMNS} FROM recurring WHERE group_id = ? ORDER BY created_at, seq`,
+    [groupId],
+  );
   return rows.map(toRecurring);
 }
 
 /** Stops the recurring expense, by its payer or the owner of its group. The expenses it recorded stay. */
-export function stopRecurring(db: Database, id: string, accountId: string): void {
-  inTransaction(db, () => {
-    const recurring = requireRecurring(db, id, accountId);
-    requireNotArchived(db, recurring.groupId);
-    if (recurring.paidBy !== accountId && requireMembership(db, recurring.groupId, accountId).ownerId !== accountId) {
+export function stopRecurring(db: Database, id: string, accountId: string): Promise<void> {
+  return inTransaction(db, async () => {
+    const recurring = await requireRecurring(db, id, accountId);
+    await requireNotArchived(db, recurring.groupId);
+    if (
+      recurring.paidBy !== accountId &&
+      (await requireMembership(db, recurring.groupId, accountId)).ownerId !== accountId
+    ) {
       throw new Refusal(
         403,
         'NotPermitted',
         'Only the member who set up this recurring expense, or the owner, may stop it.',
       );
     }
-    db.prepare('DELETE FROM recurring WHERE id = ?').run(id);
+    await db.execute('DELETE FROM recurring WHERE id = ?', [id]);
   });
 }
 
@@ -190,37 +199,36 @@ export function stopRecurring(db: Database, id: string, accountId: string): void
  * stopped. When its payer or a member of its split is no longer a member, the day is not recorded and the
  * recurring expense is deleted.
  */
-export function recordRecurring(db: Database, at: Date): void {
+export async function recordRecurring(db: Database, at: Date): Promise<void> {
   const today = at.toISOString().slice(0, 10);
-  const due = db
-    .prepare(
-      `SELECT recurring.id FROM recurring JOIN groups ON groups.id = recurring.group_id
-        WHERE recurring.next_on <= ? AND groups.archived_at IS NULL
-        ORDER BY recurring.created_at, recurring.rowid`,
-    )
-    .all(today) as unknown as { id: string }[];
+  const due = await db.rows<{ id: string }>(
+    `SELECT recurring.id FROM recurring JOIN groups ON groups.id = recurring.group_id
+      WHERE recurring.next_on <= ? AND groups.archived_at IS NULL
+      ORDER BY recurring.created_at, recurring.seq`,
+    [today],
+  );
   for (const { id } of due) {
     for (let more = true; more;) {
-      more = inTransaction(db, () => recordNextDay(db, id, today, at));
+      more = await inTransaction(db, () => recordNextDay(db, id, today, at));
     }
   }
 }
 
 /** Records the day `next` of one recurring expense when it is due; says whether another day may be due. */
-function recordNextDay(db: Database, id: string, today: string, at: Date): boolean {
-  const row = db.prepare(`SELECT ${COLUMNS} FROM recurring WHERE id = ?`).get(id) as RecurringRow | undefined;
+async function recordNextDay(db: Database, id: string, today: string, at: Date): Promise<boolean> {
+  const row = await db.row<RecurringRow>(`SELECT ${COLUMNS} FROM recurring WHERE id = ?`, [id]);
   if (row === undefined || row.next_on > today) {
     return false;
   }
   // The group may have been archived since the run began: an archived group records nothing.
-  if (isArchived(db, row.group_id)) {
+  if (await isArchived(db, row.group_id)) {
     return false;
   }
   const recurring = toRecurring(row);
-  const members = memberIdsOf(db, recurring.groupId);
+  const members = await memberIdsOf(db, recurring.groupId);
   const named = [recurring.paidBy, ...memberIdsInSplit(recurring.split)];
   if (!named.every(accountId => members.has(accountId))) {
-    db.prepare('DELETE FROM recurring WHERE id = ?').run(id);
+    await db.execute('DELETE FROM recurring WHERE id = ?', [id]);
     return false;
   }
   const expense: ValidExpense = {
@@ -230,11 +238,11 @@ function recordNextDay(db: Database, id: string, today: string, at: Date): boole
     split: recurring.split,
     category: recurring.category,
   };
-  insertExpense(db, recurring.groupId, recurring.paidBy, expense, at.toISOString());
-  db.prepare('UPDATE recurring SET next_on = ? WHERE id = ? AND next_on = ?').run(
+  await insertExpense(db, recurring.groupId, recurring.paidBy, expense, at.toISOString());
+  await db.execute('UPDATE recurring SET next_on = ? WHERE id = ? AND next_on = ?', [
     monthAfter(recurring.next),
     id,
     recurring.next,
-  );
+  ]);
   return true;
 }

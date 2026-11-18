@@ -35,12 +35,13 @@ export interface Application {
   /** Stops the background job and the server. */
   stop(): Promise<void>;
   /** One run of the background job, as of `at` (now, when not given). The job runs this on its schedule. */
-  runJobs(at?: Date): void;
+  runJobs(at?: Date): Promise<void>;
 }
 
 /**
  * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default), and what
- * it knows is kept in the SQLite file at `databasePath` (`DATABASE_PATH`, else `tally.db`). Payment
+ * it knows is kept in the PostgreSQL database at `databaseUrl` (`DATABASE_URL`, which is required). A SQLite file Tally
+ * kept before, at `databasePath` (`DATABASE_PATH`), is moved into an empty database first (see `openDatabase`). Payment
  * through the provider is at `providerUrl` (`PROVIDER_URL`) and is refused without it; its webhooks are
  * signed with `providerWebhookSecret` (`PROVIDER_WEBHOOK_SECRET`). The rates offered are asked of the rates
  * service at `ratesUrl` (`RATES_URL`), which is given up after `ratesTimeoutMs` (5 seconds); without it no
@@ -52,7 +53,8 @@ export interface Application {
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
   port = Number(process.env.PORT || 10000),
-  databasePath = process.env.DATABASE_PATH || 'tally.db',
+  databaseUrl = process.env.DATABASE_URL || '',
+  databasePath = process.env.DATABASE_PATH || '',
   providerUrl = process.env.PROVIDER_URL || '',
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || '',
   providerTimeoutMs = 5000,
@@ -65,6 +67,7 @@ export async function createApplication({
 }: {
   apiPrefix?: string;
   port?: number;
+  databaseUrl?: string;
   databasePath?: string;
   providerUrl?: string;
   providerWebhookSecret?: string;
@@ -78,7 +81,10 @@ export async function createApplication({
 } = {}): Promise<Application> {
   // Types are checked, not converted: a password sent as a number is a body of the wrong type.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
-  const db = openDatabase(databasePath);
+  if (databaseUrl === '') {
+    throw new Error('DATABASE_URL names the PostgreSQL database Tally keeps its state in: it is required.');
+  }
+  const db = await openDatabase(databaseUrl, databasePath === '' ? undefined : databasePath);
   const provider = {
     url: providerUrl.replace(/\/+$/, ''),
     webhookSecret: providerWebhookSecret,
@@ -93,7 +99,7 @@ export async function createApplication({
     timeoutMs: receiptsTimeoutMs,
   };
   server.addHook('onClose', async () => {
-    db.close();
+    await db.close();
   });
 
   server.setErrorHandler((error: FastifyError | Refusal, request, reply) => {
@@ -134,12 +140,12 @@ export async function createApplication({
   );
 
   const reminderPeriodMs = reminderPeriodSeconds * 1000;
-  const runJobs = (at: Date = new Date()) => {
+  const runJobs = async (at: Date = new Date()): Promise<void> => {
     // Each part is its own transaction(s); a failure of one must not keep the other from running.
     let failure: unknown;
     for (const part of [() => recordRecurring(db, at), () => sweepDebts(db, at, reminderPeriodMs)]) {
       try {
-        part();
+        await part();
       } catch (error) {
         failure ??= error;
       }
@@ -159,9 +165,9 @@ export async function createApplication({
     },
     async start(listenOn = port) {
       address = await server.listen({ port: listenOn, host: '127.0.0.1' });
-      job = setInterval(() => {
+      job = setInterval(async () => {
         try {
-          runJobs();
+          await runJobs();
         } catch (error) {
           // A failed run changes nothing (it is one transaction); the next run tries again.
           server.log.error(error);

@@ -1,5 +1,4 @@
 import { createHmac } from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
 import { type Application, createApplication } from '../app';
 import { todayInUtc } from '../expenses/validation';
 import {
@@ -9,21 +8,21 @@ import {
   setPayoutAccount,
   signedUpAccount,
   startFakeProvider,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 const SECRET = 'shared-secret';
 
 describe('a group’s settlements and their history', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
   let provider: FakeProvider;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
+    databaseUrl = await temporaryDatabaseUrl();
     provider = await startFakeProvider();
     app = await createApplication({
-      databasePath,
+      databaseUrl,
       providerUrl: provider.url,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 300,
@@ -239,61 +238,6 @@ describe('a group’s settlements and their history', () => {
       const twice = (await read(grace.token, id)).json();
       expect(twice).toEqual(once);
       expect(once.history).toHaveLength(1);
-    });
-  });
-
-  describe('a settlement recorded before history was kept', () => {
-    it('has the statuses it had, reconstructed from its own status, when the schema is brought up to date', async () => {
-      const { ada, grace, groupId } = await adaOwesGrace();
-      const cash = await payCash(grace.token, groupId, ada.id, 100);
-      const pending = await askProvider(ada, groupId, grace.id, 50);
-      const paid = await askProvider(ada, groupId, grace.id, 60);
-      await webhookFor(paid.paymentId, 'succeeded');
-      const failed = await askProvider(ada, groupId, grace.id, 70);
-      await webhookFor(failed.paymentId, 'failed');
-      const refunded = await askProvider(ada, groupId, grace.id, 80);
-      await webhookFor(refunded.paymentId, 'succeeded');
-      await send(app, 'POST', `/settlements/${refunded.id}/refund`, { token: grace.token });
-      await webhookFor(refunded.paymentId, 'refunded');
-      // What each settlement had, as the history kept from now on says it did.
-      const kept: Record<string, string[]> = {
-        [cash]: ['paid'],
-        [pending.id]: ['pending'],
-        [paid.id]: ['pending', 'paid'],
-        [failed.id]: ['pending', 'failed'],
-        [refunded.id]: ['pending', 'paid', 'refunding', 'refunded'],
-      };
-      await app.stop();
-
-      // Takes the schema back to before the history was kept, undoing the steps that came after it too (the audit,
-      // the balances' transfers, the expenses' original amounts, the recurring expenses, the categories and budgets,
-      // the split templates, the receipts and the archiving), and brings it up to date again.
-      const db = new DatabaseSync(databasePath);
-      const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
-      db.exec(`
-        DROP TABLE audit_entries;
-        DROP TABLE receipts;
-        DROP TABLE split_templates;
-        DROP TABLE budget_passings;
-        DROP TABLE budgets;
-        ALTER TABLE expenses DROP COLUMN category;
-        DROP TABLE recurring;
-        DROP TABLE balance_transfers;
-        DROP TABLE settlement_statuses;
-        ALTER TABLE expenses DROP COLUMN original_currency;
-        ALTER TABLE expenses DROP COLUMN original_amount;
-        ALTER TABLE expenses DROP COLUMN original_rate;
-        ALTER TABLE groups DROP COLUMN archived_at;
-        PRAGMA user_version = ${version - 9};
-      `);
-      db.close();
-      app = await createApplication({ databasePath, providerUrl: provider.url, providerWebhookSecret: SECRET });
-
-      // The refund's own steps were not known then, so a refunded settlement is reconstructed without `refunding`.
-      const reconstructed = { ...kept, [refunded.id]: ['pending', 'paid', 'refunded'] };
-      for (const [id, statuses] of Object.entries(reconstructed)) {
-        expect(await statusesOf(grace.token, id)).toEqual(statuses);
-      }
     });
   });
 });

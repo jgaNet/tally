@@ -1,14 +1,14 @@
 import { type Application, createApplication } from '../app';
 import { todayInUtc } from '../expenses/validation';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 describe('settling up in cash', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -267,7 +267,7 @@ describe('settling up in cash', () => {
   describe('at the same moment', () => {
     it('decides one of two settlements recorded at once on two applications of the same file: one is kept', async () => {
       const { ada, grace, groupId } = await adaOwesGrace();
-      const other = await createApplication({ databasePath });
+      const other = await createApplication({ databaseUrl });
       try {
         const [first, second] = await Promise.all([
           send(app, 'POST', `/groups/${groupId}/settlements/cash`, {
@@ -293,7 +293,7 @@ describe('settling up in cash', () => {
       const id = (await settle(grace.token, groupId, { from: ada.id, amount: 300 })).json().id;
       await app.stop();
 
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       const read = await send(app, 'GET', `/settlements/${id}`, { token: grace.token });
       expect(read.statusCode).toBe(200);
       expect(read.json().amount).toBe(300);

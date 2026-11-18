@@ -31,8 +31,8 @@ export function registerNoticeRoutes(app: FastifyInstance, db: Database): void {
       },
     },
     async request => {
-      const account = requireAccount(db, request);
-      return noticesOf(db, account.id);
+      const account = await requireAccount(db, request);
+      return await noticesOf(db, account.id);
     },
   );
 }

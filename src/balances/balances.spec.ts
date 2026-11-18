@@ -1,14 +1,14 @@
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 import { todayInUtc } from '../expenses/validation';
 
 describe('balances', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -140,7 +140,7 @@ describe('balances', () => {
       await joinThroughInvitation(app, ada.token, linus.token, groupId);
 
       // A second application on the same file, the way a second server would be.
-      const other = await createApplication({ databasePath });
+      const other = await createApplication({ databaseUrl });
       try {
         // Six expenses of 300, each split three ways (100 each), recorded at the same moment from
         // both applications. Ada pays three, Grace two, Linus one.
@@ -197,7 +197,7 @@ describe('balances', () => {
       const before = (await balancesOf(ada.token, groupId)).json();
       await app.stop();
 
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       expect((await balancesOf(ada.token, groupId)).json()).toEqual(before);
     });
   });

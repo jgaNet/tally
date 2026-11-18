@@ -1,6 +1,6 @@
 import { type Application, createApplication } from '../app';
 import { todayInUtc } from '../expenses/validation';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 /** The day `day` of the month `monthsAgo` months before the current one (UTC), as `YYYY-MM-DD`. */
 function dayOfMonth(monthsAgo: number, day: number): string {
@@ -12,7 +12,7 @@ describe('categories', () => {
   let app: Application;
 
   beforeEach(async () => {
-    app = await createApplication({ databasePath: temporaryDatabasePath() });
+    app = await createApplication({ databaseUrl: await temporaryDatabaseUrl() });
   });
 
   afterEach(async () => {
@@ -166,7 +166,7 @@ describe('categories', () => {
     const readGym = await send(app, 'GET', `/recurring/${gym}`, { token: grace.token });
     expect(readGym.json()).toMatchObject({ id: gym, category: 'other' });
 
-    app.runJobs(new Date());
+    await app.runJobs(new Date());
     const listed = await send(app, 'GET', `/groups/${groupId}/expenses`, { token: ada.token });
     const byDescription = Object.fromEntries(
       listed

@@ -184,7 +184,7 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database, rates:
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       const { description, date, category } = request.body;
       const id = await createExpense(db, rates, request.params.id, account.id, {
         description,
@@ -206,10 +206,10 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database, rates:
       },
     },
     async request => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // Only the members of a group see its expenses; anyone else is told it does not exist.
-      requireMembership(db, request.params.id, account.id);
-      return expensesOfGroup(db, request.params.id);
+      await requireMembership(db, request.params.id, account.id);
+      return await expensesOfGroup(db, request.params.id);
     },
   );
 
@@ -222,8 +222,8 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database, rates:
       },
     },
     async request => {
-      const account = requireAccount(db, request);
-      return requireExpense(db, request.params.id, account.id);
+      const account = await requireAccount(db, request);
+      return await requireExpense(db, request.params.id, account.id);
     },
   );
 
@@ -239,7 +239,7 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database, rates:
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       const { version, description, date, category } = request.body;
       const input = { description, money: moneyOf(request.body), date, split: splitOf(request.body), category };
       await updateExpense(db, rates, request.params.id, account.id, input, version);
@@ -255,8 +255,8 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database, rates:
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
-      deleteExpense(db, request.params.id, account.id);
+      const account = await requireAccount(db, request);
+      await deleteExpense(db, request.params.id, account.id);
       return reply.code(204).send();
     },
   );

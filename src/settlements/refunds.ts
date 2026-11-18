@@ -24,9 +24,9 @@ export async function requestRefund(
   settlementId: string,
   accountId: string,
 ): Promise<void> {
-  const held = inTransaction(db, () => {
-    const settlement = requireSettlement(db, settlementId, accountId);
-    requireNotArchived(db, settlement.groupId);
+  const held = await inTransaction(db, async () => {
+    const settlement = await requireSettlement(db, settlementId, accountId);
+    await requireNotArchived(db, settlement.groupId);
     if (settlement.to !== accountId) {
       throw new Refusal(403, 'NotPayee', 'Only the member who was paid can refund a settlement.');
     }
@@ -37,7 +37,7 @@ export async function requestRefund(
         'Only a payment through the provider that is paid, and not refunded yet, can be refunded.',
       );
     }
-    if (leftMembersAmong(db, settlement.groupId, [settlement.from, settlement.to]).length > 0) {
+    if ((await leftMembersAmong(db, settlement.groupId, [settlement.from, settlement.to])).length > 0) {
       throw new Refusal(
         409,
         'MemberHasLeft',
@@ -47,14 +47,16 @@ export async function requestRefund(
     if (provider.url === '') {
       throw new Refusal(409, 'ProviderNotConfigured', 'Payment through the provider is not set up on this server.');
     }
-    const row = db.prepare('SELECT provider_payment_id FROM settlements WHERE id = ?').get(settlementId) as
-      { provider_payment_id: string | null } | undefined;
+    const row = await db.row<{ provider_payment_id: string | null }>(
+      'SELECT provider_payment_id FROM settlements WHERE id = ?',
+      [settlementId],
+    );
     const paymentId = row?.provider_payment_id;
     if (!paymentId) {
       throw new Refusal(409, 'NotRefundable', 'This payment has no provider payment to refund.');
     }
-    db.prepare(`UPDATE settlements SET status = 'refunding' WHERE id = ? AND status = 'paid'`).run(settlementId);
-    recordStatus(db, settlementId, 'refunding');
+    await db.execute(`UPDATE settlements SET status = 'refunding' WHERE id = ? AND status = 'paid'`, [settlementId]);
+    await recordStatus(db, settlementId, 'refunding');
     return { paymentId };
   });
 
@@ -62,12 +64,13 @@ export async function requestRefund(
     await createProviderRefund(provider, held.paymentId, settlementId);
   } catch {
     // Released only while it is still held: a refund the provider has reported in the meantime stands.
-    inTransaction(db, () => {
-      const released = db
-        .prepare(`UPDATE settlements SET status = 'paid' WHERE id = ? AND status = 'refunding'`)
-        .run(settlementId);
-      if (released.changes > 0) {
-        recordStatus(db, settlementId, 'paid');
+    await inTransaction(db, async () => {
+      const released = await db.execute(
+        `UPDATE settlements SET status = 'paid' WHERE id = ? AND status = 'refunding'`,
+        [settlementId],
+      );
+      if (released > 0) {
+        await recordStatus(db, settlementId, 'paid');
       }
     });
     throw new Refusal(

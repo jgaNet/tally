@@ -29,8 +29,8 @@ export function registerOperationRoutes(app: FastifyInstance, db: Database): voi
     },
     async request => {
       // A token that proves nothing is refused; so is no token for an operation that a token started.
-      const caller = signedInAccount(db, request);
-      const operation = findOperation(db, request.params.operationId);
+      const caller = await signedInAccount(db, request);
+      const operation = await findOperation(db, request.params.operationId);
       if (!operation) {
         throw new Refusal(404, 'NotFound', 'There is no such operation.');
       }

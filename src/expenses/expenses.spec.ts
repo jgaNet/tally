@@ -1,15 +1,15 @@
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 import { equalShares } from './expenses';
 import { todayInUtc } from './validation';
 
 describe('expenses', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -401,7 +401,7 @@ describe('expenses', () => {
       const before = (await send(app, 'GET', `/expenses/${id}`, { token: ada.token })).json();
       await app.stop();
 
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       const after = await send(app, 'GET', `/expenses/${id}`, { token: ada.token });
       expect(after.json()).toEqual(before);
     });

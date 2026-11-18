@@ -1,15 +1,15 @@
-import { DatabaseSync } from 'node:sqlite';
+import { openDatabase } from '../database';
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 import { todayInUtc } from './validation';
 
 describe('the remainder of an equal or shared split goes to the first member of the split', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -32,15 +32,18 @@ describe('the remainder of an equal or shared split goes to the first member of 
   }
 
   /** Overwrites the stored shares of an expense in the database file, as the rule before this change wrote them. */
-  function storeSharesAsBefore(expenseId: string, shares: { memberId: string; amount: number }[]): void {
-    const file = new DatabaseSync(databasePath);
+  async function storeSharesAsBefore(expenseId: string, shares: { memberId: string; amount: number }[]): Promise<void> {
+    const file = await openDatabase(databaseUrl);
     try {
-      const update = file.prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND member_id = ?');
       for (const share of shares) {
-        update.run(share.amount, expenseId, share.memberId);
+        await file.execute('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND member_id = ?', [
+          share.amount,
+          expenseId,
+          share.memberId,
+        ]);
       }
     } finally {
-      file.close();
+      await file.close();
     }
   }
 
@@ -58,7 +61,7 @@ describe('the remainder of an equal or shared split goes to the first member of 
     expect(recorded.statusCode).toBe(201);
     const expenseId = recorded.json<{ id: string }>().id;
     // Before the change, the payer, Grace, took the remainder.
-    storeSharesAsBefore(expenseId, [
+    await storeSharesAsBefore(expenseId, [
       { memberId: ada.id, amount: 333 },
       { memberId: grace.id, amount: 334 },
       { memberId: linus.id, amount: 333 },
@@ -93,7 +96,7 @@ describe('the remainder of an equal or shared split goes to the first member of 
       },
     });
     const expenseId = recorded.json<{ id: string }>().id;
-    storeSharesAsBefore(expenseId, [
+    await storeSharesAsBefore(expenseId, [
       { memberId: ada.id, amount: 333 },
       { memberId: grace.id, amount: 334 },
       { memberId: linus.id, amount: 333 },

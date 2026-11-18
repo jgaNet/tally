@@ -5,19 +5,19 @@ import {
   send,
   signedUpAccount,
   startFakeRatesService,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 import { todayInUtc } from './validation';
 
 describe('an expense in another currency, at the rate a rates service offers', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
   let rates: FakeRatesService;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
+    databaseUrl = await temporaryDatabaseUrl();
     rates = await startFakeRatesService();
-    app = await createApplication({ databasePath, ratesUrl: rates.url, ratesTimeoutMs: 300 });
+    app = await createApplication({ databaseUrl, ratesUrl: rates.url, ratesTimeoutMs: 300 });
   });
 
   afterEach(async () => {
@@ -121,7 +121,7 @@ describe('an expense in another currency, at the rate a rates service offers', (
     });
 
     it('is refused with 409 on a server started without a rates service', async () => {
-      const without = await createApplication({ databasePath: temporaryDatabasePath(), ratesUrl: '' });
+      const without = await createApplication({ databaseUrl: await temporaryDatabaseUrl(), ratesUrl: '' });
       try {
         const { ada, grace, groupId } = await twoMembers(without);
         const response = await send(without, 'POST', `/groups/${groupId}/expenses`, {
@@ -213,7 +213,7 @@ describe('an expense in another currency, at the rate a rates service offers', (
     });
 
     it('takes whatever rate it states on a server started without a rates service', async () => {
-      const without = await createApplication({ databasePath: temporaryDatabasePath(), ratesUrl: '' });
+      const without = await createApplication({ databaseUrl: await temporaryDatabaseUrl(), ratesUrl: '' });
       try {
         const { ada, grace, groupId } = await twoMembers(without);
         const response = await send(without, 'POST', `/groups/${groupId}/expenses`, {

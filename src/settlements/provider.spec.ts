@@ -7,18 +7,18 @@ import {
   setPayoutAccount,
   signedUpAccount,
   startFakeProvider,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 describe('paying through the provider', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
   let provider: FakeProvider;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
+    databaseUrl = await temporaryDatabaseUrl();
     provider = await startFakeProvider();
-    app = await createApplication({ databasePath, providerUrl: provider.url, providerTimeoutMs: 300 });
+    app = await createApplication({ databaseUrl, providerUrl: provider.url, providerTimeoutMs: 300 });
   });
 
   afterEach(async () => {
@@ -160,7 +160,7 @@ describe('paying through the provider', () => {
     it('refuses when the provider is not set up on this server, and keeps nothing', async () => {
       const { ada, grace, groupId } = await adaOwesGrace();
       await app.stop();
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       const response = await payThroughProvider(ada.token, groupId, { to: grace.id, amount: 300 });
       expect(response.statusCode).toBe(409);
       expect(response.json().type).toBe('ProviderNotConfigured');

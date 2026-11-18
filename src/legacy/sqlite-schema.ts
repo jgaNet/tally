@@ -1,0 +1,416 @@
+import { DatabaseSync } from 'node:sqlite';
+
+/**
+ * The SQLite schema Tally kept in its file before it moved to PostgreSQL, one step per migration, as those versions
+ * brought a file up to date. It is read only to move a file's contents into PostgreSQL: nothing writes a file any more,
+ * and a file is opened once, as a copy.
+ */
+export const legacyMigrations: readonly string[] = [
+  `
+  CREATE TABLE accounts (
+    id            TEXT PRIMARY KEY,
+    email         TEXT NOT NULL,
+    email_key     TEXT NOT NULL UNIQUE,
+    name          TEXT NOT NULL,
+    password_salt TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+  );
+  CREATE TABLE sessions (
+    token_hash TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE operations (
+    id            TEXT PRIMARY KEY,
+    account_id    TEXT REFERENCES accounts (id),
+    status        TEXT NOT NULL CHECK (status IN ('PENDING', 'SUCCESS', 'ERROR')),
+    result        TEXT,
+    error_type    TEXT,
+    error_message TEXT,
+    created_at    TEXT NOT NULL
+  );
+  `,
+  `
+  CREATE TABLE groups (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    currency   TEXT NOT NULL CHECK (currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD')),
+    owner_id   TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE memberships (
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    joined_at  TEXT NOT NULL,
+    PRIMARY KEY (group_id, account_id)
+  );
+  CREATE INDEX memberships_by_account ON memberships (account_id);
+  `,
+  `
+  -- The invitation's id is the secret a link carries, so only its hash is kept, as a session's is.
+  CREATE TABLE invitations (
+    id_hash    TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    invited_by TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL
+  );
+  `,
+  `
+  -- The amount is in hundredths of the group's currency. A share's position is its place in the split.
+  CREATE TABLE expenses (
+    id          TEXT PRIMARY KEY,
+    group_id    TEXT NOT NULL REFERENCES groups (id),
+    description TEXT NOT NULL,
+    amount      INTEGER NOT NULL CHECK (amount BETWEEN 1 AND 100000000),
+    date        TEXT NOT NULL,
+    paid_by     TEXT NOT NULL REFERENCES accounts (id),
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX expenses_by_group ON expenses (group_id);
+  CREATE TABLE expense_shares (
+    expense_id TEXT NOT NULL REFERENCES expenses (id),
+    position   INTEGER NOT NULL,
+    member_id  TEXT NOT NULL REFERENCES accounts (id),
+    amount     INTEGER NOT NULL,
+    PRIMARY KEY (expense_id, position)
+  );
+  `,
+  `
+  -- An expense is version 1 when recorded, and one more at each edit. An edit names the version it was
+  -- made from; an expense recorded before this step is version 1.
+  ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1);
+  `,
+  `
+  -- How an expense is split. An expense recorded before this step was split equally.
+  ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'
+    CHECK (split_kind IN ('equal', 'exact', 'shares'));
+  `,
+  `
+  -- A member who leaves loses their membership row. Their leaving is kept, so the group's members can
+  -- still read their statement. A later join makes a new membership row, which is last in the order.
+  CREATE TABLE former_members (
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    left_at    TEXT NOT NULL,
+    PRIMARY KEY (group_id, account_id)
+  );
+  `,
+  `
+  -- A settlement moves money between two members of a group, and is never edited. The amount is in
+  -- hundredths of the group's currency. Only cash is kept so far, and a settlement is paid when recorded.
+  CREATE TABLE settlements (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    payer_id   TEXT NOT NULL REFERENCES accounts (id),
+    payee_id   TEXT NOT NULL REFERENCES accounts (id),
+    amount     INTEGER NOT NULL CHECK (amount >= 1),
+    method     TEXT NOT NULL CHECK (method IN ('cash')),
+    status     TEXT NOT NULL CHECK (status IN ('paid')),
+    created_at TEXT NOT NULL,
+    CHECK (payer_id <> payee_id)
+  );
+  CREATE INDEX settlements_by_group ON settlements (group_id);
+  `,
+  `
+  -- A settlement through the payment provider is pending until the provider says it ended: succeeded
+  -- (paid) or failed. Its payUrl and the provider's payment id are kept with it. SQLite cannot widen a
+  -- CHECK, so the table is rebuilt and every row copied; the rows before this step are cash, paid.
+  CREATE TABLE settlements_next (
+    id                  TEXT PRIMARY KEY,
+    group_id            TEXT NOT NULL REFERENCES groups (id),
+    payer_id            TEXT NOT NULL REFERENCES accounts (id),
+    payee_id            TEXT NOT NULL REFERENCES accounts (id),
+    amount              INTEGER NOT NULL CHECK (amount >= 1),
+    method              TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+    status              TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
+    pay_url             TEXT,
+    provider_payment_id TEXT,
+    created_at          TEXT NOT NULL,
+    CHECK (payer_id <> payee_id),
+    CHECK (method = 'provider' OR status = 'paid'),
+    CHECK (status <> 'pending' OR method = 'provider'),
+    CHECK (method = 'provider' OR pay_url IS NULL)
+  );
+  INSERT INTO settlements_next
+    (id, group_id, payer_id, payee_id, amount, method, status, pay_url, provider_payment_id, created_at)
+    SELECT id, group_id, payer_id, payee_id, amount, method, status, NULL, NULL, created_at FROM settlements;
+  DROP TABLE settlements;
+  ALTER TABLE settlements_next RENAME TO settlements;
+  CREATE INDEX settlements_by_group ON settlements (group_id);
+  CREATE INDEX settlements_by_provider_payment ON settlements (provider_payment_id);
+  `,
+  `
+  -- A payment through the provider is refunded in two steps: refunding while the provider has the refund
+  -- in hand, then refunded once it says so. A refunded payment is counted by no balance. Cash is never
+  -- refunded, so only a provider payment can carry these statuses. SQLite cannot widen a CHECK, so the
+  -- table is rebuilt and every row copied, as before.
+  CREATE TABLE settlements_next (
+    id                  TEXT PRIMARY KEY,
+    group_id            TEXT NOT NULL REFERENCES groups (id),
+    payer_id            TEXT NOT NULL REFERENCES accounts (id),
+    payee_id            TEXT NOT NULL REFERENCES accounts (id),
+    amount              INTEGER NOT NULL CHECK (amount >= 1),
+    method              TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+    status              TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+    pay_url             TEXT,
+    provider_payment_id TEXT,
+    created_at          TEXT NOT NULL,
+    CHECK (payer_id <> payee_id),
+    CHECK (method = 'provider' OR status = 'paid'),
+    CHECK (status <> 'pending' OR method = 'provider'),
+    CHECK (method = 'provider' OR pay_url IS NULL)
+  );
+  INSERT INTO settlements_next
+    (id, group_id, payer_id, payee_id, amount, method, status, pay_url, provider_payment_id, created_at)
+    SELECT id, group_id, payer_id, payee_id, amount, method, status, pay_url, provider_payment_id, created_at
+      FROM settlements;
+  DROP TABLE settlements;
+  ALTER TABLE settlements_next RENAME TO settlements;
+  CREATE INDEX settlements_by_group ON settlements (group_id);
+  CREATE INDEX settlements_by_provider_payment ON settlements (provider_payment_id);
+  `,
+  `
+  -- A member's payout account: the provider's id of the account it pays them on. Setting another replaces
+  -- it. A member has at most one, so the account is the key.
+  CREATE TABLE payout_accounts (
+    account_id          TEXT PRIMARY KEY REFERENCES accounts (id),
+    provider_account_id TEXT NOT NULL CHECK (provider_account_id <> ''),
+    set_at              TEXT NOT NULL
+  );
+  `,
+  `
+  -- A notice tells a member of an expense's split, other than its payer, their share of it. It is written in
+  -- the same transaction as the expense, so each member gets one exactly, and it is kept with its member
+  -- even after they leave the group. The expense may be deleted later: the notice is still kept.
+  CREATE TABLE notices (
+    id         TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind       TEXT NOT NULL CHECK (kind IN ('expense')),
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    expense_id TEXT NOT NULL,
+    amount     INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (expense_id, account_id)
+  );
+  CREATE INDEX notices_by_account ON notices (account_id, created_at);
+  `,
+  `
+  -- A member who owes more than 2000 in a group is noted from the background job's run that first sees it,
+  -- and is no longer noted at a run that sees them owe 2000 or less. Only the members of the group are kept.
+  CREATE TABLE noted_debts (
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    noted_at   TEXT NOT NULL,
+    PRIMARY KEY (group_id, account_id)
+  );
+  `,
+  `
+  -- A reminder is a notice of its own kind: it names no expense, and its amount is what the member still
+  -- owes, more than 2000. SQLite cannot widen a CHECK or drop a NOT NULL, so the table is rebuilt and every
+  -- row copied; the rows before this step are expense notices, which name their expense.
+  CREATE TABLE notices_next (
+    id         TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind       TEXT NOT NULL CHECK (kind IN ('expense', 'reminder')),
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    expense_id TEXT,
+    amount     INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (expense_id, account_id),
+    CHECK ((kind = 'expense' AND expense_id IS NOT NULL) OR (kind = 'reminder' AND expense_id IS NULL)),
+    CHECK (kind <> 'reminder' OR amount > 2000)
+  );
+  INSERT INTO notices_next (id, account_id, kind, group_id, expense_id, amount, created_at)
+    SELECT id, account_id, kind, group_id, expense_id, amount, created_at FROM notices;
+  DROP TABLE notices;
+  ALTER TABLE notices_next RENAME TO notices;
+  CREATE INDEX notices_by_account ON notices (account_id, created_at);
+  `,
+  `
+  -- Every status a settlement has had, in the order Tally learned of them: one row per change, never
+  -- edited. \`id\` is an autoincrement so that rows written in the same millisecond keep their order. The
+  -- rows before this step are reconstructed from the settlement: a cash one was paid when recorded; a
+  -- provider one was pending when recorded and then went on to the status it has, through paid when that
+  -- status is refunding or refunded. Their times are not known, so each is the settlement's own time.
+  CREATE TABLE settlement_statuses (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    settlement_id TEXT NOT NULL REFERENCES settlements (id) ON DELETE CASCADE,
+    status        TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+    at            TEXT NOT NULL
+  );
+  CREATE INDEX settlement_statuses_by_settlement ON settlement_statuses (settlement_id, id);
+  INSERT INTO settlement_statuses (settlement_id, status, at)
+    SELECT id, CASE WHEN method = 'cash' THEN 'paid' ELSE 'pending' END, created_at FROM settlements;
+  INSERT INTO settlement_statuses (settlement_id, status, at)
+    SELECT id, 'paid', created_at FROM settlements
+     WHERE method = 'provider' AND status IN ('paid', 'refunding', 'refunded');
+  INSERT INTO settlement_statuses (settlement_id, status, at)
+    SELECT id, status, created_at FROM settlements
+     WHERE method = 'provider' AND status IN ('failed', 'refunding', 'refunded');
+  `,
+  `
+  -- The balance a member had when they left, passed on to the owner of the group: one row per leaving, never
+  -- edited. The amount is in hundredths of the group's currency, positive when the group owed the member. A
+  -- member's balance counts what came to them and not what went from them, so one who leaves at a balance
+  -- of B is at 0 from then on, even if they join again.
+  CREATE TABLE balance_transfers (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    from_id  TEXT NOT NULL REFERENCES accounts (id),
+    to_id    TEXT NOT NULL REFERENCES accounts (id),
+    amount   INTEGER NOT NULL,
+    at       TEXT NOT NULL
+  );
+  CREATE INDEX balance_transfers_by_group ON balance_transfers (group_id);
+  `,
+  `
+  -- An expense may be paid in another currency: its original amount, in hundredths of that currency, and the
+  -- rate it was paid at, as its payer stated it (a decimal string, kept as given). Its \`amount\` is still the
+  -- group's, the original times the rate. An expense in the group's currency, or recorded before this step,
+  -- has none of the three.
+  ALTER TABLE expenses ADD COLUMN original_currency TEXT
+    CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'));
+  ALTER TABLE expenses ADD COLUMN original_amount INTEGER
+    CHECK (original_amount BETWEEN 1 AND 100000000);
+  ALTER TABLE expenses ADD COLUMN original_rate TEXT;
+  `,
+  `
+  -- A recurring expense: what the background job records on its day of every month. \`split\` is the split as
+  -- it was given (JSON), \`starts_on\` its first day, and \`next_on\` the day of the next expense to record: the
+  -- job records it and moves it a month on in one transaction, so each day has one expense. It is deleted when
+  -- stopped, or when a member it names has left.
+  CREATE TABLE recurring (
+    id          TEXT PRIMARY KEY,
+    group_id    TEXT NOT NULL REFERENCES groups (id),
+    paid_by     TEXT NOT NULL REFERENCES accounts (id),
+    description TEXT NOT NULL,
+    amount      INTEGER NOT NULL CHECK (amount BETWEEN 1 AND 100000000),
+    split       TEXT NOT NULL,
+    starts_on   TEXT NOT NULL,
+    next_on     TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX recurring_by_group ON recurring (group_id);
+  `,
+  `
+  -- An expense, and a recurring expense, has a category. One recorded or set up before this step is other.
+  ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'
+    CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'));
+  ALTER TABLE recurring ADD COLUMN category TEXT NOT NULL DEFAULT 'other'
+    CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'));
+  -- A group's monthly budget for a category, in hundredths of the group's currency. Setting it again replaces it.
+  CREATE TABLE budgets (
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    category TEXT NOT NULL CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other')),
+    amount   INTEGER NOT NULL CHECK (amount BETWEEN 1 AND 100000000),
+    set_at   TEXT NOT NULL,
+    PRIMARY KEY (group_id, category)
+  );
+  -- A month of a category that has passed its budget, once: the notices for it were made then, and never again.
+  CREATE TABLE budget_passings (
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    category TEXT NOT NULL CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other')),
+    month    TEXT NOT NULL,
+    at       TEXT NOT NULL,
+    PRIMARY KEY (group_id, category, month)
+  );
+  -- A budget notice names its group, category, month and budget, and its amount is what the month spends. It names
+  -- no expense. SQLite cannot widen a CHECK, so the table is rebuilt and every row copied; the rows before this step
+  -- are expense or reminder notices, which keep their columns and have the new ones null.
+  CREATE TABLE notices_next (
+    id         TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind       TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    expense_id TEXT,
+    category   TEXT CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other')),
+    month      TEXT,
+    budget     INTEGER,
+    amount     INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (expense_id, account_id),
+    CHECK ((kind = 'expense' AND expense_id IS NOT NULL) OR (kind = 'reminder' AND expense_id IS NULL)
+      OR (kind = 'budget' AND expense_id IS NULL AND category IS NOT NULL AND month IS NOT NULL AND budget IS NOT NULL)),
+    CHECK (kind <> 'reminder' OR amount > 2000)
+  );
+  INSERT INTO notices_next (id, account_id, kind, group_id, expense_id, amount, created_at)
+    SELECT id, account_id, kind, group_id, expense_id, amount, created_at FROM notices;
+  DROP TABLE notices;
+  ALTER TABLE notices_next RENAME TO notices;
+  CREATE INDEX notices_by_account ON notices (account_id, created_at);
+  `,
+  `
+  -- A split saved under a name in a group, which an expense may be split by in place of its own split. The split is
+  -- as it was given (JSON): equally between members, or by shares. The name is kept as given; its key, the name in
+  -- lower case, is what makes it unique in its group, whatever its case. Its author and the owner may change it.
+  CREATE TABLE split_templates (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    created_by TEXT NOT NULL REFERENCES accounts (id),
+    name       TEXT NOT NULL,
+    name_key   TEXT NOT NULL,
+    split      TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (group_id, name_key)
+  );
+  `,
+  `
+  -- An expense's receipt: a JPEG or a PNG kept in the receipts store, which Tally keeps only the id and the link
+  -- of. One per expense: attaching another replaces it, and it is kept with the expense, so it goes when the
+  -- expense does. Attaching a receipt does not change the expense's version.
+  CREATE TABLE receipts (
+    expense_id  TEXT PRIMARY KEY REFERENCES expenses (id),
+    type        TEXT NOT NULL CHECK (type IN ('image/jpeg', 'image/png')),
+    size        INTEGER NOT NULL CHECK (size BETWEEN 1 AND 2097152),
+    url         TEXT NOT NULL CHECK (url <> ''),
+    store_id    TEXT NOT NULL CHECK (store_id <> ''),
+    attached_at TEXT NOT NULL
+  );
+  `,
+  `
+  -- A group is archived once its trip is over: its owner archives it, and from then on nothing in it changes. The
+  -- time it was archived is kept as \`archived_at\`; a group not archived has none.
+  ALTER TABLE groups ADD COLUMN archived_at TEXT;
+  `,
+  `
+  -- The audit of a group: one entry for each change of money, written in the transaction of the change, so it is
+  -- there when the change is and not otherwise. \`by_id\` is the account that made the change, \`subject_id\` what it is
+  -- about (an expense, a settlement, or the member who left), and \`amount\` what it moved, in hundredths of the group's
+  -- currency. An entry is never changed or removed: the triggers refuse it, whatever writes.
+  CREATE TABLE audit_entries (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    at         TEXT NOT NULL,
+    by_id      TEXT NOT NULL REFERENCES accounts (id),
+    action     TEXT NOT NULL CHECK (action IN (
+                 'expense-recorded', 'expense-edited', 'expense-deleted',
+                 'settlement-paid', 'settlement-refunded', 'balance-passed')),
+    subject_id TEXT NOT NULL,
+    amount     INTEGER NOT NULL
+  );
+  CREATE INDEX audit_entries_by_group ON audit_entries (group_id, at);
+  CREATE TRIGGER audit_entries_never_updated BEFORE UPDATE ON audit_entries
+  BEGIN SELECT RAISE(ABORT, 'an audit entry is never changed'); END;
+  CREATE TRIGGER audit_entries_never_deleted BEFORE DELETE ON audit_entries
+  BEGIN SELECT RAISE(ABORT, 'an audit entry is never removed'); END;
+  `,
+];
+
+/** Brings a copy of a Tally file up to the latest step, as opening it did in the versions that kept a file. */
+export function migrateLegacy(db: DatabaseSync): void {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const current = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
+    for (let step = current; step < legacyMigrations.length; step++) {
+      db.exec(legacyMigrations[step]);
+    }
+    if (current < legacyMigrations.length) {
+      db.exec(`PRAGMA user_version = ${legacyMigrations.length}`);
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}

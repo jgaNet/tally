@@ -51,8 +51,8 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
       },
     },
     async (request, reply) => {
-      const owner = requireAccount(db, request);
-      const id = createGroup(db, owner.id, request.body);
+      const owner = await requireAccount(db, request);
+      const id = await createGroup(db, owner.id, request.body);
       return reply.code(201).send({ id });
     },
   );
@@ -63,8 +63,8 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
       schema: { response: { 200: { type: 'array', items: groupSchema } } },
     },
     async request => {
-      const account = requireAccount(db, request);
-      return groupsOfMember(db, account.id);
+      const account = await requireAccount(db, request);
+      return await groupsOfMember(db, account.id);
     },
   );
 
@@ -77,9 +77,9 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
       },
     },
     async request => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // A group someone else is in does not exist, for this caller: the same answer as no group.
-      const group = groupForMember(db, request.params.id, account.id);
+      const group = await groupForMember(db, request.params.id, account.id);
       if (!group) {
         throw new Refusal(404, 'NotFound', 'There is no such group.');
       }
@@ -96,9 +96,9 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
       },
     },
     async request => {
-      const account = requireAccount(db, request);
-      requireMembership(db, request.params.id, account.id);
-      return membersOf(db, request.params.id);
+      const account = await requireAccount(db, request);
+      await requireMembership(db, request.params.id, account.id);
+      return await membersOf(db, request.params.id);
     },
   );
 
@@ -110,8 +110,8 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
-      archiveGroup(db, request.params.id, account.id, new Date());
+      const account = await requireAccount(db, request);
+      await archiveGroup(db, request.params.id, account.id, new Date());
       return reply.code(204).send();
     },
   );
@@ -124,8 +124,8 @@ export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
-      leaveGroup(db, request.params.id, account.id);
+      const account = await requireAccount(db, request);
+      await leaveGroup(db, request.params.id, account.id);
       return reply.code(204).send();
     },
   );

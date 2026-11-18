@@ -113,9 +113,9 @@ export function registerRecurringRoutes(app: FastifyInstance, db: Database): voi
       },
     },
     async (request, reply) => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       const { description, amount, startsOn, category } = request.body;
-      const id = createRecurring(db, request.params.id, account.id, {
+      const id = await createRecurring(db, request.params.id, account.id, {
         description,
         amount,
         startsOn,
@@ -129,21 +129,21 @@ export function registerRecurringRoutes(app: FastifyInstance, db: Database): voi
   app.get<{ Params: { id: string } }>(
     '/recurring/:id',
     { schema: { params: idParams, response: { 200: recurringSchema } } },
-    async request => read(requireRecurring(db, request.params.id, requireAccount(db, request).id)),
+    async request => read(await requireRecurring(db, request.params.id, (await requireAccount(db, request)).id)),
   );
 
   app.get<{ Params: { id: string } }>(
     '/groups/:id/recurring',
     { schema: { params: idParams, response: { 200: { type: 'array', items: recurringSchema } } } },
     async request => {
-      const account = requireAccount(db, request);
-      requireMembership(db, request.params.id, account.id);
-      return recurringOfGroup(db, request.params.id).map(read);
+      const account = await requireAccount(db, request);
+      await requireMembership(db, request.params.id, account.id);
+      return (await recurringOfGroup(db, request.params.id)).map(read);
     },
   );
 
   app.delete<{ Params: { id: string } }>('/recurring/:id', { schema: { params: idParams } }, async (request, reply) => {
-    stopRecurring(db, request.params.id, requireAccount(db, request).id);
+    await stopRecurring(db, request.params.id, (await requireAccount(db, request)).id);
     return reply.code(204).send();
   });
 }

@@ -35,15 +35,15 @@ export async function requestProviderSettlement(
   payeeId: string,
   amount: number,
 ): Promise<string> {
-  const held = inTransaction(db, () => {
-    const group = requireMembership(db, groupId, payerId);
-    requireNotArchived(db, groupId);
+  const held = await inTransaction(db, async () => {
+    const group = await requireMembership(db, groupId, payerId);
+    await requireNotArchived(db, groupId);
     if (provider.url === '') {
       throw new Refusal(409, 'ProviderNotConfigured', 'Payment through the provider is not set up on this server.');
     }
-    checkNewSettlement(db, groupId, payerId, payeeId, amount);
+    await checkNewSettlement(db, groupId, payerId, payeeId, amount);
     // The payee's account as it is now: a payment asked for goes to the account set at that moment.
-    const payee = payoutAccountOf(db, payeeId);
+    const payee = await payoutAccountOf(db, payeeId);
     if (payee === undefined) {
       throw new Refusal(
         409,
@@ -53,11 +53,12 @@ export async function requestProviderSettlement(
     }
     const id = randomUUID();
     const at = new Date().toISOString();
-    db.prepare(
+    await db.execute(
       `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?)`,
-    ).run(id, groupId, payerId, payeeId, amount, at);
-    recordStatus(db, id, 'pending', at);
+      [id, groupId, payerId, payeeId, amount, at],
+    );
+    await recordStatus(db, id, 'pending', at);
     return { id, currency: group.currency, payee };
   });
 
@@ -70,7 +71,7 @@ export async function requestProviderSettlement(
       payee: held.payee,
     });
   } catch {
-    db.prepare('DELETE FROM settlements WHERE id = ?').run(held.id);
+    await db.execute('DELETE FROM settlements WHERE id = ?', [held.id]);
     throw new Refusal(
       409,
       'PaymentNotStarted',
@@ -78,11 +79,11 @@ export async function requestProviderSettlement(
     );
   }
 
-  db.prepare('UPDATE settlements SET pay_url = ?, provider_payment_id = ? WHERE id = ?').run(
+  await db.execute('UPDATE settlements SET pay_url = ?, provider_payment_id = ? WHERE id = ?', [
     payment.payUrl,
     payment.id,
     held.id,
-  );
+  ]);
   return held.id;
 }
 
@@ -142,17 +143,14 @@ export function signatureIsValid(secret: string, body: Buffer, signature: string
  * changes a payment that has not reached it, so a redelivered or late webhook changes nothing: a payment
  * that has ended stays as it ended. `pending`, and a payment Tally does not know, change nothing.
  */
-export function applyProviderStatus(db: Database, paymentId: string, status: string): void {
+export async function applyProviderStatus(db: Database, paymentId: string, status: string): Promise<void> {
   switch (status) {
     case 'succeeded':
-      setProviderStatus(db, paymentId, 'paid', ['pending']);
-      return;
+      return setProviderStatus(db, paymentId, 'paid', ['pending']);
     case 'failed':
-      setProviderStatus(db, paymentId, 'failed', ['pending']);
-      return;
+      return setProviderStatus(db, paymentId, 'failed', ['pending']);
     case 'refunded':
-      setProviderStatus(db, paymentId, 'refunded', ['pending', 'paid', 'refunding']);
-      return;
+      return setProviderStatus(db, paymentId, 'refunded', ['pending', 'paid', 'refunding']);
     default:
       // `pending`, or a word Tally does not know: nothing is changed.
       return;
@@ -191,32 +189,36 @@ function moneyChangeOf(
  * Sets the provider settlement of `paymentId` to `status`, if it is now one of `from`, and records the
  * change in its history. A word that changes nothing records nothing.
  */
-function setProviderStatus(
+async function setProviderStatus(
   db: Database,
   paymentId: string,
   status: StatusEntry['status'],
   from: readonly StatusEntry['status'][],
-): void {
-  inTransaction(db, () => {
+): Promise<void> {
+  await inTransaction(db, async () => {
     // `from` is written here, never from a request: only its placeholders are built from it.
-    const settlements = db
-      .prepare(
-        `SELECT settlements.id, settlements.group_id, settlements.status, settlements.payer_id, settlements.payee_id,
-                settlements.amount
-           FROM settlements
-          WHERE settlements.provider_payment_id = ? AND settlements.method = 'provider'
-            AND settlements.status IN (${from.map(() => '?').join(', ')})`,
-      )
-      .all(paymentId, ...from) as unknown as ProviderSettlementRow[];
+    const settlements = await db.rows<ProviderSettlementRow>(
+      `SELECT settlements.id, settlements.group_id, settlements.status, settlements.payer_id, settlements.payee_id,
+              settlements.amount
+         FROM settlements
+        WHERE settlements.provider_payment_id = ? AND settlements.method = 'provider'
+          AND settlements.status IN (${from.map(() => '?').join(', ')})`,
+      [paymentId, ...from],
+    );
     for (const settlement of settlements) {
       // An archived group is read only: the provider's word cannot change its settlement, so it is refused.
-      requireNotArchived(db, settlement.group_id);
+      await requireNotArchived(db, settlement.group_id);
       const at = new Date().toISOString();
-      db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(status, settlement.id);
-      recordStatus(db, settlement.id, status, at);
+      await db.execute('UPDATE settlements SET status = ? WHERE id = ?', [status, settlement.id]);
+      await recordStatus(db, settlement.id, status, at);
       const change = moneyChangeOf(settlement, status);
       if (change !== undefined) {
-        recordAudit(db, settlement.group_id, { ...change, subjectId: settlement.id, amount: settlement.amount }, at);
+        await recordAudit(
+          db,
+          settlement.group_id,
+          { ...change, subjectId: settlement.id, amount: settlement.amount },
+          at,
+        );
       }
     }
   });

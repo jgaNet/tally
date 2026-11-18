@@ -6,18 +6,18 @@ import {
   send,
   signedUpAccount,
   startFakeRatesService,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 describe('the rate a rates service offers', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
   let rates: FakeRatesService;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
+    databaseUrl = await temporaryDatabaseUrl();
     rates = await startFakeRatesService();
-    app = await createApplication({ databasePath, ratesUrl: rates.url, ratesTimeoutMs: 300 });
+    app = await createApplication({ databaseUrl, ratesUrl: rates.url, ratesTimeoutMs: 300 });
   });
 
   afterEach(async () => {
@@ -141,7 +141,7 @@ describe('the rate a rates service offers', () => {
 
   it('is 404 when the service cannot be reached', async () => {
     const unreachable = await createApplication({
-      databasePath: temporaryDatabasePath(),
+      databaseUrl: await temporaryDatabaseUrl(),
       ratesUrl: 'http://127.0.0.1:1',
       ratesTimeoutMs: 300,
     });
@@ -155,7 +155,7 @@ describe('the rate a rates service offers', () => {
   });
 
   it('offers no rate at all on a server started without a rates service, and asks nothing', async () => {
-    const without = await createApplication({ databasePath: temporaryDatabasePath(), ratesUrl: '' });
+    const without = await createApplication({ databaseUrl: await temporaryDatabaseUrl(), ratesUrl: '' });
     try {
       const { ada, groupId } = await eurGroup(without);
       const response = await send(without, 'GET', `/groups/${groupId}/rates/CHF`, { token: ada.token });
@@ -167,7 +167,7 @@ describe('the rate a rates service offers', () => {
 
   it('asks the service at its base, however the base was given with a trailing slash', async () => {
     const slashed = await createApplication({
-      databasePath: temporaryDatabasePath(),
+      databaseUrl: await temporaryDatabaseUrl(),
       ratesUrl: `${rates.url}/`,
     });
     try {

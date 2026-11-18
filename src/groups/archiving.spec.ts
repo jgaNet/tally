@@ -8,7 +8,7 @@ import {
   setPayoutAccount,
   signedUpAccount,
   startFakeProvider,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 const SECRET = 'shared-secret';
@@ -21,7 +21,7 @@ describe('archiving a group', () => {
   beforeEach(async () => {
     provider = await startFakeProvider();
     app = await createApplication({
-      databasePath: temporaryDatabasePath(),
+      databaseUrl: await temporaryDatabaseUrl(),
       providerUrl: provider.url,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 300,

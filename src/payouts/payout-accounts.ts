@@ -3,9 +3,11 @@ import { Refusal } from '../refusal';
 import type { ProviderConfig } from '../settlements/provider';
 
 /** The provider's id of the account it pays `accountId` on, or `undefined` when none is set. */
-export function payoutAccountOf(db: Database, accountId: string): string | undefined {
-  const row = db.prepare('SELECT provider_account_id FROM payout_accounts WHERE account_id = ?').get(accountId) as
-    { provider_account_id: string } | undefined;
+export async function payoutAccountOf(db: Database, accountId: string): Promise<string | undefined> {
+  const row = await db.row<{ provider_account_id: string }>(
+    'SELECT provider_account_id FROM payout_accounts WHERE account_id = ?',
+    [accountId],
+  );
   return row?.provider_account_id;
 }
 
@@ -27,10 +29,11 @@ export async function setPayoutAccount(
     throw new Refusal(409, 'ProviderNotConfigured', 'Payment through the provider is not set up on this server.');
   }
   await confirmProviderAccount(provider, providerAccountId);
-  db.prepare(
+  await db.execute(
     `INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES (?, ?, ?)
      ON CONFLICT (account_id) DO UPDATE SET provider_account_id = excluded.provider_account_id, set_at = excluded.set_at`,
-  ).run(accountId, providerAccountId, new Date().toISOString());
+    [accountId, providerAccountId, new Date().toISOString()],
+  );
 }
 
 const notConfirmed = () =>

@@ -1,14 +1,14 @@
 import { type Application, createApplication } from '../app';
 import { todayInUtc } from '../expenses/validation';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 describe('leaving a group', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -339,7 +339,7 @@ describe('leaving a group', () => {
       expect((await leave(grace.token, groupId)).statusCode).toBe(204);
       await app.stop();
 
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       expect((await send(app, 'GET', `/groups/${groupId}`, { token: grace.token })).statusCode).toBe(404);
       expect((await membersOf(ada.token, groupId)).map(member => member.name)).toEqual(['Ada', 'Linus']);
       expect(

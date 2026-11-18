@@ -6,7 +6,7 @@ import {
   send,
   signedUpAccount,
   startFakeReceiptsStore,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 const MAX = 2097152;
@@ -29,7 +29,7 @@ describe('receipts', () => {
   beforeEach(async () => {
     store = await startFakeReceiptsStore();
     app = await createApplication({
-      databasePath: temporaryDatabasePath(),
+      databaseUrl: await temporaryDatabaseUrl(),
       receiptsUrl: store.url,
       receiptsTimeoutMs: 2000,
     });
@@ -44,7 +44,7 @@ describe('receipts', () => {
   async function withStoreTimeout(timeoutMs: number): Promise<void> {
     await app.stop();
     app = await createApplication({
-      databasePath: temporaryDatabasePath(),
+      databaseUrl: await temporaryDatabaseUrl(),
       receiptsUrl: store.url,
       receiptsTimeoutMs: timeoutMs,
     });
@@ -228,7 +228,7 @@ describe('receipts', () => {
 
     it('is refused when no receipts store is set up, and nothing is sent', async () => {
       await app.stop();
-      app = await createApplication({ databasePath: temporaryDatabasePath() });
+      app = await createApplication({ databaseUrl: await temporaryDatabaseUrl() });
       const { ada, groupId } = await twoMembers();
       const expenseId = await recordExpense(ada.token, groupId, [ada.id]);
 

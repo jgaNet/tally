@@ -37,26 +37,26 @@ interface AuditRow {
  * Writes the entry of a change of money in `groupId`. It is called only inside the transaction of the change, after
  * the change is written, so the entry is there exactly when the change is. Nothing else writes an entry.
  */
-export function recordAudit(
+export async function recordAudit(
   db: Database,
   groupId: string,
   change: { by: string; action: AuditAction; subjectId: string; amount: number },
   at: string,
-): void {
-  db.prepare(
+): Promise<void> {
+  await db.execute(
     'INSERT INTO audit_entries (id, group_id, at, by_id, action, subject_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  ).run(randomUUID(), groupId, at, change.by, change.action, change.subjectId, change.amount);
+    [randomUUID(), groupId, at, change.by, change.action, change.subjectId, change.amount],
+  );
 }
 
 /** Every change of money in `groupId`, the oldest first. Reading it changes nothing. */
-export function auditOfGroup(db: Database, groupId: string): AuditEntry[] {
-  const rows = db
-    .prepare(
-      `SELECT id, at, by_id, action, subject_id, amount FROM audit_entries
-        WHERE group_id = ?
-        ORDER BY at, rowid`,
-    )
-    .all(groupId) as unknown as AuditRow[];
+export async function auditOfGroup(db: Database, groupId: string): Promise<AuditEntry[]> {
+  const rows = await db.rows<AuditRow>(
+    `SELECT id, at, by_id, action, subject_id, amount FROM audit_entries
+      WHERE group_id = ?
+      ORDER BY at, seq`,
+    [groupId],
+  );
   return rows.map(row => ({
     id: row.id,
     at: row.at,

@@ -1,13 +1,13 @@
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 describe('invitations', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -212,7 +212,7 @@ describe('invitations', () => {
       await send(app, 'POST', `/invitations/${id}/accept`, { token: grace.token });
       await app.stop();
 
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       expect((await send(app, 'GET', `/invitations/${id}`, { token: grace.token })).json().groupName).toBe('Lisbon');
       const members = await send(app, 'GET', `/groups/${groupId}/members`, { token: ada.token });
       expect(members.json().map((m: { memberId: string }) => m.memberId)).toEqual([ada.id, grace.id]);

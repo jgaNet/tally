@@ -11,7 +11,7 @@ import {
   signedUpAccount,
   startFakeProvider,
   startFakeReceiptsStore,
-  temporaryDatabasePath,
+  temporaryDatabaseUrl,
 } from '../test-support';
 
 const SECRET = 'shared-secret';
@@ -35,7 +35,7 @@ describe('an archived group', () => {
     provider = await startFakeProvider();
     receipts = await startFakeReceiptsStore();
     app = await createApplication({
-      databasePath: temporaryDatabasePath(),
+      databaseUrl: await temporaryDatabaseUrl(),
       providerUrl: provider.url,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 300,

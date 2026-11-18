@@ -48,10 +48,10 @@ export function registerStatementRoutes(app: FastifyInstance, db: Database): voi
       },
     },
     async request => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // Only the members of a group read its statements, their own included; anyone else is told it does not exist.
-      requireMembership(db, request.params.id, account.id);
-      return statementOf(db, request.params.id, request.params.memberId);
+      await requireMembership(db, request.params.id, account.id);
+      return await statementOf(db, request.params.id, request.params.memberId);
     },
   );
 
@@ -59,10 +59,10 @@ export function registerStatementRoutes(app: FastifyInstance, db: Database): voi
     '/groups/:id/members/:memberId/statement.csv',
     { schema: { params } },
     async (request, reply) => {
-      const account = requireAccount(db, request);
+      const account = await requireAccount(db, request);
       // The same reader and refusals as the statement itself.
-      requireMembership(db, request.params.id, account.id);
-      const csv = statementAsCsv(statementOf(db, request.params.id, request.params.memberId));
+      await requireMembership(db, request.params.id, account.id);
+      const csv = statementAsCsv(await statementOf(db, request.params.id, request.params.memberId));
       reply.type('text/csv; charset=utf-8');
       return csv;
     },

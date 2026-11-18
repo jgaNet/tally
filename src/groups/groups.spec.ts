@@ -1,13 +1,13 @@
 import { type Application, createApplication } from '../app';
-import { joinThroughInvitation, send, signedUpAccount, temporaryDatabasePath } from '../test-support';
+import { joinThroughInvitation, send, signedUpAccount, temporaryDatabaseUrl } from '../test-support';
 
 describe('groups', () => {
   let app: Application;
-  let databasePath: string;
+  let databaseUrl: string;
 
   beforeEach(async () => {
-    databasePath = temporaryDatabasePath();
-    app = await createApplication({ databasePath });
+    databaseUrl = await temporaryDatabaseUrl();
+    app = await createApplication({ databaseUrl });
   });
 
   afterEach(async () => {
@@ -233,7 +233,7 @@ describe('groups', () => {
       const id = await createdGroup(token, { name: 'Lisbon' });
       await app.stop();
 
-      app = await createApplication({ databasePath });
+      app = await createApplication({ databaseUrl });
       expect((await send(app, 'GET', `/groups/${id}`, { token })).json().name).toBe('Lisbon');
       expect((await send(app, 'GET', '/groups/mine', { token })).json().map((g: { id: string }) => g.id)).toEqual([id]);
     });

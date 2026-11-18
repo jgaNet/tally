@@ -53,7 +53,7 @@ export function registerAccountRoutes(app: FastifyInstance, db: Database): void 
       },
     },
     async request => {
-      const { id, email, name } = requireAccount(db, request);
+      const { id, email, name } = await requireAccount(db, request);
       return { id, email, name };
     },
   );
