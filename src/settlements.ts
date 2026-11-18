@@ -3,11 +3,14 @@ import { recordAdminLog } from './admin-log';
 import { recordAudit } from './audit';
 import { type Balance, balancesOfGroup } from './balances';
 import type { Database, Querier } from './database';
-import { assertNotArchived, findGroup, findGroupOfMember, membersOfGroup } from './groups';
+import { assertNotArchived, CURRENCIES, findGroup, findGroupOfMember, membersOfGroup, type Currency } from './groups';
 import { type ProviderConfig, requestPayment, requestRefund } from './provider';
 import { payoutAccountOf } from './payout-accounts';
 import { feeBearerOfGroup } from './fee-policy';
 import { type Fee, type FeeBearer, feeOfRow, settledOfRow } from './fees';
+import { convertedAmount, MAX_AMOUNT, MIN_AMOUNT, type OriginalAmount } from './expenses';
+import { offeredRate, type RatesConfig } from './rates';
+import { todayInUtc } from './days';
 import { assertNotDeleted } from './accounts';
 import { assertNotSuspended } from './suspensions';
 import { Refusal } from './refusal';
@@ -93,6 +96,12 @@ export interface Settlement {
    * of the fee (see `fees.ts`); its `amount` stays the one asked for.
    */
   readonly fee?: Fee;
+  /**
+   * What a settlement in another currency was paid in (requested from request 39 on): its currency and amount, and the rate it
+   * was decided at, which the rates service offered that day and which is kept whatever it says later. Its `amount` is the
+   * original amount at that rate, in the group's currency. Absent for a settlement in the group's currency.
+   */
+  readonly original?: OriginalAmount;
   /** Every status the settlement has had, the earliest first: at least one, the status it has now or had last. */
   readonly history: readonly StatusChange[];
 }
@@ -134,11 +143,14 @@ interface SettlementRow {
   pay_url: string | null;
   fee_amount: number | null;
   fee_borne_by: FeeBearer | null;
+  original_currency: Currency | null;
+  original_amount: number | null;
+  original_rate: string | null;
   created_at: string;
 }
 
 const SETTLEMENT_COLUMNS =
-  's.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.pay_url, s.fee_amount, s.fee_borne_by, s.created_at';
+  's.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.pay_url, s.fee_amount, s.fee_borne_by, s.original_currency, s.original_amount, s.original_rate, s.created_at';
 
 /** The columns of a settlement that say what it settles: its amount, and the fee it keeps, if any (see `fees.ts`). */
 const FEE_COLUMNS = 'amount, fee_amount, fee_borne_by';
@@ -157,7 +169,17 @@ function settlementOf(row: SettlementRow, history: readonly StatusChange[]): Set
   };
   const withPayUrl = row.pay_url === null ? settlement : { ...settlement, payUrl: row.pay_url };
   const fee = feeOfRow(row);
-  return fee === undefined ? withPayUrl : { ...withPayUrl, fee };
+  const withFee = fee === undefined ? withPayUrl : { ...withPayUrl, fee };
+  const original = originalOfRow(row);
+  return original === undefined ? withFee : { ...withFee, original };
+}
+
+/** What a settlement row was paid in, when it was paid in another currency (see {@link Settlement}); `undefined` otherwise. */
+function originalOfRow(
+  row: Pick<SettlementRow, 'original_currency' | 'original_amount' | 'original_rate'>,
+): OriginalAmount | undefined {
+  if (row.original_currency === null || row.original_amount === null || row.original_rate === null) return undefined;
+  return { currency: row.original_currency, amount: Number(row.original_amount), rate: row.original_rate };
 }
 
 /** The history of each settlement of the group, the earliest status first, by settlement id. */
@@ -212,21 +234,103 @@ async function checkSettlement(
 }
 
 /**
- * Records that `payerId` paid `payeeId` the `amount` in cash, in the group, and answers its id. The payee
- * is the member who records it. Refused with `404` when the payee is not a member of the group; with `422`
- * when the amount is not a whole number from 1, when the payer is the payee, or when the payer is not a
- * member of the group; with `409` when the amount is more than the payer owes (the opposite of their
- * balance) or more than the payee is owed (their balance), on the balances as they stand, a settlement
- * waiting at the provider counted as paid. The balances are read and the settlement written in one
- * transaction, so two settlements recorded at once are each decided on the balances the other left: when
- * both would pay more than is owed, one is refused. A payee who is suspended is refused with `403` as
- * `AccountIsSuspended`, before anything is written.
+ * A settlement's amount as it is asked for: in the group's currency, or `original`, in another of Tally's currencies, which is
+ * settled at the rate decided when it is asked for (see {@link decidedAmount}).
+ */
+export type SettlementAmount =
+  | { readonly kind: 'group'; readonly amount: number }
+  | { readonly kind: 'original'; readonly currency: string; readonly amount: number };
+
+/** What a settlement settles, in the group's currency, and what it was paid in when that is another currency. */
+interface DecidedAmount {
+  readonly amount: number;
+  readonly original: OriginalAmount | undefined;
+}
+
+/**
+ * The amount a settlement in the group settles, as it is decided now by `accountId`, a member of the group. An amount in the
+ * group's currency is taken as it is. One in another currency is its original amount at the rate the rates service offers from
+ * its currency to the group's on today's day (UTC), converted to the group's currency to the nearest whole number, a half up
+ * (see {@link convertedAmount}), and kept with the rate it was decided at; the payer gives no rate. The rate is asked outside
+ * any transaction, so no write is held while it answers, and nothing is kept here.
+ *
+ * Refused with `404` when `accountId` is not a member of the group, as if it did not exist, and as the archiving of a group
+ * says when it is archived; with `422` as `CurrencyIsUnsupported` when the currency is not one of Tally's, as
+ * `CurrencyIsTheGroupsCurrency` when it is the group's own, as `OriginalAmountIsInvalid` when the original amount is not a whole
+ * number from 1 to 100 000 000, as `RateIsNotOffered` when no rate is offered from the currency on the day, and as `AmountIsInvalid`
+ * when the amount in the group's currency is not from 1 to 100 000 000. Refused, nothing is kept and the provider is not asked.
+ */
+async function decidedAmount(
+  db: Querier,
+  rates: RatesConfig,
+  groupId: string,
+  accountId: string,
+  given: SettlementAmount,
+): Promise<DecidedAmount> {
+  if (given.kind === 'group') return { amount: given.amount, original: undefined };
+  const group = await findGroupOfMember(db, accountId, groupId);
+  if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+  assertNotArchived(group);
+  const { currency, amount: originalAmount } = given;
+  if (!(CURRENCIES as readonly string[]).includes(currency)) {
+    throw new Refusal(422, 'CurrencyIsUnsupported', `The currency must be one of ${CURRENCIES.join(', ')}.`);
+  }
+  if (currency === group.currency) {
+    throw new Refusal(
+      422,
+      'CurrencyIsTheGroupsCurrency',
+      `A settlement in the group's currency, ${group.currency}, is given with its amount, not with another currency.`,
+    );
+  }
+  if (!Number.isSafeInteger(originalAmount) || originalAmount < MIN_AMOUNT || originalAmount > MAX_AMOUNT) {
+    throw new Refusal(
+      422,
+      'OriginalAmountIsInvalid',
+      `The original amount must be a whole number from ${MIN_AMOUNT} to ${MAX_AMOUNT}.`,
+    );
+  }
+  const rate = await offeredRate(rates, { from: currency, to: group.currency, date: todayInUtc() });
+  if (rate === undefined) {
+    throw new Refusal(
+      422,
+      'RateIsNotOffered',
+      `No rate is offered from ${currency} to ${group.currency} on this day, so the settlement cannot be decided.`,
+    );
+  }
+  const amount = convertedAmount(originalAmount, rate);
+  if (amount < MIN_AMOUNT || amount > MAX_AMOUNT) {
+    throw new Refusal(
+      422,
+      'AmountIsInvalid',
+      `The original amount at its rate must be a whole number from ${MIN_AMOUNT} to ${MAX_AMOUNT} in the group's currency.`,
+    );
+  }
+  return { amount, original: { currency: currency as Currency, amount: originalAmount, rate } };
+}
+
+/** The columns a settlement keeps what it was paid in, in the order of the columns: all `null` in the group's currency. */
+function originalColumns(original: OriginalAmount | undefined): [string | null, number | null, string | null] {
+  return original ? [original.currency, original.amount, original.rate] : [null, null, null];
+}
+
+/**
+ * Records that `payerId` paid `payeeId` the amount in cash, in the group, and answers its id. The payee is the member who
+ * records it. The amount is in the group's currency, or in another currency at the rate offered on the day (see
+ * {@link decidedAmount}), which the settlement keeps. Refused with `404` when the payee is not a member of the group; with `422`
+ * when the amount is not a whole number from 1, when the payer is the payee, or when the payer is not a member of the group;
+ * with `409` when the amount is more than the payer owes (the opposite of their balance) or more than the payee is owed (their
+ * balance), on the balances as they stand, a settlement waiting at the provider counted as paid. Refused as
+ * {@link decidedAmount} says when the amount is in another currency. The balances are read and the settlement written in one
+ * transaction, so two settlements recorded at once are each decided on the balances the other left: when both would pay more
+ * than is owed, one is refused. A payee who is suspended is refused with `403` as `AccountIsSuspended`, before anything is written.
  */
 export async function recordCashSettlement(
   db: Database,
-  input: { groupId: string; payeeId: string; payerId: string; amount: number },
+  rates: RatesConfig,
+  input: { groupId: string; payeeId: string; payerId: string; amount: SettlementAmount },
 ): Promise<string> {
-  const { groupId, payeeId, payerId, amount } = input;
+  const { groupId, payeeId, payerId } = input;
+  const decided = await decidedAmount(db, rates, groupId, payeeId, input.amount);
   const id = randomUUID();
   await inTransaction(db, async tx => {
     const group = await findGroupOfMember(tx, payeeId, groupId);
@@ -235,23 +339,32 @@ export async function recordCashSettlement(
     }
     assertNotArchived(group);
     await assertNotSuspended(tx, payeeId);
-    await checkSettlement(tx, { groupId, payerId, payeeId, amount });
+    await checkSettlement(tx, { groupId, payerId, payeeId, amount: decided.amount });
     const at = new Date().toISOString();
     await tx
       .prepare(
-        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, original_currency, original_amount, original_rate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(id, groupId, payerId, payeeId, amount, 'cash', 'paid', at);
+      .run(id, groupId, payerId, payeeId, decided.amount, 'cash', 'paid', ...originalColumns(decided.original), at);
     await recordStatus(tx, id, 'paid', at);
     // Paid in cash, the balances start to count it at once: its payee, who records it, made the change.
-    await recordAudit(tx, { groupId, at, by: payeeId, action: 'settlement-paid', subjectId: id, amount });
+    await recordAudit(tx, {
+      groupId,
+      at,
+      by: payeeId,
+      action: 'settlement-paid',
+      subjectId: id,
+      amount: decided.amount,
+    });
   });
   return id;
 }
 
 /**
- * Asks the payment provider for a payment of `amount` from `payerId` (the caller) to `payeeId` in the group,
- * and keeps the settlement `pending` with the provider's payment id, its `payUrl` and the fee the provider said, with who
+ * Asks the payment provider for a payment from `payerId` (the caller) to `payeeId` in the group, of the amount in the group's
+ * currency, or of the original amount in another currency at the rate offered on the day (see {@link decidedAmount}): the payment
+ * is asked in that currency, and its fee is converted at that rate. It keeps the settlement `pending` with the provider's payment
+ * id, its `payUrl` and the fee the provider said, with who
  * bears that fee as the group's policy stands now (see `fee-policy.ts`); answers the settlement's id. The id is the
  * payment's reference at the provider.
  *
@@ -272,9 +385,12 @@ export async function recordCashSettlement(
 export async function requestProviderSettlement(
   db: Database,
   provider: ProviderConfig,
-  input: { groupId: string; payerId: string; payeeId: string; amount: number },
+  rates: RatesConfig,
+  input: { groupId: string; payerId: string; payeeId: string; amount: SettlementAmount },
 ): Promise<string> {
-  const { groupId, payerId, payeeId, amount } = input;
+  const { groupId, payerId, payeeId } = input;
+  // The amount is decided first: in another currency, at the rate offered on this day, which the settlement keeps.
+  const { amount, original } = await decidedAmount(db, rates, groupId, payerId, input.amount);
   const decide = async (querier: Querier): Promise<{ currency: string; payee: string; borneBy: FeeBearer }> => {
     const group = await findGroupOfMember(querier, payerId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
@@ -299,13 +415,30 @@ export async function requestProviderSettlement(
   // Who bears the fee is the group's policy as the payment is asked for; the settlement keeps it from then on.
   const { currency, payee, borneBy } = await inReadSnapshot(db, decide);
   const id = randomUUID();
-  const payment = await requestPayment(provider, { reference: id, amount, currency, payee });
+  // The payment is asked in the currency of the original amount, when the settlement has one.
+  const payment = await requestPayment(provider, {
+    reference: id,
+    amount: original?.amount ?? amount,
+    currency: original?.currency ?? currency,
+    payee,
+  });
+  // The fee the provider keeps is in the payment's currency: it is converted at the settlement's rate, as its amount is.
+  const fee = original === undefined ? payment.fee : convertedAmount(payment.fee, original.rate);
+  // A fee in the group's currency that is not less than the amount cannot be kept (the settlement's rules forbid it). The
+  // provider has made the payment already, which its webhooks name as one Tally does not know: they change nothing.
+  if (fee >= amount) {
+    throw new Refusal(
+      424,
+      'FeeIsNotLessThanAmount',
+      'The payment provider’s fee, in the group’s currency, is not less than the amount. Nothing was kept.',
+    );
+  }
   await inTransaction(db, async tx => {
     await decide(tx);
     const at = new Date().toISOString();
     await tx
       .prepare(
-        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, fee_amount, fee_borne_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, fee_amount, fee_borne_by, original_currency, original_amount, original_rate, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         id,
@@ -317,8 +450,9 @@ export async function requestProviderSettlement(
         'pending',
         payment.id,
         payment.payUrl,
-        payment.fee,
+        fee,
         borneBy,
+        ...originalColumns(original),
         at,
       );
     await recordStatus(tx, id, 'pending', at);

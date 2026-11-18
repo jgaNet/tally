@@ -147,7 +147,7 @@ export async function createApplication({
       registerFeePolicyRoutes(api, db);
       registerBalanceRoutes(api, db);
       registerStatementRoutes(api, db);
-      registerSettlementRoutes(api, db, provider);
+      registerSettlementRoutes(api, db, provider, rates);
       registerNettingRoutes(api, db);
       registerProviderRoutes(api, db, provider);
       registerPayoutAccountRoutes(api, db, provider);

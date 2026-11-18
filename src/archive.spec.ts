@@ -84,13 +84,18 @@ async function writeEarlierFile(url: string, path: string): Promise<void> {
     for (const { name, rows } of tables) {
       for (const row of rows) {
         // A file written before account deletion has no `deleted_at` on its accounts either; one written before the
-        // provider's fee has no fee on its groups or settlements.
+        // provider's fee has no fee on its groups or settlements; one written before another currency has no original
+        // amount on its settlements.
         const columns = Object.keys(row).filter(
           column =>
             column !== 'seq' &&
             !(name === 'accounts' && column === 'deleted_at') &&
             !(name === 'groups' && column === 'fee_borne_by') &&
-            !(name === 'settlements' && (column === 'fee_amount' || column === 'fee_borne_by')),
+            !(name === 'settlements' && (column === 'fee_amount' || column === 'fee_borne_by')) &&
+            !(
+              name === 'settlements' &&
+              (column === 'original_currency' || column === 'original_amount' || column === 'original_rate')
+            ),
         );
         file
           .prepare(

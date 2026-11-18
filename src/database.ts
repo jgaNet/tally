@@ -373,6 +373,21 @@ const SCHEMA = `
         AND (fee_amount IS NULL OR (method = 'provider' AND fee_amount < amount)));
     END IF;
   END $$;
+  /*
+   * A settlement in another currency (requested from request 39 on): what it was paid in, its currency and amount, and the rate
+   * it was decided at, as the rates service wrote it. Its amount is then that original amount at the rate, in the group's
+   * currency. A settlement in the group's currency has none of the three (see settlements.ts).
+   */
+  ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_currency TEXT;
+  ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_amount BIGINT;
+  ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_rate TEXT;
+  DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'settlements_original' AND conrelid = 'settlements'::regclass) THEN
+      ALTER TABLE settlements ADD CONSTRAINT settlements_original CHECK ((original_currency IS NULL) = (original_amount IS NULL)
+        AND (original_amount IS NULL) = (original_rate IS NULL) AND (original_amount IS NULL OR original_amount >= 1));
+    END IF;
+  END $$;
   CREATE INDEX IF NOT EXISTS audit_entries_by_group ON audit_entries (group_id, at);
   /*
    * A database created before contested settlements kept the CHECKs of the statuses and actions named above without them:
