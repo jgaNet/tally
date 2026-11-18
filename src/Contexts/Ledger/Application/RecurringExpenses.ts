@@ -24,7 +24,8 @@ export interface SetUpRecurringExpenseInput {
 
 /**
  * Sets up a recurring expense the signed-in person pays every month (request 23): its payer is the caller, and the group is read
- * through the owned port. A caller who is not a member of the group gets the group's `404`. Answers the new recurring expense's id;
+ * through the owned port. A caller who is not a member of the group gets the group's `404`. A suspended payer is refused by name
+ * (AccountSuspended, request 34), before anything is set up. Answers the new recurring expense's id;
  * what it recorded (RecurringExpenseSetUp) goes out with the commit, through the outbox.
  */
 export const setUpRecurringExpense = command(
@@ -36,11 +37,13 @@ export const setUpRecurringExpense = command(
       if (!members || !isMember(members, payerId)) return Result.fail(new GroupNotFoundException());
       const archived = await groupMembers.isArchived(groupId);
       if (archived) return Result.fail(new GroupArchivedException());
+      const suspended = await groupMembers.isSuspended(payerId);
 
       const set = RecurringExpense.setUp(
         { groupId, payerId, ...draft },
         members.map(member => member.memberId),
         archived,
+        suspended,
         clock(),
       );
       if (set.isFailure()) return Result.fail(set.error);
@@ -111,7 +114,8 @@ export const getGroupRecurringExpenses = query(
  * have come, each for its expense, and is saved over the version it was read at. Nothing is decided by a read. A conflict with another
  * server's run runs the whole sweep again on what that run committed (CONFLICT_ATTEMPTS). Its facts go out with the commit, and the
  * expense each day records is made by the reaction to its fact. A group that is archived (request 27) is left alone: its recurring
- * expenses are not swept, nothing is recorded in it, and nothing is saved.
+ * expenses are not swept, nothing is recorded in it, and nothing is saved. A recurring expense whose payer is suspended (request 34) is
+ * left alone the same way: its days wait, and the first sweep after the reinstatement records every day that has come.
  */
 export const sweepRecurringExpenses = command(
   'SweepRecurringExpenses',
@@ -121,12 +125,15 @@ export const sweepRecurringExpenses = command(
       for (const item of await recurring.dueBy(dayOf(now))) {
         const members = await groupMembers.membersOf(item.groupId);
         const archived = await groupMembers.isArchived(item.groupId);
+        const payerSuspended = await groupMembers.isSuspended(item.toSnapshot().paidBy);
         const outcome = item.sweep(
           members?.map(member => member.memberId),
           archived,
+          payerSuspended,
           now,
         );
-        if (outcome === 'archived') continue;
+        // A group that is archived, and a payer who is suspended, are left alone: nothing is recorded, nothing is moved, nothing is saved.
+        if (outcome === 'archived' || outcome === 'suspended') continue;
         if (outcome === 'ended') await recurring.remove(item);
         else await recurring.save(item);
         await publishDomainEvents(item, context);

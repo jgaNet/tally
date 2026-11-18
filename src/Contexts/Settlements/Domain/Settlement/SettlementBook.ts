@@ -1,6 +1,6 @@
 import { AggregateRoot, DomainEvent, Exception, Id, IResult, Result } from '@Architecture/Domain';
 
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { PayoutAccount } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccount';
 import { PayeeHasNoPayoutAccountException } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccountExceptions';
@@ -194,10 +194,12 @@ export class SettlementBook extends AggregateRoot {
   /**
    * Records a settlement in cash, decided by its payee (request 12). Refused, and nothing recorded, unless the rules of
    * `#refusalOf` hold. Otherwise it is recorded as paid, with its identity generated here (DOMAIN-IDENTITY), and
-   * SettlementRecorded is recorded with it. The time is `now`.
+   * SettlementRecorded is recorded with it. The time is `now`. A payee who is suspended (`payeeSuspended`, request 34) records
+   * nothing: refused with AccountSuspended, after GroupArchived.
    */
-  recordCash(draft: SettlementDraft, archived: boolean, now: Date): IResult<Settlement> {
+  recordCash(draft: SettlementDraft, archived: boolean, payeeSuspended: boolean, now: Date): IResult<Settlement> {
     if (archived) return Result.fail(new GroupArchivedException());
+    if (payeeSuspended) return Result.fail(new AccountSuspendedException());
     const refusal = this.#refusalOf(draft);
     if (refusal) return Result.fail(refusal);
 
@@ -268,9 +270,11 @@ export class SettlementBook extends AggregateRoot {
     draft: SettlementDraft,
     payeeAccount: PayoutAccount | undefined,
     archived: boolean,
+    payerSuspended: boolean,
     now: Date,
   ): IResult<PaymentProposal> {
     if (archived) return Result.fail(new GroupArchivedException());
+    if (payerSuspended) return Result.fail(new AccountSuspendedException());
     const refusal = this.#refusalOf(draft);
     if (refusal) return Result.fail(refusal);
     if (!payeeAccount) return Result.fail(new PayeeHasNoPayoutAccountException());
@@ -288,8 +292,14 @@ export class SettlementBook extends AggregateRoot {
    * the settlement is kept pending, with the provider's payment, and PaymentRequested is recorded. Its status is `pending`: it
    * counts for what is still owed, and not in the balances, until the provider says it succeeded.
    */
-  recordPayment(proposal: PaymentProposal, link: ProviderPayment | undefined, archived: boolean): IResult<Settlement> {
+  recordPayment(
+    proposal: PaymentProposal,
+    link: ProviderPayment | undefined,
+    archived: boolean,
+    payerSuspended: boolean,
+  ): IResult<Settlement> {
     if (archived) return Result.fail(new GroupArchivedException());
+    if (payerSuspended) return Result.fail(new AccountSuspendedException());
     const refusal = this.#refusalOf(proposal);
     if (refusal) return Result.fail(refusal);
     if (!link?.id || !link.payUrl) return Result.fail(new ProviderUnavailableException());

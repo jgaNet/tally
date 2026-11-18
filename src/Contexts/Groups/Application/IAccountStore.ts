@@ -23,4 +23,11 @@ export interface IAccountStore {
   add(account: Account): Promise<void>;
   credentialsOf(email: string): Promise<AccountCredentials | undefined>;
   view(id: string): Promise<AccountView | undefined>;
+  /** The account with this id, as the aggregate, or `undefined` when there is none (feature 34: an administrator suspends it). */
+  find(id: string): Promise<Account | undefined>;
+  /**
+   * Saves the account at the version it was read at: a change another writer made first is a ConcurrencyConflictException, and the
+   * command decides again on what it finds (CONC-OPTIMISTIC).
+   */
+  save(account: Account): Promise<void>;
 }

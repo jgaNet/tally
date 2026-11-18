@@ -14,6 +14,11 @@ export interface ISettlementMembers {
    */
   isArchived(groupId: string): Promise<boolean>;
   /**
+   * Whether the account is suspended (feature 34, request 34): a suspended account records no cash settlement, asks no payment through the
+   * provider, and asks no netting, in any group; each is refused by the shared kernel's AccountSuspended. An account that is not there answers `false`.
+   */
+  isSuspended(accountId: string): Promise<boolean>;
+  /**
    * The groups two accounts are both members of now (feature 32, request 32), the earliest made first, each with its currency and
    * whether it is archived: what a netting reads to net what the two owe each other. A member who has left is not a member now.
    */

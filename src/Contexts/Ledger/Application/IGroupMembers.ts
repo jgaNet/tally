@@ -31,6 +31,11 @@ export interface IGroupMembers {
    * kernel's GroupArchived. Answered over the same roster; a group that is not there answers `false`.
    */
   isArchived(groupId: string): Promise<boolean>;
+  /**
+   * Whether the account is suspended (feature 34, request 34): a suspended account starts no expense nor recurring expense, in any group, and
+   * the recording is refused by the shared kernel's AccountSuspended. Answered over the same roster; an account that is not there answers `false`.
+   */
+  isSuspended(accountId: string): Promise<boolean>;
 }
 
 /** A balance that passed from a member who left a group to its owner, in the group's currency's hundredths (request 20). */

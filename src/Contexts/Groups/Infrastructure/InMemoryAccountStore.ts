@@ -17,7 +17,7 @@ export class InMemoryAccountStore implements IAccountStore {
     if (this.#byEmail(snapshot.email)) {
       throw new ConcurrencyConflictException('Groups', 'An account with this email was added at the same time');
     }
-    this.accounts.set(snapshot.id, snapshot);
+    this.accounts.set(snapshot.id, { ...snapshot, version: snapshot.version + 1 });
   }
 
   async credentialsOf(email: string): Promise<AccountCredentials | undefined> {
@@ -28,6 +28,20 @@ export class InMemoryAccountStore implements IAccountStore {
   async view(id: string): Promise<AccountView | undefined> {
     const account = this.accounts.get(id);
     return account && { id: account.id, email: account.email, name: account.name };
+  }
+
+  async find(id: string): Promise<Account | undefined> {
+    const snapshot = this.accounts.get(id);
+    return snapshot && Account.fromSnapshot(snapshot);
+  }
+
+  async save(account: Account): Promise<void> {
+    const snapshot = account.toSnapshot();
+    const stored = this.accounts.get(snapshot.id);
+    if (!stored || stored.version !== snapshot.version) {
+      throw new ConcurrencyConflictException('Groups', 'The account changed since it was read: read it again');
+    }
+    this.accounts.set(snapshot.id, { ...snapshot, version: snapshot.version + 1 });
   }
 
   #byEmail(email: string): AccountSnapshot | undefined {

@@ -57,7 +57,7 @@ describe('a payment through the provider, decided by the book in two steps', () 
   it('proposes a settlement with its identity only, and records nothing until the provider has given a link', () => {
     const aggregate = book();
 
-    const proposed = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, ANN_PAYOUT, false, NOW);
+    const proposed = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, ANN_PAYOUT, false, false, NOW);
 
     expect(proposed.isFailure()).toBe(false);
     expect(proposed.data).toEqual({
@@ -74,30 +74,41 @@ describe('a payment through the provider, decided by the book in two steps', () 
   it('refuses a payment to a payee with no payout account, by name, before the provider is asked (request 16)', () => {
     const aggregate = book();
 
-    const refused = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, undefined, false, NOW);
+    const refused = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, undefined, false, false, NOW);
 
     expect(refused.error).toBeInstanceOf(PayeeHasNoPayoutAccountException);
     expect(refused.error?.type).toBe('PayeeHasNoPayoutAccount');
     // The rules of the book still come first: a payee who is not a member is the group's 404, whatever their account.
     expect(
-      aggregate.proposePayment({ from: 'bob', to: 'zed', amount: 400 }, undefined, false, NOW).error,
+      aggregate.proposePayment({ from: 'bob', to: 'zed', amount: 400 }, undefined, false, false, NOW).error,
     ).toBeInstanceOf(GroupNotFoundException);
   });
 
   it('refuses a proposal by the rules of a cash settlement, before the provider is asked', () => {
-    expect(book().proposePayment({ from: 'bob', to: 'zed', amount: 400 }, ANN_PAYOUT, false, NOW).error).toBeInstanceOf(
-      GroupNotFoundException,
-    );
     expect(
-      book().proposePayment({ from: 'bob', to: 'ann', amount: 1001 }, ANN_PAYOUT, false, NOW).error,
+      book().proposePayment({ from: 'bob', to: 'zed', amount: 400 }, ANN_PAYOUT, false, false, NOW).error,
+    ).toBeInstanceOf(GroupNotFoundException);
+    expect(
+      book().proposePayment({ from: 'bob', to: 'ann', amount: 1001 }, ANN_PAYOUT, false, false, NOW).error,
     ).toBeInstanceOf(MoreThanPayerOwesException);
   });
 
   it('keeps the payment pending with the link, and records PaymentRequested', () => {
     const aggregate = book();
-    const proposal = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, ANN_PAYOUT, false, NOW).data!;
+    const proposal = aggregate.proposePayment(
+      { from: 'bob', to: 'ann', amount: 400 },
+      ANN_PAYOUT,
+      false,
+      false,
+      NOW,
+    ).data!;
 
-    const recorded = aggregate.recordPayment(proposal, { id: 'pay-1', payUrl: 'https://pay.example/pay-1' }, false);
+    const recorded = aggregate.recordPayment(
+      proposal,
+      { id: 'pay-1', payUrl: 'https://pay.example/pay-1' },
+      false,
+      false,
+    );
 
     expect(recorded.data).toEqual({
       id: proposal.id,
@@ -125,13 +136,21 @@ describe('a payment through the provider, decided by the book in two steps', () 
 
   it('is refused, and nothing kept, when the provider gave no link or one without its id or link', () => {
     const aggregate = book();
-    const proposal = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, ANN_PAYOUT, false, NOW).data!;
+    const proposal = aggregate.proposePayment(
+      { from: 'bob', to: 'ann', amount: 400 },
+      ANN_PAYOUT,
+      false,
+      false,
+      NOW,
+    ).data!;
 
-    expect(aggregate.recordPayment(proposal, undefined, false).error).toBeInstanceOf(ProviderUnavailableException);
-    expect(aggregate.recordPayment(proposal, { id: '', payUrl: 'https://pay.example/x' }, false).error).toBeInstanceOf(
+    expect(aggregate.recordPayment(proposal, undefined, false, false).error).toBeInstanceOf(
       ProviderUnavailableException,
     );
-    expect(aggregate.recordPayment(proposal, { id: 'pay-1', payUrl: '' }, false).error).toBeInstanceOf(
+    expect(
+      aggregate.recordPayment(proposal, { id: '', payUrl: 'https://pay.example/x' }, false, false).error,
+    ).toBeInstanceOf(ProviderUnavailableException);
+    expect(aggregate.recordPayment(proposal, { id: 'pay-1', payUrl: '' }, false, false).error).toBeInstanceOf(
       ProviderUnavailableException,
     );
     expect(aggregate.pullDomainEvents()).toEqual([]);
@@ -149,11 +168,11 @@ describe('a payment through the provider, decided by the book in two steps', () 
       { memberId: 'dan', balance: -500 },
     ]);
     expect(
-      aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 601 }, ANN_PAYOUT, false, NOW).error,
+      aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 601 }, ANN_PAYOUT, false, false, NOW).error,
     ).toBeInstanceOf(MoreThanPayerOwesException);
-    expect(aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 600 }, ANN_PAYOUT, false, NOW).isFailure()).toBe(
-      false,
-    );
+    expect(
+      aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 600 }, ANN_PAYOUT, false, false, NOW).isFailure(),
+    ).toBe(false);
   });
 });
 

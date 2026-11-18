@@ -40,7 +40,7 @@ describe('an archived group changes nothing in its settlement book (feature 27)'
   it('refuses a cash settlement by GroupArchived, and records nothing', () => {
     const aggregate = book();
 
-    const refused = aggregate.recordCash({ from: 'bob', to: 'ann', amount: 400 }, true, NOW);
+    const refused = aggregate.recordCash({ from: 'bob', to: 'ann', amount: 400 }, true, false, NOW);
 
     expect(refused.error).toBeInstanceOf(GroupArchivedException);
     expect(refused.error?.type).toBe('GroupArchived');
@@ -50,7 +50,7 @@ describe('an archived group changes nothing in its settlement book (feature 27)'
   it('refuses a payment request by GroupArchived before the provider is asked', () => {
     const aggregate = book();
 
-    const refused = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, ANN_PAYOUT, true, NOW);
+    const refused = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, ANN_PAYOUT, true, false, NOW);
 
     expect(refused.error).toBeInstanceOf(GroupArchivedException);
     expect(aggregate.pullDomainEvents()).toEqual([]);
@@ -58,9 +58,20 @@ describe('an archived group changes nothing in its settlement book (feature 27)'
 
   it('refuses the kept payment by GroupArchived, and keeps nothing', () => {
     const aggregate = book();
-    const proposal = aggregate.proposePayment({ from: 'bob', to: 'ann', amount: 400 }, ANN_PAYOUT, false, NOW).data!;
+    const proposal = aggregate.proposePayment(
+      { from: 'bob', to: 'ann', amount: 400 },
+      ANN_PAYOUT,
+      false,
+      false,
+      NOW,
+    ).data!;
 
-    const refused = aggregate.recordPayment(proposal, { id: 'pay-1', payUrl: 'https://pay.example/pay-1' }, true);
+    const refused = aggregate.recordPayment(
+      proposal,
+      { id: 'pay-1', payUrl: 'https://pay.example/pay-1' },
+      true,
+      false,
+    );
 
     expect(refused.error).toBeInstanceOf(GroupArchivedException);
     expect(aggregate.pullDomainEvents()).toEqual([]);

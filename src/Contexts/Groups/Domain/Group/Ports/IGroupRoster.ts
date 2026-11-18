@@ -17,6 +17,12 @@ export interface IGroupRoster {
    * is not there answers `false`, which callers never need: they have asked for its members first.
    */
   isArchived(groupId: string): Promise<boolean>;
+  /**
+   * Whether the account is suspended (feature 34, request 34): a suspended account starts no expense, recurring expense, cash settlement,
+   * payment through the provider or netting, in any group, and each context refuses it by the shared kernel's AccountSuspended. An account that
+   * is not there answers `false`.
+   */
+  isSuspended(accountId: string): Promise<boolean>;
   /** The ids of every group there is, the earliest made first: what a sweep over all the groups reads (feature 18). */
   groupIds(): Promise<string[]>;
   /**

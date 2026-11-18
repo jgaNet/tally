@@ -1,5 +1,5 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import {
   InvalidExpenseAmountException,
@@ -43,7 +43,7 @@ export interface RecurringExpenseSnapshot {
 }
 
 /** What a sweep decides for one recurring expense: it goes on, or it ended (its payer or a member of its split has left). */
-export type SweepOutcome = 'kept' | 'ended' | 'archived';
+export type SweepOutcome = 'kept' | 'ended' | 'archived' | 'suspended';
 
 /**
  * A recurring expense (request 23, the storm's RecurringExpense, ADR 18): an expense a member pays every month, whose expense the
@@ -98,9 +98,11 @@ export class RecurringExpense extends AggregateRoot {
     draft: RecurringExpenseDraft,
     members: readonly string[],
     archived: boolean,
+    payerSuspended: boolean,
     now: Date,
   ): IResult<RecurringExpense> {
     if (archived) return Result.fail(new GroupArchivedException());
+    if (payerSuspended) return Result.fail(new AccountSuspendedException());
     const { groupId, payerId, description, amount, startsOn, split, category: givenCategory } = draft;
     if (!isDescription(description)) return Result.fail(new InvalidExpenseDescriptionException());
     const category = categoryGiven(givenCategory);
@@ -181,10 +183,13 @@ export class RecurringExpense extends AggregateRoot {
    * recorded for it. Otherwise every day from `next` up to today (UTC, `now`) has come, and each records `RecurringExpenseDayCame`, with
    * the id of the expense that day stands for, generated here; `next` moves to the first day of the month after the last of them.
    * Records nothing on a day that has not come. Pure: the members and the time are given. In an archived group (`archived`, request 27) the
-   * sweep decides nothing: it answers `archived`, records nothing, moves nothing, and the recurring expense stays as it is.
+   * sweep decides nothing: it answers `archived`, records nothing, moves nothing, and the recurring expense stays as it is. A payer who is
+   * suspended (`payerSuspended`, request 34) is the same for this sweep: it answers `suspended`, and its days wait, unmoved, for the first
+   * sweep after the reinstatement, which records every day that has come.
    */
-  sweep(members: readonly string[] | undefined, archived: boolean, now: Date): SweepOutcome {
+  sweep(members: readonly string[] | undefined, archived: boolean, payerSuspended: boolean, now: Date): SweepOutcome {
     if (archived) return 'archived';
+    if (payerSuspended) return 'suspended';
     const at = now.toISOString();
     const concerned = [this.#paidBy, ...memberIdsOf(this.#split)];
     if (!members || !concerned.every(memberId => members.includes(memberId))) {

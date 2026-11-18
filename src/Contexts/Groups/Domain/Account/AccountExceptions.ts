@@ -43,3 +43,10 @@ export class AccountNotFoundException extends NotFoundException {
     super(SERVICE, 'No account is signed in as this one');
   }
 }
+
+/** The account an administrator names is not there: `404` (request 34). */
+export class NoSuchAccountException extends NotFoundException {
+  constructor() {
+    super(SERVICE, 'No account is there with this id');
+  }
+}

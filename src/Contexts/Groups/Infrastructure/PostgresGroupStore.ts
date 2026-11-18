@@ -218,6 +218,14 @@ export class PostgresGroupStore implements IGroupStore, IGroupRoster {
     return row?.currency;
   }
 
+  /** Whether the account is suspended (feature 34): read from the account's own row, which an administrator's change writes. */
+  async isSuspended(accountId: string): Promise<boolean> {
+    const row = (await this.database.read(db =>
+      db.prepare('SELECT suspended_at FROM accounts WHERE id = ?').get(accountId),
+    )) as { suspended_at: string | null } | undefined;
+    return row?.suspended_at != null;
+  }
+
   async groupIds(): Promise<string[]> {
     const rows = (await this.database.read(db =>
       db.prepare('SELECT id FROM groups WHERE id NOT IN (SELECT group_id FROM group_merges) ORDER BY rowid').all(),

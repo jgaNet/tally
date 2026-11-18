@@ -95,10 +95,12 @@ export const recordExpense = command(
       const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
 
       const now = clock();
+      const suspended = await groupMembers.isSuspended(payerId);
       const recorded = Expense.register(
         { groupId, payerId, groupCurrency: currency, offered, ...draft, split: split.data },
         members.map(member => member.memberId),
         archived,
+        suspended,
         now,
       );
       if (recorded.isFailure()) return recorded;

@@ -24,6 +24,10 @@ export class MembersFromGroups implements ISettlementMembers {
     return this.roster.isArchived(groupId);
   }
 
+  isSuspended(accountId: string): Promise<boolean> {
+    return this.roster.isSuspended(accountId);
+  }
+
   /** Every group there is, the earliest made first, that both accounts are current members of: read through the roster, one group at a time. */
   async groupsShared(accountId: string, otherId: string): Promise<SharedGroup[]> {
     const shared: SharedGroup[] = [];

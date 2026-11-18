@@ -1,5 +1,5 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import {
   OfferedRate,
@@ -134,15 +134,19 @@ export class Expense extends AggregateRoot {
    * An expense whose day a recurring expense stands for is recorded under the id that day's fact carries (`id`, request 23, ADR 18), so
    * the expense is built on the id it was given and not a new one; by default the identity is generated here. `archived` is the group's
    * state: an archived group records no expense, and the recording is refused with GroupArchived (request 27) before anything is decided.
+   * `payerSuspended` is the payer's account state (feature 34, request 34): a suspended payer records no expense, refused with AccountSuspended
+   * after the group's own refusal, and nothing is decided.
    */
   static register(
     draft: ExpenseDraft,
     members: readonly string[],
     archived: boolean,
+    payerSuspended: boolean,
     now: Date,
     id: Id = Id.generate(),
   ): IResult<Expense> {
     if (archived) return Result.fail(new GroupArchivedException());
+    if (payerSuspended) return Result.fail(new AccountSuspendedException());
     const { groupId, description, date, payerId, split: splitDraft } = draft;
     const checked = checkDraft({ ...draft, payerId, split: splitDraft }, members, now);
     if (checked.isFailure()) return Result.fail(checked.error);

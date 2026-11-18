@@ -27,4 +27,8 @@ export class GroupMembersFromGroups implements IGroupMembers {
   isArchived(groupId: string): Promise<boolean> {
     return this.roster.isArchived(groupId);
   }
+
+  isSuspended(accountId: string): Promise<boolean> {
+    return this.roster.isSuspended(accountId);
+  }
 }

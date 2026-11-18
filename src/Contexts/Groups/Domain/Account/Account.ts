@@ -13,12 +13,21 @@ export class Account extends AggregateRoot {
   readonly #email: string;
   readonly #name: string;
   readonly #passwordHash: string;
+  #suspendedAt: string | undefined;
 
-  private constructor(id: Id, email: string, name: string, passwordHash: string, version: number) {
+  private constructor(
+    id: Id,
+    email: string,
+    name: string,
+    passwordHash: string,
+    version: number,
+    suspendedAt: string | undefined,
+  ) {
     super(id, version);
     this.#email = email;
     this.#name = name;
     this.#passwordHash = passwordHash;
+    this.#suspendedAt = suspendedAt;
   }
 
   /**
@@ -43,7 +52,7 @@ export class Account extends AggregateRoot {
     if (emailTaken) return Result.fail(new EmailAlreadyRegisteredException());
 
     const id = Id.generate();
-    const account = new Account(id, normal.data.value, displayName.data.value, passwordHash, 0);
+    const account = new Account(id, normal.data.value, displayName.data.value, passwordHash, 0, undefined);
     account.record(AccountRegisteredEvent.set({ accountId: id.value, at: now.toISOString() }));
     return Result.ok(account);
   }
@@ -57,6 +66,34 @@ export class Account extends AggregateRoot {
     return administrators.some(administrator => administrator.trim().toLowerCase() === normal) ? Role.ADMIN : Role.USER;
   }
 
+  /**
+   * A suspension by an administrator (feature 34, request 34): the account starts nothing until it is reinstated, in any group. An account
+   * already suspended changes nothing and records nothing; otherwise it records AccountSuspended with the time. Pure: the time is `now`, and
+   * who may suspend is the use case's to say. Answers whether it changed, so the use case writes its log entry only then.
+   */
+  suspend(now: Date): boolean {
+    if (this.#suspendedAt !== undefined) return false;
+    this.#suspendedAt = now.toISOString();
+    this.record(AccountSuspendedEvent.set({ accountId: this._id.value, at: this.#suspendedAt }));
+    return true;
+  }
+
+  /**
+   * A reinstatement by an administrator (feature 34, request 34): the account starts what it started before, from now on. An account that is
+   * not suspended changes nothing and records nothing; otherwise it records AccountReinstated with the time. Pure. Answers whether it changed.
+   */
+  reinstate(now: Date): boolean {
+    if (this.#suspendedAt === undefined) return false;
+    this.#suspendedAt = undefined;
+    this.record(AccountReinstatedEvent.set({ accountId: this._id.value, at: now.toISOString() }));
+    return true;
+  }
+
+  /** Whether the account is suspended now (feature 34): what every context refuses the start of a change by (AccountSuspended). */
+  isSuspended(): boolean {
+    return this.#suspendedAt !== undefined;
+  }
+
   /** The account as the store keeps it. Records nothing. */
   static fromSnapshot(snapshot: AccountSnapshot): Account {
     const email = Email.create(snapshot.email);
@@ -64,7 +101,14 @@ export class Account extends AggregateRoot {
     if (email.isFailure() || name.isFailure()) {
       throw new Error(`The account ${snapshot.id} is corrupted: it does not hold a valid email or name`);
     }
-    return new Account(new Id(snapshot.id), email.data.value, name.data.value, snapshot.passwordHash, snapshot.version);
+    return new Account(
+      new Id(snapshot.id),
+      email.data.value,
+      name.data.value,
+      snapshot.passwordHash,
+      snapshot.version,
+      snapshot.suspendedAt,
+    );
   }
 
   toSnapshot(): AccountSnapshot {
@@ -74,6 +118,7 @@ export class Account extends AggregateRoot {
       name: this.#name,
       passwordHash: this.#passwordHash,
       version: this.version,
+      ...(this.#suspendedAt === undefined ? {} : { suspendedAt: this.#suspendedAt }),
     };
   }
 }
@@ -98,6 +143,8 @@ export interface AccountSnapshot {
   readonly name: string;
   readonly passwordHash: string;
   readonly version: number;
+  /** When the account was suspended (feature 34): present while it is suspended, and only then. */
+  readonly suspendedAt?: string;
 }
 
 export type AccountRegisteredPayload = { accountId: string; at: string };
@@ -107,3 +154,15 @@ export type AccountRegisteredPayload = { accountId: string; at: string };
  * with the account and published after the commit; nothing subscribes to it yet.
  */
 export class AccountRegisteredEvent extends DomainEvent<AccountRegisteredPayload> {}
+
+export type AccountSuspendedPayload = { accountId: string; at: string };
+export type AccountReinstatedPayload = { accountId: string; at: string };
+
+/**
+ * The fact of a suspension by an administrator (feature 34, request 34), recorded with the time it was made. It is made durable with the
+ * account and published after the commit; nothing in another context reacts to it: each one asks Groups whether the account is suspended.
+ */
+export class AccountSuspendedEvent extends DomainEvent<AccountSuspendedPayload> {}
+
+/** The fact of a reinstatement by an administrator (feature 34, request 34), recorded with the time it was made. */
+export class AccountReinstatedEvent extends DomainEvent<AccountReinstatedPayload> {}

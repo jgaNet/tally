@@ -47,7 +47,8 @@ export const recordCashSettlement = command(
       if (!book || !book.hasMember(payeeId)) return Result.fail(new GroupNotFoundException());
 
       const archived = await members.isArchived(groupId);
-      const recorded = book.recordCash({ from, to: payeeId, amount }, archived, clock());
+      const payeeSuspended = await members.isSuspended(payeeId);
+      const recorded = book.recordCash({ from, to: payeeId, amount }, archived, payeeSuspended, clock());
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
       const settlement = recorded.data;
@@ -101,10 +102,12 @@ export const payThroughProvider = command(
       if (!book || !book.hasMember(payerId)) return Result.fail(new GroupNotFoundException());
 
       const archived = await members.isArchived(groupId);
+      const payerSuspended = await members.isSuspended(payerId);
       const proposed = book.proposePayment(
         { from: payerId, to, amount },
         await payouts.payoutAccountOf(to),
         archived,
+        payerSuspended,
         clock(),
       );
       if (proposed.isFailure()) return Result.fail(proposed.error);
@@ -120,7 +123,7 @@ export const payThroughProvider = command(
       // A payment id the provider already gave another settlement is no link for this one: refused, as any answer Tally cannot keep.
       const reused = link !== undefined && (await store.settlementOfPayment(link.id)) !== undefined;
 
-      const recorded = book.recordPayment(proposed.data, reused ? undefined : link, archived);
+      const recorded = book.recordPayment(proposed.data, reused ? undefined : link, archived, payerSuspended);
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
       await store.save(book, recorded.data, recorded.data.at);

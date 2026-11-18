@@ -1,4 +1,5 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
+import { AccountSuspendedException } from '@SharedKernel/Domain';
 
 import { NothingToNetException } from '@Contexts/Settlements/Domain/Netting/NettingExceptions';
 
@@ -23,6 +24,8 @@ export interface NettingDraft {
   readonly amount: number;
   readonly settlementIds: readonly string[];
   readonly at: Date;
+  /** Whether the account that asks the netting is suspended (feature 34, request 34): a suspended account nets nothing. */
+  readonly bySuspended: boolean;
 }
 
 /**
@@ -59,9 +62,10 @@ export class Netting extends AggregateRoot {
 
   /**
    * Makes a netting of at least 1 and of at least two settlements (one each way, since a netting moves money both ways), and records
-   * NettingRecorded. Refused, and nothing made, otherwise. The time is `at`.
+   * NettingRecorded. Refused, and nothing made, otherwise: by AccountSuspended when the asker is suspended (request 34), first. The time is `at`.
    */
   static make(draft: NettingDraft): IResult<Netting> {
+    if (draft.bySuspended) return Result.fail(new AccountSuspendedException());
     if (!Number.isInteger(draft.amount) || draft.amount < 1 || draft.settlementIds.length < 2) {
       return Result.fail(new NothingToNetException());
     }

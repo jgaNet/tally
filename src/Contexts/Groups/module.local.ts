@@ -4,6 +4,7 @@ import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/Postgres
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 import { getAdministratorsLog } from '@Contexts/Groups/Application/AdministratorLog';
+import { reinstateAccount, suspendAccount } from '@Contexts/Groups/Application/AccountSuspensions';
 import { IAdministratorDecisions } from '@Contexts/Groups/Application/IAdministratorDecisions';
 import { IMemberBalances, IWaitingPayments } from '@Contexts/Groups/Application/IMemberBalances';
 import {
@@ -29,6 +30,10 @@ import {
   invitationsTablesSchema,
 } from '@Contexts/Groups/Infrastructure/PostgresInvitationStore';
 import { PostgresGroupAuditLog, groupAuditTablesSchema } from '@Contexts/Groups/Infrastructure/PostgresGroupAuditLog';
+import {
+  PostgresAdministratorActionLog,
+  administratorActionTablesSchema,
+} from '@Contexts/Groups/Infrastructure/PostgresAdministratorActionLog';
 
 /**
  * The Groups context (conventions/domain.yaml, ADRs 1 and 5): its wiring, as data. Accounts live here (ADR 1): sign-up,
@@ -42,6 +47,7 @@ export const groupsSchema = [
   ...groupsTablesSchema,
   ...invitationsTablesSchema,
   ...groupAuditTablesSchema,
+  ...administratorActionTablesSchema,
 ];
 
 /**
@@ -55,7 +61,8 @@ export function groupRoster(database: PostgresDatabase): IGroupRoster {
 
 /**
  * The Groups module, the authentication the transport gives every request (named exports, ADR 2), and the roster of
- * groups other contexts read (`roster`, the read-model port of ADR 6, for Ledger's split). Leaving (feature 9, request 20)
+ * groups other contexts read (`roster`, the read-model port of ADR 6, for Ledger's split). An administrator suspends and reinstates
+ * an account (feature 34, request 34), and writes each of those into the administrators' log beside Settlements' decisions. Leaving (feature 9, request 20)
  * asks a member's balance through `balances`, the port Groups owns (ADR 1 T5), and whether a payment of theirs waits at
  * the provider through `waiting` (ADR 15): the composition root gives both, over the other contexts' read models, so this
  * file imports no other context. The administrators' log (request 33) is read through `decisions`, the port Groups owns, and the token of a
@@ -74,6 +81,7 @@ export async function groupsWiring(
   const groups = new PostgresGroupStore(database);
   const invitations = new PostgresInvitationStore(database);
   const audit = new PostgresGroupAuditLog(database);
+  const actions = new PostgresAdministratorActionLog(database);
 
   const module = new LiteModule({
     name: 'Groups',
@@ -92,7 +100,9 @@ export async function groupsWiring(
       leaveGroup(groups, balances, waiting, audit, systemClock),
       archiveGroup(groups, balances, waiting, systemClock),
       mergeGroups(groups, waiting, systemClock),
-      getAdministratorsLog(decisions),
+      suspendAccount(accounts, actions, systemClock),
+      reinstateAccount(accounts, actions, systemClock),
+      getAdministratorsLog(decisions, actions),
     ],
   });
   return { module, authenticate: authenticateWith(tokens), roster: groups };

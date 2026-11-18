@@ -75,6 +75,7 @@ export const netDebts = command(
         amount: plan.amount,
         settlementIds: settled.map(({ settlement }) => settlement.id),
         at: now,
+        bySuspended: await members.isSuspended(by),
       });
       if (netting.isFailure()) return Result.fail(netting.error);
 

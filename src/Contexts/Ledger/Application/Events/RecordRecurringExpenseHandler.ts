@@ -40,12 +40,14 @@ export class RecordRecurringExpenseHandler extends EventHandler<RecurringExpense
     if (!members || currency === undefined) return Result.fail(new GroupNotFoundException());
     const archived = await this.groupMembers.isArchived(groupId);
     if (archived) return Result.fail(new GroupArchivedException());
+    const suspended = await this.groupMembers.isSuspended(paidBy);
 
     const now = this.clock();
     const recorded = Expense.register(
       { groupId, payerId: paidBy, groupCurrency: currency, description, date: day, amount, split, category },
       members.map(member => member.memberId),
       archived,
+      suspended,
       now,
       new Id(expenseId),
     );
