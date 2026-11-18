@@ -5,7 +5,7 @@ feature: receipts
 intent: >-
   The payer or the owner attaches a JPEG or a PNG of at most 2 MB to an expense; Tally keeps it in an outside store and reads its type, its size and the store's link.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where is the store in the model?

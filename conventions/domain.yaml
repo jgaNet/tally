@@ -89,6 +89,8 @@ contexts:
         meaning: the monthly amount a group's owner sets for a category; a month whose spending passes it is told to every member once.
       - term: SplitTemplate
         meaning: a split saved under a name in a group (equally, or by shares); an expense may be split by it in place of its own split, and keeps its shares when the template changes or goes.
+      - term: Receipt
+        meaning: a JPEG or a PNG of at most 2 MB kept for an expense in the receipts store, one per expense; attaching one replaces the one it had, and the expense keeps its version.
   - id: Tracker
     purpose: >-
       What became of each command: every operation the bus dispatches is recorded with its outcome, so that a

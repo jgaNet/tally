@@ -21,6 +21,7 @@ why, what it costs, and when to revisit it.
 | [14](0014-ledger-records-recurring-expenses-by-a-job-once-a-day.md) | Ledger records a recurring expense’s days by a background job, each day once, and its expense from the day’s fact (the Groups → Ledger link, carried) |
 | [15](0015-ledger-passes-a-budget-once-a-month.md) | Ledger decides a passed budget once a month, and Notifications tells each member from BudgetPassed (the Ledger → Notifications link, carried) |
 | [16](0016-ledger-keeps-split-templates-as-their-own-aggregate.md) | Ledger keeps a split template as its own aggregate, and an expense is split by its split, not a reference to it (the Groups → Ledger link, carried) |
+| [17](0017-ledger-keeps-a-receipt-as-its-own-aggregate-in-an-outside-store.md) | Ledger keeps a receipt as its own aggregate, its file in an outside receipts store behind a port (no new context, no new relationship) |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

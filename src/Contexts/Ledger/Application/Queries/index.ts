@@ -7,3 +7,4 @@ export * from '@Contexts/Ledger/Application/Queries/GetRecurringExpense/GetRecur
 export * from '@Contexts/Ledger/Application/Queries/GetGroupRecurringExpenses/GetGroupRecurringExpensesQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetGroupBudgets/GetGroupBudgetsQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetGroupTemplates/GetGroupTemplatesQueryHandler';
+export * from '@Contexts/Ledger/Application/Queries/GetReceipt/GetReceiptQueryHandler';

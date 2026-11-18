@@ -18,3 +18,5 @@ export * from '@Contexts/Ledger/Application/Commands/ReplaceTemplate/ReplaceTemp
 export * from '@Contexts/Ledger/Application/Commands/ReplaceTemplate/ReplaceTemplateCommandHandler';
 export * from '@Contexts/Ledger/Application/Commands/RemoveTemplate/RemoveTemplateCommandEvent';
 export * from '@Contexts/Ledger/Application/Commands/RemoveTemplate/RemoveTemplateCommandHandler';
+export * from '@Contexts/Ledger/Application/Commands/AttachReceipt/AttachReceiptCommandEvent';
+export * from '@Contexts/Ledger/Application/Commands/AttachReceipt/AttachReceiptCommandHandler';

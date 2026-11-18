@@ -24,6 +24,8 @@ import {
   ReplaceTemplateCommandHandler,
   RemoveTemplateCommandEvent,
   RemoveTemplateCommandHandler,
+  AttachReceiptCommandEvent,
+  AttachReceiptCommandHandler,
 } from '@Contexts/Ledger/Application/Commands';
 import {
   GetExpenseQueryHandler,
@@ -35,6 +37,7 @@ import {
   GetGroupRecurringExpensesQueryHandler,
   GetGroupBudgetsQueryHandler,
   GetGroupTemplatesQueryHandler,
+  GetReceiptQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { ExpenseRecordedBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedBudgetHandler';
@@ -60,6 +63,9 @@ import { GroupsMembership } from '@Contexts/Ledger/Infrastructure/Groups/GroupsM
 import { GroupsCurrency } from '@Contexts/Ledger/Infrastructure/Groups/GroupsCurrency';
 import { SettlementsSettledAmounts } from '@Contexts/Ledger/Infrastructure/Settlements/SettlementsSettledAmounts';
 import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/Rates/HttpOfferedRates';
+import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/Receipts/HttpReceiptStore';
+import { SqliteReceiptRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteReceiptRepository';
+import { SqliteReceiptQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteReceiptQueries';
 import { settlementQueries } from '@Contexts/Settlements/module.local';
 
 /**
@@ -91,6 +97,10 @@ const budgets = new SqliteBudgetRepository(database);
 const budgetQueries = new SqliteBudgetQueries(database);
 const templates = new SqliteSplitTemplateRepository(database);
 const templateQueries = new SqliteSplitTemplateQueries(database);
+/** The receipts store is asked where RECEIPTS_URL points when a receipt is attached, so an unset URL refuses it (request 26). */
+const receiptStore = new HttpReceiptStore(() => process.env.RECEIPTS_URL);
+const receipts = new SqliteReceiptRepository(database);
+const receiptQueries = new SqliteReceiptQueries(database);
 /** The policy on an expense recorded or edited (request 24): its month, in its category, is what the budget decides. */
 const budgetPolicy = new ExpenseBudgetPolicy(expenses, budgets, budgetQueries, groupMembers);
 const clock = systemClock;
@@ -143,10 +153,15 @@ export const localLedgerModule = new Module({
       event: RemoveTemplateCommandEvent,
       handlers: [new RemoveTemplateCommandHandler(groupMembers, templates)],
     },
+    {
+      event: AttachReceiptCommandEvent,
+      handlers: [new AttachReceiptCommandHandler(groupMembers, expenseQueries, receiptStore, receipts)],
+    },
   ],
   queries: [
     new GetExpenseQueryHandler(expenseQueries, groupMembers),
     new GetGroupBudgetsQueryHandler(budgetQueries, groupMembers, clock),
+    new GetReceiptQueryHandler(receiptQueries, expenseQueries, groupMembers),
     new GetGroupTemplatesQueryHandler(templateQueries, groupMembers),
     new GetGroupBalancesQueryHandler(balanceQueries, groupMembers),
     new GetGroupExpensesQueryHandler(expenseQueries, groupMembers),
