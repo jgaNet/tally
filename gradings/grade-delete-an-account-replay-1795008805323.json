@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "control": "plain",
+  "project": "/var/tmp/j6/trees/plain-1",
+  "ref": "d50511a1bcb7f2b742c1ee2fa873b248536663f8",
+  "commit": "d50511a1bcb7f2b742c1ee2fa873b248536663f8",
+  "base": "83a0dec4ce7d7990b771b5617709b59050030a5b",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "delete-an-account",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 2 passed, 3 total",
+        "failed": [
+          "delete an account › erases the name and the email of a deleted account from everything Tally keeps"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● delete an account › erases the name and the email of a deleted account from everything Tally keeps",
+          "Tests:       1 failed, 2 passed, 3 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 6412,
+  "workers": 1
+}
