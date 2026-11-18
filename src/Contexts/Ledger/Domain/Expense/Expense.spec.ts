@@ -6,6 +6,7 @@ const now = new Date('2026-11-17T12:00:00Z');
 const members = ['ann', 'bob', 'carol'];
 const draft = (overrides: Partial<ExpenseDraft> = {}): ExpenseDraft => ({
   groupId: 'flat',
+  groupCurrency: 'EUR',
   description: 'Groceries',
   amount: 1000,
   date: '2026-11-17',
@@ -130,6 +131,7 @@ describe('Expense.edit', () => {
   /** The expense as the store would have loaded it: at version 1, as a recording stores it. */
   const loaded = () => Expense.fromSnapshot({ ...recorded().toSnapshot(), version: 1 });
   const edit: EditDraft = {
+    groupCurrency: 'EUR',
     description: 'Dinner',
     amount: 900,
     date: '2026-11-16',
@@ -192,5 +194,102 @@ describe('Expense.fromSnapshot', () => {
   it('throws on shares that do not add up to the amount', () => {
     const snapshot = { ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 1 };
     expect(() => Expense.fromSnapshot({ ...snapshot, amount: 999 })).toThrow();
+  });
+});
+
+describe('Expense in another currency (request 21)', () => {
+  const loaded = () =>
+    Expense.fromSnapshot({ ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 1 });
+  const edit: EditDraft = {
+    groupCurrency: 'EUR',
+    description: 'Dinner',
+    amount: 900,
+    date: '2026-11-16',
+    split: { kind: 'equal', memberIds: ['ann', 'bob'] },
+  };
+  const inChf = (overrides: Partial<ExpenseDraft> = {}): ExpenseDraft =>
+    draft({
+      amount: undefined,
+      original: { currency: 'CHF', amount: 1234, rate: '1.0625' },
+      ...overrides,
+    });
+
+  it('converts the original at its rate, and keeps the currency, the amount and the rate as given', () => {
+    const expense = Expense.register(inChf(), members, now);
+    expect(expense.isFailure()).toBe(false);
+    const snapshot = expense.data!.toSnapshot();
+    expect(snapshot.amount).toBe(1311);
+    expect(snapshot.original).toEqual({ currency: 'CHF', amount: 1234, rate: '1.0625' });
+    expect(snapshot.shares.reduce((sum, share) => sum + share.amount, 0)).toBe(1311);
+  });
+
+  it('keeps no original for an expense in the group’s currency', () => {
+    expect(Expense.register(draft(), members, now).data!.toSnapshot()).not.toHaveProperty('original');
+  });
+
+  it('refuses both an amount and an original, and neither, as an invalid amount', () => {
+    expect(
+      Expense.register(draft({ original: { currency: 'CHF', amount: 1, rate: '1' } }), members, now).error?.type,
+    ).toBe('InvalidExpenseAmount');
+    expect(Expense.register(draft({ amount: undefined }), members, now).error?.type).toBe('InvalidExpenseAmount');
+  });
+
+  it('refuses a converted amount outside 1 to 100 000 000, as any amount is refused', () => {
+    expect(
+      Expense.register(inChf({ original: { currency: 'CHF', amount: 1, rate: '0.1' } }), members, now).error?.type,
+    ).toBe('InvalidExpenseAmount');
+    expect(
+      Expense.register(inChf({ original: { currency: 'CHF', amount: 100_000_000, rate: '2' } }), members, now).error
+        ?.type,
+    ).toBe('InvalidExpenseAmount');
+  });
+
+  it('refuses a currency that is not Tally’s, or the group’s own, and an original that is not a positive rate', () => {
+    expect(
+      Expense.register(inChf({ original: { currency: 'JPY', amount: 1, rate: '1' } }), members, now).error?.type,
+    ).toBe('InvalidOriginalCurrency');
+    expect(
+      Expense.register(
+        inChf({ groupCurrency: 'CHF', original: { currency: 'CHF', amount: 1, rate: '1' } }),
+        members,
+        now,
+      ).error?.type,
+    ).toBe('OriginalCurrencyIsGroupCurrency');
+    expect(
+      Expense.register(inChf({ original: { currency: 'CHF', amount: 0, rate: '1' } }), members, now).error?.type,
+    ).toBe('InvalidOriginalAmount');
+    for (const rate of ['0', '0.000', '1.1234567', '.5', '1.', '-1']) {
+      expect(
+        Expense.register(inChf({ original: { currency: 'CHF', amount: 1, rate } }), members, now).error?.type,
+      ).toBe('InvalidOriginalRate');
+    }
+  });
+
+  it('an edit with an amount is in the group’s currency, and an edit with an original is at its rate', () => {
+    const expense = loaded();
+    expect(
+      expense
+        .edit(
+          { ...edit, amount: undefined, original: { currency: 'USD', amount: 1000, rate: '0.9545' } },
+          members,
+          1,
+          now,
+        )
+        .isFailure(),
+    ).toBe(false);
+    expect(expense.toSnapshot()).toMatchObject({
+      amount: 955,
+      original: { currency: 'USD', amount: 1000, rate: '0.9545' },
+    });
+
+    expect(expense.edit({ ...edit, amount: 900 }, members, 1, now).isFailure()).toBe(false);
+    expect(expense.toSnapshot().original).toBeUndefined();
+    expect(expense.toSnapshot().amount).toBe(900);
+  });
+
+  it('is refused when the snapshot it is kept from disagrees with its amount', () => {
+    const snapshot = { ...Expense.register(inChf(), members, now).data!.toSnapshot(), version: 1 };
+    expect(() => Expense.fromSnapshot({ ...snapshot, amount: 1312 })).toThrow();
+    expect(Expense.fromSnapshot(snapshot).toSnapshot()).toMatchObject({ amount: 1311, original: snapshot.original });
   });
 });

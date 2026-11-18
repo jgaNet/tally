@@ -151,3 +151,47 @@ export class StatementNotFoundException extends NotFoundException {
     super(SERVICE, 'No statement is there for you with this member id');
   }
 }
+
+/** The currency of an expense in another currency is not one of Tally's currencies: `422` (request 21). */
+export class InvalidOriginalCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'InvalidOriginalCurrency',
+      message: 'The currency of an expense is one of the currencies Tally knows',
+    });
+  }
+}
+
+/** The currency of an expense in another currency is the group's own: `422` (request 21). */
+export class OriginalCurrencyIsGroupCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'OriginalCurrencyIsGroupCurrency',
+      message: 'An expense in another currency is in a currency other than the group’s',
+    });
+  }
+}
+
+/** The original amount of an expense in another currency is not a whole number from 1 to 100 000 000: `422` (request 21). */
+export class InvalidOriginalAmountException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'InvalidOriginalAmount',
+      message: 'The original amount is a whole number from 1 to 100000000, in the hundredths of its currency',
+    });
+  }
+}
+
+/** The rate is not a positive decimal with at most six digits after the point: `422` (request 21). */
+export class InvalidOriginalRateException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'InvalidOriginalRate',
+      message: 'The rate is a decimal number greater than 0, with at most 6 digits after the point',
+    });
+  }
+}

@@ -6,7 +6,7 @@ feature: another-currency
 intent: >-
   An expense may give what was paid in another currency and the rate its payer states; it keeps the currency, the rate and both amounts, and splits and counts the amount in the group's currency.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where does the conversion live?

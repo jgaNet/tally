@@ -16,6 +16,7 @@ import { MemberBalancesFromLedger } from '@Contexts/Groups/Infrastructure/Member
 import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsFromSettlements';
 import { groupRoster, groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
+import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
@@ -93,13 +94,14 @@ export async function createApplication({
   // Settlements whether a payment of theirs waits at the provider. Each read model is built over the database alone, so no wiring needs
   // another module to exist (ADR 1 T3, T5).
   const groupMembers = new GroupMembersFromGroups(groupRoster(database));
+  const groupCurrency = new GroupCurrencyFromGroups(groupRoster(database));
   const balances = ledgerBalanceRoster(database, settledAmounts, groupMembers);
   const groups = await groupsWiring(
     database,
     new MemberBalancesFromLedger(balances),
     new WaitingPaymentsFromSettlements(waitingPaymentRoster(database)),
   );
-  const ledger = ledgerWiring(database, groupMembers, settledAmounts);
+  const ledger = ledgerWiring(database, groupMembers, groupCurrency, settledAmounts);
   // The suggested settlements read the members of a group from Groups' roster and its balances from Ledger's read model (ADR 9).
   // Paying through the provider (request 13) is asked of PROVIDER_URL, and its webhooks are checked with PROVIDER_WEBHOOK_SECRET.
   const settlements = settlementsWiring(database, groups.roster, balances, {

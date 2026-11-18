@@ -4,8 +4,10 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 
 import { IExpenseStore, ExpenseView } from '@Contexts/Ledger/Application/IExpenseStore';
+import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
 import { GroupMemberRole, IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { OriginalDraft } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import {
   ExpenseNotFoundException,
   GroupNotFoundException,
@@ -13,11 +15,16 @@ import {
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
 
-/** An expense as the request carries it: the group it is in, and the rest of the draft; the payer is the caller. */
+/**
+ * An expense as the request carries it: the group it is in, and the rest of the draft; the payer is the caller. Its amount is
+ * either `amount`, in the group's currency, or `original`, in another currency at its rate (request 21): the transport gives
+ * exactly one of them.
+ */
 export interface RecordExpenseInput {
   readonly groupId: string;
   readonly description: string;
-  readonly amount: number;
+  readonly amount?: number;
+  readonly original?: OriginalDraft;
   readonly date: string;
   readonly split: SplitDraft;
 }
@@ -29,7 +36,8 @@ export interface RecordExpenseInput {
 export interface EditExpenseInput {
   readonly expenseId: string;
   readonly description: string;
-  readonly amount: number;
+  readonly amount?: number;
+  readonly original?: OriginalDraft;
   readonly date: string;
   readonly split: SplitDraft;
   readonly version: number;
@@ -37,20 +45,22 @@ export interface EditExpenseInput {
 
 /**
  * Records an expense the signed-in person paid, split between the members the request names. The group is read through the
- * owned port: a caller who is not one of its members gets the group's `404`, since the group is not there for them. The
- * expense is saved with its shares, and what it recorded (ExpenseRecorded) goes out with the commit, through the outbox.
- * Answers the new expense's id.
+ * owned port: a caller who is not one of its members gets the group's `404`, since the group is not there for them. The group's
+ * currency is read through its own port, the one an expense in another currency is converted to (request 21). The expense is saved
+ * with its shares, and what it recorded (ExpenseRecorded) goes out with the commit, through the outbox. Answers the new expense's id.
  */
 export const recordExpense = command(
   'RecordExpense',
-  (expenses: IExpenseStore, groupMembers: IGroupMembers, clock: Clock) =>
+  (expenses: IExpenseStore, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
     async ({ groupId, ...draft }: RecordExpenseInput, context): Promise<IResult<string>> => {
       const payerId = callerOf(context);
       const members = await groupMembers.membersOf(groupId);
       if (!members || !isMember(members, payerId)) return Result.fail(new GroupNotFoundException());
+      const currency = await groupCurrency.currencyOf(groupId);
+      if (currency === undefined) return Result.fail(new GroupNotFoundException());
 
       const recorded = Expense.register(
-        { groupId, payerId, ...draft },
+        { groupId, payerId, groupCurrency: currency, ...draft },
         members.map(member => member.memberId),
         clock(),
       );
@@ -71,14 +81,14 @@ export const recordExpense = command(
  */
 export const editExpense = command(
   'EditExpense',
-  (expenses: IExpenseStore, groupMembers: IGroupMembers, clock: Clock) =>
+  (expenses: IExpenseStore, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
     async ({ expenseId, version, ...draft }: EditExpenseInput, context): Promise<IResult<void>> => {
-      const found = await changeable(expenses, groupMembers, expenseId, context);
+      const found = await changeable(expenses, groupMembers, groupCurrency, expenseId, context);
       if (found.isFailure()) return Result.fail(found.error);
-      const { expense, members } = found.data;
+      const { expense, members, currency } = found.data;
 
       const edited = expense.edit(
-        draft,
+        { groupCurrency: currency, ...draft },
         members.map(member => member.memberId),
         version,
         clock(),
@@ -98,9 +108,9 @@ export const editExpense = command(
  */
 export const deleteExpense = command(
   'DeleteExpense',
-  (expenses: IExpenseStore, groupMembers: IGroupMembers, clock: Clock) =>
+  (expenses: IExpenseStore, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
     async (expenseId: string, context): Promise<IResult<void>> => {
-      const found = await changeable(expenses, groupMembers, expenseId, context);
+      const found = await changeable(expenses, groupMembers, groupCurrency, expenseId, context);
       if (found.isFailure()) return Result.fail(found.error);
       const { expense, members } = found.data;
 
@@ -136,14 +146,15 @@ export const getExpense = query(
 /**
  * The expense a caller may change, as the caller may see it: it is there for them (an expense of a group they are a member of,
  * else the same `404` as one that does not exist), and they are its payer or the group's owner (else `403`). Answers the
- * expense and the group's members, the ones the split may be in.
+ * expense, the group's members, the ones the split may be in, and the group's currency (request 21).
  */
 async function changeable(
   expenses: IExpenseStore,
   groupMembers: IGroupMembers,
+  groupCurrency: IGroupCurrency,
   expenseId: string,
   context: ExecutionContext,
-): Promise<IResult<{ expense: Expense; members: GroupMemberRole[] }>> {
+): Promise<IResult<{ expense: Expense; members: GroupMemberRole[]; currency: string }>> {
   const expense = await expenses.findById(expenseId);
   if (!expense) return Result.fail(new ExpenseNotFoundException());
 
@@ -153,8 +164,10 @@ async function changeable(
   const me = members?.find(member => member.memberId === caller);
   if (!members || !me) return Result.fail(new ExpenseNotFoundException());
   if (paidBy !== caller && me.role !== 'owner') return Result.fail(new NotThePayerOrOwnerException());
+  const currency = await groupCurrency.currencyOf(groupId);
+  if (currency === undefined) return Result.fail(new ExpenseNotFoundException());
 
-  return Result.ok({ expense, members });
+  return Result.ok({ expense, members, currency });
 }
 
 const isMember = (members: readonly GroupMemberRole[], memberId: string): boolean =>

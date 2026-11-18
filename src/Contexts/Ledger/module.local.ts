@@ -9,6 +9,7 @@ import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/Expe
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { ISettledAmounts } from '@Contexts/Ledger/Application/ISettledAmounts';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
+import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
 import { IBalanceRoster } from '@Contexts/Ledger/Domain/Expense/Ports/IBalanceRoster';
 import { SqliteBalanceRoster } from '@Contexts/Ledger/Infrastructure/SqliteBalanceRoster';
 import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseStore';
@@ -37,12 +38,14 @@ export function ledgerBalanceRoster(
 }
 
 /**
- * The Ledger module, over the database, Groups' members (`groupMembers`, built over Groups' roster) and what the settlements moved.
+ * The Ledger module, over the database, Groups' members (`groupMembers`, built over Groups' roster), the group's currency
+ * (`groupCurrency`, the same roster: an expense in another currency is converted to it, request 21) and what the settlements moved.
  * The composition root builds `groupMembers` once, so the balance read model and this module share it.
  */
 export function ledgerWiring(
   database: SqliteDatabase,
   groupMembers: IGroupMembers,
+  groupCurrency: IGroupCurrency,
   settled: ISettledAmounts,
 ): LiteModule {
   const expenses = new SqliteExpenseStore(database);
@@ -51,9 +54,9 @@ export function ledgerWiring(
     name: 'Ledger',
     domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
     useCases: [
-      recordExpense(expenses, groupMembers, systemClock),
-      editExpense(expenses, groupMembers, systemClock),
-      deleteExpense(expenses, groupMembers, systemClock),
+      recordExpense(expenses, groupMembers, groupCurrency, systemClock),
+      editExpense(expenses, groupMembers, groupCurrency, systemClock),
+      deleteExpense(expenses, groupMembers, groupCurrency, systemClock),
       getExpense(expenses, groupMembers),
       getGroupBalances(expenses, groupMembers, settled),
       getGroupExpenses(expenses, groupMembers),

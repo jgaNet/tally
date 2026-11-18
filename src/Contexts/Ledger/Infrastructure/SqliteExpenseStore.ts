@@ -33,6 +33,10 @@ import { Share, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
  * once with the expense and never changed by an edit, so the lists and the statements order by it on the same date. The
  * expenses kept before feature 8 have no recorded time, so they are given the midnight (UTC) of their day, once: the best the
  * ledger knows of them, and the same for every server that opens the file.
+ *
+ * `expense_originals` is what an expense in another currency was paid in (request 21): one row per such expense, its currency, its
+ * amount in that currency's hundredths and the rate as its payer gave it. An expense in the group's currency has no row, so the
+ * expenses kept before request 21 read as they did.
  */
 export const ledgerTablesSchema = [
   `CREATE TABLE IF NOT EXISTS expenses (
@@ -79,6 +83,12 @@ export const ledgerTablesSchema = [
      recorded_at TEXT NOT NULL
    )`,
   `INSERT OR IGNORE INTO expense_recordings (expense_id, recorded_at) SELECT id, spent_on || 'T00:00:00.000Z' FROM expenses`,
+  `CREATE TABLE IF NOT EXISTS expense_originals (
+     expense_id TEXT PRIMARY KEY REFERENCES expenses(id),
+     currency TEXT NOT NULL,
+     amount INTEGER NOT NULL,
+     rate TEXT NOT NULL
+   )`,
 ];
 
 /**
@@ -106,6 +116,7 @@ export class SqliteExpenseStore implements IExpenseStore {
     this.database.writer
       .prepare('INSERT INTO expense_recordings (expense_id, recorded_at) VALUES (?, ?)')
       .run(snapshot.id, snapshot.recordedAt);
+    this.#writeOriginal(snapshot);
     this.#writeShares(snapshot);
     this.#writeBalances(snapshot);
   }
@@ -125,6 +136,8 @@ export class SqliteExpenseStore implements IExpenseStore {
     this.database.writer
       .prepare('INSERT OR REPLACE INTO expense_splits (expense_id, kind) VALUES (?, ?)')
       .run(snapshot.id, snapshot.splitKind);
+    this.database.writer.prepare('DELETE FROM expense_originals WHERE expense_id = ?').run(snapshot.id);
+    this.#writeOriginal(snapshot);
     this.database.writer.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(snapshot.id);
     this.#writeShares(snapshot);
     this.database.writer.prepare('DELETE FROM expense_balances WHERE expense_id = ?').run(snapshot.id);
@@ -139,6 +152,7 @@ export class SqliteExpenseStore implements IExpenseStore {
     this.database.writer.prepare('DELETE FROM expense_versions WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expense_splits WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expense_recordings WHERE expense_id = ?').run(snapshot.id);
+    this.database.writer.prepare('DELETE FROM expense_originals WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expenses WHERE id = ?').run(snapshot.id);
   }
 
@@ -160,11 +174,13 @@ export class SqliteExpenseStore implements IExpenseStore {
     const rows = this.database.read(db =>
       db
         .prepare(
-          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at
+          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at,
+                  o.currency AS original_currency, o.amount AS original_amount, o.rate AS original_rate
              FROM expenses e
              JOIN expense_versions v ON v.expense_id = e.id
              JOIN expense_splits k ON k.expense_id = e.id
              JOIN expense_recordings r ON r.expense_id = e.id
+             LEFT JOIN expense_originals o ON o.expense_id = e.id
             WHERE e.group_id = ?
             ORDER BY e.spent_on DESC, r.recorded_at DESC, e.rowid DESC`,
         )
@@ -215,11 +231,13 @@ export class SqliteExpenseStore implements IExpenseStore {
     return this.database.read(db =>
       db
         .prepare(
-          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at
+          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at,
+                  o.currency AS original_currency, o.amount AS original_amount, o.rate AS original_rate
              FROM expenses e
              JOIN expense_versions v ON v.expense_id = e.id
              JOIN expense_splits k ON k.expense_id = e.id
              JOIN expense_recordings r ON r.expense_id = e.id
+             LEFT JOIN expense_originals o ON o.expense_id = e.id
             WHERE e.id = ?`,
         )
         .get(expenseId),
@@ -243,6 +261,13 @@ export class SqliteExpenseStore implements IExpenseStore {
       splitKind: row.kind,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       version: row.version,
+      ...(row.original_currency !== null && {
+        original: {
+          currency: row.original_currency,
+          amount: row.original_amount as number,
+          rate: row.original_rate as string,
+        },
+      }),
     };
   }
 
@@ -254,6 +279,14 @@ export class SqliteExpenseStore implements IExpenseStore {
     if (changes === 0) {
       throw new ConcurrencyConflictException('Ledger', 'The expense changed since it was read: read it again');
     }
+  }
+
+  /** An expense paid in another currency keeps its currency, amount and rate as given; any other has no row. */
+  #writeOriginal(snapshot: ExpenseSnapshot): void {
+    if (!snapshot.original) return;
+    this.database.writer
+      .prepare('INSERT INTO expense_originals (expense_id, currency, amount, rate) VALUES (?, ?, ?, ?)')
+      .run(snapshot.id, snapshot.original.currency, snapshot.original.amount, snapshot.original.rate);
   }
 
   #writeShares(snapshot: ExpenseSnapshot): void {
@@ -287,6 +320,9 @@ interface ExpenseRow {
   version: number;
   kind: SplitKind;
   recorded_at: string;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 }
 
 interface ShareRow {

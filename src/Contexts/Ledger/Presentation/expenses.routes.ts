@@ -12,11 +12,34 @@ type SplitBody =
   | { readonly splitExactly: { memberId: string; amount: number }[] }
   | { readonly splitByShares: { memberId: string; shares: number }[] };
 
+/** An expense paid in another currency, as a body gives it (request 21): its shape only. */
+type OriginalBody = { readonly currency: string; readonly amount: number; readonly rate: string };
+
+/** The amount of a body (request 21): exactly one of `amount`, in the group's currency, and `original`, in another currency. */
+type AmountBody = { readonly amount: number } | { readonly original: OriginalBody };
+
 /** The body of a recording: its shape only; the payer is the caller, and the group is the URL's. */
-type RecordExpenseBody = { readonly description: string; readonly amount: number; readonly date: string } & SplitBody;
+type RecordExpenseBody = { readonly description: string; readonly date: string } & AmountBody & SplitBody;
 
 /** The body of an edit: the expense given again whole, and the version its author read (request 6). */
 type EditExpenseBody = RecordExpenseBody & { readonly version: number };
+
+/** The schema of an amount in a body (request 21): exactly one of `amount` and `original`, each of the shape it names. */
+const amountProperties = {
+  amount: { type: 'integer' },
+  original: {
+    type: 'object',
+    required: ['currency', 'amount', 'rate'],
+    properties: { currency: { type: 'string' }, amount: { type: 'integer' }, rate: { type: 'string' } },
+  },
+};
+const exactlyOneAmount = {
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
+};
+
+/** The amount a body gives, in the domain's words: `amount`, or the original it is paid in. The schema has let through exactly one. */
+const amountOf = (body: AmountBody): { amount?: number; original?: OriginalBody } =>
+  'amount' in body ? { amount: body.amount } : { original: body.original };
 
 /**
  * The schema of a split in a body (request 4's `splitBetween`, request 7's `splitExactly` and `splitByShares`): exactly one of
@@ -53,13 +76,15 @@ const splitOf = (body: SplitBody): SplitDraft => {
 };
 
 /**
- * The expenses' routes (feature 4, the API's fragment 5, feature 6's fragment 7, and feature 7's fragment 8): a member records an
- * expense they paid, split equally, by exact amounts or by shares; a member of its group reads it, with how it was split; its
- * payer or the group's owner edits it from the version they read, the same ways, or deletes it. Each answers its use case at
- * once. The paths are whole, mounted at the root beside the groups' (ADR 5: a context has one mount). The body's schema says its
- * shape only: a missing field, one of the wrong type, or not exactly one of the three splits is `400` before any use case runs;
- * whether the description fits, the amount is in range, the date is a real day, the split is the group's members, the amounts
- * add up and the shares are at least 1 is the domain's to say (`422`).
+ * The expenses' routes (feature 4, the API's fragment 5, feature 6's fragment 7, feature 7's fragment 8, and request 21's fragment
+ * 21): a member records an expense they paid, split equally, by exact amounts or by shares, in the group's currency or in another
+ * one at its rate; a member of its group reads it, with how it was split; its payer or the group's owner edits it from the version
+ * they read, the same ways, or deletes it. Each answers its use case at once. The paths are whole, mounted at the root beside the
+ * groups' (ADR 5: a context has one mount). The body's schema says its shape only: a missing field, one of the wrong type, neither
+ * or both of `amount` and `original`, or not exactly one of the three splits is `400` before any use case runs; whether the
+ * description fits, the amount is in range, the currency is Tally's and not the group's, the rate is a positive decimal with at most
+ * six digits after the point, the date is a real day, the split is the group's members, the amounts add up and the shares are at
+ * least 1 is the domain's to say (`422`).
  */
 export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fastify, { module }, done) => {
   fastify.post<{ Params: { id: string }; Body: RecordExpenseBody }>(
@@ -68,14 +93,14 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
       schema: {
         body: {
           type: 'object',
-          required: ['description', 'amount', 'date'],
+          required: ['description', 'date'],
           properties: {
             description: { type: 'string' },
-            amount: { type: 'integer' },
             date: { type: 'string' },
+            ...amountProperties,
             ...splitProperties,
           },
-          ...exactlyOneSplit,
+          allOf: [exactlyOneAmount, exactlyOneSplit],
         },
       },
     },
@@ -87,7 +112,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         {
           groupId: req.params.id,
           description: req.body.description,
-          amount: req.body.amount,
+          ...amountOf(req.body),
           date: req.body.date,
           split: splitOf(req.body),
         },
@@ -105,15 +130,15 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
       schema: {
         body: {
           type: 'object',
-          required: ['description', 'amount', 'date', 'version'],
+          required: ['description', 'date', 'version'],
           properties: {
             description: { type: 'string' },
-            amount: { type: 'integer' },
             date: { type: 'string' },
             version: { type: 'integer' },
+            ...amountProperties,
             ...splitProperties,
           },
-          ...exactlyOneSplit,
+          allOf: [exactlyOneAmount, exactlyOneSplit],
         },
       },
     },
@@ -121,7 +146,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
       answerAtOnce(req, reply, module.useCase(editExpense), {
         expenseId: req.params.id,
         description: req.body.description,
-        amount: req.body.amount,
+        ...amountOf(req.body),
         date: req.body.date,
         split: splitOf(req.body),
         version: req.body.version,

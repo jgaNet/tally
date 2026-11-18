@@ -1,4 +1,5 @@
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { OriginalDraft } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { Share, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** What a screen shows of one expense: a read model, never the aggregate (QUERY-READ-MODELS). Its version is the one it is at. */
@@ -12,6 +13,8 @@ export interface ExpenseView {
   readonly splitKind: SplitKind;
   readonly shares: readonly Share[];
   readonly version: number;
+  /** What it was paid in, when it was paid in another currency (request 21): its currency, amount and rate, as given. */
+  readonly original?: OriginalDraft;
 }
 
 /** What a member of a group is owed (positive) or owes (negative), in the group's currency's hundredths. */

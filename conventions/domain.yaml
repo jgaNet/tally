@@ -73,6 +73,8 @@ contexts:
         meaning: what one member of a split owes of an expense, whole, the shares adding up to the amount exactly.
       - term: Balance
         meaning: what a member owes, or is owed, in a group, read from the expenses' shares and payers.
+      - term: OriginalAmount
+        meaning: what an expense was paid in another currency, at the rate its payer states, kept as given; converted to the group's currency, a half up.
   - id: Settlements
     purpose: >-
       Settling up between members: the settlements of each group decided in one book, in cash or through the payment
@@ -103,7 +105,9 @@ relationships:
     why: >-
       Only a member of the group may be in a split, and only Groups knows who is a member now, in which order, with
       which role, and who has ever been one. Ledger asks in its own words, through a port it owns (GroupMembers), when
-      it decides, so that a member who has just joined can be in a split at once (T3).
+      it decides, so that a member who has just joined can be in a split at once (T3). It asks the group's currency
+      too, through a port beside it (GroupCurrency): an expense paid in another currency is converted to it (request 21,
+      ADR 16).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]

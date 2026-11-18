@@ -1,5 +1,6 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
 
+import { OriginalAmount, OriginalDraft } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { Share, Split, SplitDraft, SplitKind, memberIdsOf } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
   ExpenseChangedException,
@@ -10,20 +11,29 @@ import {
   SplitMemberNotInGroupException,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 
+/**
+ * What the amount of an expense is, as a member gives it (request 21): either `amount`, in the group's currency's hundredths, or
+ * `original`, what was paid in another currency at the rate its payer states. Exactly one of the two; the group's currency
+ * (`groupCurrency`, read through Ledger's port) is what an original is converted to.
+ */
+export interface AmountDraft {
+  readonly amount?: number;
+  readonly original?: OriginalDraft;
+  readonly groupCurrency: string;
+}
+
 /** What a member asks to record: the expense as the request carries it, its payer being the caller. */
-export interface ExpenseDraft {
+export interface ExpenseDraft extends AmountDraft {
   readonly groupId: string;
   readonly description: string;
-  readonly amount: number;
   readonly date: string;
   readonly payerId: string;
   readonly split: SplitDraft;
 }
 
 /** What a member asks to put in an expense's place: the whole of it, the payer and the group staying as they are. */
-export interface EditDraft {
+export interface EditDraft extends AmountDraft {
   readonly description: string;
-  readonly amount: number;
   readonly date: string;
   readonly split: SplitDraft;
 }
@@ -44,6 +54,8 @@ export interface ExpenseSnapshot {
   readonly shares: readonly Share[];
   readonly recordedAt: string;
   readonly version: number;
+  /** What the expense was paid in, when it was paid in another currency (request 21); absent for an expense in the group's currency. */
+  readonly original?: OriginalDraft;
 }
 
 /**
@@ -65,6 +77,7 @@ export class Expense extends AggregateRoot {
   readonly #paidBy: string;
   #split: Split;
   readonly #recordedAt: string;
+  #original: OriginalAmount | undefined;
 
   private constructor(
     id: Id,
@@ -76,6 +89,7 @@ export class Expense extends AggregateRoot {
     split: Split,
     recordedAt: string,
     version: number,
+    original: OriginalAmount | undefined,
   ) {
     super(id, version);
     this.#groupId = groupId;
@@ -85,33 +99,33 @@ export class Expense extends AggregateRoot {
     this.#paidBy = paidBy;
     this.#split = split;
     this.#recordedAt = recordedAt;
+    this.#original = original;
   }
 
   /**
-   * A recording: the description is 1 to 100 characters and not only spaces, the amount a whole number from 1 to 100 000 000,
-   * the date a real day of the calendar not after today in UTC (`now`), and the split one the members of the group
-   * (`members`, the group's current members) may be in, each once, the payer among them. The shares are the `Split`'s, decided
-   * the way the split is given (equally, by exact amounts, or by shares), the remainder to the member listed first. The identity is generated here (DOMAIN-IDENTITY), and the recording records
-   * `ExpenseRecorded`. Pure: the members and the time are given, nothing is read.
+   * A recording: the description is 1 to 100 characters and not only spaces, the amount a whole number from 1 to 100 000 000 in
+   * the group's currency, or an original amount in another currency converted to it (request 21), the date a real day of the
+   * calendar not after today in UTC (`now`), and the split one the members of the group (`members`, the group's current members)
+   * may be in, each once, the payer among them. The shares are the `Split`'s, decided the way the split is given (equally, by
+   * exact amounts, or by shares), the remainder to the member listed first. The identity is generated here (DOMAIN-IDENTITY), and
+   * the recording records `ExpenseRecorded`. Pure: the members, the group's currency and the time are given, nothing is read.
    */
-  static register(
-    { groupId, description, amount, date, payerId, split: draft }: ExpenseDraft,
-    members: readonly string[],
-    now: Date,
-  ): IResult<Expense> {
-    const split = checkDraft({ description, amount, date, payerId, split: draft }, members, now);
-    if (split.isFailure()) return Result.fail(split.error);
+  static register(draft: ExpenseDraft, members: readonly string[], now: Date): IResult<Expense> {
+    const { groupId, description, date, payerId, split: splitDraft } = draft;
+    const checked = checkDraft({ ...draft, payerId, split: splitDraft }, members, now);
+    if (checked.isFailure()) return Result.fail(checked.error);
+    const { split, amount, original } = checked.data;
 
     const id = Id.generate();
-    const expense = new Expense(id, groupId, description, amount, date, payerId, split.data, now.toISOString(), 0);
+    const expense = new Expense(id, groupId, description, amount, date, payerId, split, now.toISOString(), 0, original);
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: id.value,
         groupId,
         paidBy: payerId,
         amount,
-        splitKind: split.data.kind,
-        shares: split.data.shares.map(({ memberId, amount }) => ({ memberId, amount })),
+        splitKind: split.kind,
+        shares: split.shares.map(({ memberId, amount }) => ({ memberId, amount })),
         at: now.toISOString(),
       }),
     );
@@ -129,6 +143,7 @@ export class Expense extends AggregateRoot {
       payerId: snapshot.paidBy,
       shares: snapshot.shares,
     });
+    const original = keptOriginal(snapshot.original, snapshot.amount);
     return new Expense(
       new Id(snapshot.id),
       snapshot.groupId,
@@ -139,6 +154,7 @@ export class Expense extends AggregateRoot {
       split,
       snapshot.recordedAt,
       snapshot.version,
+      original,
     );
   }
 
@@ -146,21 +162,24 @@ export class Expense extends AggregateRoot {
    * An edit: the expense is given again whole, under the rules of a recording, with the members of its group (`members`) and
    * the payer it has. It is refused with `ExpenseChanged` when it changed since the version the edit was made from
    * (`fromVersion`), before anything else is looked at: the author reads it again and decides. The shares are computed again
-   * from what the edit gives, in whichever of the three ways it splits them. An expense that concerns a member who has left the
-   * group (its payer, or one of its split) is refused with `ExpenseConcernsFormerMember` (feature 9). Records `ExpenseEdited`;
-   * the time is `now`. Pure.
+   * from what the edit gives, in whichever of the three ways it splits them, and the amount is the one the edit gives: an edit
+   * with an `amount` is in the group's currency, an edit with an `original` is in that currency at its rate (request 21). An
+   * expense that concerns a member who has left the group (its payer, or one of its split) is refused with
+   * `ExpenseConcernsFormerMember` (feature 9). Records `ExpenseEdited`; the time is `now`. Pure.
    */
   edit(draft: EditDraft, members: readonly string[], fromVersion: number, now: Date): IResult<void> {
     if (fromVersion !== this.version) return Result.fail(new ExpenseChangedException());
     if (!this.#concernsOnly(members)) return Result.fail(new ExpenseConcernsFormerMemberException());
 
-    const split = checkDraft({ ...draft, payerId: this.#paidBy }, members, now);
-    if (split.isFailure()) return Result.fail(split.error);
+    const checked = checkDraft({ ...draft, payerId: this.#paidBy, split: draft.split }, members, now);
+    if (checked.isFailure()) return Result.fail(checked.error);
+    const { split, amount, original } = checked.data;
 
     this.#description = draft.description;
-    this.#amount = draft.amount;
+    this.#amount = amount;
     this.#date = draft.date;
-    this.#split = split.data;
+    this.#split = split;
+    this.#original = original;
     this.record(
       ExpenseEditedEvent.set({
         expenseId: this._id.value,
@@ -204,6 +223,7 @@ export class Expense extends AggregateRoot {
   }
 
   toSnapshot(): ExpenseSnapshot {
+    const original = this.#original;
     return {
       id: this._id.value,
       groupId: this.#groupId,
@@ -215,27 +235,70 @@ export class Expense extends AggregateRoot {
       shares: this.#split.shares,
       recordedAt: this.#recordedAt,
       version: this.version,
+      ...(original && { original: { currency: original.currency, amount: original.amount, rate: original.rate } }),
     };
   }
 }
 
+/** The original amount an expense keeps, or none for an expense in the group's currency; throws when it does not match the amount. */
+const keptOriginal = (original: OriginalDraft | undefined, amount: number): OriginalAmount | undefined => {
+  if (original === undefined) return undefined;
+  const kept = OriginalAmount.kept(original);
+  if (kept.toGroupAmount() !== BigInt(amount)) {
+    throw new Error(`The original amount of an expense of ${amount} is corrupted`);
+  }
+  return kept;
+};
+
+/** What a recording or an edit decides: the split its shares are decided by, the amount in the group's currency, and the original. */
+interface Checked {
+  readonly split: Split;
+  readonly amount: number;
+  readonly original: OriginalAmount | undefined;
+}
+
 /**
- * What a recording and an edit both must hold (the storm's split and the rules of requests 4 and 7): the description, the
- * amount, the date, and the split the group's members may be in, the payer among them. Returns the split the shares are
- * decided by, in the way it was given.
+ * What a recording and an edit both must hold (the storm's split and the rules of requests 4, 7 and 21): the description, the
+ * amount (in the group's currency, or an original converted to it), the date, and the split the group's members may be in, the
+ * payer among them. Returns what was decided, the split in the way it was given.
  */
 const checkDraft = (
-  { description, amount, date, payerId, split }: Omit<ExpenseDraft, 'groupId'>,
+  { description, date, payerId, split, ...money }: Omit<ExpenseDraft, 'groupId'>,
   members: readonly string[],
   now: Date,
-): IResult<Split> => {
+): IResult<Checked> => {
   if (!isDescription(description)) return Result.fail(new InvalidExpenseDescriptionException());
-  if (!isAmount(amount)) return Result.fail(new InvalidExpenseAmountException());
+  const amount = amountOf(money);
+  if (amount.isFailure()) return Result.fail(amount.error);
   if (!isSpentBy(date, now)) return Result.fail(new InvalidExpenseDateException());
   if (!memberIdsOf(split).every(memberId => members.includes(memberId))) {
     return Result.fail(new SplitMemberNotInGroupException());
   }
-  return Split.decide({ amount, payerId, split });
+  const decided = Split.decide({ amount: amount.data.amount, payerId, split });
+  if (decided.isFailure()) return Result.fail(decided.error);
+  return Result.ok({ split: decided.data, amount: amount.data.amount, original: amount.data.original });
+};
+
+/**
+ * The amount an expense is in the group's currency, given as `amount` or as an original (request 21): exactly one of the two. An
+ * original is decided by its own value, and its amount in the group's currency must be from 1 to 100 000 000, as any amount is.
+ */
+const amountOf = ({
+  amount,
+  original,
+  groupCurrency,
+}: AmountDraft): IResult<{ amount: number; original: OriginalAmount | undefined }> => {
+  if (original === undefined) {
+    if (amount === undefined || !isAmount(amount)) return Result.fail(new InvalidExpenseAmountException());
+    return Result.ok({ amount, original: undefined });
+  }
+  if (amount !== undefined) return Result.fail(new InvalidExpenseAmountException());
+
+  const decided = OriginalAmount.decide(original, groupCurrency);
+  if (decided.isFailure()) return Result.fail(decided.error);
+  const converted = decided.data.toGroupAmount();
+  if (converted < 1n || converted > BigInt(Expense.MAX_AMOUNT)) return Result.fail(new InvalidExpenseAmountException());
+  return Result.ok({ amount: Number(converted), original: decided.data });
 };
 
 /** The description is 1 to 100 characters (counted as characters, not bytes), and not only spaces. */
