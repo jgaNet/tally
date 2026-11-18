@@ -6,7 +6,7 @@ import { IDebtWatchStore } from '@Contexts/Notifications/Application/IDebtWatchS
 import { INoticePreferenceStore } from '@Contexts/Notifications/Application/INoticePreferenceStore';
 import { INoticeStore } from '@Contexts/Notifications/Application/INoticeStore';
 import { IOutstandingDebts } from '@Contexts/Notifications/Application/IOutstandingDebts';
-import { DEBT_THRESHOLD, DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
+import { DebtWatch, reminderThresholdOf } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 
 /** The key of a watch: one per member and group. */
@@ -39,13 +39,14 @@ export const sweepDebts = command(
       const known = new Map((await watches.all()).map(watch => [keyOf(watch.groupId, watch.memberId), watch]));
       const seen = new Set<string>();
 
-      for (const { groupId, memberId, owes } of await debts.debtsOf()) {
+      for (const { groupId, memberId, owes, currency } of await debts.debtsOf()) {
         const key = keyOf(groupId, memberId);
         seen.add(key);
-        if (!known.has(key) && owes <= DEBT_THRESHOLD) continue;
+        const threshold = reminderThresholdOf(currency);
+        if (!known.has(key) && owes <= threshold) continue;
 
         const watch = known.get(key) ?? DebtWatch.create({ groupId, memberId });
-        const { reminderDue } = watch.sight(owes, now, reminderPeriodMs);
+        const { reminderDue } = watch.sight(owes, threshold, now, reminderPeriodMs);
         // A reminder is made only to a member who has reminders on (request 36). One not made is not recorded: the watch keeps its
         // last reminder as it was, so the first run after reminders are on again reminds the member who still owes.
         if (reminderDue && (await preferences.preferencesOf(memberId)).isOn('reminder')) {

@@ -16,18 +16,24 @@ const decide = (
 ) => OriginalAmount.decide({ currency, amount, rate }, groupCurrency, offered);
 
 describe('OriginalAmount', () => {
+  it('converts between currencies of different precision by what one unit of each is worth (request 40)', () => {
+    expect(decide('EUR', 1250, '161.5', 'JPY').data!.toGroupAmount('JPY')).toBe(2019n);
+    expect(decide('USD', 1000, '0.3075', 'KWD').data!.toGroupAmount('KWD')).toBe(3075n);
+    expect(decide('JPY', 10000, '0.0062', 'EUR').data!.toGroupAmount('EUR')).toBe(6200n);
+  });
+
   it('converts the original at its rate, rounded to the nearest whole number, a half up', () => {
-    expect(decide('CHF', 1234, '1.0625').data!.toGroupAmount()).toBe(1311n);
-    expect(decide('USD', 1000, '0.9545').data!.toGroupAmount()).toBe(955n);
-    expect(decide('USD', 1, '0.5').data!.toGroupAmount()).toBe(1n);
+    expect(decide('CHF', 1234, '1.0625').data!.toGroupAmount('EUR')).toBe(1311n);
+    expect(decide('USD', 1000, '0.9545').data!.toGroupAmount('EUR')).toBe(955n);
+    expect(decide('USD', 1, '0.5').data!.toGroupAmount('EUR')).toBe(1n);
     expect(decide('USD', 1, '0.4999995').isFailure()).toBe(true);
-    expect(decide('USD', 1, '0.499999').data!.toGroupAmount()).toBe(0n);
+    expect(decide('USD', 1, '0.499999').data!.toGroupAmount('EUR')).toBe(0n);
   });
 
   it('reads a rate as exact millionths, so a whole rate and a decimal one agree', () => {
-    expect(decide('CHF', 5, '1').data!.toGroupAmount()).toBe(5n);
-    expect(decide('CHF', 5, '12.5').data!.toGroupAmount()).toBe(63n);
-    expect(decide('CHF', 3, '0.333333').data!.toGroupAmount()).toBe(1n);
+    expect(decide('CHF', 5, '1').data!.toGroupAmount('EUR')).toBe(5n);
+    expect(decide('CHF', 5, '12.5').data!.toGroupAmount('EUR')).toBe(63n);
+    expect(decide('CHF', 3, '0.333333').data!.toGroupAmount('EUR')).toBe(1n);
   });
 
   it('keeps the currency, the amount and the rate exactly as given', () => {
@@ -36,7 +42,7 @@ describe('OriginalAmount', () => {
   });
 
   it('refuses a currency that is not Tally’s, or the group’s own, by name', () => {
-    expect(decide('JPY', 1, '1').error?.type).toBe('InvalidOriginalCurrency');
+    expect(decide('SEK', 1, '1').error?.type).toBe('InvalidOriginalCurrency');
     expect(decide('EUR', 1, '1').error?.type).toBe('OriginalCurrencyIsGroupCurrency');
   });
 
@@ -60,7 +66,7 @@ describe('OriginalAmount', () => {
 
   it('takes the offered rate when the rate is left out, and keeps it as the service wrote it', () => {
     const taken = decide('USD', 1000, undefined, 'EUR', offering('0.95')).data!;
-    expect([taken.rate, taken.toGroupAmount()]).toEqual(['0.95', 950n]);
+    expect([taken.rate, taken.toGroupAmount('EUR')]).toEqual(['0.95', 950n]);
   });
 
   it('refuses a rate left out when no rate is offered, or no service is configured, by name', () => {

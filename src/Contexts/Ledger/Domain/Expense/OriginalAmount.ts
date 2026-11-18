@@ -1,4 +1,5 @@
 import { IResult, Result, ValueObject } from '@Architecture/Domain';
+import { Currency, convertMinorUnits } from '@SharedKernel/Domain';
 
 import {
   InvalidOriginalAmountException,
@@ -8,9 +9,6 @@ import {
   OriginalCurrencyIsGroupCurrencyException,
   RateOutsideBandException,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
-
-/** The currencies Tally knows, in Ledger's words (request 2): the same six codes Groups creates a group in. */
-export const ORIGINAL_CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
 
 /**
  * What the payer of an expense in another currency gives (request 21, request 22): the currency, the amount in its hundredths, and
@@ -39,7 +37,6 @@ export type OfferedRate =
 
 /** The rate has at most six digits after the point (request 21); it is scaled by 10^6 to be read in exact integers. */
 const RATE_PATTERN = /^\d+(\.\d{1,6})?$/;
-const RATE_SCALE = 1_000_000n;
 const MAX_ORIGINAL_AMOUNT = 100_000_000;
 /** The band a stated rate may be within of the offered one, in percent (request 22): 2 % of the offered rate, inclusive. */
 const BAND_PERCENT = 2n;
@@ -64,7 +61,7 @@ export class OriginalAmount extends ValueObject<OriginalRecord> {
 
   /** The original amount, decided against the group's currency and the offered rate. Records nothing, reads nothing. */
   static decide(draft: OriginalDraft, groupCurrency: string, offered: OfferedRate): IResult<OriginalAmount> {
-    if (!(ORIGINAL_CURRENCIES as readonly string[]).includes(draft.currency)) {
+    if (!Currency.isCode(draft.currency)) {
       return Result.fail(new InvalidOriginalCurrencyException());
     }
     if (draft.currency === groupCurrency) return Result.fail(new OriginalCurrencyIsGroupCurrencyException());
@@ -81,6 +78,8 @@ export class OriginalAmount extends ValueObject<OriginalRecord> {
    * throws on a value the domain never keeps.
    */
   static kept(record: OriginalRecord): OriginalAmount {
+    if (!Currency.isCode(record.currency))
+      throw new Error(`The currency of an expense is corrupted: ${record.currency}`);
     if (scaledRateOf(record.rate) === undefined) throw new Error(`The rate of an expense is corrupted: ${record.rate}`);
     return new OriginalAmount({ ...record });
   }
@@ -99,12 +98,13 @@ export class OriginalAmount extends ValueObject<OriginalRecord> {
   }
 
   /**
-   * The amount in the group's currency's hundredths: the original amount times the rate, rounded to the nearest whole number, a
-   * half rounded up. It may fall outside 1 to 100 000 000; the expense refuses that, not this value.
+   * The amount in the group's currency's minor unit: the original amount, read in its own currency's minor unit, times the rate, written in
+   * the group's minor unit, rounded to the nearest whole number, a half rounded up (request 40). It may fall outside 1 to 100 000 000; the
+   * expense refuses that, not this value.
    */
-  toGroupAmount(): bigint {
+  toGroupAmount(groupCurrency: string): bigint {
     const scaled = scaledRateOf(this.value.rate) as bigint;
-    return (BigInt(this.value.amount) * scaled + RATE_SCALE / 2n) / RATE_SCALE;
+    return convertMinorUnits(BigInt(this.value.amount), this.value.currency, groupCurrency, scaled);
   }
 
   protected override equalsValue(a: OriginalRecord, b: OriginalRecord): boolean {

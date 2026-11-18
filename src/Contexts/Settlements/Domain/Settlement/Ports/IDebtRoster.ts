@@ -8,6 +8,8 @@ export interface OwedDebt {
   readonly groupId: string;
   readonly memberId: string;
   readonly owes: number;
+  /** The group's currency, a code of Tally's: `owes` is in its minor unit, so a reminder compares it with 20 of that currency (request 40). */
+  readonly currency: string;
 }
 
 export interface IDebtRoster {

@@ -1,4 +1,5 @@
 import { IResult, Result, ValueObject } from '@Architecture/Domain';
+import { Currency, convertMinorUnits } from '@SharedKernel/Domain';
 
 import {
   InvalidOriginalAmountException,
@@ -6,9 +7,6 @@ import {
   NoRateOfferedException,
   OriginalCurrencyIsGroupCurrencyException,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
-
-/** The currencies Tally knows, in Settlements' words (request 2): the same six codes Groups creates a group in. */
-export const ORIGINAL_CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
 
 /**
  * What is paid in another currency (request 39): the currency, the amount in its hundredths, and the rate the rates service offers for
@@ -29,7 +27,6 @@ export interface OriginalRecord {
 
 /** The rate has at most six digits after the point (request 22); it is scaled by 10^6 to be read in exact integers. */
 const RATE_PATTERN = /^\d+(\.\d{1,6})?$/;
-const RATE_SCALE = 1_000_000n;
 const MAX_ORIGINAL_AMOUNT = 100_000_000;
 
 /**
@@ -48,7 +45,7 @@ export class OriginalAmount extends ValueObject<OriginalRecord> {
 
   /** The original amount, decided against the group's currency and the offered rate. Records nothing, reads nothing. */
   static decide(draft: OriginalDraft, groupCurrency: string): IResult<OriginalAmount> {
-    if (!(ORIGINAL_CURRENCIES as readonly string[]).includes(draft.currency)) {
+    if (!Currency.isCode(draft.currency)) {
       return Result.fail(new InvalidOriginalCurrencyException());
     }
     if (draft.currency === groupCurrency) return Result.fail(new OriginalCurrencyIsGroupCurrencyException());
@@ -66,6 +63,8 @@ export class OriginalAmount extends ValueObject<OriginalRecord> {
    * domain never keeps.
    */
   static kept(record: OriginalRecord): OriginalAmount {
+    if (!Currency.isCode(record.currency))
+      throw new Error(`The currency of a settlement is corrupted: ${record.currency}`);
     if (scaledRateOf(record.rate) === undefined)
       throw new Error(`The rate of a settlement is corrupted: ${record.rate}`);
     return new OriginalAmount({ ...record });
@@ -90,17 +89,18 @@ export class OriginalAmount extends ValueObject<OriginalRecord> {
   }
 
   /**
-   * The original amount in the group's currency's hundredths: the amount times the rate, rounded to the nearest whole number, a half rounded
-   * up. The settlement's amount is this (request 39); the provider's fee converts through `groupAmountOf` the same way.
+   * The original amount in the group's currency's minor unit: the amount, read in its own currency's minor unit, times the rate, written in the
+   * group's, rounded to the nearest whole number, a half rounded up (request 40). The settlement's amount is this (request 39); the provider's fee
+   * converts through `groupAmountOf` the same way.
    */
-  toGroupAmount(): number {
-    return this.groupAmountOf(this.value.amount);
+  toGroupAmount(groupCurrency: string): number {
+    return this.groupAmountOf(this.value.amount, groupCurrency);
   }
 
-  /** `hundredths` of the original currency, converted to the group's currency at the rate of this value, rounded half up (request 39). */
-  groupAmountOf(hundredths: number): number {
+  /** `minorUnits` of the original currency, converted to the group's currency at the rate of this value, rounded half up (request 39, 40). */
+  groupAmountOf(minorUnits: number, groupCurrency: string): number {
     const scaled = scaledRateOf(this.value.rate) as bigint;
-    return Number((BigInt(hundredths) * scaled + RATE_SCALE / 2n) / RATE_SCALE);
+    return Number(convertMinorUnits(BigInt(minorUnits), this.value.currency, groupCurrency, scaled));
   }
 
   protected override equalsValue(a: OriginalRecord, b: OriginalRecord): boolean {

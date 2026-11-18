@@ -241,7 +241,7 @@ describe('a settlement in cash in another currency (request 39)', () => {
   });
 
   it.each([
-    ['a currency Tally does not know', { currency: 'JPY', amount: 100 }, 'InvalidOriginalCurrency'],
+    ['a currency Tally does not know', { currency: 'NOK', amount: 100 }, 'InvalidOriginalCurrency'],
     ['the group’s own currency', { currency: 'EUR', amount: 100 }, 'OriginalCurrencyIsGroupCurrency'],
     ['an amount of 0', { currency: 'CHF', amount: 0 }, 'InvalidOriginalAmount'],
   ])('refuses %s with 422 naming the rule', async (_label, original, type) => {

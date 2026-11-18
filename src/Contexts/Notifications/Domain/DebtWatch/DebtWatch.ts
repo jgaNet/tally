@@ -1,7 +1,11 @@
 import { AggregateRoot, DomainEvent, Id } from '@Architecture/Domain';
+import { minorUnitsOf } from '@SharedKernel/Domain';
 
-/** A debt is reminded of only above this much still owed, in the group's currency's hundredths: more than 20.00 (request 18). */
-export const DEBT_THRESHOLD = 2000;
+/**
+ * A debt is reminded of only above this much still owed, in the group's currency's minor unit: more than 20 of it (request 18, request 40).
+ * That is 2000 hundredths of euros, 20 yen, 20 000 thousandths of dinars.
+ */
+export const reminderThresholdOf = (currency: string): number => minorUnitsOf(currency, 20);
 
 /** What a sweep's sighting of a member's debt decides: whether a reminder is due now, and whether the watch changed at all. */
 export interface Sighting {
@@ -84,10 +88,10 @@ export class DebtWatch extends AggregateRoot {
   /**
    * The sweep saw the member owe `owes` at `now`. Above the threshold, the debt is noted from this run if it was not already, and a
    * reminder is due when the debt has been noted for a period or more and the member was not reminded during the last period. At or
-   * below it, the watch is cleared. Pure: the time and the period are given.
+   * below it, the watch is cleared. Pure: the threshold, the time and the period are given.
    */
-  sight(owes: number, now: Date, periodMs: number): Sighting {
-    if (owes <= DEBT_THRESHOLD) {
+  sight(owes: number, threshold: number, now: Date, periodMs: number): Sighting {
+    if (owes <= threshold) {
       this.#clear(now);
       return { reminderDue: false, changed: this.#changed };
     }

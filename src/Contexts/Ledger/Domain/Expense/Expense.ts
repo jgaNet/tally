@@ -192,7 +192,7 @@ export class Expense extends AggregateRoot {
       payerId: snapshot.paidBy,
       shares: snapshot.shares,
     });
-    const original = keptOriginal(snapshot.original, snapshot.amount);
+    const original = keptOriginal(snapshot.original);
     return new Expense(
       new Id(snapshot.id),
       snapshot.groupId,
@@ -306,15 +306,13 @@ export class Expense extends AggregateRoot {
   }
 }
 
-/** The original amount an expense keeps, or none for an expense in the group's currency; throws when it does not match the amount. */
-const keptOriginal = (original: OriginalRecord | undefined, amount: number): OriginalAmount | undefined => {
-  if (original === undefined) return undefined;
-  const kept = OriginalAmount.kept(original);
-  if (kept.toGroupAmount() !== BigInt(amount)) {
-    throw new Error(`The original amount of an expense of ${amount} is corrupted`);
-  }
-  return kept;
-};
+/**
+ * The original amount an expense keeps, or none for an expense in the group's currency. Its amount in the group's currency was decided,
+ * and checked, when the expense was recorded or edited, in the same transaction that wrote it; the snapshot keeps neither the group's
+ * currency nor that amount, so loading checks the original alone, and throws on one the domain never keeps (request 40).
+ */
+const keptOriginal = (original: OriginalRecord | undefined): OriginalAmount | undefined =>
+  original === undefined ? undefined : OriginalAmount.kept(original);
 
 /** What a recording or an edit decides: the split its shares are decided by, the amount in the group's currency, and the original. */
 interface Checked {
@@ -371,7 +369,7 @@ const amountOf = ({
 
   const decided = OriginalAmount.decide(original, groupCurrency, offered ?? { kind: 'none' });
   if (decided.isFailure()) return Result.fail(decided.error);
-  const converted = decided.data.toGroupAmount();
+  const converted = decided.data.toGroupAmount(groupCurrency);
   if (converted < 1n || converted > BigInt(Expense.MAX_AMOUNT)) return Result.fail(new InvalidExpenseAmountException());
   return Result.ok({ amount: Number(converted), original: decided.data });
 };

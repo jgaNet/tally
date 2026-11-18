@@ -36,7 +36,7 @@ describe('createGroup', () => {
   });
 
   it('refuses what the domain refuses, and keeps nothing', async () => {
-    expect((await createGroup(store, clock).run({ name: 'Flat', currency: 'JPY' }, ann)).isFailure()).toBe(true);
+    expect((await createGroup(store, clock).run({ name: 'Flat', currency: 'NOK' }, ann)).isFailure()).toBe(true);
     expect((await createGroup(store, clock).run({ name: '  ', currency: 'EUR' }, ann)).isFailure()).toBe(true);
     expect(store.groups.size).toBe(0);
   });

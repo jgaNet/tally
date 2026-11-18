@@ -13,17 +13,6 @@ export class InvalidGroupNameException extends Exception {
   }
 }
 
-/** A currency that is not one of the six a group may be in: `422` (ADR 5). */
-export class UnsupportedCurrencyException extends Exception {
-  constructor() {
-    super({
-      service: SERVICE,
-      type: 'UnsupportedCurrency',
-      message: 'A group is in one of EUR, USD, GBP, CHF, CAD or AUD',
-    });
-  }
-}
-
 /**
  * The group is not there for the caller: it does not exist, or the caller is not one of its members. Both are the same
  * answer, `404`, so nobody learns that a group exists (ADR 5).

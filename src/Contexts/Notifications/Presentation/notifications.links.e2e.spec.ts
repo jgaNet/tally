@@ -222,4 +222,43 @@ describe('Ledger → Notifications (BudgetPassed)', () => {
     expect(bobsNotice).toMatchObject({ kind: 'expense', expenseId, amount: 300 });
     expect(await noticeFor(dee.token)).toBeUndefined();
   });
+  it('in a group in yen, the sweep reminds a member who owes more than 20 yen and never one who owes 20 (request 40)', async () => {
+    const ann = await person('Ann', 'ann@yen.example.com');
+    const bob = await person('Bob', 'bob@yen.example.com');
+    const cy = await person('Cy', 'cy@yen.example.com');
+
+    const { body: group } = await http.request('POST', `${api}/groups`, {
+      token: ann.token,
+      body: { name: 'Tokyo', currency: 'JPY' },
+    });
+    const groupId = (group as { id: string }).id;
+    for (const who of [bob, cy]) {
+      const invitation = await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ann.token });
+      await http.request('POST', `${api}/invitations/${(invitation.body as { id: string }).id}/accept`, {
+        token: who.token,
+      });
+    }
+
+    // Bob owes 20 yen, Cy owes 21 yen: the first is no more than 20 of the group's currency, the second is more.
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Tea', amount: 40, date: '2020-01-10', splitBetween: [ann.id, bob.id] },
+    });
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Cake', amount: 42, date: '2020-01-10', splitBetween: [ann.id, cy.id] },
+    });
+
+    let cyReminder: Record<string, unknown> | undefined;
+    for (let poll = 0; poll < 200 && !cyReminder; poll++) {
+      const { body } = await http.request('GET', `${api}/notices`, { token: cy.token });
+      cyReminder = (body as Array<Record<string, unknown>>).find(notice => notice.kind === 'reminder');
+      if (!cyReminder) await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    expect(cyReminder).toMatchObject({ kind: 'reminder', groupId, amount: 21 });
+
+    await new Promise(resolve => setTimeout(resolve, 400));
+    const { body: bobsNotices } = await http.request('GET', `${api}/notices`, { token: bob.token });
+    expect((bobsNotices as Array<Record<string, unknown>>).filter(notice => notice.kind === 'reminder')).toEqual([]);
+  });
 });

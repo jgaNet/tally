@@ -39,3 +39,4 @@ it from this table and from wherever the rule is stated.
 | [29](0029-a-suspended-account-is-refused-by-one-rule-and-its-log-is-written-by-groups.md) | A suspended account starts nothing: Groups decides the suspension, the shared kernel names its one rule, and the administrators' log is written by Groups |
 | [30](0030-a-deleted-account-is-erased-and-kept-as-a-member.md) | A deleted account is erased and kept as a member: Groups decides the deletion, and the others ask Groups whether an account is deleted |
 | [31](0031-a-settlement-in-another-currency-is-decided-by-its-book-at-the-rate-offered.md) | A settlement in another currency is decided by its book at the rate a rates service offers, and Settlements owns the port that asks it |
+| [32](0032-every-currency-has-its-own-minor-unit-and-the-shared-kernel-names-them.md) | Every currency has its own minor unit, and the shared kernel names the currencies |

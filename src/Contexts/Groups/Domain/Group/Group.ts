@@ -1,7 +1,6 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { Currency, GroupArchivedException } from '@SharedKernel/Domain';
 
-import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
   AlreadyMemberException,

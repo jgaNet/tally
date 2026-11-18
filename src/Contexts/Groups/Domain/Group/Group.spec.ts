@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
-import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
+import { Currency } from '@SharedKernel/Domain';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
   BalancePassedEvent,
@@ -41,12 +41,12 @@ describe('Group.register', () => {
     });
   });
 
-  it.each(Currency.CODES)('accepts %s, and only the six codes', code => {
+  it.each(Currency.CODES)('accepts %s, one of the ten codes', code => {
     expect(Group.register({ ...draft, currency: code }, now).isSuccess()).toBe(true);
   });
 
   it.each([
-    ['a code that is not one of the six', 'JPY', 'UnsupportedCurrency'],
+    ['a code that is not one of the ten', 'NOK', 'UnsupportedCurrency'],
     ['a code in lower case', 'eur', 'UnsupportedCurrency'],
     ['an empty currency', '', 'UnsupportedCurrency'],
   ])('refuses %s, and records nothing', (_, currency, type) => {

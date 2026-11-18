@@ -137,7 +137,7 @@ describe('recording an expense in another currency', () => {
   });
 
   it.each([
-    ['a currency that is not Tally’s', { currency: 'JPY', amount: 100, rate: '1' }, 'InvalidOriginalCurrency'],
+    ['a currency that is not Tally’s', { currency: 'NOK', amount: 100, rate: '1' }, 'InvalidOriginalCurrency'],
     ['the group’s own currency', { currency: 'EUR', amount: 100, rate: '1' }, 'OriginalCurrencyIsGroupCurrency'],
     ['an amount of zero', { currency: 'CHF', amount: 0, rate: '1' }, 'InvalidOriginalAmount'],
     ['a rate of zero', { currency: 'CHF', amount: 100, rate: '0' }, 'InvalidOriginalRate'],

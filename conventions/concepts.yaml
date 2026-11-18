@@ -375,8 +375,8 @@ vocabulary:
       the bus); they know no context and no vocabulary, not even the roles
   - word: Shared kernel
     meaning: >-
-      the part of the domain model every context agrees on — Email, Role, who counts as signed in, and the
-      integration events; not the base classes, which is what the word is often misused for
+      the part of the domain model every context agrees on — Email, Role, who counts as signed in, the currencies and
+      their minor units (ADR 32), and the integration events; not the base classes, which is what the word is often misused for
   - word: Bounded context
     meaning: >-
       a folder with its own vocabulary and wiring, talking to others through integration events and ports it

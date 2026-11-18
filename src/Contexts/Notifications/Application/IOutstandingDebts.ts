@@ -1,8 +1,12 @@
-/** What one current member of a group still owes in it, in the group's currency's hundredths; 0 when nothing is owed. */
+/**
+ * What one current member of a group still owes in it, in the group's currency's minor unit; 0 when nothing is owed. The currency is the
+ * group's code, which says what the minor unit is, and so what 20 of the currency is a reminder is for (request 40).
+ */
 export interface OutstandingDebt {
   readonly groupId: string;
   readonly memberId: string;
   readonly owes: number;
+  readonly currency: string;
 }
 
 /**

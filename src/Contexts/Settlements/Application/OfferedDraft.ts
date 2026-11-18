@@ -1,5 +1,7 @@
 import { ISettlementRates } from '@Contexts/Settlements/Application/ISettlementRates';
-import { ORIGINAL_CURRENCIES, OriginalDraft } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
+import { Currency } from '@SharedKernel/Domain';
+
+import { OriginalDraft } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
 
 /** What a request gives for a settlement in another currency: the currency and the amount in its hundredths, never a rate (request 39). */
 export interface OriginalRequest {
@@ -19,8 +21,7 @@ export const originalDraftOf = async (
   now: Date,
 ): Promise<OriginalDraft | undefined> => {
   if (!original) return undefined;
-  const askable =
-    (ORIGINAL_CURRENCIES as readonly string[]).includes(original.currency) && original.currency !== groupCurrency;
+  const askable = Currency.isCode(original.currency) && original.currency !== groupCurrency;
   const offered = askable
     ? await rates.rateOf(original.currency, groupCurrency, now.toISOString().slice(0, 10))
     : undefined;

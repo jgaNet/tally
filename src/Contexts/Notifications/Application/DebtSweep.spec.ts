@@ -53,8 +53,8 @@ describe('SweepDebts', () => {
     const run = () => sweep.run(undefined, context);
 
     debts.owing = [
-      { groupId: 'g', memberId: 'bob', owes: 2500 },
-      { groupId: 'g', memberId: 'ann', owes: 0 },
+      { groupId: 'g', memberId: 'bob', owes: 2500, currency: 'EUR' },
+      { groupId: 'g', memberId: 'ann', owes: 0, currency: 'EUR' },
     ];
     expect((await run()).isSuccess()).toBe(true);
     expect(notices.added).toEqual([]);
@@ -81,7 +81,7 @@ describe('SweepDebts', () => {
     await run();
     expect(notices.added).toHaveLength(2);
 
-    debts.owing = [{ groupId: 'g', memberId: 'bob', owes: 1000 }];
+    debts.owing = [{ groupId: 'g', memberId: 'bob', owes: 1000, currency: 'EUR' }];
     now = at(3 * WEEK);
     await run();
     expect(notices.added).toHaveLength(2);
@@ -95,7 +95,7 @@ describe('SweepDebts', () => {
     const sweep = sweepDebts(watches, debts, new MemoryNotices(), new MemoryNoticePreferences(), () => now, WEEK);
     const context = new ExecutionContext({ traceId: 'sweep', eventBus: noBus, auth: {} });
 
-    debts.owing = [{ groupId: 'g', memberId: 'cy', owes: 3000 }];
+    debts.owing = [{ groupId: 'g', memberId: 'cy', owes: 3000, currency: 'EUR' }];
     await sweep.run(undefined, context);
     debts.owing = [];
     now = at(1);
@@ -113,7 +113,7 @@ describe('SweepDebts', () => {
     let now = at(0);
     const sweep = sweepDebts(watches, debts, notices, preferences, () => now, WEEK);
     const context = new ExecutionContext({ traceId: 'sweep', eventBus: noBus, auth: {} });
-    debts.owing = [{ groupId: 'g', memberId: 'bob', owes: 2500 }];
+    debts.owing = [{ groupId: 'g', memberId: 'bob', owes: 2500, currency: 'EUR' }];
 
     await sweep.run(undefined, context);
     now = at(WEEK);
@@ -127,5 +127,23 @@ describe('SweepDebts', () => {
     now = at(2 * WEEK + 1000);
     await sweep.run(undefined, context);
     expect(notices.added.map(notice => notice.toSnapshot().kind)).toEqual(['reminder']);
+  });
+  it('reminds of a debt over 20 yen in a yen group, and never of 20 (request 40)', async () => {
+    const watches = new MemoryWatches();
+    const notices = new MemoryNotices();
+    const debts = new Debts();
+    let now = at(0);
+    const sweep = sweepDebts(watches, debts, notices, new MemoryNoticePreferences(), () => now, WEEK);
+    const context = new ExecutionContext({ traceId: 'sweep', eventBus: noBus, auth: {} });
+    const run = () => sweep.run(undefined, context);
+
+    debts.owing = [
+      { groupId: 'yen', memberId: 'bob', owes: 20, currency: 'JPY' },
+      { groupId: 'yen', memberId: 'ann', owes: 21, currency: 'JPY' },
+    ];
+    await run();
+    now = at(WEEK);
+    await run();
+    expect(notices.added).toHaveLength(1);
   });
 });

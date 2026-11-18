@@ -5,7 +5,7 @@ import { callerOf, query } from '@Architecture/Application/Lite/UseCase';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { IOfferedRates } from '@Contexts/Ledger/Application/IOfferedRates';
-import { ORIGINAL_CURRENCIES } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
+import { Currency } from '@SharedKernel/Domain';
 import {
   GroupNotFoundException,
   OfferedRateNotFoundException,
@@ -43,7 +43,7 @@ export const getOfferedRate = query(
       if (group === undefined) return Result.fail(new GroupNotFoundException());
 
       const day = date ?? clock().toISOString().slice(0, 10);
-      if (!(ORIGINAL_CURRENCIES as readonly string[]).includes(currency) || currency === group || !isRealDay(day)) {
+      if (!Currency.isCode(currency) || currency === group || !isRealDay(day)) {
         return Result.fail(new OfferedRateNotFoundException());
       }
       const offered = await rates.rateOf(currency, group, day);

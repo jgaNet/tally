@@ -279,7 +279,7 @@ describe('Expense in another currency (request 21)', () => {
 
   it('refuses a currency that is not Tally’s, or the group’s own, and an original that is not a positive rate', () => {
     expect(
-      Expense.register(inChf({ original: { currency: 'JPY', amount: 1, rate: '1' } }), members, false, false, now).error
+      Expense.register(inChf({ original: { currency: 'SEK', amount: 1, rate: '1' } }), members, false, false, now).error
         ?.type,
     ).toBe('InvalidOriginalCurrency');
     expect(

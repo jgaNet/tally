@@ -73,8 +73,8 @@ describe('creating a group', () => {
     });
   });
 
-  it('refuses a currency outside the six, whatever its case', async () => {
-    expect(await createGroup(ann.token, { name: 'Flat', currency: 'JPY' })).toMatchObject({
+  it('refuses a currency outside the ten, whatever its case', async () => {
+    expect(await createGroup(ann.token, { name: 'Flat', currency: 'NOK' })).toMatchObject({
       status: 422,
       body: { type: 'UnsupportedCurrency' },
     });

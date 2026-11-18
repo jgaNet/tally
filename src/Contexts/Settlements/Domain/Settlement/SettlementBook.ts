@@ -401,7 +401,7 @@ export class SettlementBook extends AggregateRoot {
     if (!Number.isInteger(paidFee) || paidFee < 0) return Result.fail(new ProviderUnavailableException());
     if (proposal.original && paidFee >= proposal.original.amount)
       return Result.fail(new ProviderUnavailableException());
-    const fee = proposal.original ? proposal.original.groupAmountOf(paidFee) : paidFee;
+    const fee = proposal.original ? proposal.original.groupAmountOf(paidFee, this.#currency) : paidFee;
     if (fee >= proposal.amount) return Result.fail(new ProviderUnavailableException());
 
     const settlement: Settlement = {
@@ -555,7 +555,7 @@ export class SettlementBook extends AggregateRoot {
     if (original) {
       const decided = OriginalAmount.decide(original, this.#currency);
       if (decided.isFailure()) return Result.fail(decided.error);
-      return Result.ok({ amount: decided.data.toGroupAmount(), original: decided.data });
+      return Result.ok({ amount: decided.data.toGroupAmount(this.#currency), original: decided.data });
     }
     if (amount === undefined) return Result.fail(new InvalidSettlementAmountException());
     return Result.ok({ amount });

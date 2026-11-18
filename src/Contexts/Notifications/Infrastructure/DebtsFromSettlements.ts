@@ -10,6 +10,11 @@ export class DebtsFromSettlements implements IOutstandingDebts {
   constructor(private readonly roster: IDebtRoster) {}
 
   async debtsOf(): Promise<OutstandingDebt[]> {
-    return (await this.roster.debtsOf()).map(({ groupId, memberId, owes }) => ({ groupId, memberId, owes }));
+    return (await this.roster.debtsOf()).map(({ groupId, memberId, owes, currency }) => ({
+      groupId,
+      memberId,
+      owes,
+      currency,
+    }));
   }
 }
