@@ -5,6 +5,7 @@ export interface ShareReadModel {
 }
 
 import { SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 
 /** What an expense was paid in another currency, as a member reads it: the rate is the string the payer gave. */
 export interface OriginalReadModel {
@@ -26,6 +27,8 @@ export interface ExpenseReadModel {
   shares: ShareReadModel[];
   /** Only for an expense paid in another currency than its group's: what it was paid in, its `amount` being the group's (request 21). */
   original?: OriginalReadModel;
+  /** What the expense is filed under (request 24): `other` when none was given. */
+  category: Category;
   /** 1 when it is recorded, one more at each edit: the version an edit is made from. */
   version: number;
 }

@@ -11,13 +11,13 @@ export class SqliteNoticeRepository implements INoticeRepository {
   }
 
   async save(notice: Notice): Promise<IResult> {
-    const { id, memberId, groupId, expenseId, kind, amount, at } = notice.toSnapshot();
+    const { id, memberId, groupId, expenseId, kind, amount, at, category, month, budget } = notice.toSnapshot();
     this.database.connection
       .prepare(
-        `INSERT INTO notifications_notices (id, member_id, group_id, expense_id, kind, amount, at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO notifications_notices (id, member_id, group_id, expense_id, kind, amount, at, category, month, budget)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, memberId, groupId, expenseId ?? null, kind, amount, at);
+      .run(id, memberId, groupId, expenseId ?? null, kind, amount, at, category ?? null, month ?? null, budget ?? null);
     return Result.ok();
   }
 }

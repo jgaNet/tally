@@ -20,7 +20,7 @@ export class FastifyRecurringController {
   setUpRecurringExpense(
     req: FastifyRequest<{
       Params: { id: string };
-      Body: { description: string; amount: number; startsOn: string } & SplitRequest;
+      Body: { description: string; amount: number; startsOn: string; category?: string } & SplitRequest;
     }>,
     reply: FastifyReply,
   ) {

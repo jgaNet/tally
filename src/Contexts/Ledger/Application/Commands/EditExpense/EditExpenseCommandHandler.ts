@@ -4,6 +4,7 @@ import { requireSignedIn } from '@SharedKernel/Application/Guards';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
+import { categoryOf } from '@Contexts/Ledger/Domain/Expense/Category';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurrency';
@@ -50,6 +51,8 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (priced.isFailure()) return priced;
     const split = Split.fromRequest({ amount: priced.data.amount, payer: expense.payer, request: payload });
     if (split.isFailure()) return split;
+    const category = categoryOf(payload.category);
+    if (category.isFailure()) return category;
 
     const edited = expense.edit({
       by: caller.data,
@@ -58,6 +61,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
       description: description.data,
       amount: priced.data.amount,
       original: priced.data.original,
+      category: category.data,
       date: date.data,
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(expense.groupId),

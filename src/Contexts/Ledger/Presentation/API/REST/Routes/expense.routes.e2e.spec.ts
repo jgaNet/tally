@@ -123,6 +123,7 @@ describe('recording an expense, split equally', () => {
       date: today(),
       paidBy: alice.id,
       splitKind: 'equal',
+      category: 'other',
       shares: [
         { memberId: bob.id, amount: 334 },
         { memberId: carol.id, amount: 333 },
@@ -360,6 +361,7 @@ describe('editing an expense', () => {
       date: today(),
       paidBy: alice.id,
       splitKind: 'equal',
+      category: 'other',
       shares: [
         { memberId: alice.id, amount: 300 },
         { memberId: bob.id, amount: 300 },
@@ -661,6 +663,7 @@ describe('splitting unequally', () => {
       date: today(),
       paidBy: alice.id,
       splitKind: 'exact',
+      category: 'other',
       shares: [
         { memberId: bob.id, amount: 6 },
         { memberId: carol.id, amount: 0 },

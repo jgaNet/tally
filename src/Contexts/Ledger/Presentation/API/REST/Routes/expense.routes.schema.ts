@@ -1,3 +1,6 @@
+/** What an expense is filed under (request 24): a string here; whether it is one of the list is the domain's to decide. */
+const CategoryField = { type: 'string' } as const;
+
 export const RefusedSchema = {
   type: 'object',
   properties: { message: { type: 'string' } },
@@ -43,7 +46,7 @@ const OriginalSchema = {
 
 const ExpenseSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'splitKind', 'shares', 'version'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'splitKind', 'shares', 'category', 'version'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -54,6 +57,7 @@ const ExpenseSchema = {
     paidBy: { type: 'string' },
     splitKind: { enum: ['equal', 'exact', 'shares'] },
     shares: { type: 'array', items: ShareSchema },
+    category: { enum: ['groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'] },
     version: { type: 'integer', minimum: 1 },
   },
 } as const;
@@ -101,6 +105,7 @@ export const RecordExpenseBodySchema = {
   properties: {
     description: { type: 'string' },
     date: { type: 'string' },
+    category: CategoryField,
     ...AmountFields,
     ...SplitFields,
   },
@@ -133,6 +138,7 @@ export const EditExpenseBodySchema = {
   properties: {
     description: { type: 'string' },
     date: { type: 'string' },
+    category: CategoryField,
     ...AmountFields,
     ...SplitFields,
     version: { type: 'integer' },

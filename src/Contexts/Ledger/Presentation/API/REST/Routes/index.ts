@@ -8,3 +8,5 @@ export * from './rate.routes';
 export * from './rate.routes.schema';
 export * from './recurring.routes';
 export * from './recurring.routes.schema';
+export * from './budget.routes';
+export * from './budget.routes.schema';

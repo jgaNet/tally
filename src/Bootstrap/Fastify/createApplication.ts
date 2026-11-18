@@ -39,6 +39,7 @@ import {
   rateRoutes,
   recurringRoutes,
   statementRoutes,
+  budgetRoutes,
 } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
 /**
@@ -106,6 +107,7 @@ export async function createApplication({
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', rateRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', budgetRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', settlementRoutes, {
       settlementsModule: localSettlementsModule,
       // The secret the provider signs its webhooks with (ADR 8), read here, at the transport that checks them.

@@ -30,7 +30,8 @@ describe('notices.schema: a file made by request 17 keeps its notices and takes 
     expect(rows).toEqual([{ id: 'n1', expenseId: 'e1' }]);
     database.connection
       .prepare(
-        `INSERT INTO notifications_notices VALUES ('n2', 'alice', 'g1', NULL, 'reminder', 2500, '2030-01-08T00:00:00.000Z')`,
+        `INSERT INTO notifications_notices (id, member_id, group_id, expense_id, kind, amount, at)
+         VALUES ('n2', 'alice', 'g1', NULL, 'reminder', 2500, '2030-01-08T00:00:00.000Z')`,
       )
       .run();
     expect(database.connection.prepare('SELECT COUNT(*) AS n FROM notifications_notices').get()).toEqual({ n: 2 });

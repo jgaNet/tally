@@ -4,9 +4,13 @@
  */
 export interface NoticeReadModel {
   id: string;
-  kind: 'expense' | 'reminder';
+  kind: 'expense' | 'reminder' | 'budget';
   groupId: string;
   expenseId?: string;
   amount: number;
   at: string;
+  /** For a budget's notice (request 24): its category, its month (`YYYY-MM`) and the budget that month passed. */
+  category?: string;
+  month?: string;
+  budget?: number;
 }

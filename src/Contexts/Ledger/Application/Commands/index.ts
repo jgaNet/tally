@@ -4,3 +4,5 @@ export * from '@Contexts/Ledger/Application/Commands/EditExpense';
 export * from '@Contexts/Ledger/Application/Commands/DeleteExpense';
 export * from '@Contexts/Ledger/Application/Commands/SetUpRecurringExpense';
 export * from '@Contexts/Ledger/Application/Commands/StopRecurringExpense';
+export * from '@Contexts/Ledger/Application/Commands/SetBudget';
+export * from '@Contexts/Ledger/Application/Commands/RemoveBudget';

@@ -22,7 +22,7 @@ const SPLIT_FIELDS = {
 
 const RecurringSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next'],
+  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next', 'category'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -31,6 +31,7 @@ const RecurringSchema = {
     amount: { type: 'integer' },
     startsOn: { type: 'string' },
     next: { type: 'string' },
+    category: { enum: ['groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'] },
     ...SPLIT_FIELDS,
   },
 } as const;
@@ -43,6 +44,7 @@ export const SetUpRecurringExpenseBodySchema = {
     description: { type: 'string' },
     amount: { type: 'integer' },
     startsOn: { type: 'string' },
+    category: { type: 'string' },
     ...SPLIT_FIELDS,
   },
   allOf: [

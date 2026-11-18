@@ -14,13 +14,25 @@ export class SqliteNoticeQueries implements INoticeQueries {
       connection =>
         connection
           .prepare(
-            `SELECT id, kind, group_id AS groupId, expense_id AS expenseId, amount, at
+            `SELECT id, kind, group_id AS groupId, expense_id AS expenseId, amount, at,
+                    category, month, budget
                FROM notifications_notices
               WHERE member_id = ?
               ORDER BY at DESC, rowid DESC`,
           )
-          .all(memberId) as unknown as (Omit<NoticeReadModel, 'expenseId'> & { expenseId: string | null })[],
+          .all(memberId) as unknown as (Omit<NoticeReadModel, 'expenseId' | 'category' | 'month' | 'budget'> & {
+          expenseId: string | null;
+          category: string | null;
+          month: string | null;
+          budget: number | null;
+        })[],
     );
-    return rows.map(({ expenseId, ...notice }) => ({ ...notice, ...(expenseId !== null && { expenseId }) }));
+    return rows.map(({ expenseId, category, month, budget, ...notice }) => ({
+      ...notice,
+      ...(expenseId !== null && { expenseId }),
+      ...(category !== null && { category }),
+      ...(month !== null && { month }),
+      ...(budget !== null && { budget }),
+    }));
   }
 }

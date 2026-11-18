@@ -20,7 +20,13 @@ export class FastifyExpenseController {
   recordExpense(
     req: FastifyRequest<{
       Params: { id: string };
-      Body: { description: string; date: string; amount?: number; original?: OriginalRequest } & SplitRequest;
+      Body: {
+        description: string;
+        date: string;
+        category?: string;
+        amount?: number;
+        original?: OriginalRequest;
+      } & SplitRequest;
     }>,
     reply: FastifyReply,
   ) {
@@ -39,6 +45,7 @@ export class FastifyExpenseController {
         description: string;
         date: string;
         version: number;
+        category?: string;
         amount?: number;
         original?: OriginalRequest;
       } & SplitRequest;

@@ -2,6 +2,7 @@ import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { EXPENSE_STATEMENTS } from '@Contexts/Ledger/Infrastructure/expenses.schema';
 
@@ -33,6 +34,9 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       )
       .get(id.value) as ExpenseRow | undefined;
     if (!row) return null;
+    const category = connection
+      .prepare('SELECT category FROM ledger_expense_categories WHERE expense_id = ?')
+      .get(id.value) as { category: Category } | undefined;
     const shares = connection
       .prepare('SELECT member_id, amount FROM ledger_expense_shares WHERE expense_id = ? ORDER BY position')
       .all(id.value) as { member_id: string; amount: number }[];
@@ -50,6 +54,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       splitKind: row.split_kind,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       recordedAt: row.recorded_at,
+      category: category?.category ?? 'other',
       version: row.version,
     });
   }
@@ -68,6 +73,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
       if (changes === 0) return conflict();
       connection.prepare('DELETE FROM ledger_expense_shares WHERE expense_id = ?').run(id);
       connection.prepare('DELETE FROM ledger_expense_splits WHERE expense_id = ?').run(id);
+      connection.prepare('DELETE FROM ledger_expense_categories WHERE expense_id = ?').run(id);
       connection.prepare('DELETE FROM ledger_expense_originals WHERE expense_id = ?').run(id);
       connection.prepare('DELETE FROM ledger_balance_entries WHERE expense_id = ?').run(id);
       return Result.ok();
@@ -92,6 +98,9 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     connection
       .prepare('INSERT OR REPLACE INTO ledger_expense_splits (expense_id, split_kind) VALUES (?, ?)')
       .run(id, splitKind);
+    connection
+      .prepare('INSERT OR REPLACE INTO ledger_expense_categories (expense_id, category) VALUES (?, ?)')
+      .run(id, expense.toSnapshot().category);
     if (original) {
       connection
         .prepare(

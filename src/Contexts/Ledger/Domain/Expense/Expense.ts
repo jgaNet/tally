@@ -10,6 +10,7 @@ import {
   NotAllowedToChangeExpense,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
   ExpenseDeletedEvent,
@@ -37,6 +38,8 @@ export class Expense extends AggregateRoot {
     readonly date: ExpenseDate,
     readonly split: Split,
     readonly recordedAt: Date,
+    /** What the expense is filed under (request 24): `other` when none was given. */
+    readonly category: Category = 'other',
     private readonly removed: boolean = false,
   ) {
     super(id, version);
@@ -62,6 +65,7 @@ export class Expense extends AggregateRoot {
     description,
     amount,
     original = null,
+    category = 'other',
     date,
     split,
     groupMembers,
@@ -73,6 +77,7 @@ export class Expense extends AggregateRoot {
     description: Description;
     amount: Amount;
     original?: OriginalAmount | null;
+    category?: Category;
     date: ExpenseDate;
     split: Split;
     groupMembers: readonly Id[];
@@ -81,7 +86,7 @@ export class Expense extends AggregateRoot {
     const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
     if (outsider) return Result.fail(new NotAGroupMember());
 
-    const expense = new Expense(id, 0, groupId, description, amount, original, date, split, at);
+    const expense = new Expense(id, 0, groupId, description, amount, original, date, split, at, category);
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: expense._id.value,
@@ -109,6 +114,7 @@ export class Expense extends AggregateRoot {
     description,
     amount,
     original = null,
+    category = 'other',
     date,
     split,
     groupMembers,
@@ -120,6 +126,7 @@ export class Expense extends AggregateRoot {
     description: Description;
     amount: Amount;
     original?: OriginalAmount | null;
+    category?: Category;
     date: ExpenseDate;
     split: Split;
     groupMembers: readonly Id[];
@@ -141,6 +148,7 @@ export class Expense extends AggregateRoot {
       date,
       split,
       this.recordedAt,
+      category,
     );
     edited.record(
       ExpenseEditedEvent.set({
@@ -183,6 +191,7 @@ export class Expense extends AggregateRoot {
       this.date,
       this.split,
       this.recordedAt,
+      this.category,
       true,
     );
     deleted.record(
@@ -236,6 +245,7 @@ export class Expense extends AggregateRoot {
       date.data,
       split,
       recordedAt,
+      snapshot.category,
     );
   }
 
@@ -253,6 +263,7 @@ export class Expense extends AggregateRoot {
       splitKind: this.split.kind,
       shares: this.split.shares.map(share => ({ memberId: share.memberId.value, amount: share.amount })),
       recordedAt: this.recordedAt.toISOString(),
+      category: this.category,
       version: this.version,
     };
   }

@@ -2,6 +2,7 @@ import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { SplitKind, SplitRequest } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { NotAGroupMember } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
@@ -31,6 +32,8 @@ export interface RecurringSnapshot {
   next: string;
   splitKind: SplitKind;
   members: RecurringMemberSnapshot[];
+  /** What each of its expenses is filed under (request 24). */
+  category: Category;
   setUpAt: string;
   version: number;
 }
@@ -59,6 +62,8 @@ export class RecurringExpense extends AggregateRoot {
     readonly payer: Id,
     /** The split as it was given: exactly one of the three forms. */
     readonly givenSplit: SplitRequest,
+    /** What each of its expenses is filed under (request 24). */
+    readonly category: Category,
     readonly setUpAt: Date,
     private readonly removed: boolean = false,
   ) {
@@ -88,6 +93,7 @@ export class RecurringExpense extends AggregateRoot {
     description,
     amount,
     startsOn,
+    category = 'other',
     request,
     groupMembers,
     at,
@@ -97,6 +103,7 @@ export class RecurringExpense extends AggregateRoot {
     description: string;
     amount: number;
     startsOn: string;
+    category?: Category;
     request: SplitRequest;
     groupMembers: readonly Id[];
     at: Date;
@@ -123,6 +130,7 @@ export class RecurringExpense extends AggregateRoot {
       day.data.value,
       payer,
       givenSplit,
+      category,
       at,
     );
     recurring.record(
@@ -173,6 +181,7 @@ export class RecurringExpense extends AggregateRoot {
         amount: this.amount.value,
         day: this.next,
         splitRequest: this.givenSplit,
+        category: this.category,
         cameAt: at.toISOString(),
       }),
     );
@@ -205,6 +214,7 @@ export class RecurringExpense extends AggregateRoot {
       next,
       this.payer,
       this.givenSplit,
+      this.category,
       this.setUpAt,
       removed,
     );
@@ -239,6 +249,7 @@ export class RecurringExpense extends AggregateRoot {
       snapshot.next,
       new Id(snapshot.paidBy),
       requestOf(snapshot.splitKind, snapshot.members),
+      snapshot.category,
       setUpAt,
     );
   }
@@ -255,6 +266,7 @@ export class RecurringExpense extends AggregateRoot {
       next: this.next,
       splitKind: kind,
       members,
+      category: this.category,
       setUpAt: this.setUpAt.toISOString(),
       version: this.version,
     };

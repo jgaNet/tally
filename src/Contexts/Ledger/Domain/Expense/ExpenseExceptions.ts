@@ -138,3 +138,12 @@ export class RateOutsideBand extends ExpenseException {
     );
   }
 }
+
+export class InvalidCategory extends ExpenseException {
+  constructor() {
+    super(
+      'InvalidCategory',
+      'The category must be one of groceries, rent, utilities, transport, food, travel, leisure or other',
+    );
+  }
+}

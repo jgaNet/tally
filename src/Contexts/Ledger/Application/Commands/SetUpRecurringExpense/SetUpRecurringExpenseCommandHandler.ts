@@ -3,6 +3,7 @@ import { Id, IResult, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { RecurringExpense } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
+import { categoryOf } from '@Contexts/Ledger/Domain/Expense/Category';
 import { IRecurringExpenseRepository } from '@Contexts/Ledger/Domain/RecurringExpense/Ports/IRecurringExpenseRepository';
 import { SetUpRecurringExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/SetUpRecurringExpense/SetUpRecurringExpenseCommandEvent';
 
@@ -29,12 +30,15 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
     if (payer.isFailure()) return payer;
 
     const groupId = new Id(payload.groupId);
+    const category = categoryOf(payload.category);
+    if (category.isFailure()) return category;
     const recurring = RecurringExpense.setUp({
       groupId,
       payer: payer.data,
       description: payload.description,
       amount: payload.amount,
       startsOn: payload.startsOn,
+      category: category.data,
       request: payload,
       groupMembers: await this.groupMembers.currentMembers(groupId),
       at: this.clock(),

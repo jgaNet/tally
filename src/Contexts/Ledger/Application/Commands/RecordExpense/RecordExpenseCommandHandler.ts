@@ -3,6 +3,7 @@ import { Id, IResult, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { categoryOf } from '@Contexts/Ledger/Domain/Expense/Category';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { Split } from '@Contexts/Ledger/Domain/Expense/Split';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
@@ -46,12 +47,15 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     if (priced.isFailure()) return priced;
     const split = Split.fromRequest({ amount: priced.data.amount, payer: payer.data, request: payload });
     if (split.isFailure()) return split;
+    const category = categoryOf(payload.category);
+    if (category.isFailure()) return category;
 
     const expense = Expense.create({
       groupId,
       description: description.data,
       amount: priced.data.amount,
       original: priced.data.original,
+      category: category.data,
       date: date.data,
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(groupId),

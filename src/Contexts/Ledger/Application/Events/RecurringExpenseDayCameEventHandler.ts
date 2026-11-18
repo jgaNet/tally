@@ -43,6 +43,7 @@ export class RecurringExpenseDayCameEventHandler extends EventHandler<RecurringE
       groupId,
       description: description.data,
       amount: amount.data,
+      category: payload.category,
       date: date.data,
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(groupId),

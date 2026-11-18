@@ -13,5 +13,7 @@ export class RecordExpenseCommandEvent extends CommandEvent<
     amount?: number;
     original?: OriginalRequest;
     date: string;
+    /** What the expense is filed under (request 24); `other` when left out. */
+    category?: string;
   } & SplitRequest
 > {}

@@ -39,6 +39,16 @@ export const EXPENSE_STATEMENTS = [
      amount INTEGER NOT NULL,
      rate TEXT NOT NULL
    )`,
+  /*
+   * What each expense is filed under (request 24): a side table like the splits, for the same reason. The expenses recorded
+   * before categories existed are `other`, given once; a row already there is kept.
+   */
+  `CREATE TABLE IF NOT EXISTS ledger_expense_categories (
+     expense_id TEXT PRIMARY KEY,
+     category TEXT NOT NULL CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'))
+   )`,
+  `INSERT OR IGNORE INTO ledger_expense_categories (expense_id, category)
+   SELECT id, 'other' FROM ledger_expenses`,
   `CREATE TABLE IF NOT EXISTS ledger_expense_shares (
      expense_id TEXT NOT NULL,
      position INTEGER NOT NULL,

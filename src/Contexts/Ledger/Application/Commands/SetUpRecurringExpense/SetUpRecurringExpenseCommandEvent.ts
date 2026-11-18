@@ -8,5 +8,7 @@ export class SetUpRecurringExpenseCommandEvent extends CommandEvent<
     description: string;
     amount: number;
     startsOn: string;
+    /** What each of its expenses is filed under (request 24); `other` when left out. */
+    category?: string;
   } & SplitRequest
 > {}

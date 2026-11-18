@@ -50,8 +50,8 @@ subdomains:
     name: Telling people
     kind: generic
     why: >-
-      Telling a member an expense concerns them, and reminding one who has owed for a week, is plumbing any
-      application needs.
+      Telling a member an expense concerns them, reminding one who has owed for a week, and telling everyone when a
+      month passes a budget, is plumbing any application needs.
     contexts:
       - Notifications
 contexts:
@@ -81,6 +81,10 @@ contexts:
         meaning: what one member of a split owes of an expense, whole, the shares adding up to the amount exactly.
       - term: Balance
         meaning: what a member owes, or is owed, in a group, read from the expenses' shares and payers.
+      - term: Category
+        meaning: what an expense is filed under, one of eight, `other` when none is given (request 24).
+      - term: Budget
+        meaning: the owner's monthly limit on one category of a group, in the group's currency; a month that spends more than it is told once (request 24, ADR 17).
   - id: Tracker
     purpose: >-
       What became of each command: every operation the bus dispatches is recorded with its outcome, so that a
@@ -107,8 +111,9 @@ contexts:
         meaning: the account at the provider a person is paid on; required to be paid through the provider.
   - id: Notifications
     purpose: >-
-      Telling members what concerns them: one notice per member when an expense includes them, and a reminder, at the
-      next sweep, to a member who has owed more than a threshold for a week, once a week.
+      Telling members what concerns them: one notice per member when an expense includes them, a reminder, at the
+      next sweep, to a member who has owed more than a threshold for a week, once a week, and one per member when a
+      month passes a budget.
     language:
       - term: Notice
         meaning: one message owed to one member about one fact, made once from the fact.
@@ -172,7 +177,8 @@ relationships:
     why: >-
       A member is told when an expense concerns them. Ledger says it in its public words (ExpenseRecorded, Tally's
       first integration event), through the outbox; Notifications turns it into one notice per member and delivers
-      it, which keeps the telling out of the ledger's transactions (T9).
+      it, which keeps the telling out of the ledger's transactions (T9). A month that passes a budget is said the same
+      way (BudgetPassed, ADR 17): the same relationship carries one more contract, not a new one.
   - upstream: Settlements
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]

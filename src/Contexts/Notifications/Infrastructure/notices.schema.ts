@@ -12,19 +12,24 @@ export const NOTICE_STATEMENTS = [
      member_id TEXT NOT NULL,
      group_id TEXT NOT NULL,
      expense_id TEXT,
-     kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder')),
+     kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
      amount INTEGER NOT NULL,
      at TEXT NOT NULL,
+     category TEXT,
+     month TEXT,
+     budget INTEGER,
      CHECK ((kind = 'expense') = (expense_id IS NOT NULL)),
+     CHECK ((kind = 'budget') = (category IS NOT NULL AND month IS NOT NULL AND budget IS NOT NULL)),
      UNIQUE (expense_id, member_id)
    )`,
   `CREATE INDEX IF NOT EXISTS notifications_notices_by_member ON notifications_notices (member_id, at)`,
 ];
 
 /**
- * Brings a file made by request 17 up to the table above: its `expense_id` was NOT NULL, which a reminder cannot store, and
- * the kind check named only `expense`. `CREATE TABLE IF NOT EXISTS` does not change a table that exists, so the table is
- * rebuilt once, in one transaction, keeping every row. A file made with this table is left as it is.
+ * Brings a file made before the table above up to it: a file made by request 17 has `expense_id` NOT NULL, which a reminder cannot
+ * store, and a file made by request 18 has no budget columns, which a budget's notice needs (request 24). `CREATE TABLE IF NOT
+ * EXISTS` does not change a table that exists, so the table is rebuilt once, in one transaction, keeping every row. A file
+ * made with this table is left as it is.
  */
 export function migrateNotices(database: SqliteDatabase): void {
   const { connection } = database;
@@ -32,7 +37,7 @@ export function migrateNotices(database: SqliteDatabase): void {
     name: string;
     notnull: number;
   }[];
-  if (columns.find(column => column.name === 'expense_id')?.notnull === 1) {
+  if (columns.length > 0 && !columns.some(column => column.name === 'budget')) {
     connection.exec('BEGIN IMMEDIATE');
     try {
       connection.exec('DROP INDEX IF EXISTS notifications_notices_by_member');

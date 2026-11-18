@@ -4,6 +4,7 @@ import { IRecurringExpenseQueries } from '@Contexts/Ledger/Application/Ports/IRe
 import { RecurringReadModel } from '@Contexts/Ledger/Application/ReadModel/RecurringReadModel';
 import { RECURRING_STATEMENTS } from '@Contexts/Ledger/Infrastructure/recurring.schema';
 import { SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 
 interface RowOfRecurring {
   id: string;
@@ -14,6 +15,7 @@ interface RowOfRecurring {
   startsOn: string;
   next: string;
   splitKind: SplitKind;
+  category: Category;
 }
 
 /** What the screens read of the recurring expenses, from the SQLite file, outside any transaction. */
@@ -27,8 +29,9 @@ export class SqliteRecurringExpenseQueries implements IRecurringExpenseQueries {
       const row = connection
         .prepare(
           `SELECT id, group_id AS groupId, paid_by AS paidBy, description, amount, starts_on AS startsOn, next,
-                  split_kind AS splitKind
-             FROM ledger_recurring_expenses WHERE id = ?`,
+                  split_kind AS splitKind, COALESCE(c.category, 'other') AS category
+             FROM ledger_recurring_expenses r LEFT JOIN ledger_recurring_categories c ON c.recurring_id = r.id
+            WHERE r.id = ?`,
         )
         .get(id) as RowOfRecurring | undefined;
       if (!row) return null;
@@ -42,8 +45,9 @@ export class SqliteRecurringExpenseQueries implements IRecurringExpenseQueries {
       const rows = connection
         .prepare(
           `SELECT id, group_id AS groupId, paid_by AS paidBy, description, amount, starts_on AS startsOn, next,
-                  split_kind AS splitKind
-             FROM ledger_recurring_expenses WHERE group_id = ? ORDER BY rowid`,
+                  split_kind AS splitKind, COALESCE(c.category, 'other') AS category
+             FROM ledger_recurring_expenses r LEFT JOIN ledger_recurring_categories c ON c.recurring_id = r.id
+            WHERE r.group_id = ? ORDER BY r.rowid`,
         )
         .all(groupId) as unknown as RowOfRecurring[];
       return rows.map(row => withSplit(row, membersOfRecurring(connection, row.id)));

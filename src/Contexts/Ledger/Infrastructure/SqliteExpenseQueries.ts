@@ -18,8 +18,9 @@ export class SqliteExpenseQueries implements IExpenseQueries {
       const row = connection
         .prepare(
           `SELECT e.id, e.group_id AS groupId, e.description, e.amount, e.date, e.paid_by AS paidBy,
-                  k.split_kind AS splitKind, e.version
+                  k.split_kind AS splitKind, COALESCE(c.category, 'other') AS category, e.version
              FROM ledger_expenses e JOIN ledger_expense_splits k ON k.expense_id = e.id
+             LEFT JOIN ledger_expense_categories c ON c.expense_id = e.id
             WHERE e.id = ?`,
         )
         .get(id) as Omit<ExpenseReadModel, 'shares'> | undefined;
@@ -42,8 +43,9 @@ export class SqliteExpenseQueries implements IExpenseQueries {
       const rows = connection
         .prepare(
           `SELECT e.id, e.group_id AS groupId, e.description, e.amount, e.date, e.paid_by AS paidBy,
-                  k.split_kind AS splitKind, e.version
+                  k.split_kind AS splitKind, COALESCE(c.category, 'other') AS category, e.version
              FROM ledger_expenses e JOIN ledger_expense_splits k ON k.expense_id = e.id
+             LEFT JOIN ledger_expense_categories c ON c.expense_id = e.id
             WHERE e.group_id = ?
             ORDER BY e.date DESC, e.recorded_at DESC, e.rowid DESC`,
         )

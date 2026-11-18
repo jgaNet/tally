@@ -1,3 +1,5 @@
+import type { Category } from '@Contexts/Ledger/Domain/Expense/Category';
+
 /** The ways an expense is split, as an expense says it: equally between members, by exact amounts, or by shares. */
 export const SPLIT_KINDS = ['equal', 'exact', 'shares'] as const;
 export type SplitKind = (typeof SPLIT_KINDS)[number];
@@ -45,5 +47,7 @@ export interface ExpenseSnapshot {
   /** What it was paid in, when it was not in the group's currency; null otherwise. */
   original: { currency: string; amount: number; rate: string } | null;
   recordedAt: string;
+  /** What the expense is filed under (request 24). */
+  category: Category;
   version: number;
 }

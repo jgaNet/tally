@@ -111,3 +111,55 @@ describe('Ledger → Notifications (ExpenseRecorded)', () => {
     expect(body).toEqual([]);
   });
 });
+
+describe('Ledger → Notifications (BudgetPassed)', () => {
+  it('tells each member once that the month passed the budget of its category, and the expense that passed it is told under the id its recording answered', async () => {
+    const bob = await person('Bob');
+    const cy = await person('Cy');
+    const groupId = await createGroup(bob);
+    await join(groupId, bob, cy);
+    const set = await http.request('PUT', `${api}/groups/${groupId}/budgets/groceries`, {
+      body: { amount: 1000 },
+      token: bob.token,
+    });
+    await outcome((set.body as Body).operationId as string, bob.token);
+
+    const expenseId = await record(bob.token, groupId, {
+      description: 'Shopping',
+      amount: 1500,
+      date: today(),
+      category: 'groceries',
+      splitBetween: [bob.id, cy.id],
+    });
+
+    const forCy = await noticesUntil(cy.token, 2);
+    expect(forCy).toEqual(
+      expect.arrayContaining([
+        { id: expect.any(String), kind: 'expense', groupId, expenseId, amount: 750, at: expect.any(String) },
+        {
+          id: expect.any(String),
+          kind: 'budget',
+          groupId,
+          category: 'groceries',
+          month: '2025-06',
+          budget: 1000,
+          amount: 1500,
+          at: expect.any(String),
+        },
+      ]),
+    );
+    const forBob = await noticesUntil(bob.token, 1);
+    expect(forBob).toEqual([
+      {
+        id: expect.any(String),
+        kind: 'budget',
+        groupId,
+        category: 'groceries',
+        month: '2025-06',
+        budget: 1000,
+        amount: 1500,
+        at: expect.any(String),
+      },
+    ]);
+  });
+});

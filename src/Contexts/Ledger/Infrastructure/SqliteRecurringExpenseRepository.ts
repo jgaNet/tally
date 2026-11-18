@@ -1,6 +1,7 @@
 import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture/Domain';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { RecurringExpense } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
 import { IRecurringExpenseRepository } from '@Contexts/Ledger/Domain/RecurringExpense/Ports/IRecurringExpenseRepository';
 import { RECURRING_STATEMENTS } from '@Contexts/Ledger/Infrastructure/recurring.schema';
@@ -29,6 +30,9 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
     const row = connection.prepare('SELECT * FROM ledger_recurring_expenses WHERE id = ?').get(id.value) as
       RecurringRow | undefined;
     if (!row) return null;
+    const category = connection
+      .prepare('SELECT category FROM ledger_recurring_categories WHERE recurring_id = ?')
+      .get(id.value) as { category: Category } | undefined;
     const members = connection
       .prepare('SELECT member_id, given FROM ledger_recurring_members WHERE recurring_id = ? ORDER BY position')
       .all(id.value) as { member_id: string; given: number | null }[];
@@ -42,6 +46,7 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
       next: row.next,
       splitKind: row.split_kind,
       members: members.map(member => ({ memberId: member.member_id, given: member.given })),
+      category: category?.category ?? 'other',
       setUpAt: row.set_up_at,
       version: row.version,
     });
@@ -55,7 +60,7 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
   }
 
   async save(recurring: RecurringExpense): Promise<IResult> {
-    const { id, groupId, paidBy, description, amount, startsOn, next, splitKind, members, setUpAt, version } =
+    const { id, groupId, paidBy, description, amount, startsOn, next, splitKind, members, category, setUpAt, version } =
       recurring.toSnapshot();
     const { connection } = this.database;
     const conflict = () =>
@@ -69,6 +74,7 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
         .run(id, version);
       if (changes === 0) return conflict();
       connection.prepare('DELETE FROM ledger_recurring_members WHERE recurring_id = ?').run(id);
+      connection.prepare('DELETE FROM ledger_recurring_categories WHERE recurring_id = ?').run(id);
       return Result.ok();
     }
 
@@ -86,6 +92,9 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
         .run(next, id, version);
       if (changes === 0) return conflict();
     }
+    connection
+      .prepare('INSERT OR REPLACE INTO ledger_recurring_categories (recurring_id, category) VALUES (?, ?)')
+      .run(id, category);
     connection.prepare('DELETE FROM ledger_recurring_members WHERE recurring_id = ?').run(id);
     members.forEach((member, position) =>
       connection

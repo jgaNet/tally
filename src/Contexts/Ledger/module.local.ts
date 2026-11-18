@@ -53,6 +53,19 @@ import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringE
 import { RecordRecurringExpensesJob } from '@Contexts/Ledger/Application/Jobs/RecordRecurringExpensesJob';
 import { SqliteRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseRepository';
 import { SqliteRecurringExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseQueries';
+import { ExpenseEditedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Events/BudgetEvents';
+import { SetBudgetCommandEvent, SetBudgetCommandHandler } from '@Contexts/Ledger/Application/Commands/SetBudget';
+import {
+  RemoveBudgetCommandEvent,
+  RemoveBudgetCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/RemoveBudget';
+import { GetGroupBudgetsQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupBudgets/GetGroupBudgetsQueryHandler';
+import { ExpenseMonthBudgetEventHandler } from '@Contexts/Ledger/Application/Events/ExpenseMonthBudgetEventHandler';
+import { BudgetPassedEventHandler } from '@Contexts/Ledger/Application/Events/BudgetPassedEventHandler';
+import { SqliteBudgetRepository } from '@Contexts/Ledger/Infrastructure/SqliteBudgetRepository';
+import { SqliteBudgetQueries } from '@Contexts/Ledger/Infrastructure/SqliteBudgetQueries';
+import { SqliteMonthlySpend } from '@Contexts/Ledger/Infrastructure/SqliteMonthlySpend';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3, ADR 7): the expenses of each group, recorded with their equal
@@ -171,9 +184,54 @@ export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
           ),
         ],
       },
+      {
+        event: SetBudgetCommandEvent,
+        handlers: [
+          new SetBudgetCommandHandler(
+            new SqliteBudgetRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
+          ),
+        ],
+      },
+      {
+        event: RemoveBudgetCommandEvent,
+        handlers: [
+          new RemoveBudgetCommandHandler(
+            new SqliteBudgetRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
+          ),
+        ],
+      },
     ],
     domainEvents: [
-      { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedEventHandler()] },
+      {
+        event: ExpenseRecordedEvent,
+        handlers: [
+          new ExpenseRecordedEventHandler(),
+          new ExpenseMonthBudgetEventHandler(
+            new SqliteExpenseRepository(database),
+            new SqliteBudgetRepository(database),
+            new SqliteMonthlySpend(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
+          ),
+        ],
+      },
+      {
+        event: ExpenseEditedEvent,
+        handlers: [
+          new ExpenseMonthBudgetEventHandler(
+            new SqliteExpenseRepository(database),
+            new SqliteBudgetRepository(database),
+            new SqliteMonthlySpend(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
+          ),
+        ],
+      },
+      { event: BudgetPassedEvent, handlers: [new BudgetPassedEventHandler()] },
       {
         event: RecurringExpenseDayCameEvent,
         handlers: [
@@ -201,6 +259,7 @@ export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
         new SqliteRecurringExpenseQueries(database),
         new GroupsMembers(groupMembership),
       ),
+      new GetGroupBudgetsQueryHandler(new SqliteBudgetQueries(database), new GroupsMembers(groupMembership), clock),
       new GetOfferedRateQueryHandler(
         rates,
         new GroupsGroupCurrency(groupCurrencyForQueries),

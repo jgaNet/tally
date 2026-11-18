@@ -102,6 +102,7 @@ describe('recurring expenses (request 23)', () => {
       paidBy: owner.id,
       description: 'Rent',
       amount: 90000,
+      category: 'other',
       startsOn: '2030-03-05',
       next: '2030-03-05',
       splitBetween: [owner.id],

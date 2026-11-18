@@ -1,7 +1,11 @@
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/LedgerIntegrationEvents';
+import {
+  BudgetPassedIntegrationEvent,
+  ExpenseRecordedIntegrationEvent,
+} from '@SharedKernel/Application/IntegrationEvents/LedgerIntegrationEvents';
+import { BudgetPassedNoticesHandler } from '@Contexts/Notifications/Application/Events/BudgetPassedNoticesHandler';
 import { ExpenseRecordedNoticesHandler } from '@Contexts/Notifications/Application/Events/ExpenseRecordedNoticesHandler';
 import { GetMyNoticesQueryHandler } from '@Contexts/Notifications/Application/Queries';
 import { SqliteNoticeQueries } from '@Contexts/Notifications/Infrastructure/SqliteNoticeQueries';
@@ -39,6 +43,10 @@ export const localNotificationsModule = new Module({
     {
       event: ExpenseRecordedIntegrationEvent,
       handlers: [new ExpenseRecordedNoticesHandler(new SqliteNoticeRepository(database), systemClock)],
+    },
+    {
+      event: BudgetPassedIntegrationEvent,
+      handlers: [new BudgetPassedNoticesHandler(new SqliteNoticeRepository(database), systemClock)],
     },
   ],
 });

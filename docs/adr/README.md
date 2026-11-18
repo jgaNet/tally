@@ -21,6 +21,7 @@ why, what it costs, and when to revisit it.
 | [14](0014-another-currency.md) | An expense in another currency: it keeps what was paid and its rate, and Ledger asks Groups for the group's currency |
 | [15](0015-offered-rates.md) | Offered rates: a rates service behind a port Ledger owns, and an expense takes or checks the rate it offers |
 | [16](0016-recurring-expenses.md) | Recurring expenses: an aggregate in Ledger, and the background job records each day once |
+| [17](0017-budgets.md) | Budgets: a monthly limit per category in Ledger, and a month that passes it is told once |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
