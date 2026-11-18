@@ -1,6 +1,7 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { CategoryName } from '@Contexts/Ledger/Domain/Expense/Category';
+import { IExpenseFacts } from '@Contexts/Ledger/Application/Ports/IExpenseFacts';
 import { IExpenseQueries } from '@Contexts/Ledger/Application/Ports/IExpenseQueries';
 import { ExpenseReadModel, ExpenseShareReadModel } from '@Contexts/Ledger/Application/ReadModel/ExpenseReadModel';
 import { createLedgerTables } from '@Contexts/Ledger/Infrastructure/LedgerTables';
@@ -30,21 +31,31 @@ const SELECT_EXPENSES = `SELECT id, group_id, description, amount, spent_on, pai
                                 original_currency, original_amount, original_rate, category FROM expenses`;
 
 /** The expenses' read models: read outside any command's transaction, so it waits for the one in progress. */
-export class SqliteExpenseReadModels implements IExpenseQueries {
+export class SqliteExpenseReadModels implements IExpenseQueries, IExpenseFacts {
   constructor(private database: SqliteDatabase) {
     createLedgerTables(database);
   }
 
   async findById(id: string): Promise<ExpenseReadModel | null> {
-    return this.database.exclusive(() => {
-      const row = this.database.get<Row>(`${SELECT_EXPENSES} WHERE id = ?`, id);
-      if (!row) return null;
-      const shares = this.database.all<ShareRow>(
-        'SELECT expense_id, member_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position',
-        id,
-      );
-      return toReadModel(row, sharesOf(shares).get(id) ?? []);
-    });
+    return this.database.exclusive(() => this.read(id));
+  }
+
+  /**
+   * The expense as a member reads it, for a command deciding a receipt (request 26): read inside its transaction, so it takes no lock,
+   * as the balances are read by the commands that decide on them.
+   */
+  async expenseOf(id: string): Promise<ExpenseReadModel | null> {
+    return this.read(id);
+  }
+
+  private read(id: string): ExpenseReadModel | null {
+    const row = this.database.get<Row>(`${SELECT_EXPENSES} WHERE id = ?`, id);
+    if (!row) return null;
+    const shares = this.database.all<ShareRow>(
+      'SELECT expense_id, member_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position',
+      id,
+    );
+    return toReadModel(row, sharesOf(shares).get(id) ?? []);
   }
 
   async ofGroup(groupId: string): Promise<ExpenseReadModel[]> {

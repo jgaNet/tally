@@ -20,6 +20,7 @@ import {
   budgetRoutes,
   expenseRoutes,
   rateRoutes,
+  receiptRoutes,
   recurringRoutes,
   statementRoutes,
   templateRoutes,
@@ -71,6 +72,7 @@ export async function createApplication({
     .registerRoutes('/', recurringRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', budgetRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', templateRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', receiptRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { settlementsModule: localSettlementsModule, webhookSignatures })
     .registerRoutes('/', payoutAccountRoutes, { settlementsModule: localSettlementsModule })
     .registerRoutes('/', noticeRoutes, { notificationsModule: localNotificationsModule })

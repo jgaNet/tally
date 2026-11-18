@@ -132,4 +132,16 @@ export function createLedgerTables(database: SqliteDatabase): void {
     shares INTEGER,
     PRIMARY KEY (template_id, position)
   )`);
+  // The receipts (request 26): one per expense, its own aggregate. `expense_id` is the key, so an expense has at most one; the file is
+  // kept in the receipts store under `file_id`, and read at `url`. `version` is the one it was last saved at, as an expense's is.
+  database.exec(`CREATE TABLE IF NOT EXISTS receipts (
+    expense_id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1
+  )`);
 }

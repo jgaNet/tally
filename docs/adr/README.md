@@ -21,6 +21,7 @@ why, what it costs, and when to revisit it.
 | [14](0014-a-recurring-expense-is-an-aggregate-of-ledger-and-its-day-names-its-expense.md) | A recurring expense is an aggregate of Ledger, and its day names the expense it records |
 | [15](0015-a-budget-is-an-aggregate-of-ledger-that-remembers-its-passed-months-and-tells-notifications-through-the-existing-link.md) | A budget is an aggregate of Ledger that remembers the months it was passed in, and tells Notifications through the link they already have |
 | [16](0016-a-split-template-is-an-aggregate-of-ledger-that-an-expense-is-split-by-as-given.md) | A split template is an aggregate of Ledger, and an expense is split by it as if its split had been given |
+| [17](0017-a-receipt-is-an-aggregate-of-ledger-kept-in-an-outside-store-behind-a-port.md) | A receipt is an aggregate of Ledger, kept in an outside store behind a port Ledger owns |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

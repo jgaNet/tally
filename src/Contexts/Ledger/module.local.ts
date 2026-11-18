@@ -14,6 +14,10 @@ import {
 } from '@Contexts/Ledger/Application/Commands/RemoveBudget';
 import { SetBudgetCommandEvent, SetBudgetCommandHandler } from '@Contexts/Ledger/Application/Commands/SetBudget';
 import {
+  AttachReceiptCommandEvent,
+  AttachReceiptCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/AttachReceipt';
+import {
   SaveTemplateCommandEvent,
   SaveTemplateCommandHandler,
 } from '@Contexts/Ledger/Application/Commands/SaveTemplate';
@@ -48,9 +52,13 @@ import {
   GetOfferedRateQueryHandler,
   GetRecurringExpenseQueryHandler,
   GetGroupTemplatesQueryHandler,
+  GetReceiptQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
 import { HttpRatesService } from '@Contexts/Ledger/Infrastructure/HttpRatesService';
+import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/HttpReceiptStore';
+import { SqliteReceiptReadModels } from '@Contexts/Ledger/Infrastructure/SqliteReceiptReadModels';
+import { SqliteReceiptRepository } from '@Contexts/Ledger/Infrastructure/SqliteReceiptRepository';
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { SqliteBudgetReadModels } from '@Contexts/Ledger/Infrastructure/SqliteBudgetReadModels';
 import { SqliteBudgetRepository } from '@Contexts/Ledger/Infrastructure/SqliteBudgetRepository';
@@ -106,6 +114,13 @@ const budgetReadModels = new SqliteBudgetReadModels(database);
 /** The split templates (request 25): saved under a name in a group, and the splits expenses are split by in place of their own. */
 const splitTemplates = new SqliteSplitTemplateRepository(database);
 const templateReadModels = new SqliteSplitTemplateReadModels(database);
+/**
+ * The receipts (request 26, ADR 17): one per expense, kept in the receipts store the server is started with (`RECEIPTS_URL`, read when a
+ * file is kept, so a server started without it refuses every receipt). The store is Ledger's port; its adapter is an HTTP client.
+ */
+const receipts = new SqliteReceiptRepository(database);
+const receiptReadModels = new SqliteReceiptReadModels(database);
+const receiptStore = new HttpReceiptStore();
 /**
  * The sweep of the recurring expenses (request 23, ADR 14): the process runs it every JOBS_INTERVAL_SECONDS, as the debt sweep (ADR 10),
  * in a context of its own. It takes the one clock, and the members are read through the port Ledger owns (ADR 3).
@@ -175,6 +190,10 @@ export const localLedgerModule = new Module({
       handlers: [new SetUpRecurringExpenseCommandHandler(recurringExpenses, members, systemClock)],
     },
     { event: SetBudgetCommandEvent, handlers: [new SetBudgetCommandHandler(budgets, members)] },
+    {
+      event: AttachReceiptCommandEvent,
+      handlers: [new AttachReceiptCommandHandler(expenseReadModels, receipts, receiptStore, members)],
+    },
     { event: RemoveBudgetCommandEvent, handlers: [new RemoveBudgetCommandHandler(budgets, members)] },
     { event: SaveTemplateCommandEvent, handlers: [new SaveTemplateCommandHandler(splitTemplates, members)] },
     { event: ReplaceTemplateCommandEvent, handlers: [new ReplaceTemplateCommandHandler(splitTemplates, members)] },
@@ -189,6 +208,7 @@ export const localLedgerModule = new Module({
     new GetGroupBalancesQueryHandler(balances, members),
     new GetGroupBudgetsQueryHandler(budgetReadModels, members, systemClock),
     new GetGroupTemplatesQueryHandler(templateReadModels, members),
+    new GetReceiptQueryHandler(receiptReadModels, expenseReadModels, members),
     new GetGroupExpensesQueryHandler(expenseReadModels, members),
     new GetMemberStatementQueryHandler(expenseReadModels, members),
     new GetOfferedRateQueryHandler(offeredRates, members, currencies, systemClock),
