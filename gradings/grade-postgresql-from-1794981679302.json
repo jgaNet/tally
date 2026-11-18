@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-2",
+  "ref": "0f5622a1c490cb8b2c03aa544b6873b567ce37c6",
+  "commit": "0f5622a1c490cb8b2c03aa544b6873b567ce37c6",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "remainder-to-the-first",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "d925a252bfe6b4b6fab7019013ed975d780956d5",
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 178,
+  "workers": 1
+}

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-2",
+  "ref": "8b96ece86a86c9d184bba122df08aa07d0186444",
+  "commit": "8b96ece86a86c9d184bba122df08aa07d0186444",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "remainder-to-the-first",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 4 passed, 5 total",
+        "failed": [
+          "the remainder goes to the first member of the split › keeps the shares of the expenses recorded before the change, on the same database"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● the remainder goes to the first member of the split › keeps the shares of the expenses recorded before the change, on the same database",
+          "Tests:       1 failed, 4 passed, 5 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "d925a252bfe6b4b6fab7019013ed975d780956d5",
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 8064,
+  "workers": 1
+}
