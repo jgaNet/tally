@@ -1,13 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { requireCaller } from '../http';
-import { statementOfMember } from '../statements';
+import { statementAsCsv, statementOfMember } from '../statements';
 
 const STATEMENT_ENTRY = {
   type: 'object',
-  required: ['expenseId', 'date', 'description', 'paid', 'share', 'balance'],
+  required: ['kind', 'date', 'description', 'paid', 'share', 'balance'],
   properties: {
+    kind: { enum: ['expense', 'settlement'] },
     expenseId: { type: 'string' },
+    settlementId: { type: 'string' },
     date: { type: 'string' },
     description: { type: 'string' },
     paid: { type: 'integer' },
@@ -35,6 +37,16 @@ export function registerStatementRoutes(server: FastifyInstance, db: DatabaseSyn
     async request => {
       const caller = requireCaller(db, request);
       return statementOfMember(db, caller.id, request.params.id, request.params.memberId);
+    },
+  );
+
+  // The same statement, as CSV in UTF-8, read by the same members and refused the same way.
+  server.get<{ Params: { id: string; memberId: string } }>(
+    '/groups/:id/members/:memberId/statement.csv',
+    async (request, reply) => {
+      const caller = requireCaller(db, request);
+      const statement = statementOfMember(db, caller.id, request.params.id, request.params.memberId);
+      return reply.header('content-type', 'text/csv; charset=utf-8').send(statementAsCsv(statement));
     },
   );
 }

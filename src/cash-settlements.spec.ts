@@ -244,21 +244,31 @@ describe('settling up in cash', () => {
     ]);
   });
 
-  it('keeps a member’s statement to the expenses alone, so its balance can differ from the balance in the group', async () => {
+  it('lists the settlement in a member’s statement, so its balance is the balance in the group', async () => {
     const { ann, ben, groupId } = await annAndBenOwing1500();
     await settle(ann.token, groupId, ben.id, 1500);
     const statement = await send(app, 'GET', `/groups/${groupId}/members/${ben.id}/statement`, { token: ann.token });
     expect(statement.body).toEqual({
       memberId: ben.id,
-      balance: -1500,
+      balance: 0,
       entries: [
         {
+          kind: 'expense',
           expenseId: expect.any(String),
           date: utcDay(0),
           description: 'Dinner',
           paid: 0,
           share: 1500,
           balance: -1500,
+        },
+        {
+          kind: 'settlement',
+          settlementId: expect.any(String),
+          date: utcDay(0),
+          description: 'Settlement in cash',
+          paid: 1500,
+          share: 0,
+          balance: 0,
         },
       ],
     });

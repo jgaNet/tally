@@ -547,11 +547,14 @@ describe('archiving a group', () => {
         size: JPEG.length,
         url: 'https://receipts.example/files/file-1',
       });
-      // A statement counts the expenses only (request 8), so Ben's is the 5.00 he owed for the dinner, not the settlement.
+      // Ben's statement lists the 5.00 he owed for the dinner and the settlement that paid it, so its balance is 0.
       expect(must(await read(`/groups/${groupId}/members/${ben.id}/statement`), 200).body).toMatchObject({
         memberId: ben.id,
-        balance: -500,
-        entries: [expect.objectContaining({ expenseId, share: 500, paid: 0 })],
+        balance: 0,
+        entries: [
+          expect.objectContaining({ kind: 'expense', expenseId, share: 500, paid: 0 }),
+          expect.objectContaining({ kind: 'settlement', paid: 500, share: 0 }),
+        ],
       });
       const settlements = must(await read(`/groups/${groupId}/settlements`), 200).body as { id: string }[];
       expect(settlements).toHaveLength(1);

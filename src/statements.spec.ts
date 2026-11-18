@@ -98,22 +98,56 @@ describe('a statement of a member', () => {
     expect((await statementAs(ana.token, groupId, ana.id)).body).toEqual({
       memberId: ana.id,
       balance: 600,
-      entries: [{ expenseId: dinner, date: utcDay(-2), description: 'Dinner', paid: 900, share: 300, balance: 600 }],
+      entries: [
+        {
+          kind: 'expense',
+          expenseId: dinner,
+          date: utcDay(-2),
+          description: 'Dinner',
+          paid: 900,
+          share: 300,
+          balance: 600,
+        },
+      ],
     });
     expect((await statementAs(cleo.token, groupId, cleo.id)).body).toEqual({
       memberId: cleo.id,
       balance: -800,
       entries: [
-        { expenseId: dinner, date: utcDay(-2), description: 'Dinner', paid: 0, share: 300, balance: -300 },
-        { expenseId: wine, date: utcDay(-1), description: 'Wine', paid: 0, share: 500, balance: -800 },
+        {
+          kind: 'expense',
+          expenseId: dinner,
+          date: utcDay(-2),
+          description: 'Dinner',
+          paid: 0,
+          share: 300,
+          balance: -300,
+        },
+        { kind: 'expense', expenseId: wine, date: utcDay(-1), description: 'Wine', paid: 0, share: 500, balance: -800 },
       ],
     });
     expect((await statementAs(ben.token, groupId, ben.id)).body).toEqual({
       memberId: ben.id,
       balance: 200,
       entries: [
-        { expenseId: dinner, date: utcDay(-2), description: 'Dinner', paid: 0, share: 300, balance: -300 },
-        { expenseId: wine, date: utcDay(-1), description: 'Wine', paid: 1000, share: 500, balance: 200 },
+        {
+          kind: 'expense',
+          expenseId: dinner,
+          date: utcDay(-2),
+          description: 'Dinner',
+          paid: 0,
+          share: 300,
+          balance: -300,
+        },
+        {
+          kind: 'expense',
+          expenseId: wine,
+          date: utcDay(-1),
+          description: 'Wine',
+          paid: 1000,
+          share: 500,
+          balance: 200,
+        },
       ],
     });
   });
@@ -125,7 +159,7 @@ describe('a statement of a member', () => {
     const second = await record(ana.token, groupId, 'Yesterday', 100, [ana.id], utcDay(-1));
     const third = await record(ana.token, groupId, 'Today, second', 100, [ana.id], utcDay(0));
     const reply = await statementAs(ana.token, groupId, ana.id);
-    const entries = (reply.body as { entries: { expenseId: string }[] }).entries;
+    const entries = (reply.body as { entries: { kind: 'expense'; expenseId: string }[] }).entries;
     expect(entries.map(entry => entry.expenseId)).toEqual([second, first, third]);
   });
 
@@ -223,7 +257,15 @@ describe('a statement of a member', () => {
       memberId: ben.id,
       balance: -300,
       entries: [
-        { expenseId: dinner, date: utcDay(-1), description: 'Dinner, for two', paid: 0, share: 300, balance: -300 },
+        {
+          kind: 'expense',
+          expenseId: dinner,
+          date: utcDay(-1),
+          description: 'Dinner, for two',
+          paid: 0,
+          share: 300,
+          balance: -300,
+        },
       ],
     });
   });
