@@ -50,7 +50,7 @@ describe('saving an expense over a newer version of it (CONC-OPTIMISTIC, feature
     const secondServer = new SqliteExpenses(new LedgerDatabase(() => path));
 
     const expense = recorded();
-    await firstServer.insert(expense);
+    await firstServer.insert(expense, new Date().toISOString());
     const id = expense._id.value;
 
     const firstEdit = (await firstServer.get(id))!;
@@ -100,7 +100,7 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
   it('takes an edited expense out of the balances it counted, and puts it back in as it now stands', async () => {
     const store = new SqliteExpenses(new LedgerDatabase(newDatabasePath));
     const expense = recorded();
-    await store.insert(expense);
+    await store.insert(expense, new Date().toISOString());
     const edited = (await store.get(expense._id.value))!;
     const decision = decideEditExpense(
       {
@@ -130,7 +130,7 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
   it('takes a deleted expense out of every balance, and the expense out of every read', async () => {
     const store = new SqliteExpenses(new LedgerDatabase(newDatabasePath));
     const expense = recorded();
-    await store.insert(expense);
+    await store.insert(expense, new Date().toISOString());
     const stored = (await store.get(expense._id.value))!;
     stored.delete();
     await store.remove(stored);
@@ -144,7 +144,7 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
     const path = newDatabasePath();
     const store = new SqliteExpenses(new LedgerDatabase(() => path));
     const expense = recorded();
-    await store.insert(expense);
+    await store.insert(expense, new Date().toISOString());
     const readForDelete = (await store.get(expense._id.value))!;
     const readForEdit = (await store.get(expense._id.value))!;
 

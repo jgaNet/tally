@@ -9,6 +9,7 @@ import {
   getGroupBalances,
   getGroupExpenses,
   getMemberStatement,
+  getMemberStatementCsv,
   getOfferedRate,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
@@ -45,6 +46,7 @@ import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembe
 import { LedgerDatabase } from '@Contexts/Ledger/Infrastructure/LedgerDatabase';
 import { OfferedRatesOverHttp } from '@Contexts/Ledger/Infrastructure/OfferedRatesOverHttp';
 import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
+import { StatementCountingSettlements } from '@Contexts/Ledger/Infrastructure/StatementCountingSettlements';
 import { SqliteExpenses } from '@Contexts/Ledger/Infrastructure/SqliteExpenses';
 import { SqliteAuditEntries } from '@Contexts/Ledger/Infrastructure/SqliteAuditEntries';
 import { SettlementAuditOfSettlements } from '@Contexts/Ledger/Infrastructure/SettlementAuditOfSettlements';
@@ -91,6 +93,8 @@ const settlementAudit = new SettlementAuditOfSettlements(() => settlementsReadMo
 const passedBalances = new PassedBalancesOfGroups(() => groupsMembersReadModel);
 /** The balances as every reader sees them: the expenses', plus the settlements (request 12). */
 const balancesCountingSettlements = new BalancesCountingSettlements(expenses, settledAmounts, groupMembers);
+/** A member's statement: their expenses and the settlements the balances count, in the order of a bank statement (request 29, ADR 26). */
+const statements = new StatementCountingSettlements(expenses, settledAmounts);
 
 /**
  * The balances, the read model of the balances, which Groups asks through its own `MemberBalances` port before a member leaves
@@ -119,7 +123,8 @@ export const localLedgerModule = new LiteModule({
     getExpense(expenses, groupMembers),
     getGroupBalances(balancesCountingSettlements, groupMembers),
     getGroupExpenses(expenses, groupMembers),
-    getMemberStatement(expenses, groupMembers),
+    getMemberStatement(statements, expenses, groupMembers),
+    getMemberStatementCsv(statements, expenses, groupMembers),
     editExpense(expenses, groupMembers, groupCurrency, offeredRates, splitTemplates, audit, systemClock),
     deleteExpense(expenses, groupMembers, audit, systemClock),
     getOfferedRate(groupCurrency, groupMembers, offeredRates, systemClock),

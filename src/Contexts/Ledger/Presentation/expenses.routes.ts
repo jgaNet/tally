@@ -10,14 +10,17 @@ import {
   getGroupBalances,
   getGroupExpenses,
   getMemberStatement,
+  getMemberStatementCsv,
   getOfferedRate,
   recordExpense,
   RecordExpenseInput,
 } from '@Contexts/Ledger/Application/Expenses';
 import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 import { attachReceipt, getReceipt } from '@Contexts/Ledger/Application/Receipts';
+import { StatementView } from '@Contexts/Ledger/Application/IStatementQueries';
 
 import { hasSplitOrTemplateShape, isObject, splitChoiceOf } from './splitBody';
+import { statementAsCsv } from './statementAsCsv';
 
 const SHAPE_REFUSAL =
   "The body must have description (a string), date (a string), category (a string, when given), exactly one of amount (a whole number) or original ({ currency, amount (a whole number), rate (a string, when given) }), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares }), or template (a string, the id of one of the group's templates) in their place";
@@ -172,6 +175,21 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
     const { id, memberId } = req.params as { id: string; memberId: string };
     return answerAtOnce(req, reply, module.useCase(getMemberStatement), { id, memberId });
   });
+
+  /**
+   * The same statement as CSV (request 29): the read model the JSON route answers, rendered here as `text/csv`. A refusal is answered as the
+   * JSON route answers it, through the same transport helper.
+   */
+  fastify.get(
+    '/groups/:id/members/:memberId/statement.csv',
+    { schema: { tags: ['statement'] } },
+    async (req, reply) => {
+      const { id, memberId } = req.params as { id: string; memberId: string };
+      const answer = await answerAtOnce(req, reply, module.useCase(getMemberStatementCsv), { id, memberId });
+      if (reply.statusCode !== 200) return answer;
+      return reply.type('text/csv').send(statementAsCsv(answer as StatementView));
+    },
+  );
 
   fastify.get('/groups/:id/balances', { schema: { tags: ['balances'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getGroupBalances), { id: (req.params as { id: string }).id }),

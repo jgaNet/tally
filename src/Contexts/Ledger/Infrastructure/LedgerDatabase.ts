@@ -152,6 +152,14 @@ export class LedgerDatabase {
       // Every expense a file holds was recorded before this column existed, in the order its rows were written.
       connection.exec('UPDATE ledger_expenses SET recorded_seq = rowid');
     }
+    const hasRecordedAt = connection
+      .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'recorded_at'")
+      .get();
+    if (!hasRecordedAt) {
+      // Request 29: the instant an expense was recorded, which a statement puts it among the settlements of its day by. An expense a file
+      // holds before it had one has '', which sorts before every instant: it stays before the settlements of its day, as it was recorded.
+      connection.exec("ALTER TABLE ledger_expenses ADD COLUMN recorded_at TEXT NOT NULL DEFAULT ''");
+    }
     const hasOriginal = connection
       .prepare("SELECT 1 FROM pragma_table_info('ledger_expenses') WHERE name = 'original_currency'")
       .get();

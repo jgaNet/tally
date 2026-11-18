@@ -1,6 +1,7 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { ISettlementBooks } from '@Contexts/Settlements/Application/ISettlementBooks';
 import {
+  CountedSettlement,
   ISettlementQueries,
   SettledTransfer,
   SettlementAuditLine,
@@ -29,6 +30,14 @@ type SettlementRow = {
   at: string;
   provider_payment_id: string | null;
   pay_url: string | null;
+};
+type CountedRow = {
+  id: string;
+  payer: string;
+  payee: string;
+  amount: number;
+  method: 'cash' | 'provider';
+  counted_at: string;
 };
 type HistoryRow = { status: SettlementHistoryLine['status']; at: string };
 type HistoryOfGroupRow = HistoryRow & { settlement_id: string };
@@ -183,6 +192,27 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
       .prepare(`SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND status IN ${COUNTED_STATUSES}`)
       .all(groupId) as { payer: string; payee: string; amount: number }[];
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
+  }
+
+  async countedOf(groupId: string, memberId: string): Promise<CountedSettlement[]> {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT s.id, s.payer, s.payee, s.amount, s.method,
+                COALESCE((SELECT h.at FROM settlement_history h
+                           WHERE h.settlement_id = s.id AND h.status = 'paid' ORDER BY h.seq LIMIT 1), s.at) AS counted_at
+           FROM settlements s
+          WHERE s.group_id = ? AND s.status IN ${COUNTED_STATUSES} AND (s.payer = ? OR s.payee = ?)
+          ORDER BY s.rowid`,
+      )
+      .all(groupId, memberId, memberId) as CountedRow[];
+    return rows.map(row => ({
+      id: row.id,
+      from: row.payer,
+      to: row.payee,
+      amount: row.amount,
+      method: row.method,
+      countedAt: row.counted_at,
+    }));
   }
 
   async hasWaitingPayment(groupId: string, memberId: string): Promise<boolean> {

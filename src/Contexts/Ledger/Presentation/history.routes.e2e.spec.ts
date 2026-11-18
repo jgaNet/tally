@@ -235,9 +235,33 @@ describe('a member’s statement', () => {
       memberId: ada.id,
       balance: 700,
       entries: [
-        { expenseId: first, date: '2025-07-01', description: 'First', paid: 0, share: 100, balance: -100 },
-        { expenseId: second, date: '2025-07-01', description: 'Second', paid: 300, share: 100, balance: 100 },
-        { expenseId: third, date: '2025-07-10', description: 'Third', paid: 900, share: 300, balance: 700 },
+        {
+          kind: 'expense',
+          expenseId: first,
+          date: '2025-07-01',
+          description: 'First',
+          paid: 0,
+          share: 100,
+          balance: -100,
+        },
+        {
+          kind: 'expense',
+          expenseId: second,
+          date: '2025-07-01',
+          description: 'Second',
+          paid: 300,
+          share: 100,
+          balance: 100,
+        },
+        {
+          kind: 'expense',
+          expenseId: third,
+          date: '2025-07-10',
+          description: 'Third',
+          paid: 900,
+          share: 300,
+          balance: 700,
+        },
       ],
     });
   });

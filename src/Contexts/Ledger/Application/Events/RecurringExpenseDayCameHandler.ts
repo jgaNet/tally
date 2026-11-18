@@ -61,7 +61,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
       split: shares.data,
       category,
     });
-    await this.expenses.insert(expense);
+    await this.expenses.insert(expense, this.clock().toISOString());
     // The day's expense is a change of money its payer made (request 28), in the same transaction as the expense it records.
     await this.audit.add(
       groupId,

@@ -284,7 +284,9 @@ describe('Groups → Ledger', () => {
     expect(statement.body).toEqual({
       memberId: grace.id,
       balance: -150,
-      entries: [{ expenseId, date: '2020-01-15', description: 'Bread', paid: 0, share: 150, balance: -150 }],
+      entries: [
+        { kind: 'expense', expenseId, date: '2020-01-15', description: 'Bread', paid: 0, share: 150, balance: -150 },
+      ],
     });
 
     expect(

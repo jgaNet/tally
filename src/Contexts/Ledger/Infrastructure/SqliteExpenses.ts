@@ -3,11 +3,10 @@ import { ExpenseCategory } from '@Contexts/Ledger/Domain/Expense/ExpenseCategory
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { IExpenseRepository } from '@Contexts/Ledger/Application/IExpenseRepository';
 import {
+  ExpenseLineView,
   ExpenseView,
   IExpenseQueries,
   OriginalView,
-  StatementEntryView,
-  StatementView,
 } from '@Contexts/Ledger/Application/IExpenseQueries';
 
 import { LedgerDatabase } from './LedgerDatabase';
@@ -30,6 +29,15 @@ type ExpenseRow = {
 const EXPENSE_COLUMNS =
   'id, group_id, description, amount, original_currency, original_amount, original_rate, date, paid_by, version, split_kind, category';
 type ShareRow = { member_id: string; amount: number };
+type ExpenseLineRow = {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  paid_by: string;
+  recorded_at: string;
+  share: number | null;
+};
 type BalanceRow = { member_id: string; balance: number };
 type Share = { memberId: string; amount: number };
 
@@ -63,7 +71,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
     });
   }
 
-  async insert(expense: Expense): Promise<void> {
+  async insert(expense: Expense, recordedAt: string): Promise<void> {
     const { id, groupId, description, amount, original, date, paidBy, splitKind, shares, category, version } =
       expense.toSnapshot();
     const connection = this.database.connection;
@@ -71,8 +79,8 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       connection
         .prepare(
           'INSERT INTO ledger_expenses (id, group_id, description, amount, original_currency, original_amount, original_rate, ' +
-            'date, paid_by, version, split_kind, category, recorded_seq) ' +
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM ledger_expenses))',
+            'date, paid_by, version, split_kind, category, recorded_seq, recorded_at) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(recorded_seq), 0) + 1 FROM ledger_expenses), ?)',
         )
         .run(
           id,
@@ -87,6 +95,7 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
           version + 1,
           splitKind,
           category,
+          recordedAt,
         );
       this.#insertShares(id, shares);
       this.#moveBalances(groupId, paidBy, amount, shares, 1);
@@ -161,29 +170,28 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
   }
 
   /**
-   * The statement, read in one pass: the expenses the member paid or is in the split of, in the order of a bank statement
-   * (the earliest date first, then the earliest recorded), each with what the member paid, their share, and the balance once
-   * the entry is counted. The balance of the statement is the last entry's, or 0 when it has none.
+   * The expenses the member paid or is in the split of, read in one statement: each with what the member paid, their share, and when it was
+   * recorded (request 29). The earliest date first, then the earliest recorded, by its instant and then by its order of recording; the balance
+   * is not computed here, the statement merges these lines with the settlements.
    */
-  async statementOf(groupId: string, memberId: string): Promise<StatementView> {
-    const entries: StatementEntryView[] = [];
-    let balance = 0;
-    for (const expense of await this.#viewsOfGroup(groupId, false)) {
-      const share = expense.shares.find(line => line.memberId === memberId);
-      if (expense.paidBy !== memberId && !share) continue;
-      const paid = expense.paidBy === memberId ? expense.amount : 0;
-      const shared = share?.amount ?? 0;
-      balance += paid - shared;
-      entries.push({
-        expenseId: expense.id,
-        date: expense.date,
-        description: expense.description,
-        paid,
-        share: shared,
-        balance,
-      });
-    }
-    return { memberId, balance, entries };
+  async expenseLinesOf(groupId: string, memberId: string): Promise<ExpenseLineView[]> {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT e.id, e.date, e.description, e.amount, e.paid_by, e.recorded_at, s.amount AS share
+           FROM ledger_expenses e
+           LEFT JOIN ledger_expense_shares s ON s.expense_id = e.id AND s.member_id = ?
+          WHERE e.group_id = ? AND (e.paid_by = ? OR s.member_id IS NOT NULL)
+          ORDER BY e.date, e.recorded_at, e.recorded_seq`,
+      )
+      .all(memberId, groupId, memberId) as ExpenseLineRow[];
+    return rows.map(row => ({
+      expenseId: row.id,
+      recordedAt: row.recorded_at,
+      date: row.date,
+      description: row.description,
+      paid: row.paid_by === memberId ? row.amount : 0,
+      share: row.share ?? 0,
+    }));
   }
 
   /** Every expense of the group, in the order of `latestFirst` (by date, then by when it was recorded), each with its shares. */

@@ -8,8 +8,11 @@ import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 export interface IExpenseRepository {
   /** The expense, as it is stored, if it is recorded. */
   get(id: string): Promise<Expense | undefined>;
-  /** Inserts a new expense with its shares, in one transaction. */
-  insert(expense: Expense): Promise<void>;
+  /**
+   * Inserts a new expense with its shares, in one transaction. `recordedAt` is the instant it was recorded at, as ISO 8601 in UTC, from the
+   * one clock (request 29): the statement puts it among the settlements of its day by it, and an edit never changes it.
+   */
+  insert(expense: Expense, recordedAt: string): Promise<void>;
   /** Writes an edited expense over the version it was read at, with its shares and balances, in one transaction. */
   save(expense: Expense): Promise<void>;
   /** Removes a deleted expense over the version it was read at, with its shares and balances, in one transaction. */

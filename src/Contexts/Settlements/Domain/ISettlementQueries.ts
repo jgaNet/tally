@@ -41,6 +41,20 @@ export interface SettlementAuditLine {
 export type SettledTransfer = PendingTransfer;
 
 /**
+ * A settlement the balances count, as a member's statement reads it (request 29): who paid whom how much, how it was paid, and when the
+ * balances started to count it: the moment it became `paid` (its `paid` line of the history), for a settlement in cash as for one
+ * through the provider.
+ */
+export interface CountedSettlement {
+  id: string;
+  from: string;
+  to: string;
+  amount: number;
+  method: 'cash' | 'provider';
+  countedAt: string;
+}
+
+/**
  * The read side of the settlements (ADR 11, ADR 12): what a member reads of one settlement, what was settled in a group (paid, as Ledger
  * counts it), and what is waiting at the provider. Ledger reads the second through its `SettledAmounts` port, answered by an adapter over
  * this; Settlements' Domain and Application are the only code that reads the first.
@@ -55,6 +69,11 @@ export interface ISettlementQueries {
    * statement, so it is one state of the group's counted settlements.
    */
   settledOf(groupId: string): Promise<SettledTransfer[]>;
+  /**
+   * Every settlement counted in the group in which the member is the payer or the payee, in no order, each with when the balances
+   * started to count it (request 29). The same state of the group's counted settlements as `settledOf`, in one statement.
+   */
+  countedOf(groupId: string, memberId: string): Promise<CountedSettlement[]>;
   /**
    * The changes of money the group's settlements made (request 28), in the order they were made: each time a settlement became paid, and
    * each time one that had been paid became refunded. Read from the statuses they had, which are written with the change that moved them, so

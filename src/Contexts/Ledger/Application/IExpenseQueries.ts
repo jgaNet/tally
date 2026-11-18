@@ -40,21 +40,17 @@ export interface BalanceView {
   balance: number;
 }
 
-/** One entry of a member's statement (request 8): what the member paid for an expense, their share of it, and their balance after it. */
-export interface StatementEntryView {
+/**
+ * An expense a member paid or is in the split of, as a statement reads it (request 8, request 29): what the member paid for it, their
+ * share of it, and when it was recorded (the instant the statement puts it among the settlements of its day by).
+ */
+export interface ExpenseLineView {
   expenseId: string;
+  recordedAt: string;
   date: string;
   description: string;
   paid: number;
   share: number;
-  balance: number;
-}
-
-/** What `GetMemberStatement` answers: a member's entries in the order of a bank statement, and their balance (the last entry's, or 0). */
-export interface StatementView {
-  memberId: string;
-  balance: number;
-  entries: StatementEntryView[];
 }
 
 /** The read side of the expenses: read models, never aggregates (QUERY-READ-MODELS). */
@@ -65,11 +61,11 @@ export interface IExpenseQueries extends IBalanceQueries {
    */
   expensesOf(groupId: string): Promise<ExpenseView[]>;
   /**
-   * The statement of a member of the group: every expense not deleted that the member paid or is in the split of, the
-   * earliest date first and, on the same date, the earliest recorded first. The running balance is computed here, at the
-   * read, in that order; nothing is stored per entry.
+   * The expenses of the group that are not deleted and that the member paid or is in the split of, the earliest date first and, on the
+   * same date, the earliest recorded first (by its instant, then by its order of recording): the order a statement lists them in (request
+   * 29). Nothing is computed here; the statement's balance is read from these lines and the settlements.
    */
-  statementOf(groupId: string, memberId: string): Promise<StatementView>;
+  expenseLinesOf(groupId: string, memberId: string): Promise<ExpenseLineView[]>;
   /**
    * Whether the member paid an expense of the group that is not deleted, or is in its split: a member who left the group
    * keeps their statement readable for as long as an expense of theirs is recorded (request 9).

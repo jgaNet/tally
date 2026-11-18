@@ -1,7 +1,8 @@
-import { NotFoundException, Result } from '@Architecture/Domain';
+import { IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
+import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { isCurrencyCode } from '@SharedKernel/Domain';
 import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
@@ -19,7 +20,8 @@ import {
 import { IGroupCurrency } from './IGroupCurrency';
 import { IGroupMembers, MemberOfGroup } from './IGroupMembers';
 import { IOfferedRates, OfferedRateView } from './IOfferedRates';
-import { BalanceView, ExpenseView, IExpenseQueries, StatementView } from './IExpenseQueries';
+import { BalanceView, ExpenseView, IExpenseQueries } from './IExpenseQueries';
+import { IStatementQueries, StatementView } from './IStatementQueries';
 import { IAuditEntries } from './IAuditEntries';
 import { IExpenseRepository } from './IExpenseRepository';
 import { ISplitTemplateRepository } from './ISplitTemplateRepository';
@@ -98,7 +100,7 @@ export const recordExpense = command(
         if (decision.isFailure()) return decision;
 
         const expense = Expense.register({ groupId, ...decision.data.state });
-        await expenses.insert(expense);
+        await expenses.insert(expense, clock().toISOString());
         await audit.add(
           groupId,
           auditEntryOf(
@@ -272,19 +274,41 @@ export const getGroupExpenses = query(
  * an expense of theirs is recorded (request 9); one who never was in an expense of the group does not exist, so the answer
  * for them is the same as for a member who is not there.
  */
+/**
+ * A member of a group reads the statement of a member (request 8, request 29): the expenses they paid or are in the split of, and the
+ * settlements the balances count in which they are a party, in the order of a bank statement. Anyone who is not a member of the group
+ * gets the answer for a member that does not exist, unless that member has an expense of the group.
+ */
+const statementOfMember =
+  (statements: IStatementQueries, expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+  async (
+    { id, memberId }: { id: string; memberId: string },
+    context: ExecutionContext,
+  ): Promise<IResult<StatementView>> => {
+    const members = await groupMembers.membersOf(id, callerOf(context));
+    if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
+    const isMember = memberIdsOf(members).includes(memberId);
+    if (!isMember && !(await expenses.isInvolved(id, memberId))) {
+      return Result.fail(new NotFoundException('Ledger', 'No member is found'));
+    }
+    return Result.ok(await statements.statementOf(id, memberId));
+  };
+
+/** The statement of a member, as the JSON route answers it (request 8, request 29). */
 export const getMemberStatement = query(
   'GetMemberStatement',
-  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
-    async ({ id, memberId }: { id: string; memberId: string }, context) => {
-      const members = await groupMembers.membersOf(id, callerOf(context));
-      if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
-      const isMember = memberIdsOf(members).includes(memberId);
-      if (!isMember && !(await expenses.isInvolved(id, memberId))) {
-        return Result.fail(new NotFoundException('Ledger', 'No member is found'));
-      }
-      const answer: StatementView = await expenses.statementOf(id, memberId);
-      return Result.ok(answer);
-    },
+  (statements: IStatementQueries, expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+    statementOfMember(statements, expenses, groupMembers),
+);
+
+/**
+ * The same statement, as the CSV route answers it (request 29): the same read model, the same access, and the transport renders its
+ * entries as CSV. A separate query so that each route is answered by the use case that names it.
+ */
+export const getMemberStatementCsv = query(
+  'GetMemberStatementCsv',
+  (statements: IStatementQueries, expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+    statementOfMember(statements, expenses, groupMembers),
 );
 
 /**
