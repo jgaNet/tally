@@ -21,6 +21,7 @@ import { rateRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/rate.r
 import { localLedgerModule, recordRecurringExpenses } from '@Contexts/Ledger/module.local';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/recurring.routes';
 import { budgetRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/budget.routes';
+import { insightRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/insight.routes';
 import { templateRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/template.routes';
 import { receiptRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/receipt.routes';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
@@ -85,6 +86,7 @@ export async function createApplication({
     .registerRoutes('/', rateRoutes, { module: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
     .registerRoutes('/', budgetRoutes, { module: localLedgerModule })
+    .registerRoutes('/', insightRoutes, { module: localLedgerModule })
     .registerRoutes('/', templateRoutes, { module: localLedgerModule })
     .registerRoutes('/', receiptRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, {

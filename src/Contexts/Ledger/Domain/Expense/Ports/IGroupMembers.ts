@@ -24,6 +24,11 @@ export interface BalancePassing {
  */
 export interface IGroupMembers {
   /**
+   * The ids of the groups the account is a member of now, a former member's groups left out (request 37). It is read for the
+   * account that asks, the person's own spending, and never answered to anyone else.
+   */
+  groupsOf(accountId: string): Promise<string[]>;
+  /**
    * The balances passed on when members of the group left, in the order they were passed. It names no caller: Ledger reads
    * it when it counts a balance, and every balance is answered to a member only, by the handler that asks for it.
    */

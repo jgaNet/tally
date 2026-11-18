@@ -40,6 +40,7 @@ import {
   GetGroupTemplatesQueryHandler,
   GetReceiptQueryHandler,
   GetGroupAuditQueryHandler,
+  GetMyInsightsQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { ExpenseRecordedBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedBudgetHandler';
@@ -75,6 +76,7 @@ import { GroupsPassedBalances } from '@Contexts/Ledger/Infrastructure/Groups/Gro
 import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
 import { GroupsMergedIntegrationEventHandler } from '@Contexts/Ledger/Application/Events/GroupsMergedIntegrationEventHandler';
 import { PostgresAuditEntries } from '@Contexts/Ledger/Infrastructure/Repositories/PostgresAuditEntries';
+import { PostgresInsightQueries } from '@Contexts/Ledger/Infrastructure/Queries/PostgresInsightQueries';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3): the expenses of each group, kept in the application's
@@ -91,6 +93,8 @@ const expenses = new PostgresExpenseRepository(database);
 const expenseQueries = new PostgresExpenseQueries(database);
 const groupMembers = new GroupsMembership(groupQueries);
 const groupCurrency = new GroupsCurrency(groupQueries);
+/** The person's own spending, read over the expenses' shares (request 37). */
+const insightQueries = new PostgresInsightQueries(database);
 /** The rates service is asked where RATES_URL points when a rate is asked, so an unset URL offers none (request 22). */
 const offeredRates = new HttpOfferedRates(() => process.env.RATES_URL);
 /** Settlements, as Ledger counts them: the balances and the statements read them through this one port (request 29). */
@@ -183,6 +187,7 @@ export const localLedgerModule = new Module({
     new GetOfferedRateQueryHandler(offeredRates, groupCurrency, clock),
     new GetRecurringExpenseQueryHandler(recurringQueries, groupMembers),
     new GetGroupRecurringExpensesQueryHandler(recurringQueries, groupMembers),
+    new GetMyInsightsQueryHandler(insightQueries, groupMembers, groupCurrency),
   ],
   integrationEvents: [
     {

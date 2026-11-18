@@ -14,6 +14,12 @@ export class GroupsMembership implements IGroupMembers {
     return passings.map(passing => ({ from: passing.from, to: passing.to, amount: passing.amount }));
   }
 
+  /** The groups the account is a member of now, as Groups' read model lists them: a group it has left is not among them (request 37). */
+  async groupsOf(accountId: string): Promise<string[]> {
+    const groups = await this.groups.listGroupsOf(accountId);
+    return groups.map(group => group.id);
+  }
+
   async membersOf(groupId: string, askedBy: string): Promise<GroupMember[] | null> {
     const members = await this.groups.listMembersOf(askedBy, groupId);
     return members ? members.map(member => ({ memberId: member.memberId, role: member.role })) : null;
