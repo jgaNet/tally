@@ -2,6 +2,7 @@ import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
 
 import { createApplication } from './createApplication';
+import { useFreshDatabase } from './freshDatabase.spec-helper';
 
 /**
  * How an end-to-end suite boots an application created Lite: in this process, on a free port, spoken to
@@ -9,10 +10,13 @@ import { createApplication } from './createApplication';
  * application per suite. A context's suite sits beside its routes, as `<things>.routes.e2e.spec.ts`, and
  * asserts what each route answers at once.
  */
+const database = useFreshDatabase('application');
+
 let app: FastifyApplication;
 let http: ReturnType<typeof apiClient>;
 let api: string;
 beforeAll(async () => {
+  await database;
   app = await createApplication();
   await app.start(0);
   http = apiClient(app.address);

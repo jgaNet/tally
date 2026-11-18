@@ -1,14 +1,10 @@
-import { randomUUID } from 'crypto';
-import { tmpdir } from 'os';
-import { join } from 'path';
-
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
+import { useFreshDatabase } from '@Bootstrap/Fastify/freshDatabase.spec-helper';
 
-// The application keeps what it knows in the file DATABASE_PATH names: this suite has a file of its own. The background job runs
-// every 0.2 seconds, and a debt that has lasted one second is reminded: a suite that waits for a week would not finish.
-process.env.DATABASE_PATH = join(tmpdir(), `tally-reminders-${randomUUID()}.db`);
+// The application keeps what it knows in the database DATABASE_URL names: this suite has a database of its own.
+const database = useFreshDatabase('reminders');
 process.env.JOBS_INTERVAL_SECONDS = '0.2';
 process.env.REMINDER_PERIOD_SECONDS = '1';
 
@@ -17,6 +13,7 @@ let http: ReturnType<typeof apiClient>;
 let api: string;
 
 beforeAll(async () => {
+  await database;
   app = await createApplication();
   await app.start(0);
   http = apiClient(app.address);

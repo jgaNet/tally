@@ -1,13 +1,13 @@
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
-import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/SqliteGroupQueries';
+import { PostgresGroupQueries } from '@Contexts/Groups/Infrastructure/PostgresGroupQueries';
 import { WaitingPaymentsOfSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsOfSettlements';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
-import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
+import { PostgresExpenseQueries } from '@Contexts/Ledger/Infrastructure/PostgresExpenseQueries';
 import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
 import { SettlementAuditOfSettlements } from '@Contexts/Ledger/Infrastructure/SettlementAuditOfSettlements';
 import { PassedBalancesOfGroups } from '@Contexts/Ledger/Infrastructure/PassedBalancesOfGroups';
-import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/SqliteSettlementQueries';
+import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/PostgresSettlementQueries';
 import { GroupBalancesOfLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesOfLedger';
 import { OutstandingDebtsOfLedger } from '@Contexts/Settlements/Infrastructure/OutstandingDebtsOfLedger';
 
@@ -20,9 +20,9 @@ import { OutstandingDebtsOfLedger } from '@Contexts/Settlements/Infrastructure/O
  * They are opened here, by the composition root, and not by the contexts' wiring files: Groups asks Ledger's balances and
  * Ledger asks Groups' members, so each wiring file would import the other, and the two modules would load in a cycle.
  */
-export const groupsReadModel = new SqliteGroupQueries(new SqliteDatabase());
+export const groupsReadModel = new PostgresGroupQueries(sharedDatabase);
 /** Settlements' read model, which Ledger reads what was settled through (docs/adr/0013). */
-export const settlementsReadModel = new SqliteSettlementQueries(new SqliteDatabase());
+export const settlementsReadModel = new PostgresSettlementQueries(sharedDatabase);
 /** Ledger's SettledAmounts: the settlements, counted by every balance Ledger reads. */
 export const settledAmountsOfSettlements = new SettledAmountsOfSettlements(settlementsReadModel);
 /** Ledger's SettlementAudit over Settlements' read model: the settlements' changes of money, as the group's audit reads them (request 28). */
@@ -31,8 +31,8 @@ export const settlementAuditOfSettlements = new SettlementAuditOfSettlements(set
 export const groupMembersOfGroups = new GroupMembersOfGroups(groupsReadModel);
 /** Ledger's PassedBalances over Groups' read model: the balances the leaves passed, as the group's audit reads them (request 28, docs/adr/0027). */
 export const passedBalancesOfGroups = new PassedBalancesOfGroups(groupsReadModel);
-export const ledgerReadModel = new SqliteExpenseQueries(
-  new SqliteDatabase(),
+export const ledgerReadModel = new PostgresExpenseQueries(
+  sharedDatabase,
   settledAmountsOfSettlements,
   groupMembersOfGroups,
 );

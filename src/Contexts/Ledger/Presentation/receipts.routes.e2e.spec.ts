@@ -1,15 +1,13 @@
-import { randomUUID } from 'crypto';
 import { createServer, IncomingMessage, Server } from 'http';
 import { AddressInfo } from 'net';
-import { tmpdir } from 'os';
-import { join } from 'path';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
+import { useFreshDatabase } from '@Bootstrap/Fastify/freshDatabase.spec-helper';
 
-// The application keeps what it knows in the file DATABASE_PATH names: this suite has a file of its own.
-process.env.DATABASE_PATH = join(tmpdir(), `tally-receipts-${randomUUID()}.db`);
+// The application keeps what it knows in the database DATABASE_URL names: this suite has a database of its own.
+const database = useFreshDatabase('receipts');
 
 /**
  * The receipts store, as a server of its own: it keeps each file it is sent as `POST /files` and answers `201 { id, url }`, or what the test
@@ -55,6 +53,7 @@ beforeAll(async () => {
   storeOrigin = `http://127.0.0.1:${(storeServer.address() as AddressInfo).port}`;
 
   process.env.RECEIPTS_URL = storeOrigin;
+  await database;
   app = await createApplication();
   await app.start(0);
   http = apiClient(app.address);

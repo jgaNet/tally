@@ -48,6 +48,7 @@ export class FastifyApplication extends Application {
 
   readonly #unitOfWork: () => UnitOfWork;
   readonly #jobs: NodeJS.Timeout[] = [];
+  readonly #stopHooks: Array<() => Promise<unknown>> = [];
 
   constructor({
     logger,
@@ -175,9 +176,15 @@ export class FastifyApplication extends Application {
     this.logger.info(`Listening on ${this.address}`);
   }
 
+  /** Runs `hook` after the server has stopped: the composition root closes what it opened (the database's pool). */
+  onStop(hook: () => Promise<unknown>): void {
+    this.#stopHooks.push(hook);
+  }
+
   async stop(): Promise<void> {
     this.#jobs.splice(0).forEach(timer => clearInterval(timer));
     await this.fastify.close();
+    for (const hook of this.#stopHooks.splice(0)) await hook();
   }
 
   get address(): string {

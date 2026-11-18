@@ -1,7 +1,7 @@
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import {
   groupsReadModel,
@@ -11,7 +11,7 @@ import {
   settlementAuditOfSettlements,
 } from '@Bootstrap/Fastify/readModels';
 import { getGroupAudit } from '@Contexts/Ledger/Application/Audit';
-import { SqliteAuditQueries } from '@Contexts/Ledger/Infrastructure/SqliteAuditEntries';
+import { PostgresAuditQueries } from '@Contexts/Ledger/Infrastructure/PostgresAuditEntries';
 import {
   deleteExpense,
   editExpense,
@@ -33,17 +33,17 @@ import {
   replaceTemplate,
   saveTemplate,
 } from '@Contexts/Ledger/Application/SplitTemplates';
-import { SqliteSplitTemplateQueries } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateQueries';
-import { SqliteSplitTemplates } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplates';
+import { PostgresSplitTemplateQueries } from '@Contexts/Ledger/Infrastructure/PostgresSplitTemplateQueries';
+import { PostgresSplitTemplates } from '@Contexts/Ledger/Infrastructure/PostgresSplitTemplates';
 import { attachReceipt, getReceipt } from '@Contexts/Ledger/Application/Receipts';
 import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/HttpReceiptStore';
-import { SqliteReceiptQueries } from '@Contexts/Ledger/Infrastructure/SqliteReceiptQueries';
-import { SqliteReceipts } from '@Contexts/Ledger/Infrastructure/SqliteReceipts';
+import { PostgresReceiptQueries } from '@Contexts/Ledger/Infrastructure/PostgresReceiptQueries';
+import { PostgresReceipts } from '@Contexts/Ledger/Infrastructure/PostgresReceipts';
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Events/BudgetEvents';
 import { ExpenseEditedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
-import { SqliteBudgetQueries } from '@Contexts/Ledger/Infrastructure/SqliteBudgetQueries';
-import { SqliteBudgets } from '@Contexts/Ledger/Infrastructure/SqliteBudgets';
-import { SqliteMonthlySpending } from '@Contexts/Ledger/Infrastructure/SqliteMonthlySpending';
+import { PostgresBudgetQueries } from '@Contexts/Ledger/Infrastructure/PostgresBudgetQueries';
+import { PostgresBudgets } from '@Contexts/Ledger/Infrastructure/PostgresBudgets';
+import { PostgresMonthlySpending } from '@Contexts/Ledger/Infrastructure/PostgresMonthlySpending';
 import { RecurringExpenseDayCameHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCameHandler';
 import {
   getGroupRecurringExpenses,
@@ -58,41 +58,41 @@ import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringE
 import { GroupCurrencyOfGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyOfGroups';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
-import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
-import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
-import { SqliteRecurringExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseQueries';
-import { SqliteRecurringExpenses } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenses';
+import { PostgresExpenseQueries } from '@Contexts/Ledger/Infrastructure/PostgresExpenseQueries';
+import { PostgresExpenseRepository } from '@Contexts/Ledger/Infrastructure/PostgresExpenseRepository';
+import { PostgresRecurringExpenseQueries } from '@Contexts/Ledger/Infrastructure/PostgresRecurringExpenseQueries';
+import { PostgresRecurringExpenses } from '@Contexts/Ledger/Infrastructure/PostgresRecurringExpenses';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 0001, ADR 0004): the expenses of each group and their splits. Its
- * adapters are the application's SQLite file; who may be in a split is asked of Groups' read model, which Groups' wiring
+ * adapters are the application's PostgreSQL database; who may be in a split is asked of Groups' read model, which Groups' wiring
  * exports for this purpose; its clock is the system's, given to the use case that records a time.
  */
-const expenses = new SqliteExpenseRepository(sharedDatabase);
+const expenses = new PostgresExpenseRepository(sharedDatabase);
 const groupMembers = new GroupMembersOfGroups(groupsReadModel);
 // The group's currency, for an expense paid in another one (request 21, docs/adr/0020): read over the same Groups read model.
 const groupCurrency = new GroupCurrencyOfGroups(groupsReadModel);
 // The rates offered for an expense in another currency (request 22, docs/adr/0021): the rates service named by RATES_URL, read at each call.
 const offeredRates = new HttpOfferedRates();
-const expenseQueries = new SqliteExpenseQueries(sharedDatabase, settledAmountsOfSettlements, groupMembers);
+const expenseQueries = new PostgresExpenseQueries(sharedDatabase, settledAmountsOfSettlements, groupMembers);
 // The recurring expenses (request 23, docs/adr/0022): their own table, read by the queries and stepped by the background job.
-const recurring = new SqliteRecurringExpenses(sharedDatabase);
-const recurringQueries = new SqliteRecurringExpenseQueries(sharedDatabase);
+const recurring = new PostgresRecurringExpenses(sharedDatabase);
+const recurringQueries = new PostgresRecurringExpenseQueries(sharedDatabase);
 const recordDay = recordRecurringDay(recurring, groupMembers, systemClock);
 // The monthly budgets (request 24, docs/adr/0023): their own table, the spending a month makes read from the expenses inside the reaction's transaction.
-const budgets = new SqliteBudgets(sharedDatabase);
-const budgetQueries = new SqliteBudgetQueries(sharedDatabase);
-const spending = new SqliteMonthlySpending(sharedDatabase);
+const budgets = new PostgresBudgets(sharedDatabase);
+const budgetQueries = new PostgresBudgetQueries(sharedDatabase);
+const spending = new PostgresMonthlySpending(sharedDatabase);
 // The split templates (request 25, docs/adr/0024): their own table; an expense split by one reads it inside its own transaction.
-const templates = new SqliteSplitTemplates(sharedDatabase);
-const templateQueries = new SqliteSplitTemplateQueries(sharedDatabase);
+const templates = new PostgresSplitTemplates(sharedDatabase);
+const templateQueries = new PostgresSplitTemplateQueries(sharedDatabase);
 // The receipts (request 26, docs/adr/0025): their own table, and the file kept in the receipts store named by RECEIPTS_URL, read at each call.
-const receipts = new SqliteReceipts(sharedDatabase);
-const receiptQueries = new SqliteReceiptQueries(sharedDatabase);
+const receipts = new PostgresReceipts(sharedDatabase);
+const receiptQueries = new PostgresReceiptQueries(sharedDatabase);
 const receiptStore = new HttpReceiptStore();
 // The group's audit (request 28, docs/adr/0027): the expenses' entries are Ledger's own table; the settlements' and the balances that
 // passed are read through the ports below, over the other contexts' read models (readModels.ts).
-const auditQueries = new SqliteAuditQueries(sharedDatabase);
+const auditQueries = new PostgresAuditQueries(sharedDatabase);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',

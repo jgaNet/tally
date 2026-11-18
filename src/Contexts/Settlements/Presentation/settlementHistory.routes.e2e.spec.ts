@@ -1,15 +1,14 @@
 import { createServer, IncomingMessage, Server } from 'http';
 import { AddressInfo } from 'net';
 import { randomUUID, createHmac } from 'crypto';
-import { tmpdir } from 'os';
-import { join } from 'path';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
+import { useFreshDatabase } from '@Bootstrap/Fastify/freshDatabase.spec-helper';
 
-// The application keeps what it knows in the file DATABASE_PATH names: this suite has a file of its own.
-process.env.DATABASE_PATH = join(tmpdir(), `tally-history-${randomUUID()}.db`);
+// The application keeps what it knows in the database DATABASE_URL names: this suite has a database of its own.
+const database = useFreshDatabase('history');
 
 const WEBHOOK_SECRET = 'a-shared-secret-with-the-provider';
 
@@ -59,6 +58,7 @@ beforeAll(async () => {
 
   process.env.PROVIDER_URL = providerOrigin;
   process.env.PROVIDER_WEBHOOK_SECRET = WEBHOOK_SECRET;
+  await database;
   app = await createApplication();
   await app.start(0);
   http = apiClient(app.address);

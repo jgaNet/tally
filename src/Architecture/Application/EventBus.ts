@@ -13,6 +13,16 @@ import { EventHandler } from '@Architecture/Application/EventHandler';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { IOperation } from '@Architecture/Application/Operation';
 
+/**
+ * The bus's record of what it delivered (ADR 24, docs/adr/0029): per subscriber, the ids of the messages it handled and
+ * did not fail. It is durable where the bus is: a relay after a restart does not hand a subscriber a message it has
+ * already handled.
+ */
+export interface Inbox {
+  has(subscriber: string, messageId: string): Promise<boolean>;
+  record(subscriber: string, messageId: string): Promise<void>;
+}
+
 export interface EventBus {
   /**
    * Connects to the event infrastructure (if needed)

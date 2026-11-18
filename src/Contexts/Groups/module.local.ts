@@ -1,5 +1,5 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
-import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
@@ -15,29 +15,29 @@ import {
   leaveGroup,
 } from '@Contexts/Groups/Application/Groups';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
-import { SqliteAccountRepository } from '@Contexts/Groups/Infrastructure/SqliteAccountRepository';
-import { SqliteAccountQueries } from '@Contexts/Groups/Infrastructure/SqliteAccountQueries';
+import { PostgresAccountRepository } from '@Contexts/Groups/Infrastructure/PostgresAccountRepository';
+import { PostgresAccountQueries } from '@Contexts/Groups/Infrastructure/PostgresAccountQueries';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
-import { SqliteSessionTokens } from '@Contexts/Groups/Infrastructure/SqliteSessionTokens';
-import { SqliteGroupRepository } from '@Contexts/Groups/Infrastructure/SqliteGroupRepository';
-import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/SqliteGroupQueries';
-import { SqliteInvitationRepository } from '@Contexts/Groups/Infrastructure/SqliteInvitationRepository';
-import { SqliteInvitationQueries } from '@Contexts/Groups/Infrastructure/SqliteInvitationQueries';
+import { PostgresSessionTokens } from '@Contexts/Groups/Infrastructure/PostgresSessionTokens';
+import { PostgresGroupRepository } from '@Contexts/Groups/Infrastructure/PostgresGroupRepository';
+import { PostgresGroupQueries } from '@Contexts/Groups/Infrastructure/PostgresGroupQueries';
+import { PostgresInvitationRepository } from '@Contexts/Groups/Infrastructure/PostgresInvitationRepository';
+import { PostgresInvitationQueries } from '@Contexts/Groups/Infrastructure/PostgresInvitationQueries';
 import { MemberBalancesOfLedger } from '@Contexts/Groups/Infrastructure/MemberBalancesOfLedger';
 
 /**
  * The Groups context (conventions/domain.yaml, ADR 0001, ADR 0002): accounts, and groups with their members and their
- * invitations. Its adapters are the application's SQLite file; its clock is the system's, given to the use cases that
+ * invitations. Its adapters are the application's PostgreSQL database; its clock is the system's, given to the use cases that
  * record a time.
  */
-const accounts = new SqliteAccountRepository(sharedDatabase);
-const accountQueries = new SqliteAccountQueries(sharedDatabase);
+const accounts = new PostgresAccountRepository(sharedDatabase);
+const accountQueries = new PostgresAccountQueries(sharedDatabase);
 const passwords = new ScryptPasswordHasher();
-const tokens = new SqliteSessionTokens(sharedDatabase);
-const groups = new SqliteGroupRepository(sharedDatabase);
-const groupQueries = new SqliteGroupQueries(sharedDatabase);
-const invitations = new SqliteInvitationRepository(sharedDatabase);
-const invitationQueries = new SqliteInvitationQueries(sharedDatabase);
+const tokens = new PostgresSessionTokens(sharedDatabase);
+const groups = new PostgresGroupRepository(sharedDatabase);
+const groupQueries = new PostgresGroupQueries(sharedDatabase);
+const invitations = new PostgresInvitationRepository(sharedDatabase);
+const invitationQueries = new PostgresInvitationQueries(sharedDatabase);
 
 /**
  * The balances, for a leave to be decided while its own transaction is open (docs/adr/0009): Ledger's read model, which the

@@ -1,15 +1,13 @@
-import { randomUUID } from 'crypto';
 import { createServer, Server } from 'http';
 import { AddressInfo } from 'net';
-import { tmpdir } from 'os';
-import { join } from 'path';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
+import { useFreshDatabase } from '@Bootstrap/Fastify/freshDatabase.spec-helper';
 
-// The application keeps what it knows in the file DATABASE_PATH names: this suite has a file of its own.
-process.env.DATABASE_PATH = join(tmpdir(), `tally-offered-rates-${randomUUID()}.db`);
+// The application keeps what it knows in the database DATABASE_URL names: this suite has a database of its own.
+const database = useFreshDatabase('offered-rates');
 
 /**
  * The rates service, as a server of its own (request 22): it answers `GET /rates/{from}/{to}` with the rate the test set for that pair,
@@ -43,6 +41,8 @@ beforeAll(async () => {
   });
   await new Promise<void>(resolve => ratesServer.listen(0, '127.0.0.1', () => resolve()));
   ratesOrigin = `http://127.0.0.1:${(ratesServer.address() as AddressInfo).port}`;
+
+  await database;
 
   app = await createApplication();
   await app.start(0);

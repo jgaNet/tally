@@ -1,15 +1,13 @@
 import { createServer, Server } from 'http';
 import { AddressInfo } from 'net';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { randomUUID } from 'crypto';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
+import { useFreshDatabase } from '@Bootstrap/Fastify/freshDatabase.spec-helper';
 
-// The application keeps what it knows in the file DATABASE_PATH names: this suite has a file of its own.
-process.env.DATABASE_PATH = join(tmpdir(), `tally-payout-accounts-${randomUUID()}.db`);
+// The application keeps what it knows in the database DATABASE_URL names: this suite has a database of its own.
+const database = useFreshDatabase('payout-accounts');
 
 /**
  * The payment provider, as a server of its own: it answers `GET /accounts/{id}` with `200 { id }` for the accounts it knows, `404` for
@@ -46,6 +44,7 @@ beforeAll(async () => {
   const providerOrigin = `http://127.0.0.1:${(providerServer.address() as AddressInfo).port}`;
 
   process.env.PROVIDER_URL = providerOrigin;
+  await database;
   app = await createApplication();
   await app.start(0);
   http = apiClient(app.address);

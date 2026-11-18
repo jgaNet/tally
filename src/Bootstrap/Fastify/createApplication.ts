@@ -4,9 +4,13 @@ import { Logger, relayOutbox } from '@Architecture/Application';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
-import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
+import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { PostgresUnitOfWork } from '@Architecture/Infrastructure/Postgres/PostgresUnitOfWork';
+import { PostgresInbox } from '@Architecture/Infrastructure/Postgres/PostgresInbox';
 import { Role } from '@SharedKernel/Domain';
+
+import { prepareDatabase } from '@Bootstrap/Database/prepareDatabase';
+import { LEGACY_UPGRADES } from '@Bootstrap/Database/legacy';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { operationRoutes } from '@Bootstrap/Fastify/operations.routes';
@@ -28,13 +32,14 @@ import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements
 import { providerWebhookRoutes } from '@Contexts/Settlements/Presentation/providerWebhooks.routes';
 
 /**
- * The composition root of the application (docs/adr/0002). It sets up the transport, which gives each
- * request its trace, its caller and its own unit of work over the application's SQLite file, and the
+ * The composition root of the application (docs/adr/0002, docs/adr/0029). It prepares the application's PostgreSQL
+ * database before it serves (moving into it what the SQLite file named by `DATABASE_PATH` held, the first time), sets
+ * up the transport, which gives each request its trace, its caller and its own unit of work over that database, and the
  * bus that carries what the contexts tell each other, relayed from the outbox after each commit. It
  * registers the contexts' modules and their routes under their prefixes, and the background job that
  * relays the outbox every `JOBS_INTERVAL_SECONDS` (60 when unset).
  *
- * Configuration is in the environment: `PORT`, `API_PREFIX` (`v1`), `DATABASE_PATH` (`tally.db`),
+ * Configuration is in the environment: `PORT`, `API_PREFIX` (`v1`), `DATABASE_URL` (the PostgreSQL database), `DATABASE_PATH` (a SQLite file an earlier version kept, moved in once),
  * `JOBS_INTERVAL_SECONDS` (60), `REMINDER_PERIOD_SECONDS` (604800, a week), `WEB_ORIGINS` (a comma-separated list), and for payments through the provider (request 13):
  * `PROVIDER_URL`, the base of the provider's API without a trailing slash, and `PROVIDER_WEBHOOK_SECRET`, the secret it signs with;
  * and for the rate offered for an expense in another currency (request 22): `RATES_URL`, the base of the rates service's API without a
@@ -55,19 +60,26 @@ export async function createApplication({
     .split(',')
     .filter(Boolean),
 }: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
+  await prepareDatabase(sharedDatabase, { legacyPath: process.env.DATABASE_PATH, legacyUpgrades: LEGACY_UPGRADES });
   const app = new FastifyApplication({
     logger,
     apiPrefix,
     port,
     webOrigins,
-    unitOfWork: () => new SqliteUnitOfWork(sharedDatabase),
+    unitOfWork: () => new PostgresUnitOfWork(sharedDatabase),
     // The token a request brings proves its account: the Groups context says which, and every other request is anonymous.
     authenticate: async request => {
       const subjectId = authenticatedAccountOf(request.headers.authorization);
       if (subjectId) request.auth = { subjectId, role: Role.USER };
     },
   })
-    .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
+    .setEventBus(
+      new InMemoryEventBus({
+        eventEmitter: new EventEmitter(),
+        clock: systemClock,
+        inbox: new PostgresInbox(sharedDatabase),
+      }),
+    )
     .registerModule(localGroupsModule)
     .registerModule(localLedgerModule)
     .registerModule(localSettlementsModule)
@@ -90,8 +102,9 @@ export async function createApplication({
 
   // What a previous run made durable and did not publish goes out now (ADR 24), and then at every job's run.
   const relay = () =>
-    relayOutbox(new SqliteUnitOfWork(sharedDatabase).outbox, app.getEventBus(), app.executionContext('relay'));
+    relayOutbox(new PostgresUnitOfWork(sharedDatabase).outbox, app.getEventBus(), app.executionContext('relay'));
   await relay();
+  app.onStop(() => sharedDatabase.close());
   app.every(Number(process.env.JOBS_INTERVAL_SECONDS || 60) * 1000, relay);
   // Each run of the background job also sweeps the debts of every group, for the reminders (request 18, docs/adr/0018).
   const reminderPeriodMs = Number(process.env.REMINDER_PERIOD_SECONDS || 604800) * 1000;

@@ -2,13 +2,12 @@ import { EventEmitter } from 'events';
 
 import { ExecutionContext } from '@Architecture/Application';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { Role } from '@SharedKernel/Domain';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import { ISessionTokens } from '@Contexts/Groups/Application/Ports/ISessionTokens';
 import { InMemoryAccountRepository } from '@Contexts/Groups/Infrastructure/InMemoryAccountRepository';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
-import { SqliteSessionTokens } from '@Contexts/Groups/Infrastructure/SqliteSessionTokens';
 import {
   EmailAlreadyUsedException,
   InvalidAccountNameException,
@@ -17,11 +16,26 @@ import {
 import { InvalidEmailFormat } from '@SharedKernel/Domain/Email';
 import { NotAllowedException, NotFoundException } from '@Architecture/Domain';
 
+/**
+ * The tokens the use cases answer: a token names its account, and nothing else. The signed tokens, under the key the
+ * database keeps, are tested with their adapter (Infrastructure/PostgresSessionTokens.spec.ts).
+ */
+class TokensOfTheSpec implements ISessionTokens {
+  issue(accountId: string): string {
+    return `token-of-${accountId}`;
+  }
+
+  accountOf(token: string): string | undefined {
+    const prefix = 'token-of-';
+    return token.startsWith(prefix) ? token.slice(prefix.length) : undefined;
+  }
+}
+
 /** The use cases, run as the transport runs them: their ports, and an execution context with no file under it. */
 function setUp() {
   const accounts = new InMemoryAccountRepository();
   const passwords = new ScryptPasswordHasher();
-  const tokens = new SqliteSessionTokens(new SqliteDatabase(() => ':memory:'));
+  const tokens = new TokensOfTheSpec();
   const context = (subjectId?: string) =>
     new ExecutionContext({
       traceId: 'trace',
