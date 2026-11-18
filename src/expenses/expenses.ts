@@ -12,6 +12,7 @@ import {
   type RateOffer,
   type SplitInput,
   type SplitKind,
+  type ValidExpense,
   isAcceptableDate,
   isOtherCurrency,
   validateExpense,
@@ -122,32 +123,42 @@ export async function createExpense(
   return inTransaction(db, () => {
     const group = requireMembership(db, groupId, payerId);
     const expense = validateExpense(input, memberIdsOf(db, groupId), payerId, group.currency, offer);
-    const id = randomUUID();
-    const at = new Date().toISOString();
-    db.prepare(
-      `INSERT INTO expenses (id, group_id, description, amount, date, paid_by, version, split_kind,
-                             original_currency, original_amount, original_rate, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      groupId,
-      expense.description,
-      expense.amount,
-      expense.date,
-      payerId,
-      expense.split.kind,
-      ...originalColumns(expense.original),
-      at,
-    );
-    const shares = sharesOf(expense.split, expense.amount);
-    writeShares(db, id, shares);
-    recordExpenseNotices(db, { id, groupId, paidBy: payerId, shares }, at);
-    return id;
+    return insertExpense(db, groupId, payerId, expense, new Date().toISOString());
   });
 }
 
+/** Writes a checked expense, its shares and its notices. Runs inside `inTransaction`. */
+export function insertExpense(
+  db: Database,
+  groupId: string,
+  payerId: string,
+  expense: ValidExpense,
+  at: string,
+): string {
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO expenses (id, group_id, description, amount, date, paid_by, version, split_kind,
+                           original_currency, original_amount, original_rate, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    groupId,
+    expense.description,
+    expense.amount,
+    expense.date,
+    payerId,
+    expense.split.kind,
+    ...originalColumns(expense.original),
+    at,
+  );
+  const shares = sharesOf(expense.split, expense.amount);
+  writeShares(db, id, shares);
+  recordExpenseNotices(db, { id, groupId, paidBy: payerId, shares }, at);
+  return id;
+}
+
 /** The account ids of the members of `groupId`. */
-function memberIdsOf(db: Database, groupId: string): Set<string> {
+export function memberIdsOf(db: Database, groupId: string): Set<string> {
   const rows = db.prepare('SELECT account_id FROM memberships WHERE group_id = ?').all(groupId) as unknown as {
     account_id: string;
   }[];

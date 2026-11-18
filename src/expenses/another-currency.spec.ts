@@ -258,10 +258,11 @@ describe('an expense in another currency', () => {
       const db = new DatabaseSync(databasePath);
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
       db.exec(`
+        DROP TABLE recurring;
         ALTER TABLE expenses DROP COLUMN original_currency;
         ALTER TABLE expenses DROP COLUMN original_amount;
         ALTER TABLE expenses DROP COLUMN original_rate;
-        PRAGMA user_version = ${version - 1};
+        PRAGMA user_version = ${version - 2};
       `);
       db.close();
       app = await createApplication({ databasePath });

@@ -10,6 +10,8 @@ import { registerNoticeRoutes } from './notices/routes';
 import { registerOperationRoutes } from './operations/routes';
 import { registerPayoutAccountRoutes } from './payouts/routes';
 import { registerRateRoutes } from './rates/routes';
+import { registerRecurringRoutes } from './recurring/routes';
+import { recordRecurring } from './recurring/recurring';
 import { Refusal } from './refusal';
 import { sweepDebts } from './reminders/reminders';
 import { registerSettlementRoutes } from './settlements/routes';
@@ -103,6 +105,7 @@ export async function createApplication({
       registerInvitationRoutes(routes, db);
       registerExpenseRoutes(routes, db, rates);
       registerRateRoutes(routes, db, rates);
+      registerRecurringRoutes(routes, db);
       registerBalanceRoutes(routes, db);
       registerNoticeRoutes(routes, db);
       registerStatementRoutes(routes, db);
@@ -114,7 +117,20 @@ export async function createApplication({
   );
 
   const reminderPeriodMs = reminderPeriodSeconds * 1000;
-  const runJobs = (at: Date = new Date()) => sweepDebts(db, at, reminderPeriodMs);
+  const runJobs = (at: Date = new Date()) => {
+    // Each part is its own transaction(s); a failure of one must not keep the other from running.
+    let failure: unknown;
+    for (const part of [() => recordRecurring(db, at), () => sweepDebts(db, at, reminderPeriodMs)]) {
+      try {
+        part();
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure !== undefined) {
+      throw failure;
+    }
+  };
   let job: NodeJS.Timeout | undefined;
 
   let address = '';

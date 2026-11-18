@@ -276,6 +276,24 @@ const migrations: readonly string[] = [
     CHECK (original_amount BETWEEN 1 AND 100000000);
   ALTER TABLE expenses ADD COLUMN original_rate TEXT;
   `,
+  `
+  -- A recurring expense: what the background job records on its day of every month. \`split\` is the split as
+  -- it was given (JSON), \`starts_on\` its first day, and \`next_on\` the day of the next expense to record: the
+  -- job records it and moves it a month on in one transaction, so each day has one expense. It is deleted when
+  -- stopped, or when a member it names has left.
+  CREATE TABLE recurring (
+    id          TEXT PRIMARY KEY,
+    group_id    TEXT NOT NULL REFERENCES groups (id),
+    paid_by     TEXT NOT NULL REFERENCES accounts (id),
+    description TEXT NOT NULL,
+    amount      INTEGER NOT NULL CHECK (amount BETWEEN 1 AND 100000000),
+    split       TEXT NOT NULL,
+    starts_on   TEXT NOT NULL,
+    next_on     TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+  );
+  CREATE INDEX recurring_by_group ON recurring (group_id);
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */
