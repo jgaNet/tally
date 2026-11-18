@@ -366,4 +366,42 @@ describe('Groups → Ledger', () => {
     const read = await http.request('GET', `${api}/groups/${groupId}/budgets`, { token: grace.token });
     expect(read.body).toEqual([{ category: 'groceries', amount: 40000, spent: 0 }]);
   });
+  it('splits an expense by a template saved over the members Groups gives: the ids its requests answered, and a member who left is refused', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const linus = await signedInPerson('Linus');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    for (const person of [grace, linus]) {
+      const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+        .body as { id: string };
+      await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: person.token });
+    }
+
+    const saved = await http.request('POST', `${api}/groups/${groupId}/templates`, {
+      body: { name: 'Flat', splitBetween: [ada.id, grace.id, linus.id] },
+      token: grace.token,
+    });
+    expect(saved.status).toBe(201);
+    const templateId = (saved.body as { id: string }).id;
+
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Rent', amount: 900, date: '2026-01-15', template: templateId },
+      token: ada.token,
+    });
+    expect(recorded.status).toBe(201);
+    const expense = (
+      await http.request('GET', `${api}/expenses/${(recorded.body as { id: string }).id}`, { token: ada.token })
+    ).body as { shares: { memberId: string }[] };
+    expect(expense.shares.map(share => share.memberId).sort()).toEqual([ada.id, grace.id, linus.id].sort());
+
+    expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: linus.token })).status).toBe(204);
+    const afterLeaving = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Rent', amount: 900, date: '2026-01-15', template: templateId },
+      token: ada.token,
+    });
+    expect(afterLeaving.status).toBe(400);
+    expect((afterLeaving.body as { type: string }).type).toBe('SplitMemberNotInGroup');
+  });
 });

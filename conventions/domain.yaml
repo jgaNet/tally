@@ -79,6 +79,8 @@ contexts:
         meaning: what an expense was for, one of eight, other when none is given; a recurring expense gives its expenses one.
       - term: Budget
         meaning: what the group agrees to spend in a category in a month, set and removed by the owner; it remembers the months it was passed in, so that it is passed once a month.
+      - term: Split template
+        meaning: a split saved under a name in a group, equally between members or by shares; an expense may be split by it, as if its split had been given, and keeps its shares, never a reference to it.
       - term: Original amount
         meaning: what an expense was paid in another currency, with the rate its payer stated; its amount in the group's currency is the original times the rate, rounded.
   - id: Settlements

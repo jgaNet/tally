@@ -14,6 +14,12 @@ import {
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/BudgetEvents';
 import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/ExpenseEvents';
 import { getGroupBudgets, removeBudget, setBudget } from '@Contexts/Ledger/Application/Budgets';
+import {
+  getGroupTemplates,
+  removeTemplate,
+  replaceTemplate,
+  saveTemplate,
+} from '@Contexts/Ledger/Application/SplitTemplates';
 import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpenseEvents';
 import { BudgetPassedHandler } from '@Contexts/Ledger/Application/Events/BudgetPassedHandler';
 import { ExpenseBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseBudgetHandler';
@@ -27,6 +33,7 @@ import {
   sweepRecurringExpenses,
 } from '@Contexts/Ledger/Application/RecurringExpenses';
 import { SqliteBudgets } from '@Contexts/Ledger/Infrastructure/SqliteBudgets';
+import { SqliteSplitTemplates } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplates';
 import { SqliteRecurringExpenses } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenses';
 import { BalancesCountingSettlements } from '@Contexts/Ledger/Infrastructure/BalancesCountingSettlements';
 import { GroupCurrencyOfGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyOfGroups';
@@ -51,6 +58,8 @@ const expenses = new SqliteExpenses(database);
 const recurringExpenses = new SqliteRecurringExpenses(database);
 /** The monthly budgets of the categories (request 24), in the same file as the expenses they are held against. */
 const budgets = new SqliteBudgets(database);
+/** The split templates (request 25), in the same file as the expenses an expense split by one of them is recorded in. */
+const splitTemplates = new SqliteSplitTemplates(database);
 const groupMembers = new GroupMembersOfGroups(() => groupsMembersReadModel);
 /** The currency of a group, which an expense paid in another currency is counted against (request 21, ADR 18), read at a request too. */
 const groupCurrency = new GroupCurrencyOfGroups(() => groupsMembersReadModel);
@@ -84,12 +93,12 @@ export const localLedgerModule = new LiteModule({
     { event: RecurringExpenseDayCameEvent, handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers)] },
   ],
   useCases: [
-    recordExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
+    recordExpense(expenses, groupMembers, groupCurrency, offeredRates, splitTemplates, systemClock),
     getExpense(expenses, groupMembers),
     getGroupBalances(balancesCountingSettlements, groupMembers),
     getGroupExpenses(expenses, groupMembers),
     getMemberStatement(expenses, groupMembers),
-    editExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
+    editExpense(expenses, groupMembers, groupCurrency, offeredRates, splitTemplates, systemClock),
     deleteExpense(expenses, groupMembers, systemClock),
     getOfferedRate(groupCurrency, groupMembers, offeredRates, systemClock),
     setUpRecurringExpense(recurringExpenses, groupMembers, systemClock),
@@ -100,5 +109,9 @@ export const localLedgerModule = new LiteModule({
     setBudget(budgets, groupMembers, systemClock),
     removeBudget(budgets, groupMembers, systemClock),
     getGroupBudgets(budgets, expenses, groupMembers, systemClock),
+    saveTemplate(splitTemplates, groupMembers, systemClock),
+    replaceTemplate(splitTemplates, groupMembers, systemClock),
+    removeTemplate(splitTemplates, groupMembers, systemClock),
+    getGroupTemplates(splitTemplates, groupMembers),
   ],
 });

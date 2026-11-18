@@ -20,33 +20,40 @@ import { IGroupMembers, MemberOfGroup } from './IGroupMembers';
 import { IOfferedRates, OfferedRateView } from './IOfferedRates';
 import { BalanceView, ExpenseView, IExpenseQueries, StatementView } from './IExpenseQueries';
 import { IExpenseRepository } from './IExpenseRepository';
+import { ISplitTemplateRepository } from './ISplitTemplateRepository';
 
 /**
- * What a member records: the group, the expense as typed, and how it is split (request 7): between members equally, by
- * exact amounts, or by shares, the members in the order chosen. Its amount is in the group's currency, or paid in another
- * currency at a rate (request 21).
+ * How an expense is split as it is asked: either by a split given (request 7), between members equally, by exact amounts, or by shares,
+ * the members in the order chosen; or by `template`, the id of one of its group's templates, split as if that template's split had been
+ * given (request 25). Exactly one of the two.
+ */
+export type SplitChoice = { split: SplitRequest; template?: undefined } | { split?: undefined; template: string };
+
+/**
+ * What a member records: the group, the expense as typed, and how it is split (a split or a template, request 7 and request 25). Its amount
+ * is in the group's currency, or paid in another currency at a rate (request 21).
  */
 export type RecordExpenseInput = {
   groupId: string;
   description: string;
   date: string;
-  split: SplitRequest;
   /** What it was for (request 24); `other` when none is given. */
   category?: string;
-} & GivenAmount;
+} & SplitChoice &
+  GivenAmount;
 
 /**
- * What a change to an expense says: which expense, the expense as typed, how it is split, the version its author read it at,
- * and its amount (in the group's currency, or paid in another, request 21).
+ * What a change to an expense says: which expense, the expense as typed, how it is split (a split or a template), the version its author
+ * read it at, and its amount (in the group's currency, or paid in another, request 21).
  */
 export type EditExpenseInput = {
   id: string;
   description: string;
   date: string;
-  split: SplitRequest;
   version: number;
   category?: string;
-} & GivenAmount;
+} & SplitChoice &
+  GivenAmount;
 
 /**
  * A member of a group records an expense they paid, split between members of the group, the payer among them, one of the
@@ -60,9 +67,11 @@ export const recordExpense = command(
     groupMembers: IGroupMembers,
     groupCurrency: IGroupCurrency,
     offeredRates: IOfferedRates,
+    templates: ISplitTemplateRepository,
     clock: Clock,
   ) =>
-    async ({ groupId, description, date, split, category, ...given }: RecordExpenseInput, context) => {
+    async ({ groupId, description, date, category, ...rest }: RecordExpenseInput, context) => {
+      const { split, template, ...given } = rest as SplitChoice & GivenAmount;
       return expenses.inTransaction(async () => {
         const payer = callerOf(context);
         const members = await groupMembers.membersOf(groupId, payer);
@@ -70,10 +79,12 @@ export const recordExpense = command(
         const currency = await groupCurrency.currencyOf(groupId, payer);
         if (currency === undefined) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
         const offered = await offerFor(offeredRates, given as GivenAmount, date, currency);
+        const asked = await splitAsked({ split, template } as SplitChoice, groupId, templates);
+        if (asked === undefined) return Result.fail(new NotFoundException('Ledger', 'No template is found'));
 
         const decision = decideRecordExpense(
           { memberIds: memberIdsOf(members), groupCurrency: currency, offered },
-          { description, date, split, payer, category, ...(given as GivenAmount) },
+          { description, date, split: asked, payer, category, ...(given as GivenAmount) },
           clock(),
         );
         if (decision.isFailure()) return decision;
@@ -99,9 +110,11 @@ export const editExpense = command(
     groupMembers: IGroupMembers,
     groupCurrency: IGroupCurrency,
     offeredRates: IOfferedRates,
+    templates: ISplitTemplateRepository,
     clock: Clock,
   ) =>
-    async ({ id, description, date, split, version, category, ...given }: EditExpenseInput, context) => {
+    async ({ id, description, date, version, category, ...rest }: EditExpenseInput, context) => {
+      const { split, template, ...given } = rest as SplitChoice & GivenAmount;
       return expenses.inTransaction(async () => {
         const by = callerOf(context);
         const expense = await expenses.get(id);
@@ -112,6 +125,8 @@ export const editExpense = command(
         const currency = await groupCurrency.currencyOf(stored.groupId, by);
         if (currency === undefined) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
         const offered = await offerFor(offeredRates, given as GivenAmount, date, currency);
+        const asked = await splitAsked({ split, template } as SplitChoice, stored.groupId, templates);
+        if (asked === undefined) return Result.fail(new NotFoundException('Ledger', 'No template is found'));
 
         const decision = decideEditExpense(
           {
@@ -121,7 +136,7 @@ export const editExpense = command(
             groupCurrency: currency,
             offered,
           },
-          { by, description, date, split, version, category, ...(given as GivenAmount) },
+          { by, description, date, split: asked, version, category, ...(given as GivenAmount) },
           clock(),
         );
         if (decision.isFailure()) return decision;
@@ -284,6 +299,23 @@ export const getOfferedRate = query(
 
 /** Whether `day` (already written YYYY-MM-DD) is a day of the calendar: 2026-02-30 is not, and reads back as another day. */
 const isRealDay = (day: string): boolean => new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day;
+
+/**
+ * The split an expense is decided by (request 25): the split as given, or, for a template, the template's split as it was saved, when the
+ * template is one of the group's. Answers `undefined` when the template is not there, or is another group's: to the caller it does not exist.
+ * The split is a value the expense keeps; the template is not referred to once the expense is decided.
+ */
+const splitAsked = async (
+  choice: SplitChoice,
+  groupId: string,
+  templates: ISplitTemplateRepository,
+): Promise<SplitRequest | undefined> => {
+  if (choice.template === undefined) return choice.split;
+  const template = await templates.get(choice.template);
+  const stored = template?.toSnapshot();
+  if (!stored || stored.groupId !== groupId) return undefined;
+  return stored.split;
+};
 
 const memberIdsOf = (members: MemberOfGroup[]): string[] => members.map(member => member.memberId);
 

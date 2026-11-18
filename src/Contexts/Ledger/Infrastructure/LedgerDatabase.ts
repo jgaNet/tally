@@ -67,6 +67,23 @@ export class LedgerDatabase {
           month TEXT NOT NULL,
           PRIMARY KEY (budget_id, month)
         );
+        CREATE TABLE IF NOT EXISTS ledger_split_templates (
+          id TEXT PRIMARY KEY,
+          group_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          name_key TEXT NOT NULL,
+          split_kind TEXT NOT NULL,
+          saved_by TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          UNIQUE (group_id, name_key)
+        );
+        CREATE TABLE IF NOT EXISTS ledger_split_template_lines (
+          template_id TEXT NOT NULL REFERENCES ledger_split_templates (id),
+          position INTEGER NOT NULL,
+          member_id TEXT NOT NULL,
+          shares INTEGER,
+          PRIMARY KEY (template_id, position)
+        );
         CREATE TABLE IF NOT EXISTS ledger_recurring_shares (
           recurring_id TEXT NOT NULL REFERENCES ledger_recurring_expenses (id),
           position INTEGER NOT NULL,
