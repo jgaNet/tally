@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-1",
+  "ref": "2070750835d2c601f85f02ddf2820ffd12bdd68e",
+  "commit": "2070750835d2c601f85f02ddf2820ffd12bdd68e",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "balances",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 3 passed, 4 total",
+        "failed": [
+          "a group's balances › counts once each of twenty expenses sent at once to two servers on one database, and keeps the zero sum"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● a group's balances › counts once each of twenty expenses sent at once to two servers on one database, and keeps the zero sum",
+          "    - Expected  -  1",
+          "    + Received  + 12",
+          "Tests:       1 failed, 3 passed, 4 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "leave-with-a-balance",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 3 passed, 4 total",
+        "failed": [
+          "leave with a balance › keeps the zero sum when an expense or a settlement and a leave are sent at once, through one server or two"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● leave with a balance › keeps the zero sum when an expense or a settlement and a leave are sent at once, through one server or two",
+          "    Expected: 0",
+          "    Received: 300",
+          "Tests:       1 failed, 3 passed, 4 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "postgresql",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "2ae9a3ee45acf2ec0fd86dc68dfa6abf92770a43",
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 42213,
+  "workers": 1
+}
