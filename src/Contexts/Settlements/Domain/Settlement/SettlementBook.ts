@@ -10,6 +10,8 @@ import {
   PaymentLink,
   SettlementFee,
 } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import { OriginalAmount, OriginalRequest } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
+import { RateOffer } from '@Contexts/Settlements/Domain/Settlement/RateOffer';
 import {
   InvalidFeePolicyException,
   InvalidSettlementAmountException,
@@ -41,14 +43,34 @@ export interface BalanceOfMember {
   balance: number;
 }
 
+/**
+ * What is paid in another currency than the group's, as the request gives it (request 39): the original amount, the group's currency,
+ * and the rate the rates service offered for the currency on the day it is decided. The book decides the amount in the group's currency.
+ */
+export interface AnotherCurrency {
+  original: OriginalRequest;
+  groupCurrency: string;
+  offer: RateOffer;
+}
+
 /** A settlement the decision is asked for: who pays whom, how much, when, against the group's members and balances. */
 export interface SettlementRequest {
   payer: string;
   payee: string;
-  amount: number;
+  /** How much, in the group's currency; or what is paid in another currency, which the book converts when it decides (request 39). */
+  amount: number | AnotherCurrency;
   at: Date;
   members: string[];
   balances: BalanceOfMember[];
+}
+
+/**
+ * How much a settlement is, decided: the amount in the group's currency, which the balances count, and the original amount when it is
+ * paid in another currency (request 39), at the rate it was decided at.
+ */
+export interface SettlementMoney {
+  amount: number;
+  original: OriginalAmount | null;
 }
 
 /** Who bears the provider's fee, as the owner of a group decides it, asked of the book (request 38): the owner is the one who asks. */
@@ -103,6 +125,8 @@ export interface ProviderPaymentUpdate {
 export interface PaymentProposal {
   readonly settlementId: string;
   readonly request: SettlementRequest;
+  /** The money of the request, decided when it was proposed: the rate is fixed here, and kept when the link is (request 39). */
+  readonly money: SettlementMoney;
   /** The payee's payout account at the provider, where the provider is asked to pay the money (request 16). */
   readonly payeeAccount: string;
 }
@@ -228,10 +252,12 @@ export class SettlementBook extends AggregateRoot {
    * still owed. It is paid at once, and records `SettlementRecorded`; a refused settlement records nothing and changes nothing.
    */
   recordCash(request: SettlementRequest): IResult<ISettlementSnapshot> {
-    const decided = this.decide(request);
+    const money = this.moneyOf(request.amount);
+    if (money.isFailure()) return Result.fail(money.error);
+    const decided = this.decide(request, money.data.amount);
     if (decided.isFailure()) return Result.fail(decided.error);
 
-    const settlement = this.#keepPaid(request, 'cash', request.payee);
+    const settlement = this.#keepPaid(request, money.data, 'cash', request.payee);
     this.record(
       SettlementRecordedEvent.set({
         settlementId: settlement._id,
@@ -249,10 +275,12 @@ export class SettlementBook extends AggregateRoot {
    * who asked for the netting (`asker`), whichever of the two pays. The rules are those of `recordCash()`, decided again here.
    */
   recordNet(request: SettlementRequest, asker: string): IResult<ISettlementSnapshot> {
-    const decided = this.decide(request);
+    const money = this.moneyOf(request.amount);
+    if (money.isFailure()) return Result.fail(money.error);
+    const decided = this.decide(request, money.data.amount);
     if (decided.isFailure()) return Result.fail(decided.error);
 
-    const settlement = this.#keepPaid(request, 'net', asker);
+    const settlement = this.#keepPaid(request, money.data, 'net', asker);
     this.record(
       SettlementRecordedEvent.set({
         settlementId: settlement._id,
@@ -281,9 +309,16 @@ export class SettlementBook extends AggregateRoot {
    */
   proposePayment(request: SettlementRequest, payeeAccount: string | null): IResult<PaymentProposal> {
     if (payeeAccount === null) return Result.fail(new PayeeHasNoPayoutAccountException());
-    const decided = this.decide(request);
+    const money = this.moneyOf(request.amount);
+    if (money.isFailure()) return Result.fail(money.error);
+    const decided = this.decide(request, money.data.amount);
     if (decided.isFailure()) return Result.fail(decided.error);
-    return Result.ok({ settlementId: Id.generate().value, request: { ...request }, payeeAccount });
+    return Result.ok({
+      settlementId: Id.generate().value,
+      request: { ...request },
+      money: money.data,
+      payeeAccount,
+    });
   }
 
   /**
@@ -292,25 +327,28 @@ export class SettlementBook extends AggregateRoot {
    */
   keepPayment(proposal: PaymentProposal, link: PaymentLink | null): IResult<ISettlementSnapshot> {
     if (!isLink(link)) return Result.fail(new ProviderUnavailableException());
-    const decided = this.decide(proposal.request);
+    const { request, money } = proposal;
+    const decided = this.decide(request, money.amount);
     if (decided.isFailure()) return Result.fail(decided.error);
 
-    const { request } = proposal;
-    // The fee is less than the amount, or the answer is not an answer (request 38): nothing is kept.
-    if (link.fee >= request.amount) return Result.fail(new ProviderUnavailableException());
-    const fee: SettlementFee = { amount: link.fee, borneBy: this.#feeBorneBy };
+    // The fee is in the currency the payment is asked in: converted at the settlement's rate when it is paid in another currency,
+    // the same way the amount is (request 39). The fee is less than the amount, or the answer is not an answer (request 38): nothing is kept.
+    const feeAmount = money.original ? money.original.convert(link.fee) : link.fee;
+    if (feeAmount >= money.amount) return Result.fail(new ProviderUnavailableException());
+    const fee: SettlementFee = { amount: feeAmount, borneBy: this.#feeBorneBy };
     const settlement = this.keep({
       _id: proposal.settlementId,
       from: request.payer,
       to: request.payee,
-      amount: request.amount,
-      settled: request.amount - payerPartOf(fee),
+      amount: money.amount,
+      settled: money.amount - payerPartOf(fee),
       fee,
       at: request.at,
       method: 'provider',
       status: 'pending',
       providerPaymentId: link.id,
       payUrl: link.payUrl,
+      original: money.original?.toSnapshot() ?? null,
     });
     this.record(
       PaymentRequestedEvent.set({
@@ -534,8 +572,20 @@ export class SettlementBook extends AggregateRoot {
     };
   }
 
-  /** The rules of a settlement, decided against the request's balances and what is still owed. Records nothing. */
-  private decide({ payer, payee, amount, members, balances }: SettlementRequest): IResult<void> {
+  /**
+   * The money of a request, decided: the amount as given in the group's currency, or what is paid in another currency converted at the
+   * rate offered (request 39). A rate that is not offered, or a currency or amount that is not allowed, is refused and nothing is kept.
+   */
+  private moneyOf(amount: number | AnotherCurrency): IResult<SettlementMoney> {
+    if (typeof amount === 'number') return Result.ok({ amount, original: null });
+
+    const original = OriginalAmount.create(amount.original, amount.groupCurrency, amount.offer);
+    if (original.isFailure()) return Result.fail(original.error);
+    return Result.ok({ amount: original.data.groupAmount(), original: original.data });
+  }
+
+  /** The rules of a settlement, decided against the request's balances, what is still owed, and the amount in the group's currency. Records nothing. */
+  private decide({ payer, payee, members, balances }: SettlementRequest, amount: number): IResult<void> {
     if (!Number.isInteger(amount) || amount < 1) return Result.fail(new InvalidSettlementAmountException());
     if (payer === payee) return Result.fail(new SettlementToSelfException());
     if (!members.includes(payer)) return Result.fail(new SettlementPayerNotMemberException());
@@ -555,19 +605,25 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /** Keeps a settlement paid at once, in cash or netted, and writes its audit entry: `by` is the member who recorded it (request 28). */
-  #keepPaid(request: SettlementRequest, method: 'cash' | 'net', by: string): ISettlementSnapshot {
+  #keepPaid(
+    request: SettlementRequest,
+    money: SettlementMoney,
+    method: 'cash' | 'net',
+    by: string,
+  ): ISettlementSnapshot {
     const settlement = this.keep({
       _id: Id.generate().value,
       from: request.payer,
       to: request.payee,
-      amount: request.amount,
-      settled: request.amount,
+      amount: money.amount,
+      settled: money.amount,
       fee: null,
       at: request.at,
       method,
       status: 'paid',
       providerPaymentId: null,
       payUrl: null,
+      original: money.original?.toSnapshot() ?? null,
     });
     this.#audit.push(
       recordAudit({
@@ -623,6 +679,7 @@ export class SettlementBook extends AggregateRoot {
       providerPaymentId: settlement.providerPaymentId,
       payUrl: settlement.payUrl,
       contested: false,
+      original: settlement.original,
     };
     this.#settlements.set(kept._id, kept);
     this.#recorded.push(kept._id);

@@ -200,5 +200,8 @@ function viewOf(row: SettlementRow, lines: HistoryRow[]): SettlementView {
   if (row.fee_borne_by && row.fee_amount !== null) {
     view.fee = { amount: row.fee_amount, borneBy: row.fee_borne_by };
   }
+  if (row.original_currency && row.original_amount !== null && row.original_rate) {
+    view.original = { currency: row.original_currency, amount: row.original_amount, rate: row.original_rate };
+  }
   return view;
 }

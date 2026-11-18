@@ -44,6 +44,15 @@ export interface ISettlementSnapshot {
   payUrl: string | null;
   /** Whether the settlement has been contested, whatever it became since: a settlement is contested once (request 33). */
   contested: boolean;
+  /** What was paid in another currency, and the rate it was decided at (request 39); null when paid in the group's currency. */
+  original: OriginalSnapshot | null;
+}
+
+/** What a settlement was paid in another currency: the currency, the amount in its hundredths, and the rate as the rates service wrote it. */
+export interface OriginalSnapshot {
+  currency: string;
+  amount: number;
+  rate: string;
 }
 
 /**

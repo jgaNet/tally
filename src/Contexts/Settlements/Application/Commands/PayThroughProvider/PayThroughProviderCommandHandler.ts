@@ -7,7 +7,8 @@ import { IGroupBalances } from '@Contexts/Settlements/Domain/Settlement/Ports/IG
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
 import { ISettlementMembers } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementMembers';
 import { IPayoutAccountRepository } from '@Contexts/Settlements/Domain/PayoutAccount/Ports/IPayoutAccountRepository';
-import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
+import { AnotherCurrency, SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
+import { ISettlementRates, offerForSettlement } from '@Contexts/Settlements/Application/Ports/ISettlementRates';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
 import { PayThroughProviderCommandEvent } from '@Contexts/Settlements/Application/Commands/PayThroughProvider/PayThroughProviderCommandEvent';
 
@@ -27,6 +28,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     private books: ISettlementBookRepository,
     private payoutAccounts: IPayoutAccountRepository,
     private provider: IPaymentProvider,
+    private rates: ISettlementRates,
     private clock: Clock,
   ) {
     super();
@@ -37,7 +39,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     if (caller.isFailure()) return Result.fail(caller.error);
     const payer = caller.data.value;
 
-    const { groupId, to, amount } = event.payload;
+    const { groupId, to, amount, original } = event.payload;
     const members = await this.settlementMembers.membersOf(groupId, payer);
     if (!members) return Result.fail(new NotFoundException('Settlements', 'Group not found'));
     if (await this.settlementMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
@@ -48,6 +50,13 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     const currency = await this.settlementMembers.currencyOf(groupId, payer);
     if (!currency) return Result.fail(new NotFoundException('Settlements', 'Group not found'));
 
+    const at = this.clock();
+    // Paid in another currency: the rate is asked for the day it is decided, and the book takes it; nothing is kept and the provider is
+    // not asked when no rate is offered (request 39).
+    const paid: number | AnotherCurrency = original
+      ? { original, groupCurrency: currency, offer: await offerForSettlement(this.rates, original, currency, at) }
+      : (amount ?? 0);
+
     const balances = await this.balances.balancesOf(groupId);
     const book = (await this.books.findByGroupId(groupId)) ?? SettlementBook.open(groupId);
 
@@ -56,8 +65,8 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
       {
         payer,
         payee: to,
-        amount,
-        at: this.clock(),
+        amount: paid,
+        at,
         members: members.map(member => member.memberId),
         balances,
       },
@@ -65,10 +74,12 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     );
     if (proposed.isFailure()) return Result.fail(proposed.error);
 
+    // The provider is asked for the payment in the currency it is paid in, and the amount in it (request 39).
+    const asked = original ?? { amount: amount ?? 0, currency };
     const link = await this.provider.requestPayment({
       reference: proposed.data.settlementId,
-      amount,
-      currency,
+      amount: asked.amount,
+      currency: asked.currency,
       payee: proposed.data.payeeAccount,
     });
 

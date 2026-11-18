@@ -19,6 +19,8 @@ export interface SettlementView {
   payUrl?: string;
   /** The provider's fee and who bore it, for a settlement through the provider asked from request 38 on (request 38). */
   fee?: SettlementFee;
+  /** What was paid in another currency, and the rate it was decided at, as the rates service wrote it (request 39). */
+  original?: { currency: string; amount: number; rate: string };
   /** Every status the settlement has had, the earliest first, each with when Tally learned it (request 19). */
   history: { status: SettlementStatus; at: string }[];
 }

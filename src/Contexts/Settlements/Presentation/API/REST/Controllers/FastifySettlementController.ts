@@ -54,12 +54,17 @@ export class FastifySettlementController {
     req: FastifyRequest<{ Params: { id: string }; Body: RecordCashSettlementBody }>,
     reply: FastifyReply,
   ) {
-    const { from, amount } = req.body;
+    const { from, amount, original } = req.body;
     return acceptCommandAtOnce(
       req,
       reply,
       this.#module,
-      RecordCashSettlementCommandEvent.set({ groupId: req.params.id, from, amount }),
+      RecordCashSettlementCommandEvent.set({
+        groupId: req.params.id,
+        from,
+        amount: amount ?? null,
+        original: original ?? null,
+      }),
     );
   }
 
@@ -67,12 +72,17 @@ export class FastifySettlementController {
     req: FastifyRequest<{ Params: { id: string }; Body: PayThroughProviderBody }>,
     reply: FastifyReply,
   ) {
-    const { to, amount } = req.body;
+    const { to, amount, original } = req.body;
     return acceptCommandAtOnce(
       req,
       reply,
       this.#module,
-      PayThroughProviderCommandEvent.set({ groupId: req.params.id, to, amount }),
+      PayThroughProviderCommandEvent.set({
+        groupId: req.params.id,
+        to,
+        amount: amount ?? null,
+        original: original ?? null,
+      }),
     );
   }
 

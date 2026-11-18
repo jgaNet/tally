@@ -39,6 +39,7 @@ import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/Ledger
 import { SettlementsOutstandingDebtQueries } from '@Contexts/Settlements/Infrastructure/Queries/SettlementsOutstandingDebtQueries';
 import { GroupsSettlementMembers } from '@Contexts/Settlements/Infrastructure/Groups/GroupsSettlementMembers';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/Provider/HttpPaymentProvider';
+import { HttpSettlementRates } from '@Contexts/Settlements/Infrastructure/Rates/HttpSettlementRates';
 import { PostgresSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/Repositories/PostgresSettlementBookRepository';
 import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/Queries/PostgresSettlementQueries';
 import { PostgresPayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/Queries/PostgresPayoutAccountQueries';
@@ -70,6 +71,8 @@ const payoutAccounts = new PostgresPayoutAccountRepository(database);
 const payoutAccountQueries = new PostgresPayoutAccountQueries(database);
 /** The provider is asked where PROVIDER_URL points when a payment is asked, so an unset URL refuses it (request 13). */
 const paymentProvider = new HttpPaymentProvider(() => process.env.PROVIDER_URL);
+/** The rates service is asked where RATES_URL points when a settlement in another currency is decided, so an unset URL offers none (request 22, 39). */
+const settlementRates = new HttpSettlementRates(() => process.env.RATES_URL);
 const clock = systemClock;
 
 export const localSettlementsModule = new Module({
@@ -77,7 +80,9 @@ export const localSettlementsModule = new Module({
   commands: [
     {
       event: RecordCashSettlementCommandEvent,
-      handlers: [new RecordCashSettlementCommandHandler(settlementMembers, groupBalances, books, clock)],
+      handlers: [
+        new RecordCashSettlementCommandHandler(settlementMembers, groupBalances, books, settlementRates, clock),
+      ],
     },
     {
       event: PayThroughProviderCommandEvent,
@@ -88,6 +93,7 @@ export const localSettlementsModule = new Module({
           books,
           payoutAccounts,
           paymentProvider,
+          settlementRates,
           clock,
         ),
       ],

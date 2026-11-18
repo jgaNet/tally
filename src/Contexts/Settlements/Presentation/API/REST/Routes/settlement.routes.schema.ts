@@ -16,16 +16,36 @@ export const GetSuggestedSettlementsResSchema = {
   404: RefusalSchema,
 } as const;
 
-/** The body of a cash settlement: who paid the payee, and how much (request 12). Its values are the domain's to decide. */
+/** What is paid in another currency than the group's, as the payer gives it (request 39): one of Tally's currencies, and its amount in hundredths. */
+export interface OriginalBody {
+  currency: string;
+  amount: number;
+}
+
+/** Exactly one of `amount` (in the group's currency) and `original` (in another one) is given; the transport refuses a body with neither or both (request 39). */
+const ExactlyOneAmount = {
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
+} as const;
+const OriginalProperty = {
+  original: {
+    type: 'object',
+    required: ['currency', 'amount'],
+    properties: { currency: { type: 'string' }, amount: { type: 'integer' } },
+  },
+} as const;
+
+/** The body of a cash settlement: who paid the payee, and how much, in the group's currency or in another (requests 12, 39). Its values are the domain's to decide. */
 export interface RecordCashSettlementBody {
   from: string;
-  amount: number;
+  amount?: number;
+  original?: OriginalBody;
 }
 
 export const RecordCashSettlementReqBodySchema = {
   type: 'object',
-  required: ['from', 'amount'],
-  properties: { from: { type: 'string' }, amount: { type: 'integer' } },
+  required: ['from'],
+  properties: { from: { type: 'string' }, amount: { type: 'integer' }, ...OriginalProperty },
+  ...ExactlyOneAmount,
 } as const;
 
 export const RecordCashSettlementResSchema = {
@@ -65,6 +85,16 @@ const SettlementSchema = {
       type: 'object',
       required: ['amount', 'borneBy'],
       properties: { amount: { type: 'integer', minimum: 0 }, borneBy: { enum: ['payer', 'payee', 'shared'] } },
+    },
+    // Only a settlement paid in another currency has it (request 39): what was paid, and the rate it was decided at.
+    original: {
+      type: 'object',
+      required: ['currency', 'amount', 'rate'],
+      properties: {
+        currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+        amount: { type: 'integer', minimum: 1 },
+        rate: { type: 'string', pattern: '^\\d+(\\.\\d{1,6})?$' },
+      },
     },
     history: { type: 'array', minItems: 1, items: StatusLineSchema },
   },
@@ -117,16 +147,18 @@ export const GetGroupSettlementsResSchema = {
   404: RefusalSchema,
 } as const;
 
-/** The body of a payment through the provider: the payee's account id, and how much (request 13). Its values are the domain's to decide. */
+/** The body of a payment through the provider: the payee's account id, and how much, in the group's currency or in another (requests 13, 39). Its values are the domain's to decide. */
 export interface PayThroughProviderBody {
   to: string;
-  amount: number;
+  amount?: number;
+  original?: OriginalBody;
 }
 
 export const PayThroughProviderReqBodySchema = {
   type: 'object',
-  required: ['to', 'amount'],
-  properties: { to: { type: 'string' }, amount: { type: 'integer' } },
+  required: ['to'],
+  properties: { to: { type: 'string' }, amount: { type: 'integer' }, ...OriginalProperty },
+  ...ExactlyOneAmount,
 } as const;
 
 export const PayThroughProviderResSchema = {

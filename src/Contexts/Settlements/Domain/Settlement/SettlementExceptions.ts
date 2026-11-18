@@ -110,3 +110,36 @@ export class InvalidFeePolicyException extends Exception {
     });
   }
 }
+
+/** The currency is not one of Tally's, or is the group's own: a settlement is paid in another currency than the group's (request 39). */
+export class InvalidOriginalCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'InvalidOriginalCurrency',
+      message: "The currency is one of Tally's, other than the group's",
+    });
+  }
+}
+
+/** The amount in the currency it is paid in is not a whole number from 1 to 100 000 000 hundredths (request 39). */
+export class InvalidOriginalAmountException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'InvalidOriginalAmount',
+      message: 'The amount is a whole number from 1 to 100 000 000 hundredths',
+    });
+  }
+}
+
+/** The rates service offers no rate from the currency to the group's on the day, so a settlement in another currency is refused (request 39). */
+export class NoRateOfferedException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'NoRateOffered',
+      message: "No rate is offered from that currency to the group's today",
+    });
+  }
+}

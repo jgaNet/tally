@@ -44,6 +44,7 @@ describe('SettlementBook', () => {
       providerPaymentId: null,
       payUrl: null,
       contested: false,
+      original: null,
     });
     const events = book.pullDomainEvents();
     expect(events).toHaveLength(1);
@@ -155,6 +156,7 @@ describe('SettlementBook, a payment through the provider (request 13)', () => {
       providerPaymentId: 'pay_1',
       payUrl: 'https://provider.example/pay/pay_1',
       contested: false,
+      original: null,
     });
     const events = book.pullDomainEvents();
     expect(events.map(event => event.name)).toEqual(['PaymentRequestedEvent']);
@@ -578,5 +580,80 @@ describe('who bears the provider’s fee (request 38)', () => {
     if (proposal.isFailure()) throw new Error('the proposal should be decided');
     expect(book.keepPayment(proposal.data, { ...PAYMENT_LINK, fee: 30 }).isFailure()).toBe(true);
     expect(book.pullDomainEvents()).toEqual([]);
+  });
+});
+
+describe('SettlementBook, a settlement in another currency (request 39)', () => {
+  /** Bob owes Ann 30 in the group's currency: 30 CHF at 0.93 is 27.9, which rounds to 28, and Bob owes that in full. */
+  const CHF_OFFER = { kind: 'offered', rate: '0.93' } as const;
+
+  it('records a cash settlement in another currency at the offered rate, keeping the rate and both amounts', () => {
+    const book = SettlementBook.open('group-1');
+    const recorded = recordCash(book, {
+      amount: { original: { currency: 'CHF', amount: 30 }, groupCurrency: 'EUR', offer: CHF_OFFER },
+    });
+    expect(recorded.isSuccess() && recorded.data).toMatchObject({
+      amount: 28,
+      settled: 28,
+      method: 'cash',
+      status: 'paid',
+      original: { currency: 'CHF', amount: 30, rate: '0.93' },
+    });
+    expect(book.pullDomainEvents().map(event => event.name)).toEqual(['SettlementRecordedEvent']);
+  });
+
+  it('refuses a settlement in another currency when no rate is offered, recording nothing', () => {
+    const book = SettlementBook.open('group-1');
+    const refused = recordCash(book, {
+      amount: { original: { currency: 'CHF', amount: 30 }, groupCurrency: 'EUR', offer: { kind: 'none' } },
+    });
+    expect(refused.isFailure() && refused.error.type).toBe('NoRateOffered');
+    expect(book.pullDomainEvents()).toEqual([]);
+    expect(book.toSnapshot().recorded).toEqual([]);
+  });
+
+  it('decides the converted amount against what is owed, not the original one', () => {
+    const book = SettlementBook.open('group-1');
+    const refused = recordCash(book, {
+      amount: {
+        original: { currency: 'CHF', amount: 33 },
+        groupCurrency: 'EUR',
+        offer: { kind: 'offered', rate: '1' },
+      },
+    });
+    expect(refused.isFailure() && refused.error.type).toBe('SettlementExceedsBalance');
+  });
+
+  it('keeps the provider fee, in the payment currency, converted at the settlement rate (10 CHF at 0.93 is 9)', () => {
+    const book = SettlementBook.open('group-1');
+    const proposal = book.proposePayment(
+      {
+        payer: BOB,
+        payee: ANN,
+        amount: {
+          original: { currency: 'CHF', amount: 30 },
+          groupCurrency: 'EUR',
+          offer: { kind: 'offered', rate: '0.93' },
+        },
+        at: AT,
+        members: MEMBERS,
+        balances: BALANCES,
+      },
+      'acct_ann',
+    );
+    expect(proposal.isSuccess()).toBe(true);
+    const kept = book.keepPayment(proposal.isSuccess() ? proposal.data : (undefined as never), {
+      id: 'pay_9',
+      payUrl: 'https://provider.example/pay/pay_9',
+      fee: 10,
+    });
+    expect(kept.isSuccess() && kept.data).toMatchObject({
+      amount: 28,
+      settled: 28,
+      fee: { amount: 9, borneBy: 'payee' },
+      method: 'provider',
+      status: 'pending',
+      original: { currency: 'CHF', amount: 30, rate: '0.93' },
+    });
   });
 });
