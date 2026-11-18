@@ -1,5 +1,6 @@
 import { DomainEvent } from '@Architecture/Domain';
 
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /**
@@ -28,6 +29,7 @@ export class RecurringExpenseDayCameEvent extends DomainEvent<{
   amount: number;
   date: string;
   split: SplitInput;
+  category: Category;
 }> {}
 
 /**

@@ -18,6 +18,8 @@ export interface SetUpRecurringExpenseInput {
   amount: number;
   startsOn: string;
   split: SplitInput;
+  /** What the expenses it records are for (request 24); left out, `other`. */
+  category?: string;
 }
 
 /**
@@ -28,7 +30,7 @@ export interface SetUpRecurringExpenseInput {
 export const setUpRecurringExpense = command(
   'SetUpRecurringExpense',
   (recurring: IRecurringExpenses, groupMembers: IGroupMembers, clock: Clock) =>
-    async ({ groupId, description, amount, startsOn, split }: SetUpRecurringExpenseInput, context) => {
+    async ({ groupId, description, amount, startsOn, split, category }: SetUpRecurringExpenseInput, context) => {
       const paidBy = callerOf(context);
       const members = await groupMembers.membersOf(paidBy, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
@@ -40,6 +42,7 @@ export const setUpRecurringExpense = command(
         amount,
         startsOn,
         split,
+        category,
         members: members.map(member => member.memberId),
         at: clock(),
       });

@@ -5,8 +5,8 @@ import { RecurringExpenseView } from '@Contexts/Ledger/Domain/RecurringExpense/D
 import { IRecurringExpenseQueries } from '@Contexts/Ledger/Domain/RecurringExpense/Ports/IRecurringExpenseQueries';
 import {
   RECURRING_COLUMNS,
-  RECURRING_SCHEMA,
   RecurringRow,
+  prepareRecurringSchema,
   recurringSnapshotOf,
 } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenses';
 
@@ -16,7 +16,7 @@ import {
  */
 export class SqliteRecurringExpenseQueries implements IRecurringExpenseQueries {
   constructor(private readonly database: SqliteDatabase) {
-    database.prepare(connection => connection.exec(RECURRING_SCHEMA));
+    database.prepare(prepareRecurringSchema);
   }
 
   async findRecurring(recurringId: string): Promise<RecurringExpenseView | undefined> {
@@ -60,6 +60,7 @@ function viewOf(row: RecurringRow): RecurringExpenseView {
     amount: snapshot.amount,
     startsOn: snapshot.startsOn,
     next: snapshot.next,
+    category: snapshot.category,
   };
   const split: SplitInput = snapshot.split;
   switch (split.kind) {

@@ -1,9 +1,10 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
 
+import { Category, DEFAULT_CATEGORY, isCategory } from '@Contexts/Ledger/Domain/Expense/Category';
 import { dayOf, isRealDay } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { MAX_EXPENSE_AMOUNT } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
-import { InvalidAmountException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
+import { InvalidAmountException, InvalidCategoryException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { listedMembers, Split, SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 import { RecurringExpenseSnapshot } from '@Contexts/Ledger/Domain/RecurringExpense/DTOs';
@@ -52,6 +53,7 @@ export class RecurringExpense extends AggregateRoot {
   readonly #startsOn: string;
   readonly #next: string;
   readonly #split: SplitInput;
+  readonly #category: Category;
 
   private constructor(
     id: Id,
@@ -62,6 +64,7 @@ export class RecurringExpense extends AggregateRoot {
     startsOn: string,
     next: string,
     split: SplitInput,
+    category: Category,
     version: number,
   ) {
     super(id, version);
@@ -72,6 +75,7 @@ export class RecurringExpense extends AggregateRoot {
     this.#startsOn = startsOn;
     this.#next = next;
     this.#split = split;
+    this.#category = category;
   }
 
   static setUp({
@@ -82,6 +86,7 @@ export class RecurringExpense extends AggregateRoot {
     startsOn,
     split,
     members,
+    category,
     at,
   }: {
     groupId: string;
@@ -91,10 +96,13 @@ export class RecurringExpense extends AggregateRoot {
     startsOn: string;
     split: SplitInput;
     members: string[];
+    /** What the expenses it records are for (request 24); left out, `other`. */
+    category?: string;
     at: Date;
   }): IResult<RecurringExpense> {
     const text = ExpenseDescription.create(description);
     if (text.isFailure()) return text;
+    if (category !== undefined && !isCategory(category)) return Result.fail(new InvalidCategoryException());
     if (!Number.isInteger(amount) || amount < 1 || amount > MAX_EXPENSE_AMOUNT) {
       return Result.fail(new InvalidAmountException());
     }
@@ -112,6 +120,7 @@ export class RecurringExpense extends AggregateRoot {
       startsOn,
       startsOn,
       copyOf(split),
+      category === undefined ? DEFAULT_CATEGORY : (category as Category),
       0,
     );
     recurring.record(RecurringExpenseSetUpEvent.set({ recurringId: id.value, groupId }));
@@ -160,6 +169,7 @@ export class RecurringExpense extends AggregateRoot {
       this.#startsOn,
       nextMonth(this.#next),
       copyOf(this.#split),
+      this.#category,
       this.version,
     );
     moved.record(
@@ -172,6 +182,7 @@ export class RecurringExpense extends AggregateRoot {
         amount: this.#amount,
         date: this.#next,
         split: copyOf(this.#split),
+        category: this.#category,
       }),
     );
     return { kind: 'recorded', recurring: moved };
@@ -183,6 +194,7 @@ export class RecurringExpense extends AggregateRoot {
       description.isFailure() ||
       !isRealDay(snapshot.startsOn) ||
       !isRealDay(snapshot.next) ||
+      !isCategory(snapshot.category) ||
       Number(snapshot.startsOn.slice(8)) > LAST_START_DAY ||
       !Number.isInteger(snapshot.amount)
     ) {
@@ -197,6 +209,7 @@ export class RecurringExpense extends AggregateRoot {
       snapshot.startsOn,
       snapshot.next,
       copyOf(snapshot.split),
+      snapshot.category,
       snapshot.version,
     );
   }
@@ -211,6 +224,7 @@ export class RecurringExpense extends AggregateRoot {
       startsOn: this.#startsOn,
       next: this.#next,
       split: copyOf(this.#split),
+      category: this.#category,
       version: this.version,
     };
   }
@@ -233,6 +247,10 @@ export class RecurringExpense extends AggregateRoot {
 
   get next(): string {
     return this.#next;
+  }
+
+  get category(): Category {
+    return this.#category;
   }
 }
 

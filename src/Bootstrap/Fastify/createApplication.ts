@@ -13,6 +13,7 @@ import { operationRoutes } from '@Bootstrap/Fastify/operations.routes';
 import { localGroupsModule, authenticatedAccountOf } from '@Contexts/Groups/module.local';
 import { localLedgerModule, sweepRecurringExpenseDays } from '@Contexts/Ledger/module.local';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
+import { budgetRoutes } from '@Contexts/Ledger/Presentation/budgets.routes';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule, sweepNotificationDebts } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
@@ -72,6 +73,7 @@ export async function createApplication({
     .registerRoutes('/', invitationRoutes, { module: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
+    .registerRoutes('/', budgetRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { module: localSettlementsModule })
     .registerRoutes('/', providerWebhookRoutes, { module: localSettlementsModule })
     .registerRoutes('/', noticeRoutes, { module: localNotificationsModule })

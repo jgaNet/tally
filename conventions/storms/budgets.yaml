@@ -5,7 +5,7 @@ feature: budgets
 intent: >-
   An expense has a category; the owner sets a monthly budget per category; when an expense recorded or edited makes its month spend more than its category's budget, every member is told once for that month.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where is a budget, and who decides it is passed?

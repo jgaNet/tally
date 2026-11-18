@@ -13,10 +13,12 @@ import {
 } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { AmountInput, MAX_EXPENSE_AMOUNT, OriginalAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
+import { Category, DEFAULT_CATEGORY, isCategory } from '@Contexts/Ledger/Domain/Expense/Category';
 import {
   ExpenseChangedException,
   ExpenseOfFormerMemberException,
   InvalidAmountException,
+  InvalidCategoryException,
   InvalidDateException,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
@@ -50,6 +52,7 @@ export class Expense extends AggregateRoot {
   readonly #paidBy: string;
   readonly #split: Split;
   readonly #original: OriginalAmount | undefined;
+  readonly #category: Category;
 
   private constructor(
     id: Id,
@@ -60,6 +63,7 @@ export class Expense extends AggregateRoot {
     paidBy: string,
     split: Split,
     original: OriginalAmount | undefined,
+    category: Category,
     version: number,
   ) {
     super(id, version);
@@ -70,6 +74,7 @@ export class Expense extends AggregateRoot {
     this.#paidBy = paidBy;
     this.#split = split;
     this.#original = original;
+    this.#category = category;
   }
 
   /**
@@ -84,6 +89,7 @@ export class Expense extends AggregateRoot {
     paidBy,
     split,
     members,
+    category,
     at,
     ...money
   }: {
@@ -94,9 +100,11 @@ export class Expense extends AggregateRoot {
     paidBy: string;
     split: SplitInput;
     members: string[];
+    /** What the expense is for (request 24); left out, it is `other`. */
+    category?: string;
     at: Date;
   } & AmountInput): IResult<Expense> {
-    const checked = checkExpense({ description, date, paidBy, split, members, at, ...money });
+    const checked = checkExpense({ description, date, paidBy, split, members, category, at, ...money });
     if (checked.isFailure()) return checked;
 
     const id = givenId === undefined ? Id.generate() : new Id(givenId);
@@ -109,6 +117,7 @@ export class Expense extends AggregateRoot {
       paidBy,
       checked.data.split,
       checked.data.original,
+      checked.data.category,
       0,
     );
     expense.record(
@@ -136,6 +145,7 @@ export class Expense extends AggregateRoot {
     description,
     date,
     split,
+    category,
     at,
     ...money
   }: {
@@ -145,6 +155,8 @@ export class Expense extends AggregateRoot {
     description: string;
     date: string;
     split: SplitInput;
+    /** What the expense is for (request 24): left out, it is `other`, as the expense is given whole. */
+    category?: string;
     at: Date;
   } & AmountInput): IResult<Expense> {
     if (!this.mayChange(by, members)) return Result.fail(notAllowedToChange());
@@ -157,6 +169,7 @@ export class Expense extends AggregateRoot {
       paidBy: this.#paidBy,
       split,
       members: members.map(member => member.memberId),
+      category,
       at,
       ...money,
     });
@@ -171,6 +184,7 @@ export class Expense extends AggregateRoot {
       this.#paidBy,
       checked.data.split,
       checked.data.original,
+      checked.data.category,
       this.version,
     );
     edited.record(
@@ -203,6 +217,7 @@ export class Expense extends AggregateRoot {
     if (
       description.isFailure() ||
       !isRealDay(snapshot.date) ||
+      !isCategory(snapshot.category) ||
       !SPLIT_KINDS.includes(snapshot.splitKind) ||
       split.total !== snapshot.amount ||
       snapshot.shares.length === 0 ||
@@ -220,6 +235,7 @@ export class Expense extends AggregateRoot {
       snapshot.paidBy,
       split,
       original?.data,
+      snapshot.category,
       snapshot.version,
     );
   }
@@ -235,6 +251,7 @@ export class Expense extends AggregateRoot {
       splitKind: this.#split.kind,
       shares: this.#split.shares,
       original: this.#original?.toSnapshot(),
+      category: this.#category,
       version: this.version,
     };
   }
@@ -263,6 +280,14 @@ export class Expense extends AggregateRoot {
     return this.#original?.toSnapshot();
   }
 
+  get category(): Category {
+    return this.#category;
+  }
+
+  get date(): string {
+    return this.#date;
+  }
+
   /** The payer, or the group's owner, may change the expense; any other member may not. */
   private mayChange(by: string, members: GroupMember[]): boolean {
     if (by === this.#paidBy) return true;
@@ -286,6 +311,7 @@ function checkExpense({
   paidBy,
   split,
   members,
+  category,
   at,
   ...money
 }: {
@@ -294,15 +320,20 @@ function checkExpense({
   paidBy: string;
   split: SplitInput;
   members: string[];
+  category?: string;
   at: Date;
 } & AmountInput): IResult<{
   description: ExpenseDescription;
   split: Split;
   amount: number;
   original: OriginalAmount | undefined;
+  category: Category;
 }> {
   const text = ExpenseDescription.create(description);
   if (text.isFailure()) return text;
+  // An expense is in one of the categories, `other` when none is given (request 24): a name that is none of them is refused.
+  if (category !== undefined && !isCategory(category)) return Result.fail(new InvalidCategoryException());
+  const chosen: Category = category === undefined ? DEFAULT_CATEGORY : (category as Category);
   // The date comes before the amount: the rate offered for an expense in another currency is the one on its date (request 22).
   if (!isRealDay(date) || date > dayOf(at)) {
     return Result.fail(new InvalidDateException());
@@ -316,6 +347,7 @@ function checkExpense({
     split: checkedSplit.data,
     amount: money_.data.amount,
     original: money_.data.original,
+    category: chosen,
   });
 }
 

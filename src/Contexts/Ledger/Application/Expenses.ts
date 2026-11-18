@@ -23,6 +23,8 @@ export interface RecordExpenseInput {
   original?: OriginalAmountInput;
   date: string;
   split: SplitInput;
+  /** What the expense is for (request 24): one of the categories, `other` when none is given. */
+  category?: string;
 }
 
 /**
@@ -65,7 +67,7 @@ export const recordExpense = command(
     offeredRates: IOfferedRates,
     clock: Clock,
   ) =>
-    async ({ groupId, description, amount, original, date, split }: RecordExpenseInput, context) => {
+    async ({ groupId, description, amount, original, date, split, category }: RecordExpenseInput, context) => {
       const paidBy = callerOf(context);
       const members = await groupMembers.membersOf(paidBy, groupId);
       if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
@@ -79,6 +81,7 @@ export const recordExpense = command(
         date,
         paidBy,
         split,
+        category,
         members: members.map(member => member.memberId),
         at: clock(),
       });
@@ -113,6 +116,8 @@ export interface EditExpenseInput {
   original?: OriginalAmountInput;
   date: string;
   split: SplitInput;
+  /** What the expense is for (request 24): left out, it is `other`, as the expense is given whole. */
+  category?: string;
   version: number;
 }
 
@@ -130,7 +135,7 @@ export const editExpense = command(
     offeredRates: IOfferedRates,
     clock: Clock,
   ) =>
-    async ({ id, description, amount, original, date, split, version }: EditExpenseInput, context) => {
+    async ({ id, description, amount, original, date, split, version, category }: EditExpenseInput, context) => {
       const by = callerOf(context);
       const stored = await expenses.get(id);
       if (!stored) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
@@ -139,7 +144,7 @@ export const editExpense = command(
 
       const money = await amountGiven(groupCurrency, offeredRates, by, stored.groupId, date, { amount, original });
       if (!money) return Result.fail(new NotFoundException('Ledger', 'There is no such expense'));
-      const edited = stored.edit({ by, members, version, description, date, split, at: clock(), ...money });
+      const edited = stored.edit({ by, members, version, description, date, split, category, at: clock(), ...money });
       if (edited.isFailure()) return edited;
       const saved = await expenses.save(edited.data);
       if (saved.isFailure()) return saved;

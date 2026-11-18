@@ -16,6 +16,7 @@ import {
   originalOfRow,
   prepareLedgerSchema,
 } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
+import { DEFAULT_CATEGORY, Category } from '@Contexts/Ledger/Domain/Expense/Category';
 
 type ShareRow = { member_id: string; amount: number };
 type GroupShareRow = ShareRow & { expense_id: string };
@@ -173,6 +174,7 @@ function expenseView(row: ExpenseRow, shares: ShareRow[]): ExpenseView {
     date: String(row.date),
     paidBy: String(row.paid_by),
     splitKind: String(row.split_kind) as SplitKind,
+    category: String(row.category || DEFAULT_CATEGORY) as Category,
     version: Number(row.version),
     shares: shares.map((share): ShareSnapshot => ({ memberId: String(share.member_id), amount: Number(share.amount) })),
   };

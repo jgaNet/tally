@@ -1,3 +1,5 @@
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
+
 /** A member's share of an expense: whole units of the group's currency, the shares of a split adding up to its amount. */
 export interface ShareSnapshot {
   memberId: string;
@@ -32,6 +34,8 @@ export interface ExpenseSnapshot {
   shares: ShareSnapshot[];
   /** What it was paid in, when not in the group's currency; absent for an expense in the group's currency. */
   original?: OriginalAmountSnapshot;
+  /** What the expense is for (request 24): one of the categories, `other` when none was given. */
+  category: Category;
   /** The version the expense was read at: the store stores version + 1 on every save. */
   version: number;
 }
@@ -49,6 +53,8 @@ export interface ExpenseView {
   shares: ShareSnapshot[];
   /** What it was paid in, when not in the group's currency (request 21): absent for an expense in the group's currency. */
   original?: OriginalAmountSnapshot;
+  /** What the expense is for (request 24): one of the categories, `other` for the expenses recorded before them. */
+  category: Category;
   /** The version the expense is at: 1 when it is recorded, one more at each edit (request 6). */
   version: number;
 }

@@ -69,6 +69,7 @@ const recordExpenseBody = {
   properties: {
     description: { type: 'string' },
     date: { type: 'string' },
+    category: { type: 'string' },
     ...amountBody.properties,
     ...splitBody.properties,
   },
@@ -82,6 +83,7 @@ const editExpenseBody = {
   properties: {
     description: { type: 'string' },
     date: { type: 'string' },
+    category: { type: 'string' },
     version: { type: 'integer' },
     ...amountBody.properties,
     ...splitBody.properties,
@@ -115,7 +117,7 @@ export interface SplitBody {
 export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fastify, { module }, done) => {
   fastify.post<{
     Params: { id: string };
-    Body: SplitBody & AmountBody & { description: string; date: string };
+    Body: SplitBody & AmountBody & { description: string; date: string; category?: string };
   }>('/groups/:id/expenses', { schema: { body: recordExpenseBody, tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(
       req,
@@ -128,6 +130,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         original: req.body.original,
         date: req.body.date,
         split: splitOf(req.body),
+        category: req.body.category,
       },
       { created: true },
     ),
@@ -139,7 +142,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.put<{
     Params: { id: string };
-    Body: SplitBody & AmountBody & { description: string; date: string; version: number };
+    Body: SplitBody & AmountBody & { description: string; date: string; version: number; category?: string };
   }>('/expenses/:id', { schema: { body: editExpenseBody, tags: ['expenses'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(editExpense), {
       id: req.params.id,
@@ -149,6 +152,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
       date: req.body.date,
       version: req.body.version,
       split: splitOf(req.body),
+      category: req.body.category,
     }),
   );
 

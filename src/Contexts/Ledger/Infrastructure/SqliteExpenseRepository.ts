@@ -4,6 +4,7 @@ import { ConcurrencyConflictException, IResult, Result } from '@Architecture/Dom
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { OriginalAmountSnapshot, ShareSnapshot, SplitKind } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { Category, DEFAULT_CATEGORY } from '@Contexts/Ledger/Domain/Expense/Category';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 
@@ -39,6 +40,10 @@ export function prepareLedgerSchema(connection: DatabaseSync): void {
   if (!columns.includes('split_kind')) {
     connection.exec("ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'");
   }
+  // The expenses recorded before categories (request 24) are `other`, the default the column takes.
+  if (!columns.includes('category')) {
+    connection.exec("ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'");
+  }
   for (const [name, type] of ORIGINAL_COLUMNS) {
     if (!columns.includes(name)) connection.exec(`ALTER TABLE expenses ADD COLUMN ${name} ${type}`);
   }
@@ -46,7 +51,7 @@ export function prepareLedgerSchema(connection: DatabaseSync): void {
 
 /** The columns an expense row is read by, in the order `ExpenseRow` lists them. */
 export const EXPENSE_COLUMNS =
-  'id, group_id, description, amount, date, paid_by, split_kind, version, original_currency, original_amount, original_rate';
+  'id, group_id, description, amount, date, paid_by, split_kind, version, original_currency, original_amount, original_rate, category';
 
 /** An expense's row, as the store reads it (`EXPENSE_COLUMNS`). */
 export type ExpenseRow = {
@@ -61,6 +66,7 @@ export type ExpenseRow = {
   original_currency: string | null;
   original_amount: number | null;
   original_rate: string | null;
+  category: string;
 };
 
 /** What an expense was paid in, as its row keeps it; undefined for an expense in the group's currency (request 21). */
@@ -107,6 +113,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
         amount: Number(share.amount),
       })),
       original: originalOfRow(row),
+      category: String(row.category || DEFAULT_CATEGORY) as Category,
       version: Number(row.version),
     });
   }
@@ -119,7 +126,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     if (snapshot.version === 0) {
       connection
         .prepare(
-          'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, original_currency, original_amount, original_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, original_currency, original_amount, original_rate, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         )
         .run(
           snapshot.id,
@@ -133,11 +140,12 @@ export class SqliteExpenseRepository implements IExpenseRepository {
           original?.currency ?? null,
           original?.amount ?? null,
           original?.rate ?? null,
+          snapshot.category,
         );
     } else {
       const { changes } = connection
         .prepare(
-          'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, original_currency = ?, original_amount = ?, original_rate = ?, version = ? WHERE id = ? AND version = ?',
+          'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, original_currency = ?, original_amount = ?, original_rate = ?, category = ?, version = ? WHERE id = ? AND version = ?',
         )
         .run(
           snapshot.description,
@@ -147,6 +155,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
           original?.currency ?? null,
           original?.amount ?? null,
           original?.rate ?? null,
+          snapshot.category,
           snapshot.version + 1,
           snapshot.id,
           snapshot.version,

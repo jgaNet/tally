@@ -203,3 +203,15 @@ export class ExpenseChangedException extends ConcurrencyConflictException {
     this.type = 'ExpenseChanged';
   }
 }
+
+/** The category is not one of the eight: groceries, rent, utilities, transport, food, travel, leisure or other (request 24). */
+export class InvalidCategoryException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'InvalidCategory',
+      message:
+        'An expense is in one of the categories: groceries, rent, utilities, transport, food, travel, leisure or other',
+    });
+  }
+}

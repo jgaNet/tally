@@ -47,6 +47,7 @@ class MemoryRecurring implements IRecurringExpenses, IRecurringExpenseQueries {
         amount: 0,
         startsOn: found.startsOn,
         next: found.next,
+        category: 'other',
       }
     );
   }

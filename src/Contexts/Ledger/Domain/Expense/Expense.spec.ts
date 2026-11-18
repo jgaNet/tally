@@ -88,6 +88,7 @@ describe('Expense.fromSnapshot', () => {
         { memberId: 'ada', amount: 5 },
         { memberId: 'bob', amount: 5 },
       ],
+      category: 'other',
       version: 1,
     });
 
@@ -106,6 +107,7 @@ describe('Expense.fromSnapshot', () => {
         paidBy: 'ada',
         splitKind: 'equal',
         shares: [{ memberId: 'ada', amount: 9 }],
+        category: 'other',
         version: 1,
       }),
     ).toThrow(/corrupted/);
@@ -134,6 +136,7 @@ describe('Expense.edit and Expense.remove', () => {
         { memberId: 'ada', amount: 333 },
         { memberId: 'cy', amount: 333 },
       ],
+      category: 'other',
       version: 1,
     });
   const edit = (overrides: Partial<Parameters<Expense['edit']>[0]> = {}) =>

@@ -1,6 +1,9 @@
+import { DatabaseSync } from 'node:sqlite';
+
 import { ConcurrencyConflictException, IResult, Result } from '@Architecture/Domain';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
+import { Category, DEFAULT_CATEGORY } from '@Contexts/Ledger/Domain/Expense/Category';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 import { RecurringExpenseSnapshot } from '@Contexts/Ledger/Domain/RecurringExpense/DTOs';
 import { IRecurringExpenses } from '@Contexts/Ledger/Domain/RecurringExpense/Ports/IRecurringExpenses';
@@ -11,7 +14,21 @@ import { RecurringExpense } from '@Contexts/Ledger/Domain/RecurringExpense/Recur
  * row's insertion order, which is the order they were set up in.
  */
 export const RECURRING_SCHEMA =
-  'CREATE TABLE IF NOT EXISTS recurring_expenses (id TEXT PRIMARY KEY, group_id TEXT NOT NULL, paid_by TEXT NOT NULL, description TEXT NOT NULL, amount INTEGER NOT NULL, starts_on TEXT NOT NULL, next TEXT NOT NULL, split_json TEXT NOT NULL, version INTEGER NOT NULL)';
+  "CREATE TABLE IF NOT EXISTS recurring_expenses (id TEXT PRIMARY KEY, group_id TEXT NOT NULL, paid_by TEXT NOT NULL, description TEXT NOT NULL, amount INTEGER NOT NULL, starts_on TEXT NOT NULL, next TEXT NOT NULL, split_json TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'other', version INTEGER NOT NULL)";
+
+/**
+ * Makes the recurring expenses' table what the stores read: a file made before categories (request 24) has no `category` column, and its
+ * recurring expenses are `other`, the default the column takes.
+ */
+export function prepareRecurringSchema(connection: DatabaseSync): void {
+  connection.exec(RECURRING_SCHEMA);
+  const columns = (connection.prepare('PRAGMA table_info(recurring_expenses)').all() as Array<{ name: string }>).map(
+    column => column.name,
+  );
+  if (!columns.includes('category')) {
+    connection.exec("ALTER TABLE recurring_expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'");
+  }
+}
 
 /** A recurring expense's row, as the store reads it. */
 export type RecurringRow = {
@@ -23,11 +40,13 @@ export type RecurringRow = {
   starts_on: string;
   next: string;
   split_json: string;
+  category: string;
   version: number;
 };
 
 /** The columns a recurring expense row is read by, in the order `RecurringRow` lists them. */
-export const RECURRING_COLUMNS = 'id, group_id, paid_by, description, amount, starts_on, next, split_json, version';
+export const RECURRING_COLUMNS =
+  'id, group_id, paid_by, description, amount, starts_on, next, split_json, category, version';
 
 /** The snapshot a row keeps: the aggregate is read back from it, and checks what it is given (docs/adr/0022). */
 export function recurringSnapshotOf(row: RecurringRow): RecurringExpenseSnapshot {
@@ -40,6 +59,7 @@ export function recurringSnapshotOf(row: RecurringRow): RecurringExpenseSnapshot
     startsOn: String(row.starts_on),
     next: String(row.next),
     split: JSON.parse(String(row.split_json)) as SplitInput,
+    category: String(row.category || DEFAULT_CATEGORY) as Category,
     version: Number(row.version),
   };
 }
@@ -51,7 +71,7 @@ export function recurringSnapshotOf(row: RecurringRow): RecurringExpenseSnapshot
  */
 export class SqliteRecurringExpenses implements IRecurringExpenses {
   constructor(private readonly database: SqliteDatabase) {
-    database.prepare(connection => connection.exec(RECURRING_SCHEMA));
+    database.prepare(prepareRecurringSchema);
   }
 
   async get(recurringId: string): Promise<RecurringExpense | undefined> {
@@ -68,7 +88,7 @@ export class SqliteRecurringExpenses implements IRecurringExpenses {
     const connection = this.database.connection;
     if (snapshot.version === 0) {
       connection
-        .prepare(`INSERT INTO recurring_expenses (${RECURRING_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .prepare(`INSERT INTO recurring_expenses (${RECURRING_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(
           snapshot.id,
           snapshot.groupId,
@@ -78,6 +98,7 @@ export class SqliteRecurringExpenses implements IRecurringExpenses {
           snapshot.startsOn,
           snapshot.next,
           JSON.stringify(snapshot.split),
+          snapshot.category,
           snapshot.version + 1,
         );
       return Result.ok(undefined);

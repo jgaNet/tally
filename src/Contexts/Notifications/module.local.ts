@@ -3,11 +3,13 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/ExpenseIntegrationEvents';
+import { BudgetPassedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/BudgetIntegrationEvents';
 
 import { outstandingDebtsReadModel } from '@Bootstrap/Fastify/readModels';
 import { getMyNotices } from '@Contexts/Notifications/Application/Notices';
 import { sweepDebt, sweepDebts } from '@Contexts/Notifications/Application/Debts';
 import { ExpenseRecordedIntegrationHandler } from '@Contexts/Notifications/Application/Events/ExpenseRecordedIntegrationHandler';
+import { BudgetPassedIntegrationHandler } from '@Contexts/Notifications/Application/Events/BudgetPassedIntegrationHandler';
 import { SqliteNoticeQueries } from '@Contexts/Notifications/Infrastructure/SqliteNoticeQueries';
 import { SqliteNotices } from '@Contexts/Notifications/Infrastructure/SqliteNotices';
 import { SqliteDebtWatchQueries, SqliteDebtWatches } from '@Contexts/Notifications/Infrastructure/SqliteDebtWatches';
@@ -32,6 +34,8 @@ export const localNotificationsModule = new LiteModule({
   useCases: [getMyNotices(noticeQueries), sweep],
   integrationEvents: [
     { event: ExpenseRecordedIntegrationEvent, handlers: [new ExpenseRecordedIntegrationHandler(notices, systemClock)] },
+    // A month passed a budget: one notice to each member, a budget's (request 24, docs/adr/0023).
+    { event: BudgetPassedIntegrationEvent, handlers: [new BudgetPassedIntegrationHandler(notices, systemClock)] },
   ],
 });
 

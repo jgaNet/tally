@@ -1,3 +1,4 @@
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** A recurring expense as the store keeps it, whole, so that the aggregate can be read back from it (request 23). */
@@ -10,6 +11,8 @@ export interface RecurringExpenseSnapshot {
   startsOn: string;
   next: string;
   split: SplitInput;
+  /** What the expenses it records are for (request 24): `other` when none was given. */
+  category: Category;
   version: number;
 }
 
@@ -25,6 +28,8 @@ export interface RecurringExpenseView {
   amount: number;
   startsOn: string;
   next: string;
+  /** What the expenses it records are for (request 24). */
+  category: Category;
   splitBetween?: string[];
   splitExactly?: Array<{ memberId: string; amount: number }>;
   splitByShares?: Array<{ memberId: string; shares: number }>;

@@ -22,6 +22,7 @@ const setUpBody = {
     description: { type: 'string' },
     amount: { type: 'integer' },
     startsOn: { type: 'string' },
+    category: { type: 'string' },
     ...splitBody.properties,
   },
   allOf: [{ oneOf: splitBody.oneOf }],
@@ -31,7 +32,7 @@ const setUpBody = {
 export const recurringRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fastify, { module }, done) => {
   fastify.post<{
     Params: { id: string };
-    Body: SplitBody & { description: string; amount: number; startsOn: string };
+    Body: SplitBody & { description: string; amount: number; startsOn: string; category?: string };
   }>('/groups/:id/recurring', { schema: { body: setUpBody, tags: ['recurring'] } }, (req, reply) =>
     answerAtOnce(
       req,
@@ -43,6 +44,7 @@ export const recurringRoutes: FastifyPluginCallback<{ module: LiteModule }> = (f
         amount: req.body.amount,
         startsOn: req.body.startsOn,
         split: splitOf(req.body),
+        category: req.body.category,
       },
       { created: true },
     ),

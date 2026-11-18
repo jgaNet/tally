@@ -15,6 +15,14 @@ import {
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
+import { ExpenseBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseBudgetHandler';
+import { BudgetPassedHandler } from '@Contexts/Ledger/Application/Events/BudgetPassedHandler';
+import { getGroupBudgets, removeBudget, setBudget } from '@Contexts/Ledger/Application/Budgets';
+import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Events/BudgetEvents';
+import { ExpenseEditedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { SqliteBudgetQueries } from '@Contexts/Ledger/Infrastructure/SqliteBudgetQueries';
+import { SqliteBudgets } from '@Contexts/Ledger/Infrastructure/SqliteBudgets';
+import { SqliteMonthlySpending } from '@Contexts/Ledger/Infrastructure/SqliteMonthlySpending';
 import { RecurringExpenseDayCameHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCameHandler';
 import {
   getGroupRecurringExpenses,
@@ -50,6 +58,10 @@ const expenseQueries = new SqliteExpenseQueries(sharedDatabase, settledAmountsOf
 const recurring = new SqliteRecurringExpenses(sharedDatabase);
 const recurringQueries = new SqliteRecurringExpenseQueries(sharedDatabase);
 const recordDay = recordRecurringDay(recurring, groupMembers, systemClock);
+// The monthly budgets (request 24, docs/adr/0023): their own table, the spending a month makes read from the expenses inside the reaction's transaction.
+const budgets = new SqliteBudgets(sharedDatabase);
+const budgetQueries = new SqliteBudgetQueries(sharedDatabase);
+const spending = new SqliteMonthlySpending(sharedDatabase);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
@@ -67,10 +79,23 @@ export const localLedgerModule = new LiteModule({
     getRecurringExpense(recurringQueries, groupMembers),
     getGroupRecurringExpenses(recurringQueries, groupMembers),
     recordDay,
+    setBudget(budgets, groupMembers),
+    removeBudget(budgets, groupMembers),
+    getGroupBudgets(budgetQueries, groupMembers, systemClock),
   ],
   domainEvents: [
-    // An expense recorded is told to the other contexts as the published fact (request 17, docs/adr/0017).
-    { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] },
+    // An expense recorded is told to the other contexts as the published fact (request 17, docs/adr/0017), and may pass its month's budget (request 24).
+    {
+      event: ExpenseRecordedEvent,
+      handlers: [new ExpenseRecordedHandler(), new ExpenseBudgetHandler(expenses, budgets, spending, groupMembers)],
+    },
+    // An expense edited may pass the budget of its month and category (request 24, docs/adr/0023).
+    {
+      event: ExpenseEditedEvent,
+      handlers: [new ExpenseBudgetHandler(expenses, budgets, spending, groupMembers)],
+    },
+    // A month passed a budget is told to the other contexts as the published fact (request 24, docs/adr/0023).
+    { event: BudgetPassedEvent, handlers: [new BudgetPassedHandler()] },
     // A recurring expense's day came: its expense is recorded, once, with the id the fact carries (request 23, docs/adr/0022).
     {
       event: RecurringExpenseDayCameEvent,
