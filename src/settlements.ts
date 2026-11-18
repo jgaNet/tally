@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
+import { writeAudit } from './audit';
 import { type Balance, listBalancesIncludingWaiting } from './balances';
 import { inTransaction } from './database';
 import { findGroupOf, refuseIfArchived } from './groups';
@@ -160,6 +161,7 @@ export function recordCashSettlement(
        VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?)`,
     ).run(id, groupId, input.from, payeeId, input.amount, at);
     addHistory(db, id, 'paid', at);
+    writeAudit(db, groupId, { by: payeeId, action: 'settlement-paid', subjectId: id, amount: input.amount, at });
   });
   return id;
 }

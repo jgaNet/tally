@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import Fastify, { FastifyError, FastifyInstance } from 'fastify';
 import { registerAccountRoutes } from './accounts';
+import { registerAuditRoutes } from './audit';
 import { registerArchiveRoutes } from './archive';
 import { registerBalanceRoutes } from './balances';
 import { registerBudgetRoutes } from './budgets';
@@ -113,6 +114,7 @@ export async function createApplication({
       registerSettlementRoutes(instance, db, provider);
       registerProviderWebhookRoutes(instance, db, provider);
       registerNoticeRoutes(instance, db);
+      registerAuditRoutes(instance, db);
       registerOperationRoutes(instance, db);
     },
     { prefix: `/${apiPrefix}` },

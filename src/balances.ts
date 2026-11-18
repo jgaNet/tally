@@ -77,6 +77,18 @@ function membershipsOf(db: DatabaseSync, groupId: string, statuses: CountedStatu
     .all(groupId) as unknown as MembershipRow[];
 }
 
+/**
+ * The balance a member carries as they stand in the group, as `listBalances` counts it: what their expenses and
+ * settlements give, less their offset. It is what the owner takes over when the member leaves. 0 for an account that
+ * is not a member of the group. A read changes nothing.
+ */
+export function carriedBalanceOf(db: DatabaseSync, groupId: string, accountId: string): number {
+  const row = membershipsOf(db, groupId, "('paid', 'refunding')").find(
+    membership => membership.member_id === accountId,
+  );
+  return row ? row.raw - row.balance_offset : 0;
+}
+
 /** The balances, counting the settlements whose status is one of `statuses`. */
 function balancesCounting(db: DatabaseSync, groupId: string, statuses: CountedStatuses): Balance[] {
   const memberships = membershipsOf(db, groupId, statuses);

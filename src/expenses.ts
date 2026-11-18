@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
+import { writeAudit } from './audit';
 import { writeBudgetPassing } from './budgets';
 import { CATEGORIES, DEFAULT_CATEGORY, type Category } from './categories';
 import { inTransaction } from './database';
@@ -450,6 +451,13 @@ export function recordExpense(db: DatabaseSync, expense: RecordedExpense): void 
   writeShares(db, expense.id, expense.shares);
   writeExpenseNotices(db, expense, expense.shares);
   writeBudgetPassing(db, expense.groupId, expense.category, expense.date, expense.at);
+  writeAudit(db, expense.groupId, {
+    by: expense.paidBy,
+    action: 'expense-recorded',
+    subjectId: expense.id,
+    amount: expense.amount,
+    at: expense.at,
+  });
 }
 
 /**
@@ -584,6 +592,7 @@ export async function editExpense(
     checkSplit(db, expense.groupId, expense.paidBy, membersOf(split));
     const shares = sharesOf(split, amount);
     const category = edit.category ?? DEFAULT_CATEGORY;
+    const at = new Date().toISOString();
     db.prepare(
       'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, category = ?, original_currency = ?, original_amount = ?, original_rate = ?, version = version + 1 WHERE id = ? AND version = ?',
     ).run(
@@ -600,7 +609,8 @@ export async function editExpense(
     );
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     writeShares(db, expenseId, shares);
-    writeBudgetPassing(db, expense.groupId, category, edit.date, new Date().toISOString());
+    writeBudgetPassing(db, expense.groupId, category, edit.date, at);
+    writeAudit(db, expense.groupId, { by: accountId, action: 'expense-edited', subjectId: expenseId, amount, at });
   });
 }
 
@@ -615,6 +625,13 @@ export function deleteExpense(db: DatabaseSync, accountId: string, expenseId: st
     refuseIfArchived(db, expense.groupId);
     checkMayChange(db, accountId, expense);
     checkNoFormerMember(db, expense);
+    writeAudit(db, expense.groupId, {
+      by: accountId,
+      action: 'expense-deleted',
+      subjectId: expenseId,
+      amount: expense.amount,
+      at: new Date().toISOString(),
+    });
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
     db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
   });

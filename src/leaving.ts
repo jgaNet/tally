@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
+import { writeAudit } from './audit';
+import { carriedBalanceOf } from './balances';
 import { inTransaction } from './database';
 import { findGroupOf, refuseIfArchived } from './groups';
 import { Refusal } from './refusal';
@@ -31,8 +33,14 @@ export function leaveGroup(db: DatabaseSync, accountId: string, groupId: string)
         'A payment or a refund through the provider is still waiting for this member.',
       );
     }
+    const at = new Date().toISOString();
+    // The balance the owner takes over is the member's as they leave, and it is audited when it is not 0.
+    const balance = carriedBalanceOf(db, groupId, accountId);
+    if (balance !== 0) {
+      writeAudit(db, groupId, { by: accountId, action: 'balance-passed', subjectId: accountId, amount: balance, at });
+    }
     db.prepare('UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?').run(
-      new Date().toISOString(),
+      at,
       groupId,
       accountId,
     );

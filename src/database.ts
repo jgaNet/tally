@@ -400,6 +400,26 @@ const MIGRATIONS: readonly string[] = [
   -- archived group is read only. A group that is not archived has no moment, which is null.
   ALTER TABLE groups ADD COLUMN archived_at TEXT;
   `,
+  `
+  -- The audit of a group: one entry for each change of money in it, written in the write transaction of the change and
+  -- never changed or removed after. seq is the order the entries were written in, which is the order the audit lists them
+  -- in. An entry names the account that made the change (account_id), the moment (at), what it did (action), the expense,
+  -- settlement or member it is about (subject_id, not a foreign key: the subject may be deleted, or its member leave), and
+  -- the amount. Changes made before the audit existed have no entry.
+  CREATE TABLE audit_entries (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    at TEXT NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    action TEXT NOT NULL CHECK (action IN (
+      'expense-recorded', 'expense-edited', 'expense-deleted', 'settlement-paid', 'settlement-refunded', 'balance-passed'
+    )),
+    subject_id TEXT NOT NULL,
+    amount INTEGER NOT NULL
+  );
+  CREATE INDEX audit_entries_group ON audit_entries (group_id, seq);
+  `,
 ];
 
 /**
