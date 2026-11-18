@@ -11,12 +11,12 @@ const COUNTED: readonly SettlementStatus[] = ['paid', 'refunding'];
  */
 const CONTEST: readonly SettlementStatus[] = ['contested', 'annulled'];
 
-/** A settlement as a status change of it reads it: its group, its parties, its amount, its method and its status now. */
+/** A settlement as a status change of it reads it: its group, its parties, what it settles, its method and its status now. */
 interface SettlementState {
   group_id: string;
   payer_id: string;
   payee_id: string;
-  amount: number;
+  settled: number;
   method: SettlementMethod;
   status: SettlementStatus;
 }
@@ -59,7 +59,7 @@ export async function moveSettlement(
   at: string,
 ): Promise<void> {
   const before = await db.get<SettlementState>(
-    'SELECT group_id, payer_id, payee_id, amount, method, status FROM settlements WHERE id = ?',
+    'SELECT group_id, payer_id, payee_id, settled, method, status FROM settlements WHERE id = ?',
     [settlementId],
   );
   if (!before) throw new Error(`settlement ${settlementId} is not kept`);
@@ -74,7 +74,7 @@ export async function moveSettlement(
       by: before.method === 'cash' ? before.payee_id : before.payer_id,
       action: 'settlement-paid',
       subjectId: settlementId,
-      amount: before.amount,
+      amount: before.settled,
       at,
     });
   } else {
@@ -82,7 +82,7 @@ export async function moveSettlement(
       by: before.payee_id,
       action: 'settlement-refunded',
       subjectId: settlementId,
-      amount: before.amount,
+      amount: before.settled,
       at,
     });
   }

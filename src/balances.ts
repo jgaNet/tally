@@ -37,7 +37,8 @@ type CountedStatuses = "('paid', 'refunding')" | "('paid', 'pending', 'refunding
  *
  * A settlement counts once it is paid: a cash settlement from the moment it is recorded, one through the
  * provider once the provider says it succeeded. It keeps counting while it is being refunded, as the money has
- * not gone back yet; once it is refunded it counts for nothing.
+ * not gone back yet; once it is refunded it counts for nothing. What it counts is what it settles (see
+ * `Settlement.settled`): its amount, less the part of the provider's fee its payer bears.
  *
  * It is one statement, so every balance is of the same snapshot of the database: an expense or a settlement
  * recorded meanwhile is counted in all of them or in none. A read changes nothing.
@@ -68,9 +69,9 @@ function membershipsOf(db: Queryable, groupId: string, statuses: CountedStatuses
                    WHERE e.group_id = m.group_id AND e.paid_by = m.account_id), 0)
          - COALESCE((SELECT SUM(s.amount) FROM expense_shares s JOIN expenses e ON e.id = s.expense_id
                      WHERE e.group_id = m.group_id AND s.account_id = m.account_id), 0)
-         + COALESCE((SELECT SUM(t.amount) FROM settlements t
+         + COALESCE((SELECT SUM(t.settled) FROM settlements t
                      WHERE t.group_id = m.group_id AND t.payer_id = m.account_id AND t.status IN ${statuses}), 0)
-         - COALESCE((SELECT SUM(t.amount) FROM settlements t
+         - COALESCE((SELECT SUM(t.settled) FROM settlements t
                      WHERE t.group_id = m.group_id AND t.payee_id = m.account_id AND t.status IN ${statuses}), 0) AS raw
        FROM group_members m JOIN groups g ON g.id = m.group_id
        WHERE m.group_id = ?

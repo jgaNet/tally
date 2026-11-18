@@ -55,7 +55,7 @@ interface SettlementStatementRow {
   settlement_id: string;
   method: SettlementMethod;
   payer_id: string;
-  amount: number;
+  settled: number;
   counted_at: string;
 }
 
@@ -126,7 +126,7 @@ export async function statementOf(db: Queryable, groupId: string, memberId: stri
   // The settlements the balances count: paid, or being refunded. The moment they started to count is the first
   // history entry that counts them, which a cash settlement has from when it is recorded.
   const settlementRows = await db.all<SettlementStatementRow>(
-    `SELECT t.id AS settlement_id, t.method, t.payer_id, t.amount,
+    `SELECT t.id AS settlement_id, t.method, t.payer_id, t.settled,
        COALESCE((SELECT h.at FROM settlement_history h
                  WHERE h.settlement_id = t.id AND h.status IN ('paid', 'refunding')
                  ORDER BY h.seq LIMIT 1), t.created_at) AS counted_at
@@ -157,8 +157,8 @@ export async function statementOf(db: Queryable, groupId: string, memberId: stri
           settlementId: row.settlement_id,
           date: row.counted_at.slice(0, 10),
           description: SETTLEMENT_DESCRIPTIONS[row.method],
-          paid: paid ? row.amount : 0,
-          share: paid ? 0 : row.amount,
+          paid: paid ? row.settled : 0,
+          share: paid ? 0 : row.settled,
         },
       };
     }),

@@ -316,7 +316,7 @@ describe('paying through the payment provider: the provider’s webhook', () => 
         const overtaking = new Promise<Answer>(resolve => {
           provider.answer = () => {
             resolve(decide('pay_1', status));
-            return { status: 201, body: { id: 'pay_1', payUrl: 'https://pay.example/pay_1' }, delayMs: 200 };
+            return { status: 201, body: { id: 'pay_1', payUrl: 'https://pay.example/pay_1', fee: 0 }, delayMs: 200 };
           };
         });
         const asking = askProvider({ to: adaId, amount: 1000 }, graceToken);

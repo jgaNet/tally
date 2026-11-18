@@ -13,10 +13,14 @@ export interface ProviderConfig {
   timeoutMs?: number;
 }
 
-/** The provider's answer to a payment: its id, and the link where the payer pays it. */
+/**
+ * The provider's answer to a payment: its id, the link where the payer pays it, and its fee: what the provider keeps out of
+ * what it pays the payee, in hundredths of the payment's currency.
+ */
 export interface ProviderPayment {
   id: string;
   payUrl: string;
+  fee: number;
 }
 
 /**
@@ -40,8 +44,9 @@ export function assertProviderConfigured(config: ProviderConfig): asserts config
 
 /**
  * Asks the provider for a payment of the amount, in the currency, to the payee's payout account, with the
- * settlement's id as its reference, and answers the provider's payment. Only `201` with an `id` and a `payUrl` is
- * an answer: any other answer, or none within the time allowed, is refused.
+ * settlement's id as its reference, and answers the provider's payment. Only `201` with an `id`, a `payUrl` and a `fee` is
+ * an answer: any other answer, or none within the time allowed, is refused. The fee is a whole number, 0 or more, and less
+ * than the amount: one that is not is no answer either.
  */
 export async function createProviderPayment(
   config: ProviderConfig & { url: string },
@@ -63,11 +68,14 @@ export async function createProviderPayment(
       typeof answer?.id !== 'string' ||
       answer.id === '' ||
       typeof answer.payUrl !== 'string' ||
-      answer.payUrl === ''
+      answer.payUrl === '' ||
+      !Number.isInteger(answer.fee) ||
+      (answer.fee as number) < 0 ||
+      (answer.fee as number) >= input.amount
     ) {
       throw providerUnavailable();
     }
-    return { id: answer.id, payUrl: answer.payUrl };
+    return { id: answer.id, payUrl: answer.payUrl, fee: answer.fee as number };
   } catch (error) {
     if (error instanceof Refusal) throw error;
     throw providerUnavailable();

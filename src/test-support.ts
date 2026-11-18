@@ -148,7 +148,7 @@ export interface FakeProvider {
   readonly requests: ProviderRequest[];
   /**
    * How it answers the next request. By default: for a `GET` of an account (no body), `200` with the account's id,
-   * so every account is known; for a payment, `201` with a new payment id and a link; for a refund, `201` with a new
+   * so every account is known; for a payment, `201` with a new payment id, a link and a fee of 0; for a refund, `201` with a new
    * refund id. Set by the test.
    */
   answer: (request: ProviderRequest, number: number) => ProviderAnswer;
@@ -168,7 +168,7 @@ export async function startFakeProvider(): Promise<FakeProvider> {
       }
       return request.path.endsWith('/refunds')
         ? { status: 201, body: { id: `ref_${number}` } }
-        : { status: 201, body: { id: `pay_${number}`, payUrl: `https://pay.example/pay_${number}` } };
+        : { status: 201, body: { id: `pay_${number}`, payUrl: `https://pay.example/pay_${number}`, fee: 0 } };
     },
     stop: async () => undefined,
   };

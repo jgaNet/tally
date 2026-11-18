@@ -6,6 +6,7 @@ import type { Database, Queryable } from './database';
 import { findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
 import { isDeleted } from './accounts';
+import { feeBorneByOf, type FeeBearer, type SettlementFee } from './fee-policy';
 import { payoutAccountOf } from './payout-accounts';
 import { Refusal } from './refusal';
 import { addHistory, forgetHistory, historyOf, moveSettlement, type StatusEntry } from './settlement-history';
@@ -78,6 +79,10 @@ export function suggestSettlements(balances: Balance[]): Transfer[] {
  * provider decides it: `paid` once it succeeded, `failed` once it did not; `payUrl` is the link where the
  * payer pays it. A paid one is `refunding` while the provider is asked to refund it, and `refunded` once the
  * provider says the payment is refunded.
+ *
+ * What it settles is `settled`: the amount, less the part of the provider's `fee` its payer bears. Everything that counts
+ * a settlement counts this, and the amount is the one asked for. A settlement through the provider asked for since fees
+ * were kept has the `fee` the provider said and who bore it, fixed when its payment was asked for.
  */
 export interface Settlement {
   id: string;
@@ -89,6 +94,8 @@ export interface Settlement {
   status: SettlementStatus;
   at: string;
   payUrl?: string;
+  fee?: SettlementFee;
+  settled: number;
   /** Every status the settlement has had, the earliest first, each with the moment Tally learned it. */
   history: StatusEntry[];
 }
@@ -115,6 +122,9 @@ interface SettlementRow {
   status: SettlementStatus;
   pay_url: string | null;
   created_at: string;
+  fee_amount: number | null;
+  fee_borne_by: FeeBearer | null;
+  settled: number;
 }
 
 /** A refusal of a rule that is about the settlement, not about the shape of the request. */
@@ -217,11 +227,13 @@ export async function reserveProviderSettlement(
       refuse(409, 'PayoutAccountRequired', 'The payee has no payout account at the payment provider.');
     }
     await checkLimits(tx, groupId, payerId, input.to, input.amount);
+    // Who bears the fee is fixed now, as the payment is asked for; the fee itself comes with the provider's answer.
+    const feeBorneBy = await feeBorneByOf(tx, groupId);
     const at = new Date().toISOString();
     await tx.run(
-      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
-       VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?)`,
-      [id, groupId, payerId, input.to, input.amount, at],
+      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at, fee_borne_by)
+       VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?, ?)`,
+      [id, groupId, payerId, input.to, input.amount, at, feeBorneBy],
     );
     await addHistory(tx, id, 'pending', at);
   });
@@ -229,18 +241,20 @@ export async function reserveProviderSettlement(
 }
 
 /**
- * Keeps the provider's payment and its link on the settlement that asked for it. A decision on the payment that
- * came before this answer (a webhook may overtake it) is applied at once, so the settlement is not left pending.
+ * Keeps the provider's payment, its link and its fee on the settlement that asked for it. Once the fee is kept, what the
+ * settlement settles is what its payer and its payee are counted, as it was asked for (see `fee_borne_by`). A decision on the
+ * payment that came before this answer (a webhook may overtake it) is applied at once, so the settlement is not left pending.
  */
 export async function attachPayment(
   db: Database,
   settlementId: string,
-  payment: { id: string; payUrl: string },
+  payment: { id: string; payUrl: string; fee: number },
 ): Promise<void> {
   await db.transaction(async tx => {
-    await tx.run('UPDATE settlements SET provider_id = ?, pay_url = ? WHERE id = ?', [
+    await tx.run('UPDATE settlements SET provider_id = ?, pay_url = ?, fee_amount = ? WHERE id = ?', [
       payment.id,
       payment.payUrl,
+      payment.fee,
       settlementId,
     ]);
     await applyKeptDecision(tx, payment.id);
@@ -355,7 +369,7 @@ export async function hasWaitingSettlement(db: Queryable, groupId: string, accou
 }
 
 const settlementColumns =
-  't.id, t.group_id, t.payer_id, t.payee_id, t.amount, t.method, t.status, t.pay_url, t.created_at';
+  't.id, t.group_id, t.payer_id, t.payee_id, t.amount, t.method, t.status, t.pay_url, t.created_at, t.fee_amount, t.fee_borne_by, t.settled';
 
 /** The settlement as it is read, with its history. */
 async function toSettlement(db: Queryable, row: SettlementRow): Promise<Settlement> {
@@ -368,9 +382,13 @@ async function toSettlement(db: Queryable, row: SettlementRow): Promise<Settleme
     method: row.method,
     status: row.status,
     at: row.created_at,
+    settled: row.settled,
     history: await historyOf(db, row.id),
   };
   if (row.method === 'provider' && row.pay_url !== null) settlement.payUrl = row.pay_url;
+  if (row.fee_amount !== null && row.fee_borne_by !== null) {
+    settlement.fee = { amount: row.fee_amount, borneBy: row.fee_borne_by };
+  }
   return settlement;
 }
 
@@ -517,6 +535,11 @@ export const settlementSchema = {
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
     payUrl: { type: 'string', minLength: 1 },
+    fee: {
+      type: 'object',
+      required: ['amount', 'borneBy'],
+      properties: { amount: { type: 'integer', minimum: 0 }, borneBy: { enum: ['payer', 'payee', 'shared'] } },
+    },
     history: {
       type: 'array',
       minItems: 1,

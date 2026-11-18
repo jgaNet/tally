@@ -121,6 +121,7 @@ describe('paying through the payment provider: asking for a payment', () => {
         status: 'pending',
         at: expect.stringMatching(AT_PATTERN),
         payUrl: 'https://pay.example/pay_1',
+        fee: { amount: 0, borneBy: 'payee' },
         history: [{ status: 'pending', at: expect.stringMatching(AT_PATTERN) }],
       });
       // Not yet paid: the balances are as they were.
@@ -277,7 +278,7 @@ describe('paying through the payment provider: asking for a payment', () => {
       });
       provider.answer = () => ({
         status: 201,
-        body: { id: 'pay_slow', payUrl: 'https://pay.example/slow' },
+        body: { id: 'pay_slow', payUrl: 'https://pay.example/slow', fee: 0 },
         delayMs: 2000,
       });
       const answer = await askProvider({ to: adaId, amount: 1000 }, graceToken);
@@ -301,7 +302,7 @@ describe('paying through the payment provider: asking for a payment', () => {
       expect((await askProvider({ to: adaId, amount: 1000 }, graceToken)).status).toBe(424);
       provider.answer = (_request, number) => ({
         status: 201,
-        body: { id: `pay_${number}`, payUrl: 'https://pay.example/ok' },
+        body: { id: `pay_${number}`, payUrl: 'https://pay.example/ok', fee: 0 },
       });
       const answer = await askProvider({ to: adaId, amount: 1000 }, graceToken);
       expect(answer.status).toBe(201);

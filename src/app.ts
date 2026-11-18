@@ -9,6 +9,7 @@ import { registerBudgetRoutes } from './budgets';
 import { registerContestRoutes } from './contests';
 import { openDatabase, type Database } from './database';
 import { registerExpenseRoutes } from './expenses';
+import { registerFeePolicyRoutes } from './fee-policy';
 import { registerGroupRoutes } from './groups';
 import { registerHistoryRoutes } from './history';
 import { registerInvitationRoutes } from './invitations';
@@ -127,6 +128,7 @@ export async function createApplication({
       registerTemplateRoutes(instance, db);
       registerBalanceRoutes(instance, db);
       registerHistoryRoutes(instance, db);
+      registerFeePolicyRoutes(instance, db);
       registerSettlementRoutes(instance, db, provider);
       registerNettingRoutes(instance, db);
       registerProviderWebhookRoutes(instance, db, provider);

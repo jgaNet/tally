@@ -50,7 +50,7 @@ export async function contestSettlement(db: Database, payeeId: string, settlemen
       by: payeeId,
       action: 'settlement-contested',
       subjectId: settlementId,
-      amount: settlement.amount,
+      amount: settlement.settled,
       at,
     });
   });
@@ -83,7 +83,7 @@ export async function decideContest(
         by: adminId,
         action: 'settlement-paid',
         subjectId: settlementId,
-        amount: settlement.amount,
+        amount: settlement.settled,
         at,
       });
     } else {

@@ -82,7 +82,9 @@ CREATE TABLE groups (
   created_at TEXT NOT NULL,
   archived_at TEXT,
   -- The group this one was merged into, once it was: a merged group no longer exists, its row is kept for the notices that name it.
-  merged_into TEXT REFERENCES groups (id)
+  merged_into TEXT REFERENCES groups (id),
+  -- Who bears the provider's fee of the settlements of the group: the payee, until its owner decides otherwise.
+  fee_borne_by TEXT NOT NULL DEFAULT 'payee' CHECK (fee_borne_by IN ('payer', 'payee', 'shared'))
 );
 
 CREATE TABLE group_members (
@@ -155,7 +157,20 @@ CREATE TABLE settlements (
   created_at TEXT NOT NULL,
   -- The netting this settlement is one of: exactly the settlements netted are one.
   netting_id TEXT REFERENCES nettings (id),
-  CHECK ((method = 'net') = (netting_id IS NOT NULL))
+  -- The fee the provider said its payment has, and who bore it, both fixed when the payment is asked for (who bears it is
+  -- fixed then, the fee once the provider answers). Null for a settlement asked for before fees were kept, and for the others.
+  fee_amount BIGINT,
+  fee_borne_by TEXT CHECK (fee_borne_by IN ('payer', 'payee', 'shared')),
+  -- What the settlement settles: its amount, less the part of the fee its payer bears (the payer's half when shared, rounded down).
+  settled BIGINT GENERATED ALWAYS AS (
+    amount - CASE fee_borne_by
+      WHEN 'payer' THEN COALESCE(fee_amount, 0)
+      WHEN 'shared' THEN COALESCE(fee_amount, 0) / 2
+      ELSE 0
+    END
+  ) STORED,
+  CHECK ((method = 'net') = (netting_id IS NOT NULL)),
+  CHECK (fee_amount IS NULL OR (method = 'provider' AND fee_borne_by IS NOT NULL AND fee_amount >= 0 AND fee_amount < amount))
 );
 CREATE INDEX settlements_group ON settlements (group_id);
 CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
