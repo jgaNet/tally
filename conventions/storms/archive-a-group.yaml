@@ -5,7 +5,7 @@ feature: archive-a-group
 intent: >-
   The owner archives a group once every balance is 0 and nothing waits at the provider; every change in it is then refused by one rule's name, in every context, and the background job records nothing in it.
 
-done: false
+done: true
 
 hotSpots:
   - question: Who decides a group is archived?

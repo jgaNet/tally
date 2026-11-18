@@ -1,15 +1,18 @@
-import { AggregateRoot, IResult, Id, NotFoundException, Result } from '@Architecture/Domain';
+import { AggregateRoot, IResult, Id, NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { IGroupSnapshot } from '@Contexts/Groups/Domain/Group/DTOs';
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
   AlreadyMemberException,
+  GroupNotSettledException,
   OwnerCannotLeaveException,
   PaymentWaitingException,
 } from '@Contexts/Groups/Domain/Group/GroupExceptions';
 import {
   BalancePassedEvent,
+  GroupArchivedEvent,
   GroupCreatedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
@@ -45,6 +48,10 @@ export interface BalancePassing {
  * The name is the only thing that changes after the creation, and no behaviour here changes it; the behaviours are
  * the creation, which records GroupCreated, a join, which records MemberJoined, and a leave, which records
  * BalancePassed and MemberLeft.
+ *
+ * The owner archives the group once every balance is 0 and no payment through the provider waits (request 27). An
+ * archived group is read only: a join, a leave and an archiving again are refused by GroupArchived, the one rule every
+ * context names. The archiving records GroupArchived.
  */
 export class Group extends AggregateRoot {
   readonly #name: GroupName;
@@ -54,6 +61,7 @@ export class Group extends AggregateRoot {
   readonly #formerMembers: GroupMember[];
   readonly #passings: BalancePassing[];
   readonly #createdAt: Date;
+  #archivedAt: Date | null;
 
   private constructor(
     id: Id,
@@ -64,6 +72,7 @@ export class Group extends AggregateRoot {
     formerMembers: GroupMember[],
     passings: BalancePassing[],
     createdAt: Date,
+    archivedAt: Date | null,
     version: number,
   ) {
     super(id, version);
@@ -74,6 +83,7 @@ export class Group extends AggregateRoot {
     this.#formerMembers = formerMembers;
     this.#passings = passings;
     this.#createdAt = createdAt;
+    this.#archivedAt = archivedAt;
   }
 
   /**
@@ -109,6 +119,7 @@ export class Group extends AggregateRoot {
       [],
       [],
       createdAt,
+      null,
       0,
     );
     group.record(GroupCreatedEvent.set({ groupId: group._id.value, ownerId }));
@@ -121,6 +132,7 @@ export class Group extends AggregateRoot {
    * that left is taken out of the former members, so that it is a member once more.
    */
   join({ accountId, joinedAt }: { accountId: string; joinedAt: Date }): IResult<void> {
+    if (this.isArchived()) return Result.fail(new GroupArchivedException());
     if (this.isMember(accountId)) return Result.fail(new AlreadyMemberException());
 
     const former = this.#formerMembers.findIndex(member => member.accountId === accountId);
@@ -149,6 +161,7 @@ export class Group extends AggregateRoot {
   }): IResult<void> {
     const index = this.#members.findIndex(member => member.accountId === accountId);
     if (index < 0) return Result.fail(new NotFoundException('Groups', 'Group not found'));
+    if (this.isArchived()) return Result.fail(new GroupArchivedException());
     if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
     if (paymentWaiting) return Result.fail(new PaymentWaitingException());
 
@@ -160,6 +173,40 @@ export class Group extends AggregateRoot {
     );
     this.record(MemberLeftEvent.set({ groupId: this._id.value, accountId }));
     return Result.ok();
+  }
+
+  /**
+   * The owner archives the group, once every balance is 0 and no payment through the provider is pending or refunding
+   * (request 27). `balances` and `paymentsWaiting` are plain values the caller read through its ports; `askedBy` is the
+   * caller. Refused in order: by GroupArchived when the group is archived already, by the owner's rule when the caller is
+   * not its owner, and by GroupNotSettled when a balance is not 0 or a payment waits. Otherwise the group is archived at
+   * the time given, and GroupArchived is recorded.
+   */
+  archive({
+    askedBy,
+    balances,
+    paymentsWaiting,
+    archivedAt,
+  }: {
+    askedBy: string;
+    balances: number[];
+    paymentsWaiting: boolean;
+    archivedAt: Date;
+  }): IResult<void> {
+    if (this.isArchived()) return Result.fail(new GroupArchivedException());
+    if (askedBy !== this.#ownerId) {
+      return Result.fail(new NotAllowedException('Groups', 'Only the owner of the group may archive it'));
+    }
+    if (paymentsWaiting || balances.some(balance => balance !== 0)) return Result.fail(new GroupNotSettledException());
+
+    this.#archivedAt = archivedAt;
+    this.record(GroupArchivedEvent.set({ groupId: this._id.value, archivedAt: archivedAt.toISOString() }));
+    return Result.ok();
+  }
+
+  /** Whether the group is archived: read only from the time it was archived (request 27). */
+  isArchived(): boolean {
+    return this.#archivedAt !== null;
   }
 
   /** Whether this account is one of the group's current members. */
@@ -181,6 +228,7 @@ export class Group extends AggregateRoot {
       joinedAt: new Date(member.joinedAt),
     }));
     const passings = snapshot.passings.map(passing => ({ ...passing }));
+    const archivedAt = snapshot.archivedAt ? new Date(snapshot.archivedAt) : null;
     const accounts = [...members, ...formerMembers].map(member => member.accountId);
     if (
       name.isFailure() ||
@@ -188,7 +236,8 @@ export class Group extends AggregateRoot {
       !members.some(member => member.accountId === snapshot.ownerId) ||
       new Set(accounts).size !== accounts.length ||
       [...members, ...formerMembers].some(member => Number.isNaN(member.joinedAt.getTime())) ||
-      Number.isNaN(createdAt.getTime())
+      Number.isNaN(createdAt.getTime()) ||
+      (archivedAt !== null && Number.isNaN(archivedAt.getTime()))
     ) {
       throw new Error(`Corrupted group ${snapshot._id}`);
     }
@@ -201,6 +250,7 @@ export class Group extends AggregateRoot {
       formerMembers,
       passings,
       createdAt,
+      archivedAt,
       snapshot.version,
     );
   }
@@ -218,6 +268,7 @@ export class Group extends AggregateRoot {
       })),
       passings: this.#passings.map(passing => ({ ...passing })),
       createdAt: this.#createdAt.toISOString(),
+      archivedAt: this.#archivedAt ? this.#archivedAt.toISOString() : null,
       version: this.version,
     };
   }
@@ -251,5 +302,10 @@ export class Group extends AggregateRoot {
 
   get createdAt(): Date {
     return this.#createdAt;
+  }
+
+  /** When the group was archived, or null while it is not (request 27). */
+  get archivedAt(): Date | null {
+    return this.#archivedAt;
   }
 }

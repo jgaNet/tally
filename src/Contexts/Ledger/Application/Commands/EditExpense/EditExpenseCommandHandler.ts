@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -41,6 +42,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
     if (!expense) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     const members = await this.groupMembers.membersOf(expense.groupId, editor);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
+    if (await this.groupMembers.isArchived(expense.groupId)) return Result.fail(new GroupArchivedException());
     const currency = await this.groupCurrency.currencyOf(expense.groupId, editor);
     if (!currency) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
 

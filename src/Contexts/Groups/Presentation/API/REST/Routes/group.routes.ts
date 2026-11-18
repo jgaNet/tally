@@ -10,6 +10,7 @@ import {
   GetGroupMembersResSchema,
   GetGroupResSchema,
   GetMyGroupsResSchema,
+  ArchiveGroupResSchema,
   LeaveGroupResSchema,
 } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes.schema';
 import { CreateGroupPayload } from '@Contexts/Groups/Application/Commands';
@@ -46,6 +47,12 @@ export const groupRoutes = function (fastify: FastifyInstance, { module }: { mod
     '/groups/:id/leave',
     { schema: { tags, response: LeaveGroupResSchema } },
     controller.leaveGroup.bind(controller),
+  );
+
+  fastify.post<{ Params: { id: string } }>(
+    '/groups/:id/archive',
+    { schema: { tags, response: ArchiveGroupResSchema } },
+    controller.archiveGroup.bind(controller),
   );
 
   fastify.get<{ Params: { id: string } }>(

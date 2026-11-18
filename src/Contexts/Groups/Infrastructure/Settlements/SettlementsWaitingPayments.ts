@@ -12,4 +12,8 @@ export class SettlementsWaitingPayments implements IWaitingPayments {
     const open = await this.settlements.openProviderPaymentsIn(groupId);
     return open.some(payment => payment.from === memberId || payment.to === memberId);
   }
+
+  async hasWaitingPaymentIn(groupId: string): Promise<boolean> {
+    return (await this.settlements.openProviderPaymentsIn(groupId)).length > 0;
+  }
 }

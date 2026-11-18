@@ -17,4 +17,8 @@ export class GroupsSettlementMembers implements ISettlementMembers {
     const group = await this.groups.findGroupOf(askedBy, groupId);
     return group ? group.currency : null;
   }
+
+  isArchived(groupId: string): Promise<boolean> {
+    return this.groups.isArchived(groupId);
+  }
 }

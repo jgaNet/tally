@@ -14,3 +14,6 @@ export class MemberLeftEvent extends DomainEvent<{ groupId: string; accountId: s
  * passed from, the one it passed to, and the amount (request 20). Recorded beside MemberLeft.
  */
 export class BalancePassedEvent extends DomainEvent<{ groupId: string; from: string; to: string; amount: number }> {}
+
+/** A group was archived by its owner: read only from now on (request 27). */
+export class GroupArchivedEvent extends DomainEvent<{ groupId: string; archivedAt: string }> {}

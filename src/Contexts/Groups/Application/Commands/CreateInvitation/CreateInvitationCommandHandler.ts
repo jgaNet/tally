@@ -6,6 +6,7 @@ import { Invitation } from '@Contexts/Groups/Domain/Invitation/Invitation';
 import { IInvitationRepository } from '@Contexts/Groups/Domain/Invitation/Ports/IInvitationRepository';
 import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
 import { CreateInvitationCommandEvent } from '@Contexts/Groups/Application/Commands/CreateInvitation/CreateInvitationCommandEvent';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 /**
  * Creating an invitation: a signed-in member of a group asks for a link to it. Only a member may; to anyone else the
@@ -28,6 +29,7 @@ export class CreateInvitationCommandHandler extends CommandHandler<CreateInvitat
     if (!group || !group.isMember(caller.data.value)) {
       return Result.fail(new NotFoundException('Groups', 'Group not found'));
     }
+    if (group.isArchived()) return Result.fail(new GroupArchivedException());
 
     const invitation = Invitation.issue({ groupId: group._id.value, invitedBy: caller.data.value });
     const saved = await this.invitations.save(invitation);

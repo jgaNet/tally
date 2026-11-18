@@ -13,6 +13,8 @@ import {
   CreateInvitationCommandHandler,
   LeaveGroupCommandEvent,
   LeaveGroupCommandHandler,
+  ArchiveGroupCommandEvent,
+  ArchiveGroupCommandHandler,
   SignUpCommandEvent,
   SignUpCommandHandler,
 } from '@Contexts/Groups/Application/Commands';
@@ -73,6 +75,10 @@ export const localGroupsModule = new Module({
     {
       event: LeaveGroupCommandEvent,
       handlers: [new LeaveGroupCommandHandler(groups, memberBalances, waitingPayments)],
+    },
+    {
+      event: ArchiveGroupCommandEvent,
+      handlers: [new ArchiveGroupCommandHandler(groups, memberBalances, waitingPayments, clock)],
     },
   ],
   queries: [

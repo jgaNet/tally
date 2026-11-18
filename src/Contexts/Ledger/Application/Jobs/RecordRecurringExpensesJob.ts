@@ -58,6 +58,8 @@ export class RecordRecurringExpensesJob {
   private async step(id: string, at: Date, context: ExecutionContext): Promise<IResult<Step>> {
     const recurring = await this.recurring.findById(id);
     if (!recurring) return Result.ok('done');
+    // An archived group is read only: nothing is recorded in it by the background job either (request 27).
+    if (await this.groupMembers.isArchived(recurring.groupId)) return Result.ok('done');
 
     const memberIds = await this.groupMembers.currentMemberIds(recurring.groupId);
     const decision = recurring.settleDay({ today: at, memberIds });

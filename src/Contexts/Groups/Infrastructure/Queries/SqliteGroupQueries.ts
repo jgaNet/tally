@@ -15,6 +15,7 @@ interface GroupViewRow {
   name: string;
   currency: string;
   owner_id: string;
+  archived_at: string | null;
 }
 
 interface MemberViewRow {
@@ -25,7 +26,7 @@ interface MemberViewRow {
 }
 
 const SELECT_GROUPS = `
-  SELECT g.id, g.name, g.currency, g.owner_id FROM groups g
+  SELECT g.id, g.name, g.currency, g.owner_id, g.archived_at FROM groups g
   JOIN group_members m ON m.group_id = g.id`;
 
 /**
@@ -80,6 +81,14 @@ export class SqliteGroupQueries implements IGroupQueries {
     });
   }
 
+  isArchived(groupId: string): Promise<boolean> {
+    return this.database.exclusive(connection => {
+      const row = connection.prepare('SELECT archived_at FROM groups WHERE id = ?').get(groupId) as
+        { archived_at: string | null } | undefined;
+      return row?.archived_at != null;
+    });
+  }
+
   membersOfEveryGroup(): Promise<GroupMembership[]> {
     return this.database.exclusive(connection => {
       const rows = connection
@@ -117,6 +126,9 @@ export class SqliteGroupQueries implements IGroupQueries {
   }
 }
 
+/** A group as a member reads it: its archive time is there only once it is archived, so an open group has none (request 27). */
 function toView(row: GroupViewRow): GroupView {
-  return { id: row.id, name: row.name, currency: row.currency, ownerId: row.owner_id };
+  const view: GroupView = { id: row.id, name: row.name, currency: row.currency, ownerId: row.owner_id };
+  if (row.archived_at != null) view.archivedAt = row.archived_at;
+  return view;
 }

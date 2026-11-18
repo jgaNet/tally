@@ -12,4 +12,9 @@ export class LedgerBalances implements IMemberBalances {
     const counted = await this.balances.balancesOf(groupId);
     return counted.find(member => member.memberId === memberId)?.balance ?? 0;
   }
+
+  async balancesOf(groupId: string): Promise<number[]> {
+    const counted = await this.balances.balancesOf(groupId);
+    return counted.map(member => member.balance);
+  }
 }

@@ -54,3 +54,15 @@ export class PaymentWaitingException extends ConflictException {
     });
   }
 }
+
+/** The group is not settled: a balance is not 0, or a payment through the provider is still waiting; it is archived only once neither is. */
+export class GroupNotSettledException extends ConflictException {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'GroupNotSettled',
+      message:
+        'Every balance must be 0 and no payment through the provider may be pending or refunding to archive the group',
+    });
+  }
+}

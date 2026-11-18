@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -29,6 +30,7 @@ export class StopRecurringExpenseCommandHandler extends CommandHandler<StopRecur
     if (!recurring) return Result.fail(new NotFoundException('Ledger', 'Recurring expense not found'));
     const members = await this.groupMembers.membersOf(recurring.groupId, stopper);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Recurring expense not found'));
+    if (await this.groupMembers.isArchived(recurring.groupId)) return Result.fail(new GroupArchivedException());
 
     const stopped = recurring.stop({ stoppedBy: stopper, members });
     if (stopped.isFailure()) return Result.fail(stopped.error);

@@ -202,3 +202,47 @@ describe('Group.leave', () => {
     expect(rebuilt.formerMembers).toEqual([]);
   });
 });
+
+describe('archiving a group (request 27)', () => {
+  const LATER = new Date('2026-11-18T09:00:00.000Z');
+  const archiveBy = (group: Group, askedBy: string, balances: number[], paymentsWaiting = false) =>
+    group.archive({ askedBy, balances, paymentsWaiting, archivedAt: LATER });
+
+  it('is archived by its owner once every balance is 0 and no payment waits, at the time given', () => {
+    const group = created();
+    expect(archiveBy(group, 'ana', [0, 0]).isSuccess()).toBe(true);
+    expect(group.isArchived()).toBe(true);
+    expect(group.archivedAt).toEqual(LATER);
+  });
+
+  it('refuses a member who is not the owner, a balance that is not 0, and a payment that waits', () => {
+    const group = created();
+    valueOf(group.join({ accountId: 'ben', joinedAt: AT }));
+    expect(archiveBy(group, 'ben', [0, 0]).isFailure()).toBe(true);
+    expect(archiveBy(group, 'ana', [0, 50]).isFailure()).toBe(true);
+    expect(archiveBy(group, 'ana', [0, 0], true).isFailure()).toBe(true);
+    expect(group.isArchived()).toBe(false);
+  });
+
+  it('refuses the archive again, a join and a leave once archived, by GroupArchived', () => {
+    const group = created();
+    valueOf(group.join({ accountId: 'ben', joinedAt: AT }));
+    valueOf(archiveBy(group, 'ana', [0, 0]));
+    const again = archiveBy(group, 'ana', [0, 0]);
+    expect(again.isFailure() && again.error.type).toBe('GroupArchived');
+    const joined = group.join({ accountId: 'cleo', joinedAt: AT });
+    expect(joined.isFailure() && joined.error.type).toBe('GroupArchived');
+    const left = group.leave({ accountId: 'ben', balance: 0, paymentWaiting: false });
+    expect(left.isFailure() && left.error.type).toBe('GroupArchived');
+    expect(group.members.map(member => member.accountId)).toEqual(['ana', 'ben']);
+  });
+
+  it('reads back its archive time from a snapshot, and an open group has none', () => {
+    const group = created();
+    expect(group.toSnapshot().archivedAt).toBeNull();
+    valueOf(archiveBy(group, 'ana', [0]));
+    const restored = Group.fromSnapshot(group.toSnapshot());
+    expect(restored.isArchived()).toBe(true);
+    expect(restored.archivedAt).toEqual(LATER);
+  });
+});

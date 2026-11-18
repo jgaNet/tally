@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -36,6 +37,7 @@ export class RefundSettlementCommandHandler extends CommandHandler<RefundSettlem
 
     const members = await this.settlementMembers.membersOf(book.groupId, asker);
     if (!members) return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));
+    if (await this.settlementMembers.isArchived(book.groupId)) return Result.fail(new GroupArchivedException());
 
     const proposed = book.proposeRefund({
       settlementId,

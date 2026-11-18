@@ -16,4 +16,6 @@ export interface ISettlementMembers {
   membersOf(groupId: string, askedBy: string): Promise<SettlementMember[] | null>;
   /** The currency the group counts in, when `askedBy` is one of its members; null otherwise, as if the group did not exist. */
   currencyOf(groupId: string, askedBy: string): Promise<string | null>;
+  /** Whether the group is archived (request 27): a handler asks it once it has found the asker a member; names no caller. */
+  isArchived(groupId: string): Promise<boolean>;
 }

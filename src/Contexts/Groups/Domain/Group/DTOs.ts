@@ -26,5 +26,7 @@ export interface IGroupSnapshot {
   passings: IBalancePassingSnapshot[];
   /** When the group was created, as an ISO 8601 string. */
   createdAt: string;
+  /** When the group was archived, as an ISO 8601 string; null while it is not archived (request 27). */
+  archivedAt: string | null;
   version: number;
 }

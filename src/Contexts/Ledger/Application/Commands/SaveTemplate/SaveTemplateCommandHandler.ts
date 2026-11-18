@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -29,6 +30,7 @@ export class SaveTemplateCommandHandler extends CommandHandler<SaveTemplateComma
     const { groupId, name, split } = event.payload;
     const members = await this.groupMembers.membersOf(groupId, saver);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
+    if (await this.groupMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
     const taken = await this.templates.findByName(groupId, name);
 
     const saved = SplitTemplate.draft({ groupId, name, split, savedBy: saver, members, nameTaken: taken !== null });

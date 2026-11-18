@@ -9,4 +9,9 @@ export interface IMemberBalances {
    * passed on when members left included (request 20); 0 when nothing counts it. It is what passes to the owner on leaving.
    */
   balanceOf(groupId: string, memberId: string): Promise<number>;
+  /**
+   * Every current member's balance in the group, as Ledger counts it, one value per member: the group is archived only when
+   * every one of them is 0 (request 27).
+   */
+  balancesOf(groupId: string): Promise<number[]>;
 }

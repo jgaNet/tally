@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -39,6 +40,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     const { groupId, to, amount } = event.payload;
     const members = await this.settlementMembers.membersOf(groupId, payer);
     if (!members) return Result.fail(new NotFoundException('Settlements', 'Group not found'));
+    if (await this.settlementMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
     const currency = await this.settlementMembers.currencyOf(groupId, payer);
     if (!currency) return Result.fail(new NotFoundException('Settlements', 'Group not found'));
 

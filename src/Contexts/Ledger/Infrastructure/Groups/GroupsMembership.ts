@@ -27,4 +27,8 @@ export class GroupsMembership implements IGroupMembers {
   hasBeenMember(groupId: string, accountId: string, askedBy: string): Promise<boolean | null> {
     return this.groups.hasBeenMemberOf(askedBy, groupId, accountId);
   }
+
+  isArchived(groupId: string): Promise<boolean> {
+    return this.groups.isArchived(groupId);
+  }
 }

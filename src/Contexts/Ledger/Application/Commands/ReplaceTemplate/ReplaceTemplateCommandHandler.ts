@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -30,6 +31,7 @@ export class ReplaceTemplateCommandHandler extends CommandHandler<ReplaceTemplat
     if (!template) return Result.fail(new NotFoundException('Ledger', 'Template not found'));
     const members = await this.groupMembers.membersOf(template.groupId, replacer);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Template not found'));
+    if (await this.groupMembers.isArchived(template.groupId)) return Result.fail(new GroupArchivedException());
     const taken = await this.templates.findByName(template.groupId, name);
 
     const replaced = template.replace({

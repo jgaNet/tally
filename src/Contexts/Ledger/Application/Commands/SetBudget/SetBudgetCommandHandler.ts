@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -29,6 +30,7 @@ export class SetBudgetCommandHandler extends CommandHandler<SetBudgetCommandEven
     const { groupId, category, amount } = event.payload;
     const members = await this.groupMembers.membersOf(groupId, setter);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
+    if (await this.groupMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
 
     const budget = (await this.budgets.findFor(groupId, category)) ?? Budget.create({ groupId, category });
     const set = budget.setAmount({ setBy: setter, members, amount });

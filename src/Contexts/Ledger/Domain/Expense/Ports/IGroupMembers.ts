@@ -43,4 +43,9 @@ export interface IGroupMembers {
    * null otherwise, as if the group did not exist. A former member's statement is read through it (request 9).
    */
   hasBeenMember(groupId: string, accountId: string, askedBy: string): Promise<boolean | null>;
+  /**
+   * Whether the group is archived (request 27). It names no caller: a handler asks it once it has found the asker a member, and
+   * the background job asks it for a recurring expense's group, never answered to a person.
+   */
+  isArchived(groupId: string): Promise<boolean>;
 }

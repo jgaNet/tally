@@ -1,9 +1,11 @@
-/** What a member reads of a group: the group as the screens show it. */
+/** What a member reads of a group: the group as the screens show it, and when it was archived, if it is (request 27). */
 export interface GroupView {
   id: string;
   name: string;
   currency: string;
   ownerId: string;
+  /** When the group was archived, as an ISO 8601 string: present only on an archived group. */
+  archivedAt?: string;
 }
 
 /** What a member reads of another member: the account, its name, its role, and when it joined. */
@@ -33,6 +35,11 @@ export interface IGroupQueries {
    * current members; null otherwise, as if the group did not exist (request 9: a former member's statement is read).
    */
   hasBeenMemberOf(askedBy: string, groupId: string, accountId: string): Promise<boolean | null>;
+  /**
+   * Whether the group is archived. It names no caller: a caller asks it only once it knows the caller is a member, and the
+   * background job names no caller at all (request 27).
+   */
+  isArchived(groupId: string): Promise<boolean>;
   /**
    * The current members of every group, each group's members in the order they joined (ADR 10). It names no caller: it is
    * read by the background job, which decides for every group, and never answered to a person.

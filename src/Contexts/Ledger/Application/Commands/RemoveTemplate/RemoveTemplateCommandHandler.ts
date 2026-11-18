@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -29,6 +30,7 @@ export class RemoveTemplateCommandHandler extends CommandHandler<RemoveTemplateC
     if (!template) return Result.fail(new NotFoundException('Ledger', 'Template not found'));
     const members = await this.groupMembers.membersOf(template.groupId, remover);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Template not found'));
+    if (await this.groupMembers.isArchived(template.groupId)) return Result.fail(new GroupArchivedException());
 
     const removed = template.remove({ removedBy: remover, members });
     if (removed.isFailure()) return Result.fail(removed.error);

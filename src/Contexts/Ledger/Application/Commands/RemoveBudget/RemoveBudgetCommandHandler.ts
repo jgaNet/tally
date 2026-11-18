@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -29,6 +30,7 @@ export class RemoveBudgetCommandHandler extends CommandHandler<RemoveBudgetComma
     const { groupId, category } = event.payload;
     const members = await this.groupMembers.membersOf(groupId, remover);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
+    if (await this.groupMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
     const budget = await this.budgets.findFor(groupId, category);
     if (!budget) return Result.fail(new NoBudgetException());
 

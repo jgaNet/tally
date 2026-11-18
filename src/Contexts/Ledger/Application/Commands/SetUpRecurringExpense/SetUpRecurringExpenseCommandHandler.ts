@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -32,6 +33,7 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
     const { groupId, description, amount, startsOn, split, category } = event.payload;
     const members = await this.groupMembers.membersOf(groupId, payer);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
+    if (await this.groupMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
     const currency = await this.groupCurrency.currencyOf(groupId, payer);
     if (!currency) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
 

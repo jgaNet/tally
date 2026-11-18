@@ -23,6 +23,8 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
 
   async execute({ payload }: RecurringExpenseDayCameEvent, context: ExecutionContext): Promise<IResult> {
     if (await this.expenses.findById(payload.expenseId)) return Result.ok();
+    // An archived group records nothing, by the background job or by this policy (request 27).
+    if (await this.groupMembers.isArchived(payload.groupId)) return Result.ok();
 
     const memberIds = await this.groupMembers.currentMemberIds(payload.groupId);
     const recorded = Expense.create({

@@ -1,4 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 import { CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -29,6 +30,7 @@ export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCom
     if (!expense) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     const members = await this.groupMembers.membersOf(expense.groupId, deleter);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
+    if (await this.groupMembers.isArchived(expense.groupId)) return Result.fail(new GroupArchivedException());
 
     const deleted = expense.delete({ deletedBy: deleter, members });
     if (deleted.isFailure()) return Result.fail(deleted.error);

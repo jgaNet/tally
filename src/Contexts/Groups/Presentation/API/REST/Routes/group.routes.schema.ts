@@ -19,6 +19,8 @@ const GroupSchema = {
     name: { type: 'string' },
     currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
     ownerId: { type: 'string' },
+    /** Present only on an archived group, when it was archived (request 27). */
+    archivedAt: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
   },
 } as const;
 
@@ -93,6 +95,21 @@ export const LeaveGroupResSchema = {
   },
   400: RefusalSchema,
   401: RefusalSchema,
+  404: RefusalSchema,
+  409: RefusalSchema,
+} as const;
+
+/** Archiving answers at once, as leaving does: the id of the group archived, or the refusal (request 27). */
+export const ArchiveGroupResSchema = {
+  201: IdSchema,
+  202: {
+    type: 'object',
+    required: ['operationId'],
+    properties: { operationId: { type: 'string' } },
+  },
+  400: RefusalSchema,
+  401: RefusalSchema,
+  403: RefusalSchema,
   404: RefusalSchema,
   409: RefusalSchema,
 } as const;

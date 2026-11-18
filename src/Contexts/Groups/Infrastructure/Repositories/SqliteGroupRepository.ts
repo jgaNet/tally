@@ -42,6 +42,11 @@ export function createGroupsTables(database: SqliteDatabase): void {
       PRIMARY KEY (group_id, seq)
     );
   `);
+  // A group created before archiving existed is not archived: the column is NULL until its owner archives it (request 27).
+  const columns = database.connection.prepare('PRAGMA table_info(groups)').all() as unknown as { name: string }[];
+  if (!columns.some(column => column.name === 'archived_at')) {
+    database.connection.exec('ALTER TABLE groups ADD COLUMN archived_at TEXT');
+  }
 }
 
 interface GroupRow {
@@ -50,6 +55,7 @@ interface GroupRow {
   currency: string;
   owner_id: string;
   created_at: string;
+  archived_at: string | null;
   version: number;
 }
 
@@ -81,6 +87,7 @@ export class SqliteGroupRepository implements IGroupRepository {
         members.map(member => ({ accountId: member.account_id, joinedAt: member.joined_at })),
         formerMembers.map(member => ({ accountId: member.account_id, joinedAt: member.joined_at })),
         passings.map(passing => ({ from: passing.from_account, to: passing.to_account, amount: passing.amount })),
+        row.archived_at,
       ),
     );
   }
@@ -94,11 +101,13 @@ export class SqliteGroupRepository implements IGroupRepository {
    */
   async save(group: Group): Promise<IResult> {
     const snapshot = group.toSnapshot();
-    const { _id: id, name, currency, ownerId, createdAt, version } = snapshot;
+    const { _id: id, name, currency, ownerId, createdAt, archivedAt, version } = snapshot;
 
     const updated = this.database.connection
-      .prepare('UPDATE groups SET name = :name, version = :next WHERE id = :id AND version = :version')
-      .run({ id, name, version, next: version + 1 });
+      .prepare(
+        'UPDATE groups SET name = :name, archived_at = :archivedAt, version = :next WHERE id = :id AND version = :version',
+      )
+      .run({ id, name, archivedAt, version, next: version + 1 });
 
     if (updated.changes === 0) {
       const stored = this.database.connection.prepare('SELECT version FROM groups WHERE id = ?').get(id);
@@ -106,8 +115,10 @@ export class SqliteGroupRepository implements IGroupRepository {
         return Result.fail(new ConcurrencyConflictException('Groups', 'The group changed since it was read', { id }));
       }
       this.database.connection
-        .prepare('INSERT INTO groups (id, name, currency, owner_id, created_at, version) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id, name, currency, ownerId, createdAt, version + 1);
+        .prepare(
+          'INSERT INTO groups (id, name, currency, owner_id, created_at, archived_at, version) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(id, name, currency, ownerId, createdAt, archivedAt, version + 1);
     }
 
     this.database.connection.prepare('DELETE FROM group_members WHERE group_id = ?').run(id);
@@ -138,6 +149,7 @@ function toSnapshot(
   members: IGroupMemberSnapshot[],
   formerMembers: IGroupMemberSnapshot[],
   passings: IBalancePassingSnapshot[],
+  archivedAt: string | null,
 ): IGroupSnapshot {
   return {
     _id: row.id,
@@ -148,6 +160,7 @@ function toSnapshot(
     formerMembers,
     passings,
     createdAt: row.created_at,
+    archivedAt,
     version: row.version,
   };
 }
