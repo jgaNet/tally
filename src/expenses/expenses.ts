@@ -7,6 +7,7 @@ import type { Currency } from '../groups/validation';
 import { recordExpenseNotices } from '../notices/notices';
 import { type RatesConfig, offeredRate } from '../rates/rates';
 import { Refusal } from '../refusal';
+import { splitOfTemplate } from '../templates/templates';
 import {
   type ExpenseInput,
   type MoneyInput,
@@ -19,6 +20,17 @@ import {
   isOtherCurrency,
   validateExpense,
 } from './validation';
+
+/** What an expense is split by, as a request gives it: one of the three splits, or a template of its group. */
+export type SplitRequest = SplitInput | { kind: 'template'; templateId: string };
+
+/** An expense as a request gives it: its split may be a template, which is split by as if its split had been given. */
+export type ExpenseRequest = Omit<ExpenseInput, 'split'> & { split: SplitRequest };
+
+/** The split an expense of `groupId` is checked by: a template's own split, as saved, for a template. */
+function splitFor(db: Database, groupId: string, split: SplitRequest): SplitInput {
+  return split.kind === 'template' ? splitOfTemplate(db, groupId, split.templateId) : split;
+}
 
 export interface Share {
   memberId: string;
@@ -120,13 +132,19 @@ export async function createExpense(
   rates: RatesConfig,
   groupId: string,
   payerId: string,
-  input: ExpenseInput,
+  input: ExpenseRequest,
 ): Promise<string> {
   const { currency } = requireMembership(db, groupId, payerId);
   const offer = await rateOfferFor(rates, currency, input.money, input.date);
   return inTransaction(db, () => {
     const group = requireMembership(db, groupId, payerId);
-    const expense = validateExpense(input, memberIdsOf(db, groupId), payerId, group.currency, offer);
+    const expense = validateExpense(
+      { ...input, split: splitFor(db, groupId, input.split) },
+      memberIdsOf(db, groupId),
+      payerId,
+      group.currency,
+      offer,
+    );
     return insertExpense(db, groupId, payerId, expense, new Date().toISOString());
   });
 }
@@ -334,7 +352,7 @@ export async function updateExpense(
   rates: RatesConfig,
   expenseId: string,
   accountId: string,
-  input: ExpenseInput,
+  input: ExpenseRequest,
   version: number,
 ): Promise<void> {
   // Who may edit, and the version, are settled before the rates service is asked: a refused edit asks nothing.
@@ -349,7 +367,7 @@ export async function updateExpense(
       throw staleVersion();
     }
     const expense = validateExpense(
-      input,
+      { ...input, split: splitFor(db, current.groupId, input.split) },
       memberIdsOf(db, current.groupId),
       current.paidBy,
       currencyOfGroup(db, current.groupId),

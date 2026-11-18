@@ -341,6 +341,21 @@ const migrations: readonly string[] = [
   ALTER TABLE notices_next RENAME TO notices;
   CREATE INDEX notices_by_account ON notices (account_id, created_at);
   `,
+  `
+  -- A split saved under a name in a group, which an expense may be split by in place of its own split. The split is
+  -- as it was given (JSON): equally between members, or by shares. The name is kept as given; its key, the name in
+  -- lower case, is what makes it unique in its group, whatever its case. Its author and the owner may change it.
+  CREATE TABLE split_templates (
+    id         TEXT PRIMARY KEY,
+    group_id   TEXT NOT NULL REFERENCES groups (id),
+    created_by TEXT NOT NULL REFERENCES accounts (id),
+    name       TEXT NOT NULL,
+    name_key   TEXT NOT NULL,
+    split      TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (group_id, name_key)
+  );
+  `,
 ];
 
 /** Runs `work` under one write lock: its writes all land, or none does. */

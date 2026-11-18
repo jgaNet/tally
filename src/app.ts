@@ -17,6 +17,7 @@ import { Refusal } from './refusal';
 import { sweepDebts } from './reminders/reminders';
 import { registerSettlementRoutes } from './settlements/routes';
 import { registerStatementRoutes } from './statements/routes';
+import { registerTemplateRoutes } from './templates/routes';
 
 /** The running application: what the server entry point and the tests start and stop. */
 export interface Application {
@@ -105,6 +106,7 @@ export async function createApplication({
       registerGroupRoutes(routes, db);
       registerInvitationRoutes(routes, db);
       registerExpenseRoutes(routes, db, rates);
+      registerTemplateRoutes(routes, db);
       registerRateRoutes(routes, db, rates);
       registerBudgetRoutes(routes, db);
       registerRecurringRoutes(routes, db);

@@ -5,8 +5,15 @@ import { CATEGORIES } from '../budgets/categories';
 import { requireMembership } from '../groups/groups';
 import { CURRENCIES } from '../groups/validation';
 import type { RatesConfig } from '../rates/rates';
-import { createExpense, deleteExpense, expensesOfGroup, requireExpense, updateExpense } from './expenses';
-import type { MoneyInput, SplitInput } from './validation';
+import {
+  type SplitRequest,
+  createExpense,
+  deleteExpense,
+  expensesOfGroup,
+  requireExpense,
+  updateExpense,
+} from './expenses';
+import type { MoneyInput } from './validation';
 
 const shareSchema = {
   type: 'object',
@@ -18,10 +25,12 @@ const shareSchema = {
 };
 
 /**
- * The three ways to split, as a body gives them: exactly one of them, else the body is of the wrong
- * shape. Each member is listed with the amount of their share, or with their shares.
+ * The ways to split, as a body gives them: exactly one of the three splits, or a template of the group, else the body
+ * is of the wrong shape. Each member is listed with the amount of their share, or with their shares.
  */
 const splitProperties = {
+  /** The id of a template of the group, which the expense is split by in place of its own split. */
+  template: { type: 'string' },
   splitBetween: { type: 'array', items: { type: 'string' } },
   splitExactly: {
     type: 'array',
@@ -42,7 +51,12 @@ const splitProperties = {
 };
 
 const exactlyOneSplit = {
-  oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
+  oneOf: [
+    { required: ['splitBetween'] },
+    { required: ['splitExactly'] },
+    { required: ['splitByShares'] },
+    { required: ['template'] },
+  ],
 };
 
 /**
@@ -68,6 +82,7 @@ const exactlyOneAmount = {
 const exactlyOneSplitAndAmount = { allOf: [exactlyOneSplit, exactlyOneAmount] };
 
 interface SplitBody {
+  template?: string;
   splitBetween?: string[];
   splitExactly?: { memberId: string; amount: number }[];
   splitByShares?: { memberId: string; shares: number }[];
@@ -87,8 +102,11 @@ function moneyOf(body: AmountBody): MoneyInput {
   return { kind: 'group', amount: body.amount ?? 0 };
 }
 
-/** The split a body gives; the schema has already let through exactly one of the three. */
-function splitOf(body: SplitBody): SplitInput {
+/** The split a body gives; the schema has already let through exactly one of the four ways. */
+function splitOf(body: SplitBody): SplitRequest {
+  if (body.template !== undefined) {
+    return { kind: 'template', templateId: body.template };
+  }
   if (body.splitByShares !== undefined) {
     return { kind: 'shares', splitByShares: body.splitByShares };
   }
