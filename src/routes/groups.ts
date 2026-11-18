@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Database } from '../database';
 import { archiveGroup, createGroup, findGroupOfMember, groupsOfMember, leaveGroup, membersOfGroup } from '../groups';
 import { requireCaller } from '../http';
+import { mergeGroups } from '../merge';
 import { Refusal } from '../refusal';
 
 interface CreateGroupBody {
@@ -41,6 +42,12 @@ export const MEMBER = {
   },
 };
 
+const MERGE_GROUP_BODY = {
+  type: 'object',
+  required: ['from'],
+  properties: { from: { type: 'string' } },
+};
+
 export function registerGroupRoutes(server: FastifyInstance, db: Database): void {
   server.post<{ Body: CreateGroupBody }>(
     '/groups',
@@ -76,6 +83,17 @@ export function registerGroupRoutes(server: FastifyInstance, db: Database): void
     await leaveGroup(db, { groupId: request.params.id, accountId: caller.id });
     return reply.code(204).send();
   });
+
+  // Only the owner of both groups merges one into the other: the group `from` goes into the group `{id}`, which is kept.
+  server.post<{ Params: { id: string }; Body: { from: string } }>(
+    '/groups/:id/merge',
+    { schema: { body: MERGE_GROUP_BODY } },
+    async (request, reply) => {
+      const caller = await requireCaller(db, request);
+      await mergeGroups(db, { groupId: request.params.id, from: request.body.from, accountId: caller.id });
+      return reply.code(204).send();
+    },
+  );
 
   // Only the owner archives the group, once every balance is 0 and no provider settlement is in progress; after that the
   // group is read only.
