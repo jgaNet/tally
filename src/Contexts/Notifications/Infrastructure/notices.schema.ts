@@ -1,10 +1,10 @@
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-
 /**
- * The notifications' table in the SQLite file (ADR 2, ADR 11, ADR 12). A notice is one row, written once in the transaction
- * of the reaction or the sweep that makes it. A notice of an expense names it, and `(expense_id, member_id)` is unique: a
- * member is told of an expense once. A reminder names no expense (`expense_id` is NULL, and NULLs are never equal in a
- * unique index, so reminders do not collide). `at` is an ISO instant in UTC, so the latest first is the order of the text.
+ * The notifications' table in the PostgreSQL database (ADR 22, ADR 11, ADR 12). A notice is one row, written once in the
+ * transaction of the reaction or the sweep that makes it. A notice of an expense names it, and `(expense_id, member_id)` is
+ * unique: a member is told of an expense once. A reminder names no expense (`expense_id` is NULL, and NULLs are never equal
+ * in a unique index, so reminders do not collide). `at` is an ISO instant in UTC, so the latest first is the order of the
+ * text, and `rowid` (the order they were written in, as SQLite's own was) breaks a tie. The table is created in its final
+ * shape: a file made by request 17 or 18 had fewer columns, and the move copies the columns it has.
  */
 export const NOTICE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS notifications_notices (
@@ -13,49 +13,23 @@ export const NOTICE_STATEMENTS = [
      group_id TEXT NOT NULL,
      expense_id TEXT,
      kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
-     amount INTEGER NOT NULL,
+     amount BIGINT NOT NULL,
      at TEXT NOT NULL,
      category TEXT,
      month TEXT,
-     budget INTEGER,
+     budget BIGINT,
+     rowid BIGSERIAL,
      CHECK ((kind = 'expense') = (expense_id IS NOT NULL)),
      CHECK ((kind = 'budget') = (category IS NOT NULL AND month IS NOT NULL AND budget IS NOT NULL)),
      UNIQUE (expense_id, member_id)
    )`,
   `CREATE INDEX IF NOT EXISTS notifications_notices_by_member ON notifications_notices (member_id, at)`,
+  // Notices moved with their own `rowid`: the sequence is taken past them, so a notice written after the move comes after
+  // them. It only ever moves forward.
+  `SELECT setval(pg_get_serial_sequence('notifications_notices', 'rowid'), MAX(rowid))
+     FROM notifications_notices
+   HAVING MAX(rowid) >= (SELECT last_value FROM notifications_notices_rowid_seq)`,
 ];
-
-/**
- * Brings a file made before the table above up to it: a file made by request 17 has `expense_id` NOT NULL, which a reminder cannot
- * store, and a file made by request 18 has no budget columns, which a budget's notice needs (request 24). `CREATE TABLE IF NOT
- * EXISTS` does not change a table that exists, so the table is rebuilt once, in one transaction, keeping every row. A file
- * made with this table is left as it is.
- */
-export function migrateNotices(database: SqliteDatabase): void {
-  const { connection } = database;
-  const columns = connection.prepare('PRAGMA table_info(notifications_notices)').all() as {
-    name: string;
-    notnull: number;
-  }[];
-  if (columns.length > 0 && !columns.some(column => column.name === 'budget')) {
-    connection.exec('BEGIN IMMEDIATE');
-    try {
-      connection.exec('DROP INDEX IF EXISTS notifications_notices_by_member');
-      connection.exec('ALTER TABLE notifications_notices RENAME TO notifications_notices_before_reminders');
-      database.migrate(NOTICE_STATEMENTS);
-      connection.exec(
-        `INSERT INTO notifications_notices (id, member_id, group_id, expense_id, kind, amount, at)
-         SELECT id, member_id, group_id, expense_id, kind, amount, at FROM notifications_notices_before_reminders`,
-      );
-      connection.exec('DROP TABLE notifications_notices_before_reminders');
-      connection.exec('COMMIT');
-    } catch (error) {
-      connection.exec('ROLLBACK');
-      throw error;
-    }
-  }
-  database.migrate(NOTICE_STATEMENTS);
-}
 
 /** The debt watches of the sweep (ADR 12): one row per member and group, with the optimistic version the sweep checks. */
 export const DEBT_WATCH_STATEMENTS = [
@@ -65,7 +39,7 @@ export const DEBT_WATCH_STATEMENTS = [
      member_id TEXT NOT NULL,
      noted_since TEXT,
      last_reminded TEXT,
-     version INTEGER NOT NULL,
+     version BIGINT NOT NULL,
      UNIQUE (group_id, member_id)
    )`,
 ];

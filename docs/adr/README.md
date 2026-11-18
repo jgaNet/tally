@@ -6,7 +6,7 @@ why, what it costs, and when to revisit it.
 | # | Decision |
 |---|---|
 | [1](0001-groups-and-ledger-and-how-they-relate.md) | Groups and Ledger, and how they relate |
-| [2](0002-sqlite-and-accounts.md) | One SQLite file, and accounts that sign in |
+| [2](0002-sqlite-and-accounts.md) | One SQLite file, and accounts that sign in (the store superseded by [22](0022-postgresql.md)) |
 | [3](0003-ledger-asks-groups-for-the-members.md) | Ledger asks Groups who is a member, through a read model Groups exports |
 | [4](0004-leaving-a-group.md) | Leaving a group: Groups asks Ledger a member's balance, and a former member keeps its rows |
 | [5](0005-settlements-and-notifications-and-how-the-four-contexts-relate.md) | Settlements and Notifications, and how the four contexts relate |
@@ -26,6 +26,7 @@ why, what it costs, and when to revisit it.
 | [19](0019-receipts.md) | Receipts: an aggregate in Ledger, kept in an outside store behind a port Ledger owns |
 | [20](0020-archiving-a-group.md) | Archiving a group: Groups decides, every context asks Groups through its port, and the refusal is one shared name |
 | [21](0021-the-audit-of-money-changes.md) | The audit of money changes: each context keeps its own changes, and Ledger reads them through two ports it owns |
+| [22](0022-postgresql.md) | PostgreSQL is the one store, and a first start moves the SQLite file into it |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

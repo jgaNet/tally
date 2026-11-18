@@ -1,23 +1,22 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Connection } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 /**
  * The expenses' part of each member's balance in a group, from the balance entries, on the connection given: a member
  * with no entry is absent (0). Shared by the queries outside a transaction and the reads inside a command's.
  */
-export function entrySumsOf(connection: DatabaseSync, groupId: string): Map<string, number> {
-  const rows = connection
-    .prepare(
-      'SELECT member_id AS memberId, SUM(amount) AS balance FROM ledger_balance_entries WHERE group_id = ? GROUP BY member_id',
-    )
-    .all(groupId) as { memberId: string; balance: number }[];
+export async function entrySumsOf(connection: Connection, groupId: string): Promise<Map<string, number>> {
+  const rows = await connection.rows<{ memberId: string; balance: number }>(
+    'SELECT member_id AS "memberId", SUM(amount) AS balance FROM ledger_balance_entries WHERE group_id = ? GROUP BY member_id',
+    groupId,
+  );
   return new Map(rows.map(row => [row.memberId, Number(row.balance)]));
 }
 
 /** The groups with a balance entry, on the connection given: every group that has an expense recorded. */
-export function groupIdsOf(connection: DatabaseSync): string[] {
-  const rows = connection
-    .prepare('SELECT DISTINCT group_id AS groupId FROM ledger_balance_entries ORDER BY group_id')
-    .all() as { groupId: string }[];
+export async function groupIdsOf(connection: Connection): Promise<string[]> {
+  const rows = await connection.rows<{ groupId: string }>(
+    'SELECT DISTINCT group_id AS "groupId" FROM ledger_balance_entries ORDER BY group_id',
+  );
   return rows.map(row => row.groupId);
 }
 

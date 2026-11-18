@@ -1,20 +1,21 @@
 /**
- * The ledger's tables in the SQLite file (ADR 2). An expense is a row of `ledger_expenses`, at its version (1 when it is
+ * The ledger's tables in the PostgreSQL database (ADR 22). An expense is a row of `ledger_expenses`, at its version (1 when it is
  * recorded, one more at each edit); its shares are its rows of `ledger_expense_shares`, in the order of the split
  * (`position`); how it is split (`equal`, `exact` or `shares`) is its row of `ledger_expense_splits`; what it was paid in,
  * when it was another currency than the group's, is its row of `ledger_expense_originals` (request 21). `recorded_at` is
- * when it was recorded. A deleted expense has no rows here, nor in the balances.
+ * when it was recorded, and `rowid` the order the expenses were written in (as SQLite's own was). A deleted expense has no rows here, nor in the balances.
  */
 export const EXPENSE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS ledger_expenses (
      id TEXT PRIMARY KEY,
      group_id TEXT NOT NULL,
      description TEXT NOT NULL,
-     amount INTEGER NOT NULL,
+     amount BIGINT NOT NULL,
      date TEXT NOT NULL,
      paid_by TEXT NOT NULL,
      recorded_at TEXT NOT NULL,
-     version INTEGER NOT NULL
+     version BIGINT NOT NULL,
+     rowid BIGSERIAL
    )`,
   `CREATE INDEX IF NOT EXISTS ledger_expenses_by_group ON ledger_expenses (group_id)`,
   /*
@@ -26,8 +27,9 @@ export const EXPENSE_STATEMENTS = [
      expense_id TEXT PRIMARY KEY,
      split_kind TEXT NOT NULL CHECK (split_kind IN ('equal', 'exact', 'shares'))
    )`,
-  `INSERT OR IGNORE INTO ledger_expense_splits (expense_id, split_kind)
-   SELECT id, 'equal' FROM ledger_expenses`,
+  `INSERT INTO ledger_expense_splits (expense_id, split_kind)
+   SELECT id, 'equal' FROM ledger_expenses
+   ON CONFLICT DO NOTHING`,
   /*
    * What an expense was paid in, when it was not paid in the group's currency (request 21): its currency, its amount in
    * hundredths, and its rate as the payer wrote it, kept as the string given. One row per expense in another currency; an
@@ -36,7 +38,7 @@ export const EXPENSE_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS ledger_expense_originals (
      expense_id TEXT PRIMARY KEY,
      currency TEXT NOT NULL,
-     amount INTEGER NOT NULL,
+     amount BIGINT NOT NULL,
      rate TEXT NOT NULL
    )`,
   /*
@@ -47,13 +49,14 @@ export const EXPENSE_STATEMENTS = [
      expense_id TEXT PRIMARY KEY,
      category TEXT NOT NULL CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'))
    )`,
-  `INSERT OR IGNORE INTO ledger_expense_categories (expense_id, category)
-   SELECT id, 'other' FROM ledger_expenses`,
+  `INSERT INTO ledger_expense_categories (expense_id, category)
+   SELECT id, 'other' FROM ledger_expenses
+   ON CONFLICT DO NOTHING`,
   `CREATE TABLE IF NOT EXISTS ledger_expense_shares (
      expense_id TEXT NOT NULL,
-     position INTEGER NOT NULL,
+     position BIGINT NOT NULL,
      member_id TEXT NOT NULL,
-     amount INTEGER NOT NULL,
+     amount BIGINT NOT NULL,
      PRIMARY KEY (expense_id, position)
    )`,
   /*
@@ -65,7 +68,7 @@ export const EXPENSE_STATEMENTS = [
      expense_id TEXT NOT NULL,
      group_id TEXT NOT NULL,
      member_id TEXT NOT NULL,
-     amount INTEGER NOT NULL,
+     amount BIGINT NOT NULL,
      PRIMARY KEY (expense_id, member_id)
    )`,
   `CREATE INDEX IF NOT EXISTS ledger_balance_entries_by_group ON ledger_balance_entries (group_id, member_id)`,
@@ -73,11 +76,12 @@ export const EXPENSE_STATEMENTS = [
    * Expenses recorded before the entries existed get theirs once: the same net per member, from the expense and its
    * shares. Ignoring a row already there makes it safe to run again on every start.
    */
-  `INSERT OR IGNORE INTO ledger_balance_entries (expense_id, group_id, member_id, amount)
+  `INSERT INTO ledger_balance_entries (expense_id, group_id, member_id, amount)
    SELECT expense_id, group_id, member_id, SUM(amount) FROM (
      SELECT id AS expense_id, group_id, paid_by AS member_id, amount FROM ledger_expenses
      UNION ALL
      SELECT s.expense_id, e.group_id, s.member_id, -s.amount
        FROM ledger_expense_shares s JOIN ledger_expenses e ON e.id = s.expense_id
-   ) GROUP BY expense_id, member_id`,
+   ) AS nets GROUP BY expense_id, group_id, member_id
+   ON CONFLICT DO NOTHING`,
 ];

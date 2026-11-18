@@ -1,8 +1,8 @@
 /**
- * The groups' tables in the SQLite file (ADR 2). A group's memberships are its rows of `group_members`, in the order they
+ * The groups' tables in the PostgreSQL database (ADR 2, ADR 22). A group's memberships are its rows of `group_members`, in the order they
  * joined (`position`), each with the moment it joined and, once it has left, the moment it left (`left_at`, null while it
  * is a member): the owner is the first, written with the group, and never leaves. `created_at` orders the lists of
- * groups, most recent first. An invitation is a row of `group_invitations`: its id is the link.
+ * groups, most recent first, and `rowid` (the order they were written in, as SQLite's own was) breaks a tie. An invitation is a row of `group_invitations`: its id is the link.
  */
 export const GROUP_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS tally_groups (
@@ -11,12 +11,13 @@ export const GROUP_STATEMENTS = [
      currency TEXT NOT NULL,
      owner_id TEXT NOT NULL,
      created_at TEXT NOT NULL,
-     version INTEGER NOT NULL
+     version BIGINT NOT NULL,
+     rowid BIGSERIAL
    )`,
   `CREATE TABLE IF NOT EXISTS group_members (
      group_id TEXT NOT NULL,
      account_id TEXT NOT NULL,
-     position INTEGER NOT NULL,
+     position BIGINT NOT NULL,
      joined_at TEXT NOT NULL,
      left_at TEXT,
      PRIMARY KEY (group_id, account_id)
@@ -26,10 +27,10 @@ export const GROUP_STATEMENTS = [
   // were made. They outlive the membership of the member who left, which a new join replaces.
   `CREATE TABLE IF NOT EXISTS group_balances_passed (
      group_id TEXT NOT NULL,
-     position INTEGER NOT NULL,
+     position BIGINT NOT NULL,
      from_id TEXT NOT NULL,
      to_id TEXT NOT NULL,
-     amount INTEGER NOT NULL,
+     amount BIGINT NOT NULL,
      passed_at TEXT NOT NULL,
      PRIMARY KEY (group_id, position)
    )`,
@@ -43,6 +44,6 @@ export const GROUP_STATEMENTS = [
      group_id TEXT NOT NULL,
      invited_by TEXT NOT NULL,
      created_at TEXT NOT NULL,
-     version INTEGER NOT NULL
+     version BIGINT NOT NULL
    )`,
 ];

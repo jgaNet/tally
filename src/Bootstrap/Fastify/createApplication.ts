@@ -3,14 +3,16 @@ import { randomUUID } from 'node:crypto';
 import { Clock, Logger, relayOutbox } from '@Architecture/Application';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { PostgresUnitOfWork } from '@Architecture/Infrastructure/Postgres/PostgresUnitOfWork';
+import { PostgresOutbox } from '@Architecture/Infrastructure/Postgres/PostgresOutbox';
+import { prepareStorage } from '@Bootstrap/Fastify/moveFromSqliteFile';
 
 import { localTrackerModule, trackedEventBus } from '@Contexts/Tracker/module.local';
 import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { authenticate, groupsModuleWith } from '@Contexts/Groups/module.local';
+import { authenticate, groupsModuleWith, tokens } from '@Contexts/Groups/module.local';
 import { LedgerMemberBalances } from '@Contexts/Groups/Infrastructure/LedgerMemberBalances';
 import { SettlementsWaitingPayments } from '@Contexts/Groups/Infrastructure/SettlementsWaitingPayments';
 import { accountRoutes, groupRoutes, invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
@@ -48,7 +50,8 @@ import {
 
 /**
  * The composition root: the transport, the one event bus (which records every operation), the
- * modules and their routes, all over the one SQLite file `DATABASE_PATH` names (ADR 2). Groups
+ * modules and their routes, all over the one PostgreSQL database `DATABASE_URL` names (ADR 22), into which a
+ * first start moves what the SQLite file `DATABASE_PATH` names held (ADR 2). Groups
  * owns accounts and so gives the transport its `authenticate`; the Tracker is what a client
  * follows a command's operation at (`GET /v1/operations/:id`).
  *
@@ -70,7 +73,7 @@ export async function createApplication({
   /** The application's now, given to the background job (ADR 42); a test passes a clock it moves. */
   clock?: Clock;
 } = {}): Promise<FastifyApplication> {
-  const database = SqliteDatabase.shared();
+  const database = PostgresDatabase.shared();
   // Groups asks Ledger a member's balance when one leaves (ADR 4), and Settlements whether a payment of theirs waits at the
   // provider (ADR 13): the wirings do not import each other, so the composition root gives Groups both ports over their reads.
   const localGroupsModule = groupsModuleWith(
@@ -100,7 +103,7 @@ export async function createApplication({
     port,
     webOrigins,
     authenticate,
-    unitOfWork: () => new SqliteUnitOfWork(database),
+    unitOfWork: () => new PostgresUnitOfWork(database),
   })
     .setEventBus(trackedEventBus)
     .registerModule(localTrackerModule)
@@ -151,9 +154,16 @@ export async function createApplication({
     run: () => recordRecurring.run(app.executionContext(randomUUID())),
   });
 
+  // Before anything is served or relayed: the database is prepared, once, and what the SQLite file of an earlier version
+  // held is moved into it (ADR 22); then the tokens read their secret, the file's when it was moved.
+  // The outbox's table is made by the first unit of work, after the move: it is declared here, so its entries move too.
+  database.migrate(PostgresOutbox.STATEMENTS);
+  await prepareStorage(database, { file: process.env.DATABASE_PATH, clock, logger });
+  await tokens.load();
+
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): the outbox is in the
-  // database file, so a fact a crash kept from being published is published by the next server. The
+  // database (ADR 22), the entries moved from the SQLite file included, so a fact a crash kept from being published is published by the next server. The
   // context is one a request would get, with a unit of work of its own, so that each reaction it
   // delivers runs in a transaction of its own and publishes through the outbox, as after a request.
   const startup = app.executionContext('startup');

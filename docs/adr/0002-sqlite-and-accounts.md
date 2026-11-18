@@ -1,5 +1,8 @@
 # 2. One SQLite file, and accounts that sign in
 
+> The store is superseded by [ADR 22](0022-postgresql.md): PostgreSQL, with the same turns and the same rules; the
+> SQLite file is only read once, moved into it. What this record says of accounts and tokens holds.
+
 ## Context
 
 Request 1 (accounts) asks that what the application knows survives a server stopped abruptly, and that several servers

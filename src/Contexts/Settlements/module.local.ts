@@ -1,10 +1,10 @@
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 import { groupCurrencyInCommand, groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
 import { ISettlementEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementEffects';
 import { ICountedSettlements } from '@Contexts/Settlements/Domain/Settlement/Ports/ICountedSettlements';
-import { SqliteCountedSettlements } from '@Contexts/Settlements/Infrastructure/SqliteCountedSettlements';
+import { PostgresCountedSettlements } from '@Contexts/Settlements/Infrastructure/PostgresCountedSettlements';
 import { IGroupBalances } from '@Contexts/Settlements/Domain/Settlement/Ports/IGroupBalances';
 import { IMemberDebts } from '@Contexts/Settlements/Domain/Settlement/Ports/IMemberDebts';
 import {
@@ -29,34 +29,34 @@ import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPayme
 import { IWaitingEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingEffects';
 import { GroupsGroupCurrency } from '@Contexts/Settlements/Infrastructure/GroupsGroupCurrency';
 import { GroupsSettlementMembers } from '@Contexts/Settlements/Infrastructure/GroupsSettlementMembers';
-import { SqliteSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBookRepository';
-import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/SqliteSettlementQueries';
-import { SqliteSettlementEffects } from '@Contexts/Settlements/Infrastructure/SqliteSettlementEffects';
-import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountRepository';
-import { SqlitePayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountQueries';
+import { PostgresSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/PostgresSettlementBookRepository';
+import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/PostgresSettlementQueries';
+import { PostgresSettlementEffects } from '@Contexts/Settlements/Infrastructure/PostgresSettlementEffects';
+import { PostgresPayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/PostgresPayoutAccountRepository';
+import { PostgresPayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/PostgresPayoutAccountQueries';
 import { SettlementsMemberDebts } from '@Contexts/Settlements/Infrastructure/SettlementsMemberDebts';
-import { SqliteMemberPaymentsWaiting } from '@Contexts/Settlements/Infrastructure/SqliteMemberPaymentsWaiting';
+import { PostgresMemberPaymentsWaiting } from '@Contexts/Settlements/Infrastructure/PostgresMemberPaymentsWaiting';
 import { IMemberPaymentsWaiting } from '@Contexts/Settlements/Domain/Settlement/Ports/IMemberPaymentsWaiting';
 import { ISettlementAuditEntries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementAuditEntries';
-import { SqliteSettlementAuditEntries } from '@Contexts/Settlements/Infrastructure/SqliteSettlementAuditEntries';
+import { PostgresSettlementAuditEntries } from '@Contexts/Settlements/Infrastructure/PostgresSettlementAuditEntries';
 
 /**
- * The Settlements context (conventions/domain.yaml, ADR 5, ADR 6, ADR 7, ADR 8), kept in the application's SQLite file. Its
+ * The Settlements context (conventions/domain.yaml, ADR 5, ADR 6, ADR 7, ADR 8), kept in the application's PostgreSQL database (ADR 22). Its
  * balances come from Ledger and its members from Groups; neither is imported here beyond the read it exports. Ledger
  * imports this wiring for what was settled (`settlementEffects`), so this wiring does not import Ledger's: the composition
  * root gives it Ledger's balances (`settlementsModuleWith`), and the two wirings do not import each other.
  */
-const database = SqliteDatabase.shared();
+const database = PostgresDatabase.shared();
 
 /**
  * What the settlements paid, as Ledger reads it (SettledAmounts, ADR 7), exported for a query (outside any transaction)
  * and for a command (inside the asking command's transaction).
  */
-export const settlementEffects: ISettlementEffects = new SqliteSettlementEffects(database, false, [
+export const settlementEffects: ISettlementEffects = new PostgresSettlementEffects(database, false, [
   'paid',
   'refunding',
 ]);
-export const settlementEffectsInCommand: ISettlementEffects = new SqliteSettlementEffects(database, true, [
+export const settlementEffectsInCommand: ISettlementEffects = new PostgresSettlementEffects(database, true, [
   'paid',
   'refunding',
 ]);
@@ -65,23 +65,23 @@ export const settlementEffectsInCommand: ISettlementEffects = new SqliteSettleme
  * The settlements each member's balance counts, with when they started to count, as Ledger's statement reads them (SettledAmounts,
  * request 29): exported for a query (outside any transaction) and for a command (inside the asking command's transaction).
  */
-export const countedSettlements: ICountedSettlements = new SqliteCountedSettlements(database, false);
-export const countedSettlementsInCommand: ICountedSettlements = new SqliteCountedSettlements(database, true);
+export const countedSettlements: ICountedSettlements = new PostgresCountedSettlements(database, false);
+export const countedSettlementsInCommand: ICountedSettlements = new PostgresCountedSettlements(database, true);
 
 /**
  * Whether a member has a payment waiting at the provider, exported for Groups' command (WaitingPayments, ADR 13): inside the
  * asking command's transaction. The composition root hands it to Groups' module; this wiring does not import Groups'.
  */
-export const memberPaymentsWaitingInCommand: IMemberPaymentsWaiting = new SqliteMemberPaymentsWaiting(database);
+export const memberPaymentsWaitingInCommand: IMemberPaymentsWaiting = new PostgresMemberPaymentsWaiting(database);
 
 /**
  * The changes of money of the settlements, as their history records them, read by Ledger for the group's audit (SettlementAudit,
  * request 28), outside any transaction. Ledger's wiring takes it; this wiring does not import Ledger's.
  */
-export const settlementAuditEntries: ISettlementAuditEntries = new SqliteSettlementAuditEntries(database);
+export const settlementAuditEntries: ISettlementAuditEntries = new PostgresSettlementAuditEntries(database);
 
 /** What the payments waiting at the provider do to each balance, for the suggestions (ADR 8), outside any transaction. */
-const waitingEffects: IWaitingEffects = new SqliteSettlementEffects(database, false, ['pending']);
+const waitingEffects: IWaitingEffects = new PostgresSettlementEffects(database, false, ['pending']);
 
 /**
  * Who still owes what, as Notifications' sweep asks it (ADR 12), given the balances it reads from Ledger for the sweep
@@ -108,7 +108,7 @@ export function settlementsModuleWith(
         event: RecordCashSettlementCommandEvent,
         handlers: [
           new RecordCashSettlementCommandHandler(
-            new SqliteSettlementBookRepository(database),
+            new PostgresSettlementBookRepository(database),
             balancesInCommand,
             new GroupsSettlementMembers(groupMembershipInCommand),
             systemClock,
@@ -119,11 +119,11 @@ export function settlementsModuleWith(
         event: PayThroughProviderCommandEvent,
         handlers: [
           new PayThroughProviderCommandHandler(
-            new SqliteSettlementBookRepository(database),
+            new PostgresSettlementBookRepository(database),
             balancesInCommand,
             new GroupsSettlementMembers(groupMembershipInCommand),
             new GroupsGroupCurrency(groupCurrencyInCommand),
-            new SqlitePayoutAccountRepository(database),
+            new PostgresPayoutAccountRepository(database),
             provider,
             systemClock,
           ),
@@ -131,13 +131,13 @@ export function settlementsModuleWith(
       },
       {
         event: SetPayoutAccountCommandEvent,
-        handlers: [new SetPayoutAccountCommandHandler(new SqlitePayoutAccountRepository(database), provider)],
+        handlers: [new SetPayoutAccountCommandHandler(new PostgresPayoutAccountRepository(database), provider)],
       },
       {
         event: RefundSettlementCommandEvent,
         handlers: [
           new RefundSettlementCommandHandler(
-            new SqliteSettlementBookRepository(database),
+            new PostgresSettlementBookRepository(database),
             new GroupsSettlementMembers(groupMembershipInCommand),
             provider,
             systemClock,
@@ -146,20 +146,22 @@ export function settlementsModuleWith(
       },
       {
         event: ReceivePaymentWebhookCommandEvent,
-        handlers: [new ReceivePaymentWebhookCommandHandler(new SqliteSettlementBookRepository(database), systemClock)],
+        handlers: [
+          new ReceivePaymentWebhookCommandHandler(new PostgresSettlementBookRepository(database), systemClock),
+        ],
       },
     ],
     queries: [
       new GetSuggestedSettlementsQueryHandler(balances, waitingEffects, new GroupsSettlementMembers(groupMembership)),
       new GetSettlementQueryHandler(
-        new SqliteSettlementQueries(database),
+        new PostgresSettlementQueries(database),
         new GroupsSettlementMembers(groupMembership),
       ),
       new GetGroupSettlementsQueryHandler(
-        new SqliteSettlementQueries(database),
+        new PostgresSettlementQueries(database),
         new GroupsSettlementMembers(groupMembership),
       ),
-      new GetPayoutAccountQueryHandler(new SqlitePayoutAccountQueries(database)),
+      new GetPayoutAccountQueryHandler(new PostgresPayoutAccountQueries(database)),
     ],
   });
 }

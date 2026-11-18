@@ -1,8 +1,8 @@
 import { IPassedBalanceEntries } from '@Contexts/Groups/Domain/Group/Ports/IPassedBalanceEntries';
-import { SqlitePassedBalanceEntries } from '@Contexts/Groups/Infrastructure/SqlitePassedBalanceEntries';
+import { PostgresPassedBalanceEntries } from '@Contexts/Groups/Infrastructure/PostgresPassedBalanceEntries';
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 import {
   AcceptInvitationCommandEvent,
   AcceptInvitationCommandHandler,
@@ -21,18 +21,18 @@ import {
   GetMyGroupsQueryHandler,
   LoginQueryHandler,
 } from '@Contexts/Groups/Application/Queries';
-import { SqliteAccountRepository } from '@Contexts/Groups/Infrastructure/SqliteAccountRepository';
-import { SqliteAccountQueries } from '@Contexts/Groups/Infrastructure/SqliteAccountQueries';
-import { SqliteGroupRepository } from '@Contexts/Groups/Infrastructure/SqliteGroupRepository';
-import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/SqliteGroupQueries';
-import { SqliteInvitationRepository } from '@Contexts/Groups/Infrastructure/SqliteInvitationRepository';
-import { SqliteInvitationQueries } from '@Contexts/Groups/Infrastructure/SqliteInvitationQueries';
+import { PostgresAccountRepository } from '@Contexts/Groups/Infrastructure/PostgresAccountRepository';
+import { PostgresAccountQueries } from '@Contexts/Groups/Infrastructure/PostgresAccountQueries';
+import { PostgresGroupRepository } from '@Contexts/Groups/Infrastructure/PostgresGroupRepository';
+import { PostgresGroupQueries } from '@Contexts/Groups/Infrastructure/PostgresGroupQueries';
+import { PostgresInvitationRepository } from '@Contexts/Groups/Infrastructure/PostgresInvitationRepository';
+import { PostgresInvitationQueries } from '@Contexts/Groups/Infrastructure/PostgresInvitationQueries';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
 import { HmacTokens } from '@Contexts/Groups/Infrastructure/HmacTokens';
 import { authenticateWith } from '@Contexts/Groups/Presentation/API/REST/authenticate';
 import { IGroupMembership } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembership';
-import { SqliteGroupMembership } from '@Contexts/Groups/Infrastructure/SqliteGroupMembership';
-import { SqliteGroupCurrency } from '@Contexts/Groups/Infrastructure/SqliteGroupCurrency';
+import { PostgresGroupMembership } from '@Contexts/Groups/Infrastructure/PostgresGroupMembership';
+import { PostgresGroupCurrency } from '@Contexts/Groups/Infrastructure/PostgresGroupCurrency';
 import { IGroupCurrency } from '@Contexts/Groups/Domain/Group/Ports/IGroupCurrency';
 import { IMemberBalances } from '@Contexts/Groups/Domain/Group/Ports/IMemberBalances';
 import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPayments';
@@ -42,13 +42,13 @@ import { ArchiveGroupCommandEvent, ArchiveGroupCommandHandler } from '@Contexts/
 /**
  * The Groups context (conventions/domain.yaml, ADR 1): accounts (signing up, signing in, reading one's own account)
  * and groups (creating one, reading one of one's own, listing one's own, the members in their join order, leaving one),
- * invitations by a link (creating one, reading one, accepting one), kept in the application's SQLite file (ADR 2).
+ * invitations by a link (creating one, reading one, accepting one), kept in the application's PostgreSQL database (ADR 2, ADR 22).
  */
-const database = SqliteDatabase.shared();
+const database = PostgresDatabase.shared();
 const hasher = new ScryptPasswordHasher();
-const accountQueries = new SqliteAccountQueries(database);
-const groupQueries = new SqliteGroupQueries(database);
-const invitationQueries = new SqliteInvitationQueries(database);
+const accountQueries = new PostgresAccountQueries(database);
+const groupQueries = new PostgresGroupQueries(database);
+const invitationQueries = new PostgresInvitationQueries(database);
 
 export const tokens = new HmacTokens(database);
 
@@ -58,19 +58,19 @@ export const tokens = new HmacTokens(database);
  * `groupMembershipInCommand` for its commands (inside the command's transaction, ADR 2).
  */
 export const groupMembership: IGroupMembership = groupQueries;
-export const groupMembershipInCommand: IGroupMembership = new SqliteGroupMembership(database);
+export const groupMembershipInCommand: IGroupMembership = new PostgresGroupMembership(database);
 
 /**
  * The balances that passed to the owner when members left, as Ledger's audit reads them (PassedBalances, request 28),
  * outside any transaction. Ledger's wiring takes it; this wiring does not import Ledger's.
  */
-export const passedBalanceEntries: IPassedBalanceEntries = new SqlitePassedBalanceEntries(database);
+export const passedBalanceEntries: IPassedBalanceEntries = new PostgresPassedBalanceEntries(database);
 
 /** The currency of a group, as another context's command reads it (ADR 8), inside the command's transaction. */
-export const groupCurrencyInCommand: IGroupCurrency = new SqliteGroupCurrency(database);
+export const groupCurrencyInCommand: IGroupCurrency = new PostgresGroupCurrency(database);
 
 /** The currency of a group, as another context's query reads it (request 22), outside any transaction. */
-export const groupCurrencyForQueries: IGroupCurrency = new SqliteGroupCurrency(database);
+export const groupCurrencyForQueries: IGroupCurrency = new PostgresGroupCurrency(database, true);
 
 /** Says who is calling, for the transport: the context that owns accounts provides it. */
 export const authenticate = authenticateWith(tokens);
@@ -86,18 +86,18 @@ export function groupsModuleWith(memberBalances: IMemberBalances, waitingPayment
     commands: [
       {
         event: SignUpCommandEvent,
-        handlers: [new SignUpCommandHandler(new SqliteAccountRepository(database), hasher)],
+        handlers: [new SignUpCommandHandler(new PostgresAccountRepository(database), hasher)],
       },
       {
         event: CreateGroupCommandEvent,
-        handlers: [new CreateGroupCommandHandler(new SqliteGroupRepository(database), systemClock)],
+        handlers: [new CreateGroupCommandHandler(new PostgresGroupRepository(database), systemClock)],
       },
       {
         event: CreateInvitationCommandEvent,
         handlers: [
           new CreateInvitationCommandHandler(
-            new SqliteGroupRepository(database),
-            new SqliteInvitationRepository(database),
+            new PostgresGroupRepository(database),
+            new PostgresInvitationRepository(database),
             systemClock,
           ),
         ],
@@ -106,8 +106,8 @@ export function groupsModuleWith(memberBalances: IMemberBalances, waitingPayment
         event: AcceptInvitationCommandEvent,
         handlers: [
           new AcceptInvitationCommandHandler(
-            new SqliteInvitationRepository(database),
-            new SqliteGroupRepository(database),
+            new PostgresInvitationRepository(database),
+            new PostgresGroupRepository(database),
             systemClock,
           ),
         ],
@@ -116,7 +116,7 @@ export function groupsModuleWith(memberBalances: IMemberBalances, waitingPayment
         event: ArchiveGroupCommandEvent,
         handlers: [
           new ArchiveGroupCommandHandler(
-            new SqliteGroupRepository(database),
+            new PostgresGroupRepository(database),
             memberBalances,
             waitingPayments,
             systemClock,
@@ -127,7 +127,7 @@ export function groupsModuleWith(memberBalances: IMemberBalances, waitingPayment
         event: LeaveGroupCommandEvent,
         handlers: [
           new LeaveGroupCommandHandler(
-            new SqliteGroupRepository(database),
+            new PostgresGroupRepository(database),
             memberBalances,
             waitingPayments,
             systemClock,

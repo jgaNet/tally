@@ -1,5 +1,5 @@
 import { Clock, Module } from '@Architecture/Application';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 import {
   groupCurrencyForQueries,
   groupCurrencyInCommand,
@@ -15,7 +15,7 @@ import {
 } from '@Contexts/Settlements/module.local';
 import { passedBalanceEntries } from '@Contexts/Groups/module.local';
 import { IMemberBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalanceSums';
-import { SqliteMemberBalanceSums } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalanceSums';
+import { PostgresMemberBalanceSums } from '@Contexts/Ledger/Infrastructure/PostgresMemberBalanceSums';
 import {
   DeleteExpenseCommandEvent,
   DeleteExpenseCommandHandler,
@@ -32,14 +32,14 @@ import {
   GetMemberStatementQueryHandler,
   GetOfferedRateQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
-import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
-import { SqliteExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteExpenseQueries';
-import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/SqliteBalanceQueries';
-import { SqliteGroupBalanceSumsInCommand } from '@Contexts/Ledger/Infrastructure/SqliteGroupBalanceSumsInCommand';
+import { PostgresExpenseRepository } from '@Contexts/Ledger/Infrastructure/PostgresExpenseRepository';
+import { PostgresExpenseQueries } from '@Contexts/Ledger/Infrastructure/PostgresExpenseQueries';
+import { PostgresBalanceQueries } from '@Contexts/Ledger/Infrastructure/PostgresBalanceQueries';
+import { PostgresGroupBalanceSumsInCommand } from '@Contexts/Ledger/Infrastructure/PostgresGroupBalanceSumsInCommand';
 import { SettlementsSettledAmounts } from '@Contexts/Ledger/Infrastructure/SettlementsSettledAmounts';
 import { GroupsMembers } from '@Contexts/Ledger/Infrastructure/GroupsMembers';
 import { GroupsGroupCurrency } from '@Contexts/Ledger/Infrastructure/GroupsGroupCurrency';
-import { SqliteStatementQueries } from '@Contexts/Ledger/Infrastructure/SqliteStatementQueries';
+import { PostgresStatementQueries } from '@Contexts/Ledger/Infrastructure/PostgresStatementQueries';
 import { IGroupBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupBalanceSums';
 import { ExpenseRecordedEventHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedEventHandler';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
@@ -59,8 +59,8 @@ import {
 import { RecurringExpenseDayCameEventHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCameEventHandler';
 import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
 import { RecordRecurringExpensesJob } from '@Contexts/Ledger/Application/Jobs/RecordRecurringExpensesJob';
-import { SqliteRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseRepository';
-import { SqliteRecurringExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseQueries';
+import { PostgresRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/PostgresRecurringExpenseRepository';
+import { PostgresRecurringExpenseQueries } from '@Contexts/Ledger/Infrastructure/PostgresRecurringExpenseQueries';
 import { ExpenseEditedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Events/BudgetEvents';
 import { SetBudgetCommandEvent, SetBudgetCommandHandler } from '@Contexts/Ledger/Application/Commands/SetBudget';
@@ -71,11 +71,11 @@ import {
 import { GetGroupBudgetsQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupBudgets/GetGroupBudgetsQueryHandler';
 import { ExpenseMonthBudgetEventHandler } from '@Contexts/Ledger/Application/Events/ExpenseMonthBudgetEventHandler';
 import { BudgetPassedEventHandler } from '@Contexts/Ledger/Application/Events/BudgetPassedEventHandler';
-import { SqliteBudgetRepository } from '@Contexts/Ledger/Infrastructure/SqliteBudgetRepository';
-import { SqliteBudgetQueries } from '@Contexts/Ledger/Infrastructure/SqliteBudgetQueries';
-import { SqliteMonthlySpend } from '@Contexts/Ledger/Infrastructure/SqliteMonthlySpend';
-import { SqliteSplitTemplateRepository } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateRepository';
-import { SqliteSplitTemplateQueries } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateQueries';
+import { PostgresBudgetRepository } from '@Contexts/Ledger/Infrastructure/PostgresBudgetRepository';
+import { PostgresBudgetQueries } from '@Contexts/Ledger/Infrastructure/PostgresBudgetQueries';
+import { PostgresMonthlySpend } from '@Contexts/Ledger/Infrastructure/PostgresMonthlySpend';
+import { PostgresSplitTemplateRepository } from '@Contexts/Ledger/Infrastructure/PostgresSplitTemplateRepository';
+import { PostgresSplitTemplateQueries } from '@Contexts/Ledger/Infrastructure/PostgresSplitTemplateQueries';
 import {
   SaveTemplateCommandEvent,
   SaveTemplateCommandHandler,
@@ -95,10 +95,10 @@ import {
 } from '@Contexts/Ledger/Application/Commands/AttachReceipt';
 import { GetReceiptQueryHandler } from '@Contexts/Ledger/Application/Queries/GetReceipt/GetReceiptQueryHandler';
 import { IReceiptStore } from '@Contexts/Ledger/Application/Ports/IReceiptStore';
-import { SqliteReceiptRepository } from '@Contexts/Ledger/Infrastructure/SqliteReceiptRepository';
-import { SqliteReceiptQueries } from '@Contexts/Ledger/Infrastructure/SqliteReceiptQueries';
-import { SqliteAuditTrail } from '@Contexts/Ledger/Infrastructure/SqliteAuditTrail';
-import { SqliteAuditQueries } from '@Contexts/Ledger/Infrastructure/SqliteAuditQueries';
+import { PostgresReceiptRepository } from '@Contexts/Ledger/Infrastructure/PostgresReceiptRepository';
+import { PostgresReceiptQueries } from '@Contexts/Ledger/Infrastructure/PostgresReceiptQueries';
+import { PostgresAuditTrail } from '@Contexts/Ledger/Infrastructure/PostgresAuditTrail';
+import { PostgresAuditQueries } from '@Contexts/Ledger/Infrastructure/PostgresAuditQueries';
 import { SettlementsSettlementAudit } from '@Contexts/Ledger/Infrastructure/SettlementsSettlementAudit';
 import { GroupsPassedBalances } from '@Contexts/Ledger/Infrastructure/GroupsPassedBalances';
 import { GetGroupAuditQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupAudit/GetGroupAuditQueryHandler';
@@ -106,11 +106,11 @@ import { GetGroupAuditQueryHandler } from '@Contexts/Ledger/Application/Queries/
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3, ADR 7): the expenses of each group, recorded with their equal
  * split, the members' balances read from them and from what the settlements paid, and read by the members of the group,
- * kept in the application's SQLite file (ADR 2). Who may be in a split is asked of Groups through the read model Groups'
+ * kept in the application's PostgreSQL database (ADR 22). Who may be in a split is asked of Groups through the read model Groups'
  * wiring exports, and what was settled of Settlements' read model its wiring exports (ADR 7); neither wiring imports
  * this one.
  */
-const database = SqliteDatabase.shared();
+const database = PostgresDatabase.shared();
 
 /** What the settlements paid, as Ledger reads it: outside a transaction for a query, inside the asking command's for a command. */
 const settledForQueries = new SettlementsSettledAmounts(settlementEffects, countedSettlements);
@@ -121,16 +121,16 @@ const membersForQueries = new GroupsMembers(groupMembership);
 const membersInCommand = new GroupsMembers(groupMembershipInCommand);
 
 /** An expense as a receipt's command reads it (request 26): inside the command's transaction, so it reads the connection the transaction holds. */
-const expensesInCommand = new SqliteExpenseQueries(database, true);
+const expensesInCommand = new PostgresExpenseQueries(database, true);
 
 /** The changes of money of the expenses, written in the transaction of each change (request 28). */
-const audit = new SqliteAuditTrail(database);
+const audit = new PostgresAuditTrail(database);
 
 /**
  * Ledger's balance of a member as Groups asks it when a member leaves (MemberBalances, ADR 4), exported for a command:
  * it reads inside the asking command's transaction. The composition root hands it to Groups' module.
  */
-export const memberBalanceSumsInCommand: IMemberBalanceSums = new SqliteMemberBalanceSums(
+export const memberBalanceSumsInCommand: IMemberBalanceSums = new PostgresMemberBalanceSums(
   database,
   settledInCommand,
   membersInCommand,
@@ -140,7 +140,7 @@ export const memberBalanceSumsInCommand: IMemberBalanceSums = new SqliteMemberBa
  * The balances of each group as Settlements reads them (GroupBalances, ADR 5), exported for a query: outside any
  * transaction. The composition root's Settlements wiring takes it; this wiring does not import Settlements' module.
  */
-export const groupBalanceSums: IGroupBalanceSums = new SqliteBalanceQueries(
+export const groupBalanceSums: IGroupBalanceSums = new PostgresBalanceQueries(
   database,
   settledForQueries,
   membersForQueries,
@@ -150,7 +150,7 @@ export const groupBalanceSums: IGroupBalanceSums = new SqliteBalanceQueries(
  * The balances of each group as a settlement is decided on them (GroupBalances, ADR 7), exported for a command: inside
  * the asking command's transaction, so that the second of two settlements decided at once reads the first one's.
  */
-export const groupBalanceSumsInCommand: IGroupBalanceSums = new SqliteGroupBalanceSumsInCommand(
+export const groupBalanceSumsInCommand: IGroupBalanceSums = new PostgresGroupBalanceSumsInCommand(
   database,
   settledInCommand,
   membersInCommand,
@@ -162,7 +162,7 @@ export const groupBalanceSumsInCommand: IGroupBalanceSums = new SqliteGroupBalan
  */
 export function recordRecurringExpensesWith(clock: Clock): RecordRecurringExpensesJob {
   return new RecordRecurringExpensesJob(
-    new SqliteRecurringExpenseRepository(database),
+    new PostgresRecurringExpenseRepository(database),
     new GroupsMembers(groupMembershipInCommand),
     clock,
   );
@@ -180,8 +180,8 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: RecordExpenseCommandEvent,
         handlers: [
           new RecordExpenseCommandHandler(
-            new SqliteExpenseRepository(database),
-            new SqliteSplitTemplateRepository(database),
+            new PostgresExpenseRepository(database),
+            new PostgresSplitTemplateRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             new GroupsGroupCurrency(groupCurrencyInCommand),
             rates,
@@ -194,8 +194,8 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: EditExpenseCommandEvent,
         handlers: [
           new EditExpenseCommandHandler(
-            new SqliteExpenseRepository(database),
-            new SqliteSplitTemplateRepository(database),
+            new PostgresExpenseRepository(database),
+            new PostgresSplitTemplateRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             new GroupsGroupCurrency(groupCurrencyInCommand),
             rates,
@@ -208,7 +208,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: SetUpRecurringExpenseCommandEvent,
         handlers: [
           new SetUpRecurringExpenseCommandHandler(
-            new SqliteRecurringExpenseRepository(database),
+            new PostgresRecurringExpenseRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -218,7 +218,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: StopRecurringExpenseCommandEvent,
         handlers: [
           new StopRecurringExpenseCommandHandler(
-            new SqliteRecurringExpenseRepository(database),
+            new PostgresRecurringExpenseRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -228,7 +228,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: DeleteExpenseCommandEvent,
         handlers: [
           new DeleteExpenseCommandHandler(
-            new SqliteExpenseRepository(database),
+            new PostgresExpenseRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
             audit,
@@ -239,7 +239,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: SetBudgetCommandEvent,
         handlers: [
           new SetBudgetCommandHandler(
-            new SqliteBudgetRepository(database),
+            new PostgresBudgetRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -249,7 +249,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: RemoveBudgetCommandEvent,
         handlers: [
           new RemoveBudgetCommandHandler(
-            new SqliteBudgetRepository(database),
+            new PostgresBudgetRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -259,7 +259,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: SaveTemplateCommandEvent,
         handlers: [
           new SaveTemplateCommandHandler(
-            new SqliteSplitTemplateRepository(database),
+            new PostgresSplitTemplateRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -269,7 +269,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: ReplaceTemplateCommandEvent,
         handlers: [
           new ReplaceTemplateCommandHandler(
-            new SqliteSplitTemplateRepository(database),
+            new PostgresSplitTemplateRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -279,7 +279,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: RemoveTemplateCommandEvent,
         handlers: [
           new RemoveTemplateCommandHandler(
-            new SqliteSplitTemplateRepository(database),
+            new PostgresSplitTemplateRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -289,7 +289,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: AttachReceiptCommandEvent,
         handlers: [
           new AttachReceiptCommandHandler(
-            new SqliteReceiptRepository(database),
+            new PostgresReceiptRepository(database),
             expensesInCommand,
             new GroupsMembers(groupMembershipInCommand),
             receipts,
@@ -304,9 +304,9 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         handlers: [
           new ExpenseRecordedEventHandler(),
           new ExpenseMonthBudgetEventHandler(
-            new SqliteExpenseRepository(database),
-            new SqliteBudgetRepository(database),
-            new SqliteMonthlySpend(database),
+            new PostgresExpenseRepository(database),
+            new PostgresBudgetRepository(database),
+            new PostgresMonthlySpend(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -316,9 +316,9 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: ExpenseEditedEvent,
         handlers: [
           new ExpenseMonthBudgetEventHandler(
-            new SqliteExpenseRepository(database),
-            new SqliteBudgetRepository(database),
-            new SqliteMonthlySpend(database),
+            new PostgresExpenseRepository(database),
+            new PostgresBudgetRepository(database),
+            new PostgresMonthlySpend(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
           ),
@@ -329,7 +329,7 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         event: RecurringExpenseDayCameEvent,
         handlers: [
           new RecurringExpenseDayCameEventHandler(
-            new SqliteExpenseRepository(database),
+            new PostgresExpenseRepository(database),
             new GroupsMembers(groupMembershipInCommand),
             clock,
             audit,
@@ -338,39 +338,39 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
       },
     ],
     queries: [
-      new GetExpenseQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
+      new GetExpenseQueryHandler(new PostgresExpenseQueries(database), new GroupsMembers(groupMembership)),
       new GetGroupBalancesQueryHandler(
-        new SqliteBalanceQueries(database, settledForQueries, membersForQueries),
+        new PostgresBalanceQueries(database, settledForQueries, membersForQueries),
         membersForQueries,
       ),
-      new GetGroupExpensesQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
+      new GetGroupExpensesQueryHandler(new PostgresExpenseQueries(database), new GroupsMembers(groupMembership)),
       new GetMemberStatementQueryHandler(
-        new SqliteStatementQueries(database),
+        new PostgresStatementQueries(database),
         new GroupsMembers(groupMembership),
         settledForQueries,
       ),
       new GetMemberStatementCsvQueryHandler(
-        new SqliteStatementQueries(database),
+        new PostgresStatementQueries(database),
         new GroupsMembers(groupMembership),
         settledForQueries,
       ),
       new GetRecurringExpenseQueryHandler(
-        new SqliteRecurringExpenseQueries(database),
+        new PostgresRecurringExpenseQueries(database),
         new GroupsMembers(groupMembership),
       ),
       new GetGroupRecurringExpensesQueryHandler(
-        new SqliteRecurringExpenseQueries(database),
+        new PostgresRecurringExpenseQueries(database),
         new GroupsMembers(groupMembership),
       ),
-      new GetGroupBudgetsQueryHandler(new SqliteBudgetQueries(database), new GroupsMembers(groupMembership), clock),
-      new GetGroupTemplatesQueryHandler(new SqliteSplitTemplateQueries(database), new GroupsMembers(groupMembership)),
+      new GetGroupBudgetsQueryHandler(new PostgresBudgetQueries(database), new GroupsMembers(groupMembership), clock),
+      new GetGroupTemplatesQueryHandler(new PostgresSplitTemplateQueries(database), new GroupsMembers(groupMembership)),
       new GetReceiptQueryHandler(
-        new SqliteReceiptQueries(database),
-        new SqliteExpenseQueries(database),
+        new PostgresReceiptQueries(database),
+        new PostgresExpenseQueries(database),
         new GroupsMembers(groupMembership),
       ),
       new GetGroupAuditQueryHandler(
-        new SqliteAuditQueries(database),
+        new PostgresAuditQueries(database),
         new SettlementsSettlementAudit(settlementAuditEntries),
         new GroupsPassedBalances(passedBalanceEntries),
         new GroupsMembers(groupMembership),

@@ -21,6 +21,7 @@ export default {
   transform: {
     '^.+\\.ts$': ['ts-jest', { useESM: true, tsconfig: './tsconfig.test.json' }],
   },
+  setupFiles: ['<rootDir>/jest.setup.js'],
   testMatch: ['**/?(*.)+(spec|test).[jt]s?(x)'],
   // The end-to-end suites boot the whole application (bcrypt seed included) in beforeAll.
   testTimeout: 20000,

@@ -1,14 +1,14 @@
 import { Module } from '@Architecture/Application';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { EventEmitter } from 'events';
 
 import { GetOperationQueryHandler, GetOperationsQueryHandler } from '@Contexts/Tracker/Application/Queries';
-import { SqliteOperationRecords } from '@Contexts/Tracker/Infrastructure/SqliteOperationRecords';
+import { PostgresOperationRecords } from '@Contexts/Tracker/Infrastructure/PostgresOperationRecords';
 import { TrackedEventBus } from '@Contexts/Tracker/Infrastructure/TrackedEventBus';
 
-const operationRecords = new SqliteOperationRecords(SqliteDatabase.shared());
+const operationRecords = new PostgresOperationRecords(PostgresDatabase.shared());
 
 // The application's event bus: the in-memory bus, decorated so that every operation is recorded.
 export const trackedEventBus = new TrackedEventBus(
