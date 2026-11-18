@@ -1,5 +1,5 @@
-import { DatabaseSync } from 'node:sqlite';
 import { Application } from './app';
+import { countRows } from './test-support';
 import { ada, call, startApplication, temporaryDatabase } from './test-support';
 
 const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
@@ -55,18 +55,11 @@ describe('settling up in cash', () => {
       ),
     );
 
-  const countSettlements = (): number => {
-    const probe = new DatabaseSync(database.path);
-    try {
-      return (probe.prepare('SELECT COUNT(*) AS n FROM settlements').get() as { n: number }).n;
-    } finally {
-      probe.close();
-    }
-  };
+  const countSettlements = (): Promise<number> => countRows(database.url, 'settlements');
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
@@ -79,7 +72,7 @@ describe('settling up in cash', () => {
   afterEach(async () => {
     for (const extra of extraApps.splice(0)) await extra.stop();
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   /**
@@ -134,7 +127,7 @@ describe('settling up in cash', () => {
       const answer = await settle({ from: graceId, amount: 501 }, adaToken);
       expect(answer).toEqual({ status: 409, body: { type: 'AmountTooLarge', message: expect.any(String) } });
       expect(await balancesOf()).toEqual({ [adaId]: 500, [graceId]: -500, [linusId]: 0 });
-      expect(countSettlements()).toBe(0);
+      expect(await countSettlements()).toBe(0);
     });
 
     it('refuses more than the payee is owed by the group, and changes nothing', async () => {
@@ -160,7 +153,7 @@ describe('settling up in cash', () => {
       const answer = await settle({ from: linusId, amount: 200 }, adaToken);
       expect(answer.status).toBe(409);
       expect(await balancesOf()).toEqual({ [adaId]: 100, [graceId]: 500, [linusId]: -600 });
-      expect(countSettlements()).toBe(0);
+      expect(await countSettlements()).toBe(0);
 
       // The amount Ada is owed is accepted.
       expect((await settle({ from: linusId, amount: 100 }, adaToken)).status).toBe(201);
@@ -170,7 +163,7 @@ describe('settling up in cash', () => {
       await oneExpenseBetweenAdaAndGrace();
       const answer = await settle({ from: linusId, amount: 1 }, adaToken);
       expect(answer.status).toBe(409);
-      expect(countSettlements()).toBe(0);
+      expect(await countSettlements()).toBe(0);
     });
 
     it('refuses an amount that is not a whole number of at least 1, and changes nothing', async () => {
@@ -186,7 +179,7 @@ describe('settling up in cash', () => {
       expect((await settle({ from: graceId, amount: 1.5 }, adaToken)).status).toBe(400);
       expect((await settle({ from: graceId, amount: '100' }, adaToken)).status).toBe(400);
       expect(await balancesOf()).toEqual({ [adaId]: 500, [graceId]: -500, [linusId]: 0 });
-      expect(countSettlements()).toBe(0);
+      expect(await countSettlements()).toBe(0);
     });
 
     it('refuses a payer who is the payee, or who is not a member of the group, and changes nothing', async () => {
@@ -200,7 +193,7 @@ describe('settling up in cash', () => {
         status: 422,
         body: { type: 'InvalidPayer', message: expect.any(String) },
       });
-      expect(countSettlements()).toBe(0);
+      expect(await countSettlements()).toBe(0);
     });
 
     it('refuses a payer who has left the group, as no longer a member', async () => {
@@ -234,7 +227,7 @@ describe('settling up in cash', () => {
     it('decides two settlements recorded at once on the balances as the other left them', async () => {
       await oneExpenseBetweenAdaAndGrace();
       // Two servers on the same database file: each would pay 300 of Grace's 500, which together is too much.
-      const second = await startApplication(database.path);
+      const second = await startApplication(database.url);
       extraApps.push(second);
       const answers = await Promise.all([
         settle({ from: graceId, amount: 300 }, adaToken, app),
@@ -242,7 +235,7 @@ describe('settling up in cash', () => {
       ]);
       expect(answers.map(answer => answer.status).sort()).toEqual([201, 409]);
       expect(await balancesOf()).toEqual({ [adaId]: 200, [graceId]: -200, [linusId]: 0 });
-      expect(countSettlements()).toBe(1);
+      expect(await countSettlements()).toBe(1);
     });
   });
 

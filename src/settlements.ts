@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
 import { writeAudit } from './audit';
 import { type Balance, listBalancesIncludingWaiting } from './balances';
-import { inTransaction } from './database';
+import type { Database, Queryable } from './database';
 import { findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
 import { payoutAccountOf } from './payout-accounts';
@@ -54,7 +53,6 @@ export function suggestSettlements(balances: Balance[]): Transfer[] {
       if (row.balance > 0 && (creditor === -1 || row.balance > owing[creditor].balance)) creditor = position;
     });
     if (debtor === -1 || creditor === -1) return transfers;
-
     const amount = Math.min(-owing[debtor].balance, owing[creditor].balance);
     owing[debtor].balance += amount;
     owing[creditor].balance -= amount;
@@ -120,9 +118,15 @@ function checkWholeAmount(amount: number): void {
 }
 
 /** The rule every settlement shares: never more than the payer owes, nor than the payee is owed. */
-function checkLimits(db: DatabaseSync, groupId: string, payerId: string, payeeId: string, amount: number): void {
+async function checkLimits(
+  db: Queryable,
+  groupId: string,
+  payerId: string,
+  payeeId: string,
+  amount: number,
+): Promise<void> {
   // What is still owed counts the payments waiting at the provider as paid.
-  const balances = listBalancesIncludingWaiting(db, groupId);
+  const balances = await listBalancesIncludingWaiting(db, groupId);
   const payerBalance = balances.find(row => row.memberId === payerId)?.balance ?? 0;
   const payeeBalance = balances.find(row => row.memberId === payeeId)?.balance ?? 0;
   if (amount > -payerBalance) refuse(409, 'AmountTooLarge', 'The payer does not owe the group that much.');
@@ -140,28 +144,29 @@ function checkLimits(db: DatabaseSync, groupId: string, payerId: string, payeeId
  * balances are read and the settlement written in one write transaction, which waits for the write lock,
  * so two settlements recorded at once are decided one after the other, each on the balances the other left.
  */
-export function recordCashSettlement(
-  db: DatabaseSync,
+export async function recordCashSettlement(
+  db: Database,
   payeeId: string,
   groupId: string,
   input: NewCashSettlement,
-): string {
+): Promise<string> {
   const id = randomUUID();
-  inTransaction(db, () => {
-    if (!findGroupOf(db, payeeId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
-    refuseIfArchived(db, groupId);
+  await db.transaction(async tx => {
+    if (!(await findGroupOf(tx, payeeId, groupId))) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    await refuseIfArchived(tx, groupId);
     checkWholeAmount(input.amount);
-    if (input.from === payeeId || !isMember(db, groupId, input.from)) {
+    if (input.from === payeeId || !(await isMember(tx, groupId, input.from))) {
       refuse(422, 'InvalidPayer', 'The payer must be another member of the group.');
     }
-    checkLimits(db, groupId, input.from, payeeId, input.amount);
+    await checkLimits(tx, groupId, input.from, payeeId, input.amount);
     const at = new Date().toISOString();
-    db.prepare(
+    await tx.run(
       `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?)`,
-    ).run(id, groupId, input.from, payeeId, input.amount, at);
-    addHistory(db, id, 'paid', at);
-    writeAudit(db, groupId, { by: payeeId, action: 'settlement-paid', subjectId: id, amount: input.amount, at });
+      [id, groupId, input.from, payeeId, input.amount, at],
+    );
+    await addHistory(tx, id, 'paid', at);
+    await writeAudit(tx, groupId, { by: payeeId, action: 'settlement-paid', subjectId: id, amount: input.amount, at });
   });
   return id;
 }
@@ -174,33 +179,34 @@ export function recordCashSettlement(
  * Answers its id and the group's currency; the provider is asked after this, outside the transaction, which is why
  * the caller must finish the settlement with `attachPayment` or `releaseSettlement`.
  */
-export function reserveProviderSettlement(
-  db: DatabaseSync,
+export async function reserveProviderSettlement(
+  db: Database,
   payerId: string,
   groupId: string,
   input: NewProviderSettlement,
-): { id: string; currency: string } {
+): Promise<{ id: string; currency: string }> {
   const id = randomUUID();
   let currency = '';
-  inTransaction(db, () => {
-    const group = findGroupOf(db, payerId, groupId);
+  await db.transaction(async tx => {
+    const group = await findGroupOf(tx, payerId, groupId);
     if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
-    refuseIfArchived(db, groupId);
+    await refuseIfArchived(tx, groupId);
     currency = group.currency;
     checkWholeAmount(input.amount);
-    if (input.to === payerId || !isMember(db, groupId, input.to)) {
+    if (input.to === payerId || !(await isMember(tx, groupId, input.to))) {
       refuse(422, 'InvalidPayee', 'The payee must be another member of the group.');
     }
-    if (payoutAccountOf(db, input.to) === undefined) {
+    if ((await payoutAccountOf(tx, input.to)) === undefined) {
       refuse(409, 'PayoutAccountRequired', 'The payee has no payout account at the payment provider.');
     }
-    checkLimits(db, groupId, payerId, input.to, input.amount);
+    await checkLimits(tx, groupId, payerId, input.to, input.amount);
     const at = new Date().toISOString();
-    db.prepare(
+    await tx.run(
       `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
        VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?)`,
-    ).run(id, groupId, payerId, input.to, input.amount, at);
-    addHistory(db, id, 'pending', at);
+      [id, groupId, payerId, input.to, input.amount, at],
+    );
+    await addHistory(tx, id, 'pending', at);
   });
   return { id, currency };
 }
@@ -209,28 +215,31 @@ export function reserveProviderSettlement(
  * Keeps the provider's payment and its link on the settlement that asked for it. A decision on the payment that
  * came before this answer (a webhook may overtake it) is applied at once, so the settlement is not left pending.
  */
-export function attachPayment(db: DatabaseSync, settlementId: string, payment: { id: string; payUrl: string }): void {
-  inTransaction(db, () => {
-    db.prepare('UPDATE settlements SET provider_id = ?, pay_url = ? WHERE id = ?').run(
+export async function attachPayment(
+  db: Database,
+  settlementId: string,
+  payment: { id: string; payUrl: string },
+): Promise<void> {
+  await db.transaction(async tx => {
+    await tx.run('UPDATE settlements SET provider_id = ?, pay_url = ? WHERE id = ?', [
       payment.id,
       payment.payUrl,
       settlementId,
-    );
-    applyKeptDecision(db, payment.id);
+    ]);
+    await applyKeptDecision(tx, payment.id);
   });
 }
 
 /** Drops a settlement that asked the provider for nothing: the provider did not answer, so nothing is kept. */
-export function releaseSettlement(db: DatabaseSync, settlementId: string): void {
-  inTransaction(db, () => {
-    const releasable = db
-      .prepare(
-        "SELECT 1 FROM settlements WHERE id = ? AND method = 'provider' AND status = 'pending' AND provider_id IS NULL",
-      )
-      .get(settlementId);
+export async function releaseSettlement(db: Database, settlementId: string): Promise<void> {
+  await db.transaction(async tx => {
+    const releasable = await tx.get(
+      "SELECT 1 FROM settlements WHERE id = ? AND method = 'provider' AND status = 'pending' AND provider_id IS NULL",
+      [settlementId],
+    );
     if (releasable === undefined) return;
-    forgetHistory(db, settlementId);
-    db.prepare('DELETE FROM settlements WHERE id = ?').run(settlementId);
+    await forgetHistory(tx, settlementId);
+    await tx.run('DELETE FROM settlements WHERE id = ?', [settlementId]);
   });
 }
 
@@ -259,33 +268,38 @@ type PaymentDecision = 'paid' | 'failed' | 'refunded';
  * It is one write transaction, so two servers on the same database that receive the decision at once keep
  * the first one, and the settlement changes once.
  */
-export function applyPaymentDecision(db: DatabaseSync, paymentId: string, status: string): void {
+export async function applyPaymentDecision(db: Database, paymentId: string, status: string): Promise<void> {
   const decided = decisionOf(status);
   if (decided === undefined) return;
-  inTransaction(db, () => {
+  await db.transaction(async tx => {
     // The moment Tally learns the decision: the status it makes a settlement take is dated by it.
     const at = new Date().toISOString();
-    const kept = keptDecision(db, paymentId);
+    const kept = await keptDecision(tx, paymentId);
     if (kept === undefined) {
-      db.prepare('INSERT INTO payment_decisions (payment_id, status, decided_at) VALUES (?, ?, ?)').run(
+      await tx.run('INSERT INTO payment_decisions (payment_id, status, decided_at) VALUES (?, ?, ?)', [
         paymentId,
         decided,
         at,
-      );
+      ]);
     } else if (kept.status === 'paid' && decided === 'refunded') {
-      db.prepare("UPDATE payment_decisions SET status = 'refunded', decided_at = ? WHERE payment_id = ?").run(
+      await tx.run("UPDATE payment_decisions SET status = 'refunded', decided_at = ? WHERE payment_id = ?", [
         at,
         paymentId,
-      );
+      ]);
     }
-    applyKeptDecision(db, paymentId);
+    await applyKeptDecision(tx, paymentId);
   });
 }
 
 /** The decision kept for the payment, and the moment Tally learned it, if Tally has one. */
-function keptDecision(db: DatabaseSync, paymentId: string): { status: PaymentDecision; decidedAt: string } | undefined {
-  const kept = db.prepare('SELECT status, decided_at FROM payment_decisions WHERE payment_id = ?').get(paymentId) as
-    { status: PaymentDecision; decided_at: string } | undefined;
+async function keptDecision(
+  db: Queryable,
+  paymentId: string,
+): Promise<{ status: PaymentDecision; decidedAt: string } | undefined> {
+  const kept = await db.get<{ status: PaymentDecision; decided_at: string }>(
+    'SELECT status, decided_at FROM payment_decisions WHERE payment_id = ?',
+    [paymentId],
+  );
   return kept && { status: kept.status, decidedAt: kept.decided_at };
 }
 
@@ -294,16 +308,15 @@ function keptDecision(db: DatabaseSync, paymentId: string): { status: PaymentDec
  * `refunded` while it is pending, paid or being refunded. Each settlement it moves gets the entry in its history
  * dated by the moment the decision was learned; a settlement it does not move gets none.
  */
-function applyKeptDecision(db: DatabaseSync, paymentId: string): void {
-  const kept = keptDecision(db, paymentId);
+async function applyKeptDecision(db: Queryable, paymentId: string): Promise<void> {
+  const kept = await keptDecision(db, paymentId);
   if (kept === undefined) return;
   const from: SettlementStatus[] = kept.status === 'refunded' ? ['pending', 'paid', 'refunding'] : ['pending'];
-  const waiting = db
-    .prepare(
-      `SELECT id FROM settlements WHERE provider_id = ? AND method = 'provider' AND status IN (${from.map(() => '?').join(', ')})`,
-    )
-    .all(paymentId, ...from) as { id: string }[];
-  for (const settlement of waiting) moveSettlement(db, settlement.id, kept.status, kept.decidedAt);
+  const waiting = await db.all<{ id: string }>(
+    `SELECT id FROM settlements WHERE provider_id = ? AND method = 'provider' AND status IN (${from.map(() => '?').join(', ')})`,
+    [paymentId, ...from],
+  );
+  for (const settlement of waiting) await moveSettlement(db, settlement.id, kept.status, kept.decidedAt);
 }
 
 /**
@@ -311,21 +324,19 @@ function applyKeptDecision(db: DatabaseSync, paymentId: string): void {
  * whose payment is still pending, or whose refund the provider has not yet said is done. Either would move the
  * account's balance once the provider decides it.
  */
-export function hasWaitingSettlement(db: DatabaseSync, groupId: string, accountId: string): boolean {
-  return (
-    db
-      .prepare(
-        "SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?)",
-      )
-      .get(groupId, accountId, accountId) !== undefined
+export async function hasWaitingSettlement(db: Queryable, groupId: string, accountId: string): Promise<boolean> {
+  const row = await db.get(
+    "SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?)",
+    [groupId, accountId, accountId],
   );
+  return row !== undefined;
 }
 
 const settlementColumns =
   't.id, t.group_id, t.payer_id, t.payee_id, t.amount, t.method, t.status, t.pay_url, t.created_at';
 
 /** The settlement as it is read, with its history. */
-function toSettlement(db: DatabaseSync, row: SettlementRow): Settlement {
+async function toSettlement(db: Queryable, row: SettlementRow): Promise<Settlement> {
   const settlement: Settlement = {
     id: row.id,
     groupId: row.group_id,
@@ -335,20 +346,23 @@ function toSettlement(db: DatabaseSync, row: SettlementRow): Settlement {
     method: row.method,
     status: row.status,
     at: row.created_at,
-    history: historyOf(db, row.id),
+    history: await historyOf(db, row.id),
   };
   if (row.method === 'provider' && row.pay_url !== null) settlement.payUrl = row.pay_url;
   return settlement;
 }
 
 /** The settlement, when the account is a member of its group. For anyone else it does not exist. */
-export function findSettlementOf(db: DatabaseSync, accountId: string, settlementId: string): Settlement | undefined {
-  const row = db
-    .prepare(
-      `SELECT ${settlementColumns} FROM settlements t JOIN group_members m ON m.group_id = t.group_id
-       WHERE t.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
-    )
-    .get(settlementId, accountId) as SettlementRow | undefined;
+export async function findSettlementOf(
+  db: Queryable,
+  accountId: string,
+  settlementId: string,
+): Promise<Settlement | undefined> {
+  const row = await db.get<SettlementRow>(
+    `SELECT ${settlementColumns} FROM settlements t JOIN group_members m ON m.group_id = t.group_id
+     WHERE t.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
+    [settlementId, accountId],
+  );
   return row && toSettlement(db, row);
 }
 
@@ -356,14 +370,15 @@ export function findSettlementOf(db: DatabaseSync, accountId: string, settlement
  * The settlements of the group, the most recently recorded first, each as `findSettlementOf` reads it. They are
  * listed for a member of the group, and they include those of a member who has left it, as they are the group's.
  */
-export function listSettlementsOf(db: DatabaseSync, groupId: string): Settlement[] {
-  const rows = db
-    .prepare(
-      `SELECT ${settlementColumns} FROM settlements t
-       WHERE t.group_id = ? ORDER BY t.created_at DESC, t.rowid DESC`,
-    )
-    .all(groupId) as unknown as SettlementRow[];
-  return rows.map(row => toSettlement(db, row));
+export async function listSettlementsOf(db: Queryable, groupId: string): Promise<Settlement[]> {
+  const rows = await db.all<SettlementRow>(
+    `SELECT ${settlementColumns} FROM settlements t
+     WHERE t.group_id = ? ORDER BY t.created_at DESC, t.seq DESC`,
+    [groupId],
+  );
+  const settlements: Settlement[] = [];
+  for (const row of rows) settlements.push(await toSettlement(db, row));
+  return settlements;
 }
 
 /**
@@ -381,47 +396,51 @@ export function listSettlementsOf(db: DatabaseSync, groupId: string): Settlement
  * does not answer `201` with an `id`, or not in time, the settlement goes back to `paid`, and the refusal is answered.
  */
 export async function refundSettlement(
-  db: DatabaseSync,
+  db: Database,
   provider: ProviderConfig,
   payeeId: string,
   settlementId: string,
 ): Promise<void> {
-  const reserved = inTransaction(db, () => {
-    const settlement = findSettlementOf(db, payeeId, settlementId);
+  const reserved = await db.transaction(async tx => {
+    const settlement = await findSettlementOf(tx, payeeId, settlementId);
     if (!settlement) throw new Refusal(404, 'NotFound', 'There is no such settlement.');
-    refuseIfArchived(db, settlement.groupId);
+    await refuseIfArchived(tx, settlement.groupId);
     if (settlement.to !== payeeId) refuse(403, 'NotAllowed', 'Only the payee of the settlement may refund it.');
     if (settlement.method !== 'provider') {
       refuse(409, 'NotRefundable', 'Only a settlement paid through the payment provider is refunded.');
     }
     if (settlement.status !== 'paid') refuse(409, 'NotRefundable', 'Only a paid settlement is refunded.');
-    if (!isMember(db, settlement.groupId, settlement.from) || !isMember(db, settlement.groupId, settlement.to)) {
+    if (
+      !(await isMember(tx, settlement.groupId, settlement.from)) ||
+      !(await isMember(tx, settlement.groupId, settlement.to))
+    ) {
       refuse(409, 'NotRefundable', 'The payer and the payee of the settlement must both be members of the group.');
     }
     assertProviderConfigured(provider);
-    const row = db.prepare('SELECT provider_id FROM settlements WHERE id = ?').get(settlementId) as {
-      provider_id: string | null;
-    };
-    if (row.provider_id === null) {
+    const row = await tx.get<{ provider_id: string | null }>('SELECT provider_id FROM settlements WHERE id = ?', [
+      settlementId,
+    ]);
+    if (!row || row.provider_id === null) {
       refuse(409, 'NotRefundable', 'The provider does not know the payment of this settlement.');
     }
-    moveSettlement(db, settlementId, 'refunding', new Date().toISOString());
+    await moveSettlement(tx, settlementId, 'refunding', new Date().toISOString());
     return { paymentId: row.provider_id, provider };
   });
   try {
     await refundProviderPayment(reserved.provider, { paymentId: reserved.paymentId, reference: settlementId });
   } catch (error) {
-    releaseRefund(db, settlementId);
+    await releaseRefund(db, settlementId);
     throw error;
   }
 }
 
 /** Puts back a settlement whose refund the provider did not take: `refunding` becomes `paid`, and nothing else moves. */
-function releaseRefund(db: DatabaseSync, settlementId: string): void {
-  inTransaction(db, () => {
-    const row = db.prepare('SELECT status FROM settlements WHERE id = ?').get(settlementId) as
-      { status: SettlementStatus } | undefined;
-    if (row?.status === 'refunding') moveSettlement(db, settlementId, 'paid', new Date().toISOString());
+async function releaseRefund(db: Database, settlementId: string): Promise<void> {
+  await db.transaction(async tx => {
+    const row = await tx.get<{ status: SettlementStatus }>('SELECT status FROM settlements WHERE id = ?', [
+      settlementId,
+    ]);
+    if (row?.status === 'refunding') await moveSettlement(tx, settlementId, 'paid', new Date().toISOString());
   });
 }
 
@@ -473,14 +492,16 @@ const settlementSchema = {
  * A cash settlement is recorded by its payee, a member of the group; a settlement through the provider is
  * asked for by its payer. A settlement is read by the members of its group; for anyone else it does not exist.
  */
-export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync, provider: ProviderConfig): void {
+export function registerSettlementRoutes(app: FastifyInstance, db: Database, provider: ProviderConfig): void {
   app.get<{ Params: { id: string } }>(
     '/groups/:id/settlements/suggested',
     { schema: { response: { 200: { type: 'array', items: transferSchema } } } },
-    request => {
-      const accountId = requireCaller(db, request);
-      if (!findGroupOf(db, accountId, request.params.id)) throw new Refusal(404, 'NotFound', 'There is no such group.');
-      return suggestSettlements(listBalancesIncludingWaiting(db, request.params.id));
+    async request => {
+      const accountId = await requireCaller(db, request);
+      if (!(await findGroupOf(db, accountId, request.params.id))) {
+        throw new Refusal(404, 'NotFound', 'There is no such group.');
+      }
+      return suggestSettlements(await listBalancesIncludingWaiting(db, request.params.id));
     },
   );
 
@@ -496,9 +517,9 @@ export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync,
         response: { 201: idSchema },
       },
     },
-    (request, reply) => {
-      const accountId = requireCaller(db, request);
-      return reply.code(201).send({ id: recordCashSettlement(db, accountId, request.params.id, request.body) });
+    async (request, reply) => {
+      const accountId = await requireCaller(db, request);
+      return reply.code(201).send({ id: await recordCashSettlement(db, accountId, request.params.id, request.body) });
     },
   );
 
@@ -515,12 +536,12 @@ export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync,
       },
     },
     async (request, reply) => {
-      const accountId = requireCaller(db, request);
+      const accountId = await requireCaller(db, request);
       assertProviderConfigured(provider);
-      const { id, currency } = reserveProviderSettlement(db, accountId, request.params.id, request.body);
+      const { id, currency } = await reserveProviderSettlement(db, accountId, request.params.id, request.body);
       try {
         // The payee's payout account as it is at the moment the provider is asked.
-        const payee = payoutAccountOf(db, request.body.to);
+        const payee = await payoutAccountOf(db, request.body.to);
         if (payee === undefined) {
           refuse(409, 'PayoutAccountRequired', 'The payee has no payout account at the payment provider.');
         }
@@ -530,9 +551,9 @@ export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync,
           currency,
           payee,
         });
-        attachPayment(db, id, payment);
+        await attachPayment(db, id, payment);
       } catch (error) {
-        releaseSettlement(db, id);
+        await releaseSettlement(db, id);
         throw error;
       }
       return reply.code(201).send({ id });
@@ -540,7 +561,7 @@ export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync,
   );
 
   app.post<{ Params: { id: string } }>('/settlements/:id/refund', async (request, reply) => {
-    const accountId = requireCaller(db, request);
+    const accountId = await requireCaller(db, request);
     await refundSettlement(db, provider, accountId, request.params.id);
     return reply.code(204).send();
   });
@@ -548,9 +569,11 @@ export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync,
   app.get<{ Params: { id: string } }>(
     '/groups/:id/settlements',
     { schema: { response: { 200: { type: 'array', items: settlementSchema } } } },
-    request => {
-      const accountId = requireCaller(db, request);
-      if (!findGroupOf(db, accountId, request.params.id)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    async request => {
+      const accountId = await requireCaller(db, request);
+      if (!(await findGroupOf(db, accountId, request.params.id))) {
+        throw new Refusal(404, 'NotFound', 'There is no such group.');
+      }
       return listSettlementsOf(db, request.params.id);
     },
   );
@@ -558,9 +581,9 @@ export function registerSettlementRoutes(app: FastifyInstance, db: DatabaseSync,
   app.get<{ Params: { id: string } }>(
     '/settlements/:id',
     { schema: { response: { 200: settlementSchema } } },
-    request => {
-      const accountId = requireCaller(db, request);
-      const settlement = findSettlementOf(db, accountId, request.params.id);
+    async request => {
+      const accountId = await requireCaller(db, request);
+      const settlement = await findSettlementOf(db, accountId, request.params.id);
       if (!settlement) throw new Refusal(404, 'NotFound', 'There is no such settlement.');
       return settlement;
     },

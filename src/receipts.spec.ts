@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
+import { readRows } from './test-support';
 import type { AddressInfo } from 'node:net';
-import { DatabaseSync } from 'node:sqlite';
 import { Application } from './app';
 import { RECEIPT_MAX_BYTES } from './receipts';
 import { ada, call, startApplication, temporaryDatabase } from './test-support';
@@ -118,21 +118,15 @@ describe('receipts', () => {
   let groupId: string;
   let expenseId: string;
 
-  const readReceiptRows = (): Array<Record<string, unknown>> => {
-    const probe = new DatabaseSync(database.path);
-    try {
-      return probe.prepare('SELECT * FROM receipts').all() as Array<Record<string, unknown>>;
-    } finally {
-      probe.close();
-    }
-  };
+  const readReceiptRows = (): Promise<Array<Record<string, unknown>>> =>
+    readRows(database.url, 'SELECT * FROM receipts');
 
   const readReceipt = (id = expenseId, token = adaToken) => call(app, 'GET', `/expenses/${id}/receipt`, { token });
 
   beforeEach(async () => {
     database = temporaryDatabase();
     store = await startFakeStore();
-    app = await startApplication(database.path, { receiptsUrl: store.url });
+    app = await startApplication(database.url, { receiptsUrl: store.url });
     adaId = (await call(app, 'POST', '/accounts', { body: ada })).body.id;
     adaToken = (await call(app, 'POST', '/accounts/login', { body: ada })).body.token;
     graceId = (await call(app, 'POST', '/accounts', { body: grace })).body.id;
@@ -159,7 +153,7 @@ describe('receipts', () => {
     for (const extra of extraApps.splice(0)) await extra.stop();
     await app.stop();
     await store.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe('attaching a receipt', () => {
@@ -227,7 +221,7 @@ describe('receipts', () => {
     });
 
     it('refuses a receipt on a server with no receipts store, and changes nothing', async () => {
-      const unconfigured = await startApplication(temporaryDatabase().path, { receiptsUrl: '' });
+      const unconfigured = await startApplication(temporaryDatabase().url, { receiptsUrl: '' });
       extraApps.push(unconfigured);
       const ownId = (await call(unconfigured, 'POST', '/accounts', { body: ada })).body.id;
       const token = (await call(unconfigured, 'POST', '/accounts/login', { body: ada })).body.token;
@@ -266,7 +260,7 @@ describe('receipts', () => {
 
     it('refuses when the store does not answer within the time allowed, and attaches nothing', async () => {
       await app.stop();
-      app = await startApplication(database.path, { receiptsUrl: store.url, receiptsTimeoutMs: 100 });
+      app = await startApplication(database.url, { receiptsUrl: store.url, receiptsTimeoutMs: 100 });
       store.answer = (_request, number) => ({
         status: 201,
         body: { id: `file_${number}`, url: `https://files.example/file_${number}` },
@@ -286,7 +280,7 @@ describe('receipts', () => {
         size: 300,
         url: 'https://files.example/file_2',
       });
-      expect(readReceiptRows()).toHaveLength(1);
+      expect(await readReceiptRows()).toHaveLength(1);
     });
 
     it('is not an edit: the expense keeps its version, and an edit from the version read still lands', async () => {
@@ -350,17 +344,17 @@ describe('receipts', () => {
     it('changes nothing and asks the store for nothing', async () => {
       await attach(app, expenseId, fileOf(JPEG_START, 100), adaToken);
       store.requests.splice(0);
-      const before = readReceiptRows();
+      const before = await readReceiptRows();
       await readReceipt();
       await readReceipt(expenseId, graceToken);
       expect(store.requests).toEqual([]);
-      expect(readReceiptRows()).toEqual(before);
+      expect(await readReceiptRows()).toEqual(before);
     });
   });
 
   it('removes the receipt with its expense', async () => {
     await attach(app, expenseId, fileOf(JPEG_START, 100), adaToken);
     expect((await call(app, 'DELETE', `/expenses/${expenseId}`, { token: adaToken })).status).toBe(204);
-    expect(readReceiptRows()).toEqual([]);
+    expect(await readReceiptRows()).toEqual([]);
   });
 });

@@ -94,7 +94,7 @@ describe('paying through the payment provider: the provider’s webhook', () => 
   beforeEach(async () => {
     database = temporaryDatabase();
     provider = await startFakeProvider();
-    app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+    app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: SECRET });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     // Ada is paid through the provider, on her payout account. Setting it asks the provider, which is not a payment.
     expect(
@@ -123,7 +123,7 @@ describe('paying through the payment provider: the provider’s webhook', () => 
     for (const extra of extraApps.splice(0)) await extra.stop();
     await app.stop();
     await provider.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe('the signature', () => {
@@ -161,7 +161,7 @@ describe('paying through the payment provider: the provider’s webhook', () => 
     });
 
     it('refuses every webhook on a server with no webhook secret set', async () => {
-      const unsecured = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: '' });
+      const unsecured = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: '' });
       extraApps.push(unsecured);
       const { raw, signature } = signed({ id: 'wh_1', paymentId: 'pay_1', status: 'succeeded', at: AT }, '');
       expect((await send(raw, signature, unsecured)).status).toBe(401);
@@ -332,19 +332,19 @@ describe('paying through the payment provider: the provider’s webhook', () => 
     it('changes a payment as it would have on time, when the webhook comes after Tally was stopped and started', async () => {
       const settlement = await askGraceToPayAda();
       await app.stop();
-      app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+      app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: SECRET });
       expect((await decide('pay_1', 'succeeded')).status).toBe(204);
       expect((await settlementOf(settlement)).status).toBe('paid');
       expect(await balancesOf()).toEqual(paidBalances());
       // Sent again after another restart, the same success changes nothing.
       await app.stop();
-      app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+      app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: SECRET });
       expect((await decide('pay_1', 'succeeded', 'wh_again')).status).toBe(204);
       expect(await balancesOf()).toEqual(paidBalances());
     });
 
     it('counts a payment once when the same webhook reaches two servers on the same database at once', async () => {
-      const second = await startApplication(database.path, {
+      const second = await startApplication(database.url, {
         providerUrl: provider.url,
         providerWebhookSecret: SECRET,
       });
@@ -358,7 +358,7 @@ describe('paying through the payment provider: the provider’s webhook', () => 
     });
 
     it('lets one decision end a payment when a success and a failure reach two servers at once', async () => {
-      const second = await startApplication(database.path, {
+      const second = await startApplication(database.url, {
         providerUrl: provider.url,
         providerWebhookSecret: SECRET,
       });

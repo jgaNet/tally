@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
+import { readRows } from './test-support';
 import { Application } from './app';
 import { ada, call, FakeProvider, startApplication, startFakeProvider, temporaryDatabase } from './test-support';
 
@@ -14,13 +14,8 @@ const adaPayout = 'acct_ada';
 const AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]00:?00)$/;
 
 /** The rows of the audit table, read apart from the application, as the file keeps them. */
-function auditRows(path: string): Array<Record<string, unknown>> {
-  const probe = new DatabaseSync(path);
-  try {
-    return probe.prepare('SELECT * FROM audit_entries ORDER BY seq').all() as Array<Record<string, unknown>>;
-  } finally {
-    probe.close();
-  }
+async function auditRows(url: string): Promise<Array<Record<string, unknown>>> {
+  return readRows(url, 'SELECT * FROM audit_entries ORDER BY seq');
 }
 
 describe('the audit of a group', () => {
@@ -81,7 +76,7 @@ describe('the audit of a group', () => {
   beforeEach(async () => {
     database = temporaryDatabase();
     provider = await startFakeProvider();
-    app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+    app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: SECRET });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     expect(
       (await call(app, 'PUT', '/accounts/me/payout-account', { body: { accountId: adaPayout }, token: adaToken }))
@@ -101,7 +96,7 @@ describe('the audit of a group', () => {
     for (const extra of extraApps.splice(0)) await extra.stop();
     await app.stop();
     await provider.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe('expenses', () => {
@@ -190,7 +185,7 @@ describe('the audit of a group', () => {
         token: adaToken,
       });
       expect(created.status).toBe(201);
-      app.runJobs(new Date('2026-11-18T12:00:00Z'));
+      await app.runJobs(new Date('2026-11-18T12:00:00Z'));
       const expenses = (await call(app, 'GET', `/groups/${groupId}/expenses`, { token: adaToken })).body;
       expect(expenses).toHaveLength(1);
       expect(await entriesOf()).toEqual([
@@ -254,7 +249,7 @@ describe('the audit of a group', () => {
       expect(entries.slice(1).map(entry => [entry.by, entry.action, entry.subjectId, entry.amount])).toEqual([
         [graceId, 'settlement-paid', asked.body.id, 1000],
       ]);
-      expect(auditRows(database.path)).toHaveLength(2);
+      expect(await auditRows(database.url)).toHaveLength(2);
     });
 
     it('writes no entry for a payment the provider says failed', async () => {
@@ -345,7 +340,7 @@ describe('the audit of a group', () => {
     });
 
     it('writes an entry exactly once when two servers on the database are told at once', async () => {
-      const second = await startApplication(database.path, {
+      const second = await startApplication(database.url, {
         providerUrl: provider.url,
         providerWebhookSecret: SECRET,
       });
@@ -357,7 +352,7 @@ describe('the audit of a group', () => {
       });
       expect(asked.status).toBe(201);
       await Promise.all([decide('pay_1', 'succeeded', app), decide('pay_1', 'succeeded', second)]);
-      expect(auditRows(database.path).filter(row => row.action === 'settlement-paid')).toHaveLength(1);
+      expect((await auditRows(database.url)).filter(row => row.action === 'settlement-paid')).toHaveLength(1);
     });
   });
 });

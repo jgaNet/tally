@@ -73,7 +73,7 @@ describe("a group's settlements, and the history of each", () => {
   beforeEach(async () => {
     database = temporaryDatabase();
     provider = await startFakeProvider();
-    app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+    app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: SECRET });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     // Ada is paid through the provider, on her payout account. Setting it asks the provider, which is not a payment.
     expect(
@@ -108,7 +108,7 @@ describe("a group's settlements, and the history of each", () => {
   afterEach(async () => {
     await app.stop();
     await provider.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe('the list of the group', () => {

@@ -23,7 +23,7 @@ describe('members', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
@@ -31,7 +31,7 @@ describe('members', () => {
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   async function createGroup(name = 'The flat', token = adaToken): Promise<string> {

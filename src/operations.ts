@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Queryable } from './database';
 import { callerOf } from './sessions';
 import { Refusal } from './refusal';
 
@@ -9,27 +9,32 @@ import { Refusal } from './refusal';
  * ends it with `SUCCESS` (and a `result`) or `ERROR` (and an `error`). It is kept with the account
  * that made the request, or with none when that request had no token.
  */
-export function createOperation(db: DatabaseSync, accountId: string | null): string {
+export async function createOperation(db: Queryable, accountId: string | null): Promise<string> {
   const id = randomUUID();
-  db.prepare("INSERT INTO operations (id, account_id, status, created_at) VALUES (?, ?, 'PENDING', ?)").run(
+  await db.run("INSERT INTO operations (id, account_id, status, created_at) VALUES (?, ?, 'PENDING', ?)", [
     id,
     accountId,
     new Date().toISOString(),
-  );
+  ]);
   return id;
 }
 
-export function succeedOperation(db: DatabaseSync, id: string, result: unknown): void {
-  db.prepare("UPDATE operations SET status = 'SUCCESS', result = ? WHERE id = ? AND status = 'PENDING'").run(
+export async function succeedOperation(db: Queryable, id: string, result: unknown): Promise<void> {
+  await db.run("UPDATE operations SET status = 'SUCCESS', result = ? WHERE id = ? AND status = 'PENDING'", [
     JSON.stringify(result),
     id,
-  );
+  ]);
 }
 
-export function failOperation(db: DatabaseSync, id: string, error: { type: string; message: string }): void {
-  db.prepare(
+export async function failOperation(
+  db: Queryable,
+  id: string,
+  error: { type: string; message: string },
+): Promise<void> {
+  await db.run(
     "UPDATE operations SET status = 'ERROR', error_type = ?, error_message = ? WHERE id = ? AND status = 'PENDING'",
-  ).run(error.type, error.message, id);
+    [error.type, error.message, id],
+  );
 }
 
 interface OperationRow {
@@ -58,16 +63,17 @@ const operationSchema = {
  * Only the account that made the request reads its operation. Without a token, an operation made
  * with one is `401`; with another caller's token, it is `404`.
  */
-export function registerOperationRoutes(app: FastifyInstance, db: DatabaseSync): void {
+export function registerOperationRoutes(app: FastifyInstance, db: Database): void {
   app.get<{ Params: { operationId: string } }>(
     '/operations/:operationId',
     { schema: { response: { 200: operationSchema } } },
-    request => {
-      const row = db
-        .prepare('SELECT account_id, status, result, error_type, error_message FROM operations WHERE id = ?')
-        .get(request.params.operationId) as OperationRow | undefined;
+    async request => {
+      const row = await db.get<OperationRow>(
+        'SELECT account_id, status, result, error_type, error_message FROM operations WHERE id = ?',
+        [request.params.operationId],
+      );
       if (!row) throw new Refusal(404, 'NotFound', 'There is no such operation.');
-      const caller = callerOf(db, request);
+      const caller = await callerOf(db, request);
       if (row.account_id !== caller) {
         if (row.account_id !== null && caller === null) {
           throw new Refusal(401, 'Unauthorized', 'Send the bearer token of the account that made the request.');

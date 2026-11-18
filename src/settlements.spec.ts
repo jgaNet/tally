@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { openDatabase } from './database';
 import { Application } from './app';
 import { suggestSettlements, Transfer } from './settlements';
 import { ada, call, startApplication, temporaryDatabase } from './test-support';
@@ -164,7 +164,7 @@ describe('suggested settlements', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
@@ -176,7 +176,7 @@ describe('suggested settlements', () => {
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   it('answers no transfer when nothing is recorded, or every member is even', async () => {
@@ -233,18 +233,21 @@ describe('suggested settlements', () => {
 
   it('changes nothing that is stored: reading the transfers leaves the rows of the database as they were', async () => {
     await record(adaToken, { amount: 1000, splitBetween: [adaId, graceId, linusId] });
-    const counts = () => {
-      const probe = new DatabaseSync(database.path);
+    const counts = async () => {
+      const probe = await openDatabase(database.url);
       try {
-        const count = (table: string) => (probe.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
-        return ['expenses', 'expense_shares', 'group_members', 'accounts', 'groups', 'sessions'].map(count);
+        const counted: number[] = [];
+        for (const table of ['expenses', 'expense_shares', 'group_members', 'accounts', 'groups', 'sessions']) {
+          counted.push((await probe.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}`))?.n ?? -1);
+        }
+        return counted;
       } finally {
-        probe.close();
+        await probe.close();
       }
     };
-    const before = counts();
+    const before = await counts();
     const first = (await suggested()).body;
     expect((await suggested()).body).toEqual(first);
-    expect(counts()).toEqual(before);
+    expect(await counts()).toEqual(before);
   });
 });

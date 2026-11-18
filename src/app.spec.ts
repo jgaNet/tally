@@ -12,17 +12,17 @@ describe('the application', () => {
   afterEach(async () => {
     await app?.stop();
     app = undefined;
-    database.remove();
+    await database.remove();
   });
 
   it('starts, answers under its prefix, and stops', async () => {
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     const response = await fetch(`${app.address}/${app.apiPrefix}/nothing-here`);
     expect(response.status).toBe(404);
   });
 
   it('answers a body that is not JSON with 400, and a wrong-typed field with 400', async () => {
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     const malformed = await fetch(`${app.address}/${app.apiPrefix}/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

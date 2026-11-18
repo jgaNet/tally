@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from './database';
 import { isRealDay, todayUtc } from './days';
 import { CURRENCIES, findGroupOf } from './groups';
 import { Refusal } from './refusal';
@@ -67,7 +67,7 @@ const rateSchema = {
   },
 };
 
-export function registerRateRoutes(app: FastifyInstance, db: DatabaseSync, rates: RatesConfig): void {
+export function registerRateRoutes(app: FastifyInstance, db: Database, rates: RatesConfig): void {
   app.get<{ Params: { id: string; currency: string }; Querystring: { date?: string } }>(
     '/groups/:id/rates/:currency',
     {
@@ -77,8 +77,8 @@ export function registerRateRoutes(app: FastifyInstance, db: DatabaseSync, rates
       },
     },
     async request => {
-      const accountId = requireCaller(db, request);
-      const group = findGroupOf(db, accountId, request.params.id);
+      const accountId = await requireCaller(db, request);
+      const group = await findGroupOf(db, accountId, request.params.id);
       if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
       const { currency } = request.params;
       const date = request.query.date ?? todayUtc();

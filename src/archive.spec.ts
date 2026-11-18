@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
+import { countRows } from './test-support';
 import { Application } from './app';
 import { ada, call, FakeProvider, startApplication, startFakeProvider, temporaryDatabase } from './test-support';
 
@@ -21,15 +21,8 @@ function monthsAgo(months: number, dom: number): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - months, dom)).toISOString().slice(0, 10);
 }
 
-/** How many rows a table of the database file holds, read beside the application. */
-function rowsIn(path: string, table: string): number {
-  const probe = new DatabaseSync(path);
-  try {
-    return (probe.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
-  } finally {
-    probe.close();
-  }
-}
+/** How many rows a table of the database holds, read beside the application. */
+const rowsIn = (url: string, table: string): Promise<number> => countRows(url, table);
 
 /** Refused as a change to an archived group is: `409`, by the name of the one rule. */
 function expectArchived(answer: { status: number; body: unknown }): void {
@@ -139,7 +132,7 @@ describe('archiving a group', () => {
   beforeEach(async () => {
     database = temporaryDatabase();
     provider = await startFakeProvider();
-    app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+    app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: SECRET });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     // Ada is paid through the provider, on her payout account. Setting it asks the provider, which is not a payment.
     expect(
@@ -160,7 +153,7 @@ describe('archiving a group', () => {
   afterEach(async () => {
     await app.stop();
     await provider.stop();
-    database.remove();
+    await database.remove();
   });
 
   it('archives a group once every balance is 0, and reads it as archived from then on', async () => {
@@ -295,7 +288,7 @@ describe('an archived group, read only', () => {
   beforeEach(async () => {
     database = temporaryDatabase();
     provider = await startFakeProvider();
-    app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+    app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: SECRET });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
@@ -355,7 +348,7 @@ describe('an archived group, read only', () => {
   afterEach(async () => {
     await app.stop();
     await provider.stop();
-    database.remove();
+    await database.remove();
   });
 
   it('refuses recording an expense, and changes nothing', async () => {
@@ -424,9 +417,9 @@ describe('an archived group, read only', () => {
   });
 
   it('refuses creating an invitation, and creates none', async () => {
-    const before = rowsIn(database.path, 'invitations');
+    const before = await rowsIn(database.url, 'invitations');
     expectArchived(await call(app, 'POST', `/groups/${groupId}/invitations`, { token: adaToken }));
-    expect(rowsIn(database.path, 'invitations')).toBe(before);
+    expect(await rowsIn(database.url, 'invitations')).toBe(before);
   });
 
   it('refuses an account joining by an invitation made before the archive, and it is not a member', async () => {
@@ -557,7 +550,7 @@ describe('the background job and an archived group', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ groupId: archivedId, recurringId: archivedRecurring } = await groupWithRecurring('Archived'));
     ({ groupId: openId, recurringId: openRecurring } = await groupWithRecurring('Open'));
@@ -566,20 +559,20 @@ describe('the background job and an archived group', () => {
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   it('records no expense of a recurring expense in an archived group, and leaves its next day as it was', async () => {
     const before = (await call(app, 'GET', `/recurring/${archivedRecurring}`, { token: adaToken })).body;
 
-    app.runJobs();
+    await app.runJobs();
 
     expect((await call(app, 'GET', `/groups/${archivedId}/expenses`, { token: adaToken })).body).toEqual([]);
     expect((await call(app, 'GET', `/recurring/${archivedRecurring}`, { token: adaToken })).body).toEqual(before);
   });
 
   it('still records the expenses of a recurring expense in a group that is not archived', async () => {
-    app.runJobs();
+    await app.runJobs();
 
     const recorded = (await call(app, 'GET', `/groups/${openId}/expenses`, { token: adaToken })).body;
     expect(recorded.length).toBeGreaterThan(0);

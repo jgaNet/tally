@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Queryable } from './database';
 import { type Expense, type ExpenseRow, expenseOf, expenseSchema } from './expenses';
 import { findGroupOf } from './groups';
 import { hasBeenMember } from './members';
@@ -71,18 +71,17 @@ interface Ordered {
  * Each expense is read as `findExpenseOf` reads it. The rows come from one statement, so the list is of
  * one snapshot of the database.
  */
-export function listExpenses(db: DatabaseSync, groupId: string): Expense[] {
+export async function listExpenses(db: Queryable, groupId: string): Promise<Expense[]> {
   // Every expense has a share: its payer is in its split. Its shares come in the order of their split.
-  const rows = db
-    .prepare(
-      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.category, e.version,
-         e.original_currency, e.original_amount, e.original_rate,
-         s.account_id AS share_member, s.amount AS share_amount
-       FROM expenses e JOIN expense_shares s ON s.expense_id = e.id
-       WHERE e.group_id = ?
-       ORDER BY e.date DESC, e.created_at DESC, e.rowid DESC, s.position`,
-    )
-    .all(groupId) as unknown as GroupExpenseRow[];
+  const rows = await db.all<GroupExpenseRow>(
+    `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.category, e.version,
+       e.original_currency, e.original_amount, e.original_rate,
+       s.account_id AS share_member, s.amount AS share_amount
+     FROM expenses e JOIN expense_shares s ON s.expense_id = e.id
+     WHERE e.group_id = ?
+     ORDER BY e.date DESC, e.created_at DESC, e.seq DESC, s.position`,
+    [groupId],
+  );
   const expenses: Expense[] = [];
   let current: Expense | undefined;
   for (const row of rows) {
@@ -109,32 +108,30 @@ const SETTLEMENT_DESCRIPTIONS = {
  * 0. The statement's balance is the last entry's, or 0 when it has none. One statement reads the entries, so
  * they are of one snapshot of the database. A read changes nothing.
  */
-export function statementOf(db: DatabaseSync, groupId: string, memberId: string): Statement {
-  const expenseRows = db
-    .prepare(
-      `SELECT e.id AS expense_id, e.date, e.description, e.created_at AS recorded_at,
-         CASE WHEN e.paid_by = ? THEN e.amount ELSE 0 END AS paid,
-         COALESCE((SELECT s.amount FROM expense_shares s
-                   WHERE s.expense_id = e.id AND s.account_id = ?), 0) AS share
-       FROM expenses e
-       WHERE e.group_id = ?
-         AND (e.paid_by = ? OR EXISTS (SELECT 1 FROM expense_shares s
-                                       WHERE s.expense_id = e.id AND s.account_id = ?))
-       ORDER BY e.date ASC, e.created_at ASC, e.rowid ASC`,
-    )
-    .all(memberId, memberId, groupId, memberId, memberId) as unknown as StatementRow[];
+export async function statementOf(db: Queryable, groupId: string, memberId: string): Promise<Statement> {
+  const expenseRows = await db.all<StatementRow>(
+    `SELECT e.id AS expense_id, e.date, e.description, e.created_at AS recorded_at,
+       CASE WHEN e.paid_by = ? THEN e.amount ELSE 0 END AS paid,
+       COALESCE((SELECT s.amount FROM expense_shares s
+                 WHERE s.expense_id = e.id AND s.account_id = ?), 0) AS share
+     FROM expenses e
+     WHERE e.group_id = ?
+       AND (e.paid_by = ? OR EXISTS (SELECT 1 FROM expense_shares s
+                                     WHERE s.expense_id = e.id AND s.account_id = ?))
+     ORDER BY e.date ASC, e.created_at ASC, e.seq ASC`,
+    [memberId, memberId, groupId, memberId, memberId],
+  );
   // The settlements the balances count: paid, or being refunded. The moment they started to count is the first
   // history entry that counts them, which a cash settlement has from when it is recorded.
-  const settlementRows = db
-    .prepare(
-      `SELECT t.id AS settlement_id, t.method, t.payer_id, t.amount,
-         COALESCE((SELECT h.at FROM settlement_history h
-                   WHERE h.settlement_id = t.id AND h.status IN ('paid', 'refunding')
-                   ORDER BY h.seq LIMIT 1), t.created_at) AS counted_at
-       FROM settlements t
-       WHERE t.group_id = ? AND t.status IN ('paid', 'refunding') AND (t.payer_id = ? OR t.payee_id = ?)`,
-    )
-    .all(groupId, memberId, memberId) as unknown as SettlementStatementRow[];
+  const settlementRows = await db.all<SettlementStatementRow>(
+    `SELECT t.id AS settlement_id, t.method, t.payer_id, t.amount,
+       COALESCE((SELECT h.at FROM settlement_history h
+                 WHERE h.settlement_id = t.id AND h.status IN ('paid', 'refunding')
+                 ORDER BY h.seq LIMIT 1), t.created_at) AS counted_at
+     FROM settlements t
+     WHERE t.group_id = ? AND t.status IN ('paid', 'refunding') AND (t.payer_id = ? OR t.payee_id = ?)`,
+    [groupId, memberId, memberId],
+  );
   const ordered: Ordered[] = [
     ...expenseRows.map(row => ({
       date: row.date,
@@ -235,22 +232,27 @@ const statementSchema = {
  * anyone else the group does not exist; a member who has never been in the group does not exist either.
  * A member who has left the group keeps their statement, which the members of the group can still read.
  */
-export function registerHistoryRoutes(app: FastifyInstance, db: DatabaseSync): void {
+export function registerHistoryRoutes(app: FastifyInstance, db: Database): void {
   app.get<{ Params: { id: string } }>(
     '/groups/:id/expenses',
     { schema: { response: { 200: { type: 'array', items: expenseSchema } } } },
-    request => {
-      const accountId = requireCaller(db, request);
-      if (!findGroupOf(db, accountId, request.params.id)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    async request => {
+      const accountId = await requireCaller(db, request);
+      if (!(await findGroupOf(db, accountId, request.params.id))) {
+        throw new Refusal(404, 'NotFound', 'There is no such group.');
+      }
       return listExpenses(db, request.params.id);
     },
   );
 
-  const statementRoute = (db: DatabaseSync, request: FastifyRequest<{ Params: { id: string; memberId: string } }>) => {
-    const accountId = requireCaller(db, request);
+  const statementRoute = async (
+    db: Database,
+    request: FastifyRequest<{ Params: { id: string; memberId: string } }>,
+  ) => {
+    const accountId = await requireCaller(db, request);
     const groupId = request.params.id;
-    if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
-    if (!hasBeenMember(db, groupId, request.params.memberId)) {
+    if (!(await findGroupOf(db, accountId, groupId))) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    if (!(await hasBeenMember(db, groupId, request.params.memberId))) {
       throw new Refusal(404, 'NotFound', 'There is no such member of the group.');
     }
     return statementOf(db, groupId, request.params.memberId);
@@ -264,6 +266,6 @@ export function registerHistoryRoutes(app: FastifyInstance, db: DatabaseSync): v
 
   app.get<{ Params: { id: string; memberId: string } }>(
     '/groups/:id/members/:memberId/statement.csv',
-    (request, reply) => reply.type('text/csv').send(statementCsv(statementRoute(db, request))),
+    async (request, reply) => reply.type('text/csv').send(statementCsv(await statementRoute(db, request))),
   );
 }

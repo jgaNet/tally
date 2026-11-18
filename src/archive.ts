@@ -1,20 +1,17 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Queryable } from './database';
 import { listBalances } from './balances';
-import { inTransaction } from './database';
 import { findGroupOf, refuseIfArchived } from './groups';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
 /** Whether a payment or a refund through the provider waits in the group, whoever it is for. */
-function hasProviderWaiting(db: DatabaseSync, groupId: string): boolean {
-  return (
-    db
-      .prepare(
-        "SELECT 1 FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')",
-      )
-      .get(groupId) !== undefined
+async function hasProviderWaiting(db: Queryable, groupId: string): Promise<boolean> {
+  const row = await db.get(
+    "SELECT 1 FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')",
+    [groupId],
   );
+  return row !== undefined;
 }
 
 /**
@@ -24,31 +21,31 @@ function hasProviderWaiting(db: DatabaseSync, groupId: string): boolean {
  * is not a member, the group does not exist. The checks and the archiving are one write transaction, so a settlement or
  * an expense recorded meanwhile is seen, or waits until the group is archived and is refused.
  */
-export function archiveGroup(db: DatabaseSync, accountId: string, groupId: string): void {
-  inTransaction(db, () => {
-    const group = findGroupOf(db, accountId, groupId);
+export async function archiveGroup(db: Database, accountId: string, groupId: string): Promise<void> {
+  await db.transaction(async tx => {
+    const group = await findGroupOf(tx, accountId, groupId);
     if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
-    refuseIfArchived(db, groupId);
+    await refuseIfArchived(tx, groupId);
     if (group.ownerId !== accountId) {
       throw new Refusal(403, 'NotAllowed', 'Only the owner of the group may archive it.');
     }
-    if (listBalances(db, groupId).some(row => row.balance !== 0)) {
+    if ((await listBalances(tx, groupId)).some(row => row.balance !== 0)) {
       throw new Refusal(409, 'BalancesNotZero', 'Every balance of the group must be 0 to archive it.');
     }
-    if (hasProviderWaiting(db, groupId)) {
+    if (await hasProviderWaiting(tx, groupId)) {
       throw new Refusal(
         409,
         'SettlementWaiting',
         'A payment or a refund through the provider is still waiting in the group.',
       );
     }
-    db.prepare('UPDATE groups SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), groupId);
+    await tx.run('UPDATE groups SET archived_at = ? WHERE id = ?', [new Date().toISOString(), groupId]);
   });
 }
 
-export function registerArchiveRoutes(app: FastifyInstance, db: DatabaseSync): void {
-  app.post<{ Params: { id: string } }>('/groups/:id/archive', (request, reply) => {
-    archiveGroup(db, requireCaller(db, request), request.params.id);
+export function registerArchiveRoutes(app: FastifyInstance, db: Database): void {
+  app.post<{ Params: { id: string } }>('/groups/:id/archive', async (request, reply) => {
+    await archiveGroup(db, await requireCaller(db, request), request.params.id);
     return reply.code(204).send();
   });
 }

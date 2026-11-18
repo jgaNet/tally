@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
-import { inTransaction } from './database';
+import type { Database, Queryable } from './database';
 import { addMember, listMembers } from './members';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
@@ -51,9 +50,8 @@ function toGroup(row: GroupRow): Group {
  * its check that the account is a member, and again inside its write transaction, so an archive that lands
  * meanwhile is not written over.
  */
-export function refuseIfArchived(db: DatabaseSync, groupId: string): void {
-  const row = db.prepare('SELECT archived_at FROM groups WHERE id = ?').get(groupId) as
-    { archived_at: string | null } | undefined;
+export async function refuseIfArchived(db: Queryable, groupId: string): Promise<void> {
+  const row = await db.get<{ archived_at: string | null }>('SELECT archived_at FROM groups WHERE id = ?', [groupId]);
   if (row?.archived_at) {
     throw new Refusal(409, 'GroupArchived', 'The group is archived: it is read only.');
   }
@@ -64,7 +62,7 @@ export function refuseIfArchived(db: DatabaseSync, groupId: string): void {
  * whose name is not 1 to 60 characters once trimmed, or whose currency is not one of `CURRENCIES`, is
  * a `Refusal`.
  */
-export function createGroup(db: DatabaseSync, accountId: string, input: NewGroup): string {
+export async function createGroup(db: Database, accountId: string, input: NewGroup): Promise<string> {
   const name = input.name.trim();
   if (Array.from(name).length < 1 || Array.from(name).length > NAME_MAX) {
     throw new Refusal(422, 'InvalidGroupName', `The group needs a name of 1 to ${NAME_MAX} characters.`);
@@ -74,38 +72,36 @@ export function createGroup(db: DatabaseSync, accountId: string, input: NewGroup
   }
   const id = randomUUID();
   // The group and its owner's membership are written together, or not at all.
-  inTransaction(db, () => {
-    db.prepare('INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES (?, ?, ?, ?, ?)').run(
+  await db.transaction(async tx => {
+    await tx.run('INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES (?, ?, ?, ?, ?)', [
       id,
       name,
       input.currency,
       accountId,
       new Date().toISOString(),
-    );
-    addMember(db, id, accountId);
+    ]);
+    await addMember(tx, id, accountId);
   });
   return id;
 }
 
 /** The group, when the account is one of its members. For anyone else it does not exist. */
-export function findGroupOf(db: DatabaseSync, accountId: string, groupId: string): Group | undefined {
-  const row = db
-    .prepare(
-      `SELECT ${groupColumns} FROM groups g JOIN group_members m ON m.group_id = g.id
-       WHERE g.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
-    )
-    .get(groupId, accountId) as GroupRow | undefined;
+export async function findGroupOf(db: Queryable, accountId: string, groupId: string): Promise<Group | undefined> {
+  const row = await db.get<GroupRow>(
+    `SELECT ${groupColumns} FROM groups g JOIN group_members m ON m.group_id = g.id
+     WHERE g.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
+    [groupId, accountId],
+  );
   return row && toGroup(row);
 }
 
 /** The groups the account is a member of, the most recently created first. */
-export function listGroupsOf(db: DatabaseSync, accountId: string): Group[] {
-  const rows = db
-    .prepare(
-      `SELECT ${groupColumns} FROM groups g JOIN group_members m ON m.group_id = g.id
-       WHERE m.account_id = ? AND m.left_at IS NULL ORDER BY g.created_at DESC, g.rowid DESC`,
-    )
-    .all(accountId) as unknown as GroupRow[];
+export async function listGroupsOf(db: Queryable, accountId: string): Promise<Group[]> {
+  const rows = await db.all<GroupRow>(
+    `SELECT ${groupColumns} FROM groups g JOIN group_members m ON m.group_id = g.id
+     WHERE m.account_id = ? AND m.left_at IS NULL ORDER BY g.created_at DESC, g.seq DESC`,
+    [accountId],
+  );
   return rows.map(toGroup);
 }
 
@@ -138,7 +134,7 @@ const groupSchema = {
   },
 };
 
-export function registerGroupRoutes(app: FastifyInstance, db: DatabaseSync): void {
+export function registerGroupRoutes(app: FastifyInstance, db: Database): void {
   app.post<{ Body: NewGroup }>(
     '/groups',
     {
@@ -152,19 +148,19 @@ export function registerGroupRoutes(app: FastifyInstance, db: DatabaseSync): voi
       },
     },
     async (request, reply) => {
-      const accountId = requireCaller(db, request);
-      return reply.code(201).send({ id: createGroup(db, accountId, request.body) });
+      const accountId = await requireCaller(db, request);
+      return reply.code(201).send({ id: await createGroup(db, accountId, request.body) });
     },
   );
 
-  app.get('/groups/mine', { schema: { response: { 200: { type: 'array', items: groupSchema } } } }, request => {
-    const accountId = requireCaller(db, request);
+  app.get('/groups/mine', { schema: { response: { 200: { type: 'array', items: groupSchema } } } }, async request => {
+    const accountId = await requireCaller(db, request);
     return listGroupsOf(db, accountId);
   });
 
-  app.get<{ Params: { id: string } }>('/groups/:id', { schema: { response: { 200: groupSchema } } }, request => {
-    const accountId = requireCaller(db, request);
-    const group = findGroupOf(db, accountId, request.params.id);
+  app.get<{ Params: { id: string } }>('/groups/:id', { schema: { response: { 200: groupSchema } } }, async request => {
+    const accountId = await requireCaller(db, request);
+    const group = await findGroupOf(db, accountId, request.params.id);
     if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
     return group;
   });
@@ -172,9 +168,11 @@ export function registerGroupRoutes(app: FastifyInstance, db: DatabaseSync): voi
   app.get<{ Params: { id: string } }>(
     '/groups/:id/members',
     { schema: { response: { 200: { type: 'array', items: memberSchema } } } },
-    request => {
-      const accountId = requireCaller(db, request);
-      if (!findGroupOf(db, accountId, request.params.id)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    async request => {
+      const accountId = await requireCaller(db, request);
+      if (!(await findGroupOf(db, accountId, request.params.id))) {
+        throw new Refusal(404, 'NotFound', 'There is no such group.');
+      }
       return listMembers(db, request.params.id);
     },
   );

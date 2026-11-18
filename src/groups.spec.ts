@@ -13,7 +13,7 @@ describe('groups', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     adaId = (await call(app, 'POST', '/accounts', { body: ada })).body.id;
     adaToken = (await call(app, 'POST', '/accounts/login', { body: ada })).body.token;
     await call(app, 'POST', '/accounts', { body: grace });
@@ -22,7 +22,7 @@ describe('groups', () => {
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   const create = (fields: Record<string, unknown> = {}, token = adaToken) =>

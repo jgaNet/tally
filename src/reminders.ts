@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from './database';
 import { listBalancesIncludingWaiting } from './balances';
-import { inTransaction } from './database';
 
 /** A member owing more than this, in hundredths of the group's currency, is noted, and reminded when it lasts. */
 export const REMINDER_THRESHOLD = 2000;
@@ -16,55 +15,58 @@ export const DEFAULT_REMINDER_PERIOD_SECONDS = 604_800;
  * left); a member noted for `periodMs` or more, and not reminded during the last `periodMs`, is reminded, which
  * writes a notice of kind `reminder` with what they still owe.
  */
-export function runReminders(db: DatabaseSync, periodMs: number, now: Date = new Date()): void {
+export async function runReminders(db: Database, periodMs: number, now: Date = new Date()): Promise<void> {
   const nowMs = now.getTime();
   const at = now.toISOString();
-  inTransaction(db, () => {
+  await db.transaction(async tx => {
     const owing = new Set<string>();
-    const groups = db.prepare('SELECT id FROM groups').all() as unknown as { id: string }[];
+    const groups = await tx.all<{ id: string }>('SELECT id FROM groups');
     const owed = new Map<string, number>();
     for (const { id: groupId } of groups) {
-      for (const { memberId, balance } of listBalancesIncludingWaiting(db, groupId)) {
+      for (const { memberId, balance } of await listBalancesIncludingWaiting(tx, groupId)) {
         if (-balance > REMINDER_THRESHOLD) {
           owing.add(`${groupId}\n${memberId}`);
           owed.set(`${groupId}\n${memberId}`, -balance);
         }
       }
     }
-    const noted = db.prepare('SELECT group_id, account_id, noted_at, reminded_at FROM debt_notes').all() as unknown as {
+    const noted = await tx.all<{
       group_id: string;
       account_id: string;
       noted_at: string;
       reminded_at: string | null;
-    }[];
-    const forget = db.prepare('DELETE FROM debt_notes WHERE group_id = ? AND account_id = ?');
+    }>('SELECT group_id, account_id, noted_at, reminded_at FROM debt_notes');
     const known = new Set<string>();
     for (const row of noted) {
       const key = `${row.group_id}\n${row.account_id}`;
       if (!owing.has(key)) {
-        forget.run(row.group_id, row.account_id);
+        await tx.run('DELETE FROM debt_notes WHERE group_id = ? AND account_id = ?', [row.group_id, row.account_id]);
         continue;
       }
       known.add(key);
       const notedLongEnough = nowMs - Date.parse(row.noted_at) >= periodMs;
       const recentlyReminded = row.reminded_at !== null && nowMs - Date.parse(row.reminded_at) < periodMs;
       if (notedLongEnough && !recentlyReminded) {
-        db.prepare(
+        await tx.run(
           `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
            VALUES (?, ?, 'reminder', ?, NULL, ?, ?)`,
-        ).run(randomUUID(), row.account_id, row.group_id, owed.get(key) as number, at);
-        db.prepare('UPDATE debt_notes SET reminded_at = ? WHERE group_id = ? AND account_id = ?').run(
+          [randomUUID(), row.account_id, row.group_id, owed.get(key) as number, at],
+        );
+        await tx.run('UPDATE debt_notes SET reminded_at = ? WHERE group_id = ? AND account_id = ?', [
           at,
           row.group_id,
           row.account_id,
-        );
+        ]);
       }
     }
-    const note = db.prepare('INSERT INTO debt_notes (group_id, account_id, noted_at) VALUES (?, ?, ?)');
     for (const key of owing) {
       if (known.has(key)) continue;
       const [groupId, accountId] = key.split('\n');
-      note.run(groupId, accountId, at);
+      await tx.run('INSERT INTO debt_notes (group_id, account_id, noted_at) VALUES (?, ?, ?)', [
+        groupId,
+        accountId,
+        at,
+      ]);
     }
   });
 }

@@ -1,5 +1,5 @@
-import { DatabaseSync } from 'node:sqlite';
 import { Application } from './app';
+import { countRows } from './test-support';
 import { ada, call, startApplication, temporaryDatabase } from './test-support';
 
 const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
@@ -78,7 +78,7 @@ describe('history', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
@@ -90,7 +90,7 @@ describe('history', () => {
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe("the group's expenses", () => {
@@ -412,20 +412,16 @@ describe('history', () => {
 
     it('changes nothing that is stored: reading the list and the statements leaves the rows as they were', async () => {
       await threeExpenses();
-      const counts = () => {
-        const probe = new DatabaseSync(database.path);
-        try {
-          const count = (table: string) =>
-            (probe.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
-          return ['expenses', 'expense_shares', 'group_members', 'accounts', 'groups'].map(count);
-        } finally {
-          probe.close();
-        }
+      const counts = async () => {
+        const counted: number[] = [];
+        for (const table of ['expenses', 'expense_shares', 'group_members', 'accounts', 'groups'])
+          counted.push(await countRows(database.url, table));
+        return counted;
       };
-      const before = counts();
+      const before = await counts();
       const first = [(await listed()).body, (await statement(graceId)).body];
       expect([(await listed()).body, (await statement(graceId)).body]).toEqual(first);
-      expect(counts()).toEqual(before);
+      expect(await counts()).toEqual(before);
     });
   });
 });

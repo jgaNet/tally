@@ -1,8 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
 import { writeAudit } from './audit';
 import { carriedBalanceOf } from './balances';
-import { inTransaction } from './database';
+import type { Database } from './database';
 import { findGroupOf, refuseIfArchived } from './groups';
 import { Refusal } from './refusal';
 import { hasWaitingSettlement } from './settlements';
@@ -17,16 +16,16 @@ import { requireCaller } from './sessions';
  * check and the leaving are one write transaction, so no expense or settlement can land between them. For an
  * account that is not a member, the group does not exist.
  */
-export function leaveGroup(db: DatabaseSync, accountId: string, groupId: string): void {
-  inTransaction(db, () => {
-    const group = findGroupOf(db, accountId, groupId);
+export async function leaveGroup(db: Database, accountId: string, groupId: string): Promise<void> {
+  await db.transaction(async tx => {
+    const group = await findGroupOf(tx, accountId, groupId);
     if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
-    refuseIfArchived(db, groupId);
+    await refuseIfArchived(tx, groupId);
     if (group.ownerId === accountId) {
       throw new Refusal(403, 'OwnerCannotLeave', 'The owner cannot leave the group they created.');
     }
     // A payment or a refund through the provider still waiting for the member would move the balance the owner takes over.
-    if (hasWaitingSettlement(db, groupId, accountId)) {
+    if (await hasWaitingSettlement(tx, groupId, accountId)) {
       throw new Refusal(
         409,
         'SettlementWaiting',
@@ -35,22 +34,28 @@ export function leaveGroup(db: DatabaseSync, accountId: string, groupId: string)
     }
     const at = new Date().toISOString();
     // The balance the owner takes over is the member's as they leave, and it is audited when it is not 0.
-    const balance = carriedBalanceOf(db, groupId, accountId);
+    const balance = await carriedBalanceOf(tx, groupId, accountId);
     if (balance !== 0) {
-      writeAudit(db, groupId, { by: accountId, action: 'balance-passed', subjectId: accountId, amount: balance, at });
+      await writeAudit(tx, groupId, {
+        by: accountId,
+        action: 'balance-passed',
+        subjectId: accountId,
+        amount: balance,
+        at,
+      });
     }
-    db.prepare('UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?').run(
+    await tx.run('UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?', [
       at,
       groupId,
       accountId,
-    );
+    ]);
   });
 }
 
-export function registerLeaveRoutes(app: FastifyInstance, db: DatabaseSync): void {
-  app.post<{ Params: { id: string } }>('/groups/:id/leave', (request, reply) => {
-    const accountId = requireCaller(db, request);
-    leaveGroup(db, accountId, request.params.id);
+export function registerLeaveRoutes(app: FastifyInstance, db: Database): void {
+  app.post<{ Params: { id: string } }>('/groups/:id/leave', async (request, reply) => {
+    const accountId = await requireCaller(db, request);
+    await leaveGroup(db, accountId, request.params.id);
     return reply.code(204).send();
   });
 }

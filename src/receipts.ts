@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from './database';
 import { changeableExpense, findExpenseOf } from './expenses';
-import { inTransaction } from './database';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
@@ -93,7 +92,7 @@ const receiptSchema = {
  * its group. The file is checked before anything is sent, then kept in the receipts store; only then is it attached, in
  * place of the receipt the expense had. A receipt is not an edit of the expense, so its version stays.
  */
-export function registerReceiptRoutes(app: FastifyInstance, db: DatabaseSync, receipts: ReceiptsConfig): void {
+export function registerReceiptRoutes(app: FastifyInstance, db: Database, receipts: ReceiptsConfig): void {
   // The file is read as its bytes, as it was sent. A larger one is refused by the server before it is read.
   app.addContentTypeParser(
     'application/octet-stream',
@@ -104,9 +103,9 @@ export function registerReceiptRoutes(app: FastifyInstance, db: DatabaseSync, re
   );
 
   app.put<{ Params: { id: string } }>('/expenses/:id/receipt', async (request, reply) => {
-    const accountId = requireCaller(db, request);
+    const accountId = await requireCaller(db, request);
     const expenseId = request.params.id;
-    changeableExpense(db, accountId, expenseId);
+    await changeableExpense(db, accountId, expenseId);
     const bytes = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
     const type = receiptTypeOf(bytes);
     if (type === undefined) {
@@ -120,15 +119,16 @@ export function registerReceiptRoutes(app: FastifyInstance, db: DatabaseSync, re
       throw new Refusal(409, 'ReceiptsNotConfigured', 'Keeping receipts is not set up on this server.');
     }
     const stored = await storeReceipt({ ...receipts, url: receipts.url }, bytes, type);
-    inTransaction(db, () => {
+    await db.transaction(async tx => {
       // The expense may have changed while the store kept the file: the receipt goes only to an expense that may still take one.
-      changeableExpense(db, accountId, expenseId);
-      db.prepare(
+      await changeableExpense(tx, accountId, expenseId);
+      await tx.run(
         `INSERT INTO receipts (expense_id, type, size, store_id, url, attached_at) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (expense_id) DO UPDATE SET
            type = excluded.type, size = excluded.size, store_id = excluded.store_id,
            url = excluded.url, attached_at = excluded.attached_at`,
-      ).run(expenseId, type, bytes.length, stored.id, stored.url, new Date().toISOString());
+        [expenseId, type, bytes.length, stored.id, stored.url, new Date().toISOString()],
+      );
     });
     return reply.code(204).send();
   });
@@ -136,13 +136,14 @@ export function registerReceiptRoutes(app: FastifyInstance, db: DatabaseSync, re
   app.get<{ Params: { id: string } }>(
     '/expenses/:id/receipt',
     { schema: { response: { 200: receiptSchema } } },
-    request => {
-      const accountId = requireCaller(db, request);
-      if (!findExpenseOf(db, accountId, request.params.id)) {
+    async request => {
+      const accountId = await requireCaller(db, request);
+      if (!(await findExpenseOf(db, accountId, request.params.id))) {
         throw new Refusal(404, 'NotFound', 'There is no such expense.');
       }
-      const row = db.prepare('SELECT type, size, url FROM receipts WHERE expense_id = ?').get(request.params.id) as
-        ReceiptRow | undefined;
+      const row = await db.get<ReceiptRow>('SELECT type, size, url FROM receipts WHERE expense_id = ?', [
+        request.params.id,
+      ]);
       if (!row) throw new Refusal(404, 'NotFound', 'The expense has no receipt.');
       return { type: row.type, size: row.size, url: row.url };
     },

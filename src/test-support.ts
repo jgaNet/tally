@@ -1,24 +1,66 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import pg from 'pg';
 import { createApplication, Application } from './app';
+import { openDatabase } from './database';
 
-/** A directory of its own, for one test's database file, removed by `remove`. */
-export function temporaryDatabase(): { path: string; remove(): void } {
-  const directory = mkdtempSync(join(tmpdir(), 'tally-test-'));
-  return { path: join(directory, 'tally.db'), remove: () => rmSync(directory, { recursive: true, force: true }) };
+/** The PostgreSQL server the tests use: the one `DATABASE_URL` names. Each test's database is made on it. */
+function serverUrl(): string {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL must name the PostgreSQL server the tests use.');
+  return url;
+}
+
+/** Runs `work` on a connection to the server, which is closed after it. */
+async function onServer<T>(work: (client: pg.Client) => Promise<T>): Promise<T> {
+  const client = new pg.Client({ connectionString: serverUrl() });
+  await client.connect();
+  try {
+    return await work(client);
+  } finally {
+    await client.end();
+  }
 }
 
 /**
- * Starts an application on a random port, on the database file at `databasePath`. Without a payment provider, a
+ * A database of its own on the server the tests use, for one test: its `url` is what `startApplication` takes, which makes
+ * the database; `remove` drops it, once the application has stopped.
+ */
+export function temporaryDatabase(): { url: string; remove(): Promise<void> } {
+  const location = new URL(serverUrl());
+  const name = `tally_test_${randomUUID().replaceAll('-', '')}`;
+  location.pathname = `/${name}`;
+  return {
+    url: location.toString(),
+    remove: async () => {
+      await onServer(client => client.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`));
+    },
+  };
+}
+
+/** Makes the database at `url` if it does not exist yet: the tests' own databases are made here, when they are first used. */
+export async function makeDatabase(url: string): Promise<void> {
+  const name = new URL(url).pathname.slice(1);
+  await onServer(async client => {
+    try {
+      await client.query(`CREATE DATABASE ${name}`);
+    } catch (error) {
+      // 42P04: the database exists already, as another server of the test made it.
+      if ((error as { code?: string }).code !== '42P04') throw error;
+    }
+  });
+}
+
+/**
+ * Starts an application on a random port, on the database at `databaseUrl`. Without a payment provider, a
  * rates service or a receipts store configured, as a server without `PROVIDER_URL`, `RATES_URL` or `RECEIPTS_URL` is; a
  * test that needs one gives its URL.
  */
 export async function startApplication(
-  databasePath: string,
+  databaseUrl: string,
   services: {
+    databasePath?: string;
     providerUrl?: string;
     providerWebhookSecret?: string;
     providerTimeoutMs?: number;
@@ -28,8 +70,9 @@ export async function startApplication(
     receiptsTimeoutMs?: number;
   } = {},
 ): Promise<Application> {
+  await makeDatabase(databaseUrl);
   const app = await createApplication({
-    databasePath,
+    databaseUrl,
     providerUrl: '',
     providerWebhookSecret: '',
     ratesUrl: '',
@@ -156,4 +199,24 @@ export async function startFakeProvider(): Promise<FakeProvider> {
       }),
   });
   return provider;
+}
+
+/** The rows a query gives on the database at `url`, read apart from the application on a connection of its own. */
+export async function readRows(
+  url: string,
+  sql: string,
+  params: unknown[] = [],
+): Promise<Array<Record<string, unknown>>> {
+  const db = await openDatabase(url);
+  try {
+    return await db.all<Record<string, unknown>>(sql, params);
+  } finally {
+    await db.close();
+  }
+}
+
+/** How many rows a table of the database at `url` holds, counted apart from the application. */
+export async function countRows(url: string, table: string): Promise<number> {
+  const [row] = await readRows(url, `SELECT COUNT(*) AS n FROM ${table}`);
+  return Number(row.n);
 }

@@ -1,5 +1,5 @@
-import { DatabaseSync } from 'node:sqlite';
 import { Application } from './app';
+import { readRows } from './test-support';
 import { ada, call, FakeProvider, startApplication, startFakeProvider, temporaryDatabase } from './test-support';
 
 const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
@@ -52,19 +52,13 @@ describe('paying through the payment provider: asking for a payment', () => {
     );
 
   /** The rows of the settlements table, read apart from the application, as the file keeps them. */
-  const settlementRows = (): Array<Record<string, unknown>> => {
-    const probe = new DatabaseSync(database.path);
-    try {
-      return probe.prepare('SELECT * FROM settlements').all() as Array<Record<string, unknown>>;
-    } finally {
-      probe.close();
-    }
-  };
+  const settlementRows = (): Promise<Array<Record<string, unknown>>> =>
+    readRows(database.url, 'SELECT * FROM settlements');
 
   beforeEach(async () => {
     database = temporaryDatabase();
     provider = await startFakeProvider();
-    app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: 'whsec_test' });
+    app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: 'whsec_test' });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     // Ada is paid through the provider, on her payout account. Setting it asks the provider, which is not a payment.
     expect(
@@ -100,7 +94,7 @@ describe('paying through the payment provider: asking for a payment', () => {
     for (const extra of extraApps.splice(0)) await extra.stop();
     await app.stop();
     await provider.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe('asking for a payment', () => {
@@ -162,7 +156,7 @@ describe('paying through the payment provider: asking for a payment', () => {
       expect(answer.status).toBe(409);
       expect(answer.body.type).toBe('AmountTooLarge');
       expect(provider.requests).toHaveLength(0);
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
     });
 
     it('refuses an amount that is not a whole number of at least 1, and keeps nothing', async () => {
@@ -170,7 +164,7 @@ describe('paying through the payment provider: asking for a payment', () => {
       expect((await askProvider({ to: adaId, amount: -5 }, graceToken)).status).toBe(422);
       expect((await askProvider({ to: adaId, amount: 1.5 }, graceToken)).status).toBeGreaterThanOrEqual(400);
       expect(provider.requests).toHaveLength(0);
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
     });
 
     it('refuses a payee who is the payer, or who is not a member of the group, and keeps nothing', async () => {
@@ -181,7 +175,7 @@ describe('paying through the payment provider: asking for a payment', () => {
       expect(toOutsider.status).toBe(422);
       expect(toOutsider.body.type).toBe('InvalidPayee');
       expect(provider.requests).toHaveLength(0);
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
     });
 
     it('answers 404 to an account outside the group, and for a group that does not exist', async () => {
@@ -212,7 +206,7 @@ describe('paying through the payment provider: asking for a payment', () => {
       ]);
       expect([first.status, second.status].sort()).toEqual([201, 409]);
       expect(provider.requests).toHaveLength(1);
-      expect(settlementRows()).toHaveLength(1);
+      expect(await settlementRows()).toHaveLength(1);
     });
   });
 
@@ -238,12 +232,12 @@ describe('paying through the payment provider: asking for a payment', () => {
 
   describe('when the provider does not answer a payment', () => {
     it('refuses the request, and keeps nothing, when the provider is not configured', async () => {
-      const unconfigured = await startApplication(database.path, { providerUrl: '' });
+      const unconfigured = await startApplication(database.url, { providerUrl: '' });
       extraApps.push(unconfigured);
       const answer = await askProvider({ to: adaId, amount: 1000 }, graceToken, unconfigured);
       expect(answer.status).toBe(409);
       expect(answer.body.type).toBe('ProviderNotConfigured');
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
       expect(provider.requests).toHaveLength(0);
     });
 
@@ -252,31 +246,31 @@ describe('paying through the payment provider: asking for a payment', () => {
       const answer = await askProvider({ to: adaId, amount: 1000 }, graceToken);
       expect(answer.status).toBe(424);
       expect(answer.body.type).toBe('ProviderUnavailable');
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
       expect(await balancesOf()).toEqual({ [adaId]: 2000, [graceId]: -1000, [linusId]: -1000 });
     });
 
     it('refuses the request, and keeps nothing, when the provider fails', async () => {
       provider.answer = () => ({ status: 500, raw: 'oops' });
       expect((await askProvider({ to: adaId, amount: 1000 }, graceToken)).status).toBe(424);
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
     });
 
     it('refuses the request, and keeps nothing, when the provider answers without a payment link', async () => {
       provider.answer = () => ({ status: 201, body: { id: 'pay_x' } });
       expect((await askProvider({ to: adaId, amount: 1000 }, graceToken)).status).toBe(424);
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
     });
 
     it('refuses the request, and keeps nothing, when the provider answers with a body that is not JSON', async () => {
       provider.answer = () => ({ status: 201, raw: '<html>created</html>' });
       expect((await askProvider({ to: adaId, amount: 1000 }, graceToken)).status).toBe(424);
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
     });
 
     it('refuses the request, and keeps nothing, when the provider does not answer within the time allowed', async () => {
       await app.stop();
-      app = await startApplication(database.path, {
+      app = await startApplication(database.url, {
         providerUrl: provider.url,
         providerWebhookSecret: 'whsec_test',
         providerTimeoutMs: 150,
@@ -288,7 +282,7 @@ describe('paying through the payment provider: asking for a payment', () => {
       });
       const answer = await askProvider({ to: adaId, amount: 1000 }, graceToken);
       expect(answer.status).toBe(424);
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
       expect(await balancesOf()).toEqual({ [adaId]: 2000, [graceId]: -1000, [linusId]: -1000 });
     });
 
@@ -297,9 +291,9 @@ describe('paying through the payment provider: asking for a payment', () => {
       const url = gone.url;
       await gone.stop();
       await app.stop();
-      app = await startApplication(database.path, { providerUrl: url, providerWebhookSecret: 'whsec_test' });
+      app = await startApplication(database.url, { providerUrl: url, providerWebhookSecret: 'whsec_test' });
       expect((await askProvider({ to: adaId, amount: 1000 }, graceToken)).status).toBe(424);
-      expect(settlementRows()).toHaveLength(0);
+      expect(await settlementRows()).toHaveLength(0);
     });
 
     it('asks again once the provider is answering again, and then keeps the settlement', async () => {

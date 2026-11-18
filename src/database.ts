@@ -1,470 +1,394 @@
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { existsSync } from 'node:fs';
+import pg from 'pg';
+import type { PoolClient, QueryResult } from 'pg';
+import { LEGACY_TABLES, openLegacyFile, readLegacyRows } from './legacy-sqlite';
 
 /**
- * The schema, one entry per version: entry `n` takes the database from version `n` to `n + 1`.
- * Only ever append to this list.
+ * What the data layer runs its statements with. A statement takes `?` for each value, in order, as SQLite's did; the values
+ * are passed in a list. A read changes nothing; a write is run in a transaction (see `Database.transaction`).
  */
-const MIGRATIONS: readonly string[] = [
-  `
-  CREATE TABLE accounts (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL,
-    name TEXT NOT NULL,
-    password_hash TEXT NOT NULL
-  );
-  CREATE UNIQUE INDEX accounts_email ON accounts (email);
-
-  CREATE TABLE sessions (
-    token_hash TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE operations (
-    id TEXT PRIMARY KEY,
-    account_id TEXT REFERENCES accounts (id),
-    status TEXT NOT NULL,
-    result TEXT,
-    error_type TEXT,
-    error_message TEXT,
-    created_at TEXT NOT NULL
-  );
-  `,
-  `
-  CREATE TABLE groups (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    currency TEXT NOT NULL,
-    owner_id TEXT NOT NULL REFERENCES accounts (id),
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE group_members (
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    PRIMARY KEY (group_id, account_id)
-  );
-  CREATE INDEX group_members_account ON group_members (account_id);
-  `,
-  `
-  ALTER TABLE group_members ADD COLUMN joined_at TEXT;
-  UPDATE group_members SET joined_at = (SELECT g.created_at FROM groups g WHERE g.id = group_members.group_id);
-
-  CREATE TABLE invitations (
-    id TEXT PRIMARY KEY,
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    created_by TEXT NOT NULL REFERENCES accounts (id),
-    created_at TEXT NOT NULL
-  );
-  `,
-  `
-  CREATE TABLE expenses (
-    id TEXT PRIMARY KEY,
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    description TEXT NOT NULL,
-    amount INTEGER NOT NULL,
-    date TEXT NOT NULL,
-    paid_by TEXT NOT NULL REFERENCES accounts (id),
-    created_at TEXT NOT NULL
-  );
-
-  -- The shares of an expense, in the order its split was given: position is that order.
-  CREATE TABLE expense_shares (
-    expense_id TEXT NOT NULL REFERENCES expenses (id),
-    position INTEGER NOT NULL,
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    amount INTEGER NOT NULL,
-    PRIMARY KEY (expense_id, position)
-  );
-  `,
-  `
-  -- The version of an expense: 1 when it is recorded, one more at each edit. Expenses recorded before
-  -- versions existed were never edited, so they are at version 1.
-  ALTER TABLE expenses ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
-  `,
-  `
-  -- How an expense was split: 'equal' between its members, 'exact' by amounts, or 'shares' by a number of
-  -- shares each. Expenses recorded before splits could be unequal were all split equally.
-  ALTER TABLE expenses ADD COLUMN split_kind TEXT NOT NULL DEFAULT 'equal'
-    CHECK (split_kind IN ('equal', 'exact', 'shares'));
-  `,
-  `
-  -- A membership is a row of group_members, from the moment its member joins. When the member leaves, the
-  -- row stays, with the moment it ended in left_at: it is current while left_at is null. A member who
-  -- joins again has their row renewed, and so is last in the group's order of members: joined_order is
-  -- that order, one more than the last one given at each join.
-  ALTER TABLE group_members ADD COLUMN left_at TEXT;
-  ALTER TABLE group_members ADD COLUMN joined_order INTEGER;
-  UPDATE group_members SET joined_order = (
-    SELECT COUNT(*) FROM group_members o
-    WHERE o.group_id = group_members.group_id
-      AND (o.joined_at < group_members.joined_at
-           OR (o.joined_at = group_members.joined_at AND o.rowid <= group_members.rowid)));
-  `,
-  `
-  -- A settlement: the payee, who records it, was paid the amount in cash by the payer, in hundredths of the
-  -- group's currency. It is never recorded as anything but cash, and it is paid from the moment it is recorded.
-  CREATE TABLE settlements (
-    id TEXT PRIMARY KEY,
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    payer_id TEXT NOT NULL REFERENCES accounts (id),
-    payee_id TEXT NOT NULL REFERENCES accounts (id),
-    amount INTEGER NOT NULL CHECK (amount >= 1),
-    method TEXT NOT NULL CHECK (method IN ('cash')),
-    status TEXT NOT NULL CHECK (status IN ('paid')),
-    created_at TEXT NOT NULL
-  );
-  CREATE INDEX settlements_group ON settlements (group_id);
-  `,
-  `
-  -- A settlement may also be paid through the payment provider: method 'provider'. It is 'pending' while the
-  -- provider has not decided it, then 'paid' or 'failed'. A settlement through the provider has the provider's
-  -- id of its payment, and the link where the payer pays it; both are null until the provider has answered.
-  -- SQLite cannot change a CHECK constraint, so the table is rebuilt, its rows copied as they are.
-  CREATE TABLE settlements_next (
-    id TEXT PRIMARY KEY,
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    payer_id TEXT NOT NULL REFERENCES accounts (id),
-    payee_id TEXT NOT NULL REFERENCES accounts (id),
-    amount INTEGER NOT NULL CHECK (amount >= 1),
-    method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
-    status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
-    provider_id TEXT,
-    pay_url TEXT,
-    created_at TEXT NOT NULL
-  );
-  INSERT INTO settlements_next (id, group_id, payer_id, payee_id, amount, method, status, created_at)
-    SELECT id, group_id, payer_id, payee_id, amount, method, status, created_at FROM settlements;
-  DROP TABLE settlements;
-  ALTER TABLE settlements_next RENAME TO settlements;
-  CREATE INDEX settlements_group ON settlements (group_id);
-  CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
-  `,
-  `
-  -- The decision the provider made on a payment, 'paid' or 'failed', as the first webhook that decided it carried
-  -- it. A webhook may overtake the provider's answer to the request for its payment: until that answer is kept on
-  -- the settlement, the settlement has no payment id, so the decision waits here and is applied when it is kept.
-  -- A payment ends once, so the first decision is the one kept.
-  CREATE TABLE payment_decisions (
-    payment_id TEXT PRIMARY KEY,
-    status TEXT NOT NULL CHECK (status IN ('paid', 'failed'))
-  );
-  `,
-  `
-  -- A settlement through the provider may be refunded: 'refunding' while the provider is asked for the refund,
-  -- then 'refunded' once it says the payment is refunded. A payment's decision may be 'refunded' too: a payment
-  -- that succeeded is refunded later. Both CHECK constraints are rebuilt, their rows copied as they are.
-  CREATE TABLE settlements_next (
-    id TEXT PRIMARY KEY,
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    payer_id TEXT NOT NULL REFERENCES accounts (id),
-    payee_id TEXT NOT NULL REFERENCES accounts (id),
-    amount INTEGER NOT NULL CHECK (amount >= 1),
-    method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
-    status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
-    provider_id TEXT,
-    pay_url TEXT,
-    created_at TEXT NOT NULL
-  );
-  INSERT INTO settlements_next (id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at)
-    SELECT id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at FROM settlements;
-  DROP TABLE settlements;
-  ALTER TABLE settlements_next RENAME TO settlements;
-  CREATE INDEX settlements_group ON settlements (group_id);
-  CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
-
-  CREATE TABLE payment_decisions_next (
-    payment_id TEXT PRIMARY KEY,
-    status TEXT NOT NULL CHECK (status IN ('paid', 'failed', 'refunded'))
-  );
-  INSERT INTO payment_decisions_next (payment_id, status) SELECT payment_id, status FROM payment_decisions;
-  DROP TABLE payment_decisions;
-  ALTER TABLE payment_decisions_next RENAME TO payment_decisions;
-  `,
-  `
-  -- A member's payout account: the provider's id of the account the provider pays the member on. Setting another
-  -- replaces this one, so a member has at most one. A member without one is not paid through the provider.
-  CREATE TABLE payout_accounts (
-    account_id TEXT PRIMARY KEY REFERENCES accounts (id),
-    provider_account_id TEXT NOT NULL,
-    set_at TEXT NOT NULL
-  );
-  `,
-  `
-  -- A notice tells a member of an expense's split, other than its payer, their share of it. It is written in the
-  -- same transaction that records the expense, so it exists exactly when the expense does, and once per member:
-  -- the unique index refuses a second one. It belongs to its account for good: it is not removed when the member
-  -- leaves the group, nor when the expense is deleted, so expense_id is not a foreign key.
-  CREATE TABLE notices (
-    id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    kind TEXT NOT NULL CHECK (kind IN ('expense')),
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    expense_id TEXT NOT NULL,
-    amount INTEGER NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  CREATE UNIQUE INDEX notices_expense_account ON notices (expense_id, account_id);
-  CREATE INDEX notices_account ON notices (account_id, created_at);
-  `,
-  `
-  -- A reminder is a notice of its own kind, with no expense: the table is rebuilt so expense_id may be null and
-  -- kind may be 'reminder', its rows copied in the order they were written. debt_notes keeps, for each member
-  -- of a group the background job sees owing more than 2000, the run it noted that from, and when it last
-  -- reminded them; a member it no longer sees owing that has no row.
-  CREATE TABLE notices_next (
-    id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder')),
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    expense_id TEXT,
-    amount INTEGER NOT NULL,
-    created_at TEXT NOT NULL
-  );
-  INSERT INTO notices_next (id, account_id, kind, group_id, expense_id, amount, created_at)
-    SELECT id, account_id, kind, group_id, expense_id, amount, created_at FROM notices ORDER BY rowid;
-  DROP TABLE notices;
-  ALTER TABLE notices_next RENAME TO notices;
-  CREATE UNIQUE INDEX notices_expense_account ON notices (expense_id, account_id);
-  CREATE INDEX notices_account ON notices (account_id, created_at);
-
-  CREATE TABLE debt_notes (
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    noted_at TEXT NOT NULL,
-    reminded_at TEXT,
-    PRIMARY KEY (group_id, account_id)
-  );
-  `,
-  `
-  -- Every status a settlement has had, in the order it had them: seq is that order. Each entry is written with
-  -- the moment Tally learned the status (the moment a webhook's decision came in, for a decision). A settlement
-  -- starts with one entry: 'paid' for a cash one, 'pending' for one through the provider.
-  CREATE TABLE settlement_history (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-    settlement_id TEXT NOT NULL REFERENCES settlements (id),
-    status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
-    at TEXT NOT NULL
-  );
-  CREATE INDEX settlement_history_settlement ON settlement_history (settlement_id, seq);
-
-  -- A decision keeps the moment Tally learned it, so the status it makes a settlement take is dated by it. Decisions
-  -- kept before this were learned before the file had their moment, so they are dated by the migration itself.
-  ALTER TABLE payment_decisions ADD COLUMN decided_at TEXT;
-  UPDATE payment_decisions SET decided_at = STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now');
-
-  -- The settlements already recorded: each has its starting status, dated by when it was recorded. One through the
-  -- provider that is no longer pending has the status it has now too, dated by the migration, as its moment is not kept.
-  INSERT INTO settlement_history (settlement_id, status, at)
-    SELECT id, CASE WHEN method = 'cash' THEN 'paid' ELSE 'pending' END, created_at FROM settlements ORDER BY rowid;
-  INSERT INTO settlement_history (settlement_id, status, at)
-    SELECT id, status, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now') FROM settlements
-    WHERE method = 'provider' AND status <> 'pending' ORDER BY rowid;
-  `,
-  `
-  -- The balance a member's row carries away from their own balance. A member's balance is what their expenses and
-  -- settlements give, less this offset. When a member leaves, nothing is written: the owner of the group takes over
-  -- what the member's balance is, for as long as they are gone. When the member joins again, the offset becomes what
-  -- their balance is then, so they start at 0, and the owner's offset moves by the opposite, so the owner keeps what
-  -- passed to them. The offsets of a group add up to 0, which keeps its balances at a total of 0.
-  ALTER TABLE group_members ADD COLUMN balance_offset INTEGER NOT NULL DEFAULT 0;
-  `,
-  `
-  -- An expense may be paid in another currency than its group's: its original currency, the amount paid in it, in
-  -- hundredths of that currency, and the rate it was converted at, as its payer gave it (a decimal string). Its
-  -- amount is the amount in the group's currency. All three are null for an expense in the group's currency, which
-  -- every expense recorded before this is.
-  ALTER TABLE expenses ADD COLUMN original_currency TEXT;
-  ALTER TABLE expenses ADD COLUMN original_amount INTEGER;
-  ALTER TABLE expenses ADD COLUMN original_rate TEXT;
-  `,
-  `
-  -- A recurring expense: its payer, description and amount, the day of its first month, and next_on, the day of the
-  -- next expense the background job records for it, which it moves one month on in the write transaction that
-  -- records that expense, so each day has one. The split as it was given is in recurring_shares, in order: value is
-  -- null for an equal split, the amount of an exact one, the number of shares of a split by shares.
-  CREATE TABLE recurring (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-    id TEXT NOT NULL UNIQUE,
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    paid_by TEXT NOT NULL REFERENCES accounts (id),
-    description TEXT NOT NULL,
-    amount INTEGER NOT NULL,
-    starts_on TEXT NOT NULL,
-    next_on TEXT NOT NULL,
-    split_kind TEXT NOT NULL CHECK (split_kind IN ('equal', 'exact', 'shares')),
-    created_at TEXT NOT NULL
-  );
-  CREATE INDEX recurring_group ON recurring (group_id, seq);
-
-  CREATE TABLE recurring_shares (
-    recurring_id TEXT NOT NULL REFERENCES recurring (id),
-    position INTEGER NOT NULL,
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    value INTEGER,
-    PRIMARY KEY (recurring_id, position)
-  );
-  `,
-  `
-  -- An expense's category, and a recurring expense's, which its expenses take: one of eight. 'other' when none was given,
-  -- which the expenses and recurring expenses recorded before categories are.
-  ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'
-    CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'));
-  ALTER TABLE recurring ADD COLUMN category TEXT NOT NULL DEFAULT 'other'
-    CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'));
-  `,
-  `
-  -- A budget: the owner's monthly amount for a category of a group, in hundredths of its currency, at most one per category.
-  -- budget_passings keeps, for each group, category and month, that the notice of the month passing its budget was made, so
-  -- that a month is noticed once.
-  CREATE TABLE budgets (
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    category TEXT NOT NULL CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other')),
-    amount INTEGER NOT NULL CHECK (amount >= 1),
-    PRIMARY KEY (group_id, category)
-  );
-
-  CREATE TABLE budget_passings (
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    category TEXT NOT NULL,
-    month TEXT NOT NULL,
-    PRIMARY KEY (group_id, category, month)
-  );
-  `,
-  `
-  -- A notice may be of kind 'budget': it tells each member of a group that a month passed a category's budget, with the
-  -- category, the month (YYYY-MM), the budget and what the month spends. Its columns are null for the other kinds, and a
-  -- budget notice has all three. The table is rebuilt, its rows copied in the order they were written.
-  CREATE TABLE notices_next (
-    id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    expense_id TEXT,
-    category TEXT,
-    month TEXT,
-    budget INTEGER,
-    amount INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    CHECK (kind <> 'budget' OR (category IS NOT NULL AND month IS NOT NULL AND budget IS NOT NULL))
-  );
-  INSERT INTO notices_next (id, account_id, kind, group_id, expense_id, amount, created_at)
-    SELECT id, account_id, kind, group_id, expense_id, amount, created_at FROM notices ORDER BY rowid;
-  DROP TABLE notices;
-  ALTER TABLE notices_next RENAME TO notices;
-  CREATE UNIQUE INDEX notices_expense_account ON notices (expense_id, account_id);
-  CREATE INDEX notices_account ON notices (account_id, created_at);
-  `,
-  `
-  -- A split template: a split saved under a name by a member of a group, which an expense of the group may be split by.
-  -- Its name is unique in its group whatever its case: name_key is the name in lower case. Its split is 'equal' between
-  -- its members, or 'shares' by a number of shares each, kept in template_shares in the order given (value is the number of
-  -- shares, null for an equal split). seq is the order the templates were saved in; a replaced template keeps its place.
-  CREATE TABLE templates (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-    id TEXT NOT NULL UNIQUE,
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    name TEXT NOT NULL,
-    name_key TEXT NOT NULL,
-    split_kind TEXT NOT NULL CHECK (split_kind IN ('equal', 'shares')),
-    created_by TEXT NOT NULL REFERENCES accounts (id),
-    created_at TEXT NOT NULL,
-    UNIQUE (group_id, name_key)
-  );
-
-  CREATE TABLE template_shares (
-    template_id TEXT NOT NULL REFERENCES templates (id),
-    position INTEGER NOT NULL,
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    value INTEGER,
-    PRIMARY KEY (template_id, position)
-  );
-  `,
-  `
-  -- A receipt of an expense: a JPEG or a PNG of at most 2 MB, kept in the receipts store, which gave it the id store_id and the
-  -- link url the receipt is read at. One per expense: attaching another replaces it. The receipt is not an edit, so the expense
-  -- keeps its version; it goes with its expense.
-  CREATE TABLE receipts (
-    expense_id TEXT PRIMARY KEY REFERENCES expenses (id) ON DELETE CASCADE,
-    type TEXT NOT NULL CHECK (type IN ('image/jpeg', 'image/png')),
-    size INTEGER NOT NULL CHECK (size BETWEEN 1 AND 2097152),
-    store_id TEXT NOT NULL,
-    url TEXT NOT NULL,
-    attached_at TEXT NOT NULL
-  );
-  `,
-  `
-  -- A group may be archived: the moment it was, once every balance is 0 and no payment through the provider waits. An
-  -- archived group is read only. A group that is not archived has no moment, which is null.
-  ALTER TABLE groups ADD COLUMN archived_at TEXT;
-  `,
-  `
-  -- The audit of a group: one entry for each change of money in it, written in the write transaction of the change and
-  -- never changed or removed after. seq is the order the entries were written in, which is the order the audit lists them
-  -- in. An entry names the account that made the change (account_id), the moment (at), what it did (action), the expense,
-  -- settlement or member it is about (subject_id, not a foreign key: the subject may be deleted, or its member leave), and
-  -- the amount. Changes made before the audit existed have no entry.
-  CREATE TABLE audit_entries (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-    id TEXT NOT NULL UNIQUE,
-    group_id TEXT NOT NULL REFERENCES groups (id),
-    at TEXT NOT NULL,
-    account_id TEXT NOT NULL REFERENCES accounts (id),
-    action TEXT NOT NULL CHECK (action IN (
-      'expense-recorded', 'expense-edited', 'expense-deleted', 'settlement-paid', 'settlement-refunded', 'balance-passed'
-    )),
-    subject_id TEXT NOT NULL,
-    amount INTEGER NOT NULL
-  );
-  CREATE INDEX audit_entries_group ON audit_entries (group_id, seq);
-  `,
-];
-
-/**
- * Opens (creating it if needed) the SQLite file at `path` and brings its schema up to date. Several
- * servers may open the same file: it runs in WAL mode, waits for a lock instead of failing on it, and
- * migrates inside a write transaction so two starting servers cannot both apply a migration.
- */
-export function openDatabase(path: string): DatabaseSync {
-  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
-  const db = new DatabaseSync(path);
-  try {
-    db.exec('PRAGMA busy_timeout = 5000');
-    db.exec('PRAGMA journal_mode = WAL');
-    db.exec('PRAGMA synchronous = FULL');
-    db.exec('PRAGMA foreign_keys = ON');
-    migrate(db);
-    return db;
-  } catch (error) {
-    db.close();
-    throw error;
-  }
+export interface Queryable {
+  /** The first row the statement gives, or `undefined` when it gives none. */
+  get<Row = unknown>(sql: string, params?: readonly unknown[]): Promise<Row | undefined>;
+  /** Every row the statement gives, in the order it gives them. */
+  all<Row = unknown>(sql: string, params?: readonly unknown[]): Promise<Row[]>;
+  /** Runs the statement; `changes` is the number of rows it wrote, changed or removed. */
+  run(sql: string, params?: readonly unknown[]): Promise<{ changes: number }>;
+  /** Runs statements that take no values, several at once if need be. */
+  exec(sql: string): Promise<void>;
 }
 
-/**
- * Runs `work` in a write transaction that waits for the write lock: its writes all land, or, when it
- * throws, none does.
- */
-export function inTransaction<T>(db: DatabaseSync, work: () => T): T {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const result = work();
-    db.exec('COMMIT');
-    return result;
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
+/** The database of Tally: a pool of connections to its PostgreSQL database. */
+export interface Database extends Queryable {
+  /**
+   * Runs `work` in a write transaction: its writes all land, or, when it throws, none does. The transaction waits for the
+   * write lock before `work` starts, so the write transactions of every server on the database run one after the other, and
+   * each sees what the ones before it wrote. `work` must use the `tx` it is given for everything, never the database itself:
+   * the database would wait for the lock that the transaction holds.
+   */
+  transaction<T>(work: (tx: Queryable) => Promise<T>): Promise<T>;
+  /** Closes the connections. */
+  close(): Promise<void>;
 }
 
-function migrate(db: DatabaseSync): void {
-  inTransaction(db, () => {
-    const current = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
-    for (let version = current; version < MIGRATIONS.length; version++) {
-      db.exec(MIGRATIONS[version]);
+/** The advisory lock every write transaction takes: the one lock a write transaction waits for, whichever server runs it. */
+const WRITE_LOCK = 1952802420;
+
+/** The version of the schema this server keeps. The schema is one version: a database holding another is not read. */
+const SCHEMA_VERSION = 1;
+
+/**
+ * The schema of Tally in PostgreSQL. The tables, columns and constraints are those the SQLite file had at its last version, with
+ * `seq` where the file's order of rows (its rowid) mattered: the order of creation, which lists read. Integers are 8 bytes, as
+ * SQLite's are, so that no value the file holds is out of range.
+ */
+const SCHEMA = `
+CREATE TABLE schema_version (version BIGINT NOT NULL);
+
+CREATE TABLE accounts (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  password_hash TEXT NOT NULL
+);
+CREATE UNIQUE INDEX accounts_email ON accounts (email);
+
+CREATE TABLE sessions (
+  token_hash TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE operations (
+  id TEXT PRIMARY KEY,
+  account_id TEXT REFERENCES accounts (id),
+  status TEXT NOT NULL,
+  result TEXT,
+  error_type TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE groups (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  owner_id TEXT NOT NULL REFERENCES accounts (id),
+  created_at TEXT NOT NULL,
+  archived_at TEXT
+);
+
+CREATE TABLE group_members (
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  joined_at TEXT,
+  joined_order BIGINT,
+  left_at TEXT,
+  balance_offset BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (group_id, account_id)
+);
+CREATE INDEX group_members_account ON group_members (account_id);
+
+CREATE TABLE invitations (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  created_by TEXT NOT NULL REFERENCES accounts (id),
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE expenses (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  description TEXT NOT NULL,
+  amount BIGINT NOT NULL,
+  date TEXT NOT NULL,
+  paid_by TEXT NOT NULL REFERENCES accounts (id),
+  created_at TEXT NOT NULL,
+  version BIGINT NOT NULL DEFAULT 1,
+  split_kind TEXT NOT NULL DEFAULT 'equal' CHECK (split_kind IN ('equal', 'exact', 'shares')),
+  original_currency TEXT,
+  original_amount BIGINT,
+  original_rate TEXT,
+  category TEXT NOT NULL DEFAULT 'other'
+    CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'))
+);
+CREATE INDEX expenses_group ON expenses (group_id);
+
+CREATE TABLE expense_shares (
+  expense_id TEXT NOT NULL REFERENCES expenses (id),
+  position BIGINT NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  amount BIGINT NOT NULL,
+  PRIMARY KEY (expense_id, position)
+);
+
+CREATE TABLE settlements (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  payer_id TEXT NOT NULL REFERENCES accounts (id),
+  payee_id TEXT NOT NULL REFERENCES accounts (id),
+  amount BIGINT NOT NULL CHECK (amount >= 1),
+  method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+  provider_id TEXT,
+  pay_url TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX settlements_group ON settlements (group_id);
+CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
+
+CREATE TABLE payment_decisions (
+  payment_id TEXT PRIMARY KEY,
+  status TEXT NOT NULL CHECK (status IN ('paid', 'failed', 'refunded')),
+  decided_at TEXT
+);
+
+CREATE TABLE payout_accounts (
+  account_id TEXT PRIMARY KEY REFERENCES accounts (id),
+  provider_account_id TEXT NOT NULL,
+  set_at TEXT NOT NULL
+);
+
+CREATE TABLE notices (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  expense_id TEXT,
+  category TEXT,
+  month TEXT,
+  budget BIGINT,
+  amount BIGINT NOT NULL,
+  created_at TEXT NOT NULL,
+  CHECK (kind <> 'budget' OR (category IS NOT NULL AND month IS NOT NULL AND budget IS NOT NULL))
+);
+CREATE UNIQUE INDEX notices_expense_account ON notices (expense_id, account_id);
+CREATE INDEX notices_account ON notices (account_id, created_at);
+
+CREATE TABLE debt_notes (
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  noted_at TEXT NOT NULL,
+  reminded_at TEXT,
+  PRIMARY KEY (group_id, account_id)
+);
+
+CREATE TABLE settlement_history (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  settlement_id TEXT NOT NULL REFERENCES settlements (id),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+  at TEXT NOT NULL
+);
+CREATE INDEX settlement_history_settlement ON settlement_history (settlement_id, seq);
+
+CREATE TABLE recurring (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  paid_by TEXT NOT NULL REFERENCES accounts (id),
+  description TEXT NOT NULL,
+  amount BIGINT NOT NULL,
+  starts_on TEXT NOT NULL,
+  next_on TEXT NOT NULL,
+  split_kind TEXT NOT NULL CHECK (split_kind IN ('equal', 'exact', 'shares')),
+  created_at TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'other'
+    CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other'))
+);
+CREATE INDEX recurring_group ON recurring (group_id, seq);
+
+CREATE TABLE recurring_shares (
+  recurring_id TEXT NOT NULL REFERENCES recurring (id),
+  position BIGINT NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  value BIGINT,
+  PRIMARY KEY (recurring_id, position)
+);
+
+CREATE TABLE budgets (
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  category TEXT NOT NULL CHECK (category IN ('groceries', 'rent', 'utilities', 'transport', 'food', 'travel', 'leisure', 'other')),
+  amount BIGINT NOT NULL CHECK (amount >= 1),
+  PRIMARY KEY (group_id, category)
+);
+
+CREATE TABLE budget_passings (
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  category TEXT NOT NULL,
+  month TEXT NOT NULL,
+  PRIMARY KEY (group_id, category, month)
+);
+
+CREATE TABLE templates (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  name TEXT NOT NULL,
+  name_key TEXT NOT NULL,
+  split_kind TEXT NOT NULL CHECK (split_kind IN ('equal', 'shares')),
+  created_by TEXT NOT NULL REFERENCES accounts (id),
+  created_at TEXT NOT NULL,
+  UNIQUE (group_id, name_key)
+);
+
+CREATE TABLE template_shares (
+  template_id TEXT NOT NULL REFERENCES templates (id),
+  position BIGINT NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  value BIGINT,
+  PRIMARY KEY (template_id, position)
+);
+
+CREATE TABLE receipts (
+  expense_id TEXT PRIMARY KEY REFERENCES expenses (id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('image/jpeg', 'image/png')),
+  size BIGINT NOT NULL CHECK (size BETWEEN 1 AND 2097152),
+  store_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  attached_at TEXT NOT NULL
+);
+
+CREATE TABLE audit_entries (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL REFERENCES groups (id),
+  at TEXT NOT NULL,
+  account_id TEXT NOT NULL REFERENCES accounts (id),
+  action TEXT NOT NULL CHECK (action IN (
+    'expense-recorded', 'expense-edited', 'expense-deleted', 'settlement-paid', 'settlement-refunded', 'balance-passed'
+  )),
+  subject_id TEXT NOT NULL,
+  amount BIGINT NOT NULL
+);
+CREATE INDEX audit_entries_group ON audit_entries (group_id, seq);
+`;
+
+/**
+ * Turns the `?` of a statement into PostgreSQL's `$1`, `$2`, ... in order, leaving the `?` inside a quoted text alone.
+ */
+function numbered(sql: string): string {
+  let count = 0;
+  let quoted = false;
+  let text = '';
+  for (const char of sql) {
+    if (char === "'") quoted = !quoted;
+    if (char === '?' && !quoted) {
+      count += 1;
+      text += `$${count}`;
+    } else {
+      text += char;
     }
-    if (current < MIGRATIONS.length) db.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
+  }
+  return text;
+}
+
+/** Runs statements on a pool or on one of its clients: the same for both. */
+interface Runner {
+  query(text: string, values?: unknown[]): Promise<QueryResult>;
+}
+
+function queryableOf(runner: Runner): Queryable {
+  return {
+    async get<Row>(sql: string, params: readonly unknown[] = []) {
+      const result = await runner.query(numbered(sql), [...params]);
+      return result.rows[0] as Row | undefined;
+    },
+    async all<Row>(sql: string, params: readonly unknown[] = []) {
+      const result = await runner.query(numbered(sql), [...params]);
+      return result.rows as Row[];
+    },
+    async run(sql: string, params: readonly unknown[] = []) {
+      const result = await runner.query(numbered(sql), [...params]);
+      return { changes: result.rowCount ?? 0 };
+    },
+    async exec(sql: string) {
+      await runner.query(sql);
+    },
+  };
+}
+
+/**
+ * Opens the PostgreSQL database at `url`, and brings it up to date: a database that holds nothing of Tally's yet gets the schema,
+ * and, when `legacyPath` names a SQLite file Tally kept, everything that file holds, in the same transaction, so that it is all
+ * there or none of it is. A database that already holds Tally's state is served as it is: the file is not read again.
+ * Servers starting at once on one database take the write lock in turn, so only one of them prepares it.
+ */
+export async function openDatabase(url: string, legacyPath?: string): Promise<Database> {
+  const pool = new pg.Pool({
+    connectionString: url,
+    max: 8,
+    types: {
+      // Integers are numbers here, as they are of SQLite: 8-byte integers (oid 20), and the sums of integers, which PostgreSQL
+      // gives as numerics (oid 1700). Every amount is far below the largest safe integer, so no value is rounded.
+      getTypeParser: (oid: number, format?: 'text' | 'binary') =>
+        oid === 20 || oid === 1700 ? (value: string) => Number(value) : pg.types.getTypeParser(oid, format),
+    },
   });
+  // A connection the pool holds that fails is dropped by the pool; the next statement takes another one.
+  pool.on('error', () => undefined);
+  const database: Database = {
+    ...queryableOf(pool),
+    async transaction<T>(work: (tx: Queryable) => Promise<T>): Promise<T> {
+      const client: PoolClient = await pool.connect();
+      let broken = false;
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock($1)', [WRITE_LOCK]);
+        const result = await work(queryableOf(client));
+        await client.query('COMMIT');
+        return result;
+      } catch (error) {
+        try {
+          await client.query('ROLLBACK');
+        } catch {
+          broken = true;
+        }
+        throw error;
+      } finally {
+        client.release(broken);
+      }
+    },
+    close: () => pool.end(),
+  };
+  try {
+    await prepare(database, legacyPath);
+    return database;
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
+}
+
+/** Creates the schema, and moves the legacy file into it, when the database holds nothing of Tally's yet. */
+async function prepare(database: Database, legacyPath: string | undefined): Promise<void> {
+  await database.transaction(async tx => {
+    // The table of the schema's version is there once the schema is: a database holding it holds Tally's state.
+    const existing = await tx.get<{ present: string | null }>("SELECT to_regclass('schema_version')::text AS present");
+    if (existing?.present) return;
+    await tx.exec(SCHEMA);
+    if (legacyPath !== undefined && existsSync(legacyPath)) await moveLegacyFile(tx, legacyPath);
+    await tx.run('INSERT INTO schema_version (version) VALUES (?)', [SCHEMA_VERSION]);
+  });
+}
+
+/** Writes every row of the SQLite file into the tables of the schema, in the order of `LEGACY_TABLES`. */
+async function moveLegacyFile(tx: Queryable, legacyPath: string): Promise<void> {
+  const legacy = openLegacyFile(legacyPath);
+  try {
+    for (const { table, columns } of LEGACY_TABLES) {
+      const placeholders = columns.map(() => '?').join(', ');
+      for (const row of readLegacyRows(legacy, table, columns)) {
+        await tx.run(
+          `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
+          columns.map(column => row[column] ?? null),
+        );
+      }
+    }
+  } finally {
+    legacy.close();
+  }
 }

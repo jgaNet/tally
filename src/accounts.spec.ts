@@ -7,12 +7,12 @@ describe('accounts', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
   });
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   const signUp = (fields: Record<string, unknown> = {}) =>

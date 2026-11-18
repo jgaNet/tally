@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
 import { writeAudit } from './audit';
 import { writeBudgetPassing } from './budgets';
 import { CATEGORIES, DEFAULT_CATEGORY, type Category } from './categories';
-import { inTransaction } from './database';
+import type { Database, Queryable } from './database';
 import { isRealDay, todayUtc } from './days';
 import { CURRENCIES, findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
@@ -337,7 +336,7 @@ function checkDate(date: string): void {
  * takes. Exactly one must be given; the request's schema refuses the others as the wrong shape, and this holds the same
  * rule for whatever else reaches it.
  */
-function splitOf(db: DatabaseSync, groupId: string, input: NewExpense): Split {
+async function splitOf(db: Queryable, groupId: string, input: NewExpense): Promise<Split> {
   const { splitBetween, splitExactly, splitByShares, template } = input;
   const given = [splitBetween, splitExactly, splitByShares, template].filter(part => part !== undefined);
   if (given.length !== 1) {
@@ -389,26 +388,35 @@ export function sharesOf(split: Split, amount: number): Share[] {
  * The split holds each member once, names the payer among them, and names only members of the group.
  * It is checked where it is written, inside the write transaction that records or edits the expense.
  */
-export function checkSplit(db: DatabaseSync, groupId: string, payerId: string, members: readonly string[]): void {
+export async function checkSplit(
+  db: Queryable,
+  groupId: string,
+  payerId: string,
+  members: readonly string[],
+): Promise<void> {
   if (new Set(members).size !== members.length) {
     refuse('InvalidSplit', 'Each member can be in the split only once.');
   }
   if (!members.includes(payerId)) {
     refuse('InvalidSplit', 'The payer must be one of the members the expense is split between.');
   }
-  if (!members.every(memberId => isMember(db, groupId, memberId))) {
-    refuse('InvalidSplit', 'Every member in the split must be a member of the group.');
+  for (const memberId of members) {
+    if (!(await isMember(db, groupId, memberId))) {
+      refuse('InvalidSplit', 'Every member in the split must be a member of the group.');
+    }
   }
 }
 
 /** Writes the shares of the split, in the order the split was given. */
-export function writeShares(db: DatabaseSync, expenseId: string, shares: readonly Share[]): void {
-  const insertShare = db.prepare(
-    'INSERT INTO expense_shares (expense_id, position, account_id, amount) VALUES (?, ?, ?, ?)',
-  );
-  shares.forEach((share, position) => {
-    insertShare.run(expenseId, position, share.memberId, share.amount);
-  });
+export async function writeShares(db: Queryable, expenseId: string, shares: readonly Share[]): Promise<void> {
+  for (const [position, share] of shares.entries()) {
+    await db.run('INSERT INTO expense_shares (expense_id, position, account_id, amount) VALUES (?, ?, ?, ?)', [
+      expenseId,
+      position,
+      share.memberId,
+      share.amount,
+    ]);
+  }
 }
 
 /** What `recordExpense` writes: an expense whose split is already checked and computed. */
@@ -431,27 +439,28 @@ export interface RecordedExpense {
  * Writes an expense, its shares, the notices of its members, and the budget notices its recording passes. It is called
  * inside a write transaction.
  */
-export function recordExpense(db: DatabaseSync, expense: RecordedExpense): void {
-  db.prepare(
+export async function recordExpense(db: Queryable, expense: RecordedExpense): Promise<void> {
+  await db.run(
     'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, category, version, created_at, original_currency, original_amount, original_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)',
-  ).run(
-    expense.id,
-    expense.groupId,
-    expense.description,
-    expense.amount,
-    expense.date,
-    expense.paidBy,
-    expense.splitKind,
-    expense.category,
-    expense.at,
-    expense.original?.currency ?? null,
-    expense.original?.amount ?? null,
-    expense.original?.rate ?? null,
+    [
+      expense.id,
+      expense.groupId,
+      expense.description,
+      expense.amount,
+      expense.date,
+      expense.paidBy,
+      expense.splitKind,
+      expense.category,
+      expense.at,
+      expense.original?.currency ?? null,
+      expense.original?.amount ?? null,
+      expense.original?.rate ?? null,
+    ],
   );
-  writeShares(db, expense.id, expense.shares);
-  writeExpenseNotices(db, expense, expense.shares);
-  writeBudgetPassing(db, expense.groupId, expense.category, expense.date, expense.at);
-  writeAudit(db, expense.groupId, {
+  await writeShares(db, expense.id, expense.shares);
+  await writeExpenseNotices(db, expense, expense.shares);
+  await writeBudgetPassing(db, expense.groupId, expense.category, expense.date, expense.at);
+  await writeAudit(db, expense.groupId, {
     by: expense.paidBy,
     action: 'expense-recorded',
     subjectId: expense.id,
@@ -466,15 +475,15 @@ export function recordExpense(db: DatabaseSync, expense: RecordedExpense): void 
  * currency with no rate given takes the rate offered, which is asked of the rates service before the write.
  */
 export async function createExpense(
-  db: DatabaseSync,
+  db: Database,
   rates: RatesConfig,
   accountId: string,
   groupId: string,
   input: NewExpense,
 ): Promise<string> {
-  const group = findGroupOf(db, accountId, groupId);
+  const group = await findGroupOf(db, accountId, groupId);
   if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
-  refuseIfArchived(db, groupId);
+  await refuseIfArchived(db, groupId);
   const description = checkDescription(input.description);
   const offer = await offerFor(rates, input, group.currency);
   const { amount, original } = amountOf(input, group.currency, offer);
@@ -482,12 +491,12 @@ export async function createExpense(
   const id = randomUUID();
   const recordedAt = new Date().toISOString();
   // The split is checked and the expense, its shares and the notices of its members are written together, or not at all.
-  inTransaction(db, () => {
-    refuseIfArchived(db, groupId);
-    const split = splitOf(db, groupId, input);
-    checkSplit(db, groupId, accountId, membersOf(split));
+  await db.transaction(async tx => {
+    await refuseIfArchived(tx, groupId);
+    const split = await splitOf(tx, groupId, input);
+    await checkSplit(tx, groupId, accountId, membersOf(split));
     const shares = sharesOf(split, amount);
-    recordExpense(db, {
+    await recordExpense(tx, {
       id,
       groupId,
       description,
@@ -505,19 +514,19 @@ export async function createExpense(
 }
 
 /** The expense, when the account is a member of its group. For anyone else it does not exist. */
-export function findExpenseOf(db: DatabaseSync, accountId: string, expenseId: string): Expense | undefined {
-  const row = db
-    .prepare(
-      `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.category, e.version,
-         e.original_currency, e.original_amount, e.original_rate
-       FROM expenses e JOIN group_members m ON m.group_id = e.group_id
-       WHERE e.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
-    )
-    .get(expenseId, accountId) as ExpenseRow | undefined;
+export async function findExpenseOf(db: Queryable, accountId: string, expenseId: string): Promise<Expense | undefined> {
+  const row = await db.get<ExpenseRow>(
+    `SELECT e.id, e.group_id, e.description, e.amount, e.date, e.paid_by, e.split_kind, e.category, e.version,
+       e.original_currency, e.original_amount, e.original_rate
+     FROM expenses e JOIN group_members m ON m.group_id = e.group_id
+     WHERE e.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
+    [expenseId, accountId],
+  );
   if (!row) return undefined;
-  const shares = db
-    .prepare('SELECT account_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position')
-    .all(expenseId) as unknown as ShareRow[];
+  const shares = await db.all<ShareRow>(
+    'SELECT account_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position',
+    [expenseId],
+  );
   return expenseOf(
     row,
     shares.map(share => ({ memberId: share.account_id, amount: share.amount })),
@@ -528,14 +537,16 @@ export function findExpenseOf(db: DatabaseSync, accountId: string, expenseId: st
  * An expense that concerns a member who has left the group, as its payer or in its split, is frozen: it
  * can no longer be edited or deleted, so that the balance of the member who left stays 0.
  */
-function checkNoFormerMember(db: DatabaseSync, expense: Expense): void {
+async function checkNoFormerMember(db: Queryable, expense: Expense): Promise<void> {
   const concerned = [expense.paidBy, ...expense.shares.map(share => share.memberId)];
-  if (concerned.some(memberId => !isMember(db, expense.groupId, memberId))) {
-    throw new Refusal(
-      409,
-      'ExpenseOfFormerMember',
-      'The expense concerns a member who has left the group, so it can no longer be changed.',
-    );
+  for (const memberId of concerned) {
+    if (!(await isMember(db, expense.groupId, memberId))) {
+      throw new Refusal(
+        409,
+        'ExpenseOfFormerMember',
+        'The expense concerns a member who has left the group, so it can no longer be changed.',
+      );
+    }
   }
 }
 
@@ -543,9 +554,9 @@ function checkNoFormerMember(db: DatabaseSync, expense: Expense): void {
  * Only the payer of an expense and the owner of its group may change it. For any other member of the
  * group the change is refused; the caller is known to be a member, as the expense was found for them.
  */
-function checkMayChange(db: DatabaseSync, accountId: string, expense: Expense): void {
+async function checkMayChange(db: Queryable, accountId: string, expense: Expense): Promise<void> {
   if (accountId === expense.paidBy) return;
-  if (accountId === findGroupOf(db, accountId, expense.groupId)?.ownerId) return;
+  if (accountId === (await findGroupOf(db, accountId, expense.groupId))?.ownerId) return;
   throw new Refusal(403, 'NotAllowed', 'Only the payer of the expense or the owner of the group may change it.');
 }
 
@@ -553,12 +564,12 @@ function checkMayChange(db: DatabaseSync, accountId: string, expense: Expense): 
  * The expense, when the account may change it: found for the account, changeable by it, and not concerning a member who
  * has left the group.
  */
-export function changeableExpense(db: DatabaseSync, accountId: string, expenseId: string): Expense {
-  const expense = findExpenseOf(db, accountId, expenseId);
+export async function changeableExpense(db: Queryable, accountId: string, expenseId: string): Promise<Expense> {
+  const expense = await findExpenseOf(db, accountId, expenseId);
   if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
-  refuseIfArchived(db, expense.groupId);
-  checkMayChange(db, accountId, expense);
-  checkNoFormerMember(db, expense);
+  await refuseIfArchived(db, expense.groupId);
+  await checkMayChange(db, accountId, expense);
+  await checkNoFormerMember(db, expense);
   return expense;
 }
 
@@ -570,47 +581,54 @@ export function changeableExpense(db: DatabaseSync, accountId: string, expenseId
  * version and write are one write transaction, so two edits from the same version cannot both land.
  */
 export async function editExpense(
-  db: DatabaseSync,
+  db: Database,
   rates: RatesConfig,
   accountId: string,
   expenseId: string,
   edit: ExpenseEdit,
 ): Promise<void> {
-  const current = changeableExpense(db, accountId, expenseId);
-  const group = findGroupOf(db, accountId, current.groupId);
+  const current = await changeableExpense(db, accountId, expenseId);
+  const group = await findGroupOf(db, accountId, current.groupId);
   if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
   const offer = await offerFor(rates, edit, group.currency);
-  inTransaction(db, () => {
-    const expense = changeableExpense(db, accountId, expenseId);
+  await db.transaction(async tx => {
+    const expense = await changeableExpense(tx, accountId, expenseId);
     if (edit.version !== expense.version) {
       throw new Refusal(409, 'ExpenseChanged', 'The expense changed since this version was read: read it again.');
     }
     const description = checkDescription(edit.description);
     const { amount, original } = amountOf(edit, group.currency, offer);
     checkDate(edit.date);
-    const split = splitOf(db, expense.groupId, edit);
-    checkSplit(db, expense.groupId, expense.paidBy, membersOf(split));
+    const split = await splitOf(tx, expense.groupId, edit);
+    await checkSplit(tx, expense.groupId, expense.paidBy, membersOf(split));
     const shares = sharesOf(split, amount);
     const category = edit.category ?? DEFAULT_CATEGORY;
     const at = new Date().toISOString();
-    db.prepare(
+    await tx.run(
       'UPDATE expenses SET description = ?, amount = ?, date = ?, split_kind = ?, category = ?, original_currency = ?, original_amount = ?, original_rate = ?, version = version + 1 WHERE id = ? AND version = ?',
-    ).run(
-      description,
-      amount,
-      edit.date,
-      split.kind,
-      category,
-      original?.currency ?? null,
-      original?.amount ?? null,
-      original?.rate ?? null,
-      expenseId,
-      edit.version,
+      [
+        description,
+        amount,
+        edit.date,
+        split.kind,
+        category,
+        original?.currency ?? null,
+        original?.amount ?? null,
+        original?.rate ?? null,
+        expenseId,
+        edit.version,
+      ],
     );
-    db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
-    writeShares(db, expenseId, shares);
-    writeBudgetPassing(db, expense.groupId, category, edit.date, at);
-    writeAudit(db, expense.groupId, { by: accountId, action: 'expense-edited', subjectId: expenseId, amount, at });
+    await tx.run('DELETE FROM expense_shares WHERE expense_id = ?', [expenseId]);
+    await writeShares(tx, expenseId, shares);
+    await writeBudgetPassing(tx, expense.groupId, category, edit.date, at);
+    await writeAudit(tx, expense.groupId, {
+      by: accountId,
+      action: 'expense-edited',
+      subjectId: expenseId,
+      amount,
+      at,
+    });
   });
 }
 
@@ -618,22 +636,22 @@ export async function editExpense(
  * Deletes the expense with its shares: it is no longer read, and counts in no balance. Only its payer and
  * the owner of its group may delete it, as for an edit.
  */
-export function deleteExpense(db: DatabaseSync, accountId: string, expenseId: string): void {
-  inTransaction(db, () => {
-    const expense = findExpenseOf(db, accountId, expenseId);
+export async function deleteExpense(db: Database, accountId: string, expenseId: string): Promise<void> {
+  await db.transaction(async tx => {
+    const expense = await findExpenseOf(tx, accountId, expenseId);
     if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
-    refuseIfArchived(db, expense.groupId);
-    checkMayChange(db, accountId, expense);
-    checkNoFormerMember(db, expense);
-    writeAudit(db, expense.groupId, {
+    await refuseIfArchived(tx, expense.groupId);
+    await checkMayChange(tx, accountId, expense);
+    await checkNoFormerMember(tx, expense);
+    await writeAudit(tx, expense.groupId, {
       by: accountId,
       action: 'expense-deleted',
       subjectId: expenseId,
       amount: expense.amount,
       at: new Date().toISOString(),
     });
-    db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
-    db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
+    await tx.run('DELETE FROM expense_shares WHERE expense_id = ?', [expenseId]);
+    await tx.run('DELETE FROM expenses WHERE id = ?', [expenseId]);
   });
 }
 
@@ -730,7 +748,7 @@ const exactlyOneAmount = {
 /** An expense's category, when given: one of the categories, `other` when left out. */
 const categoryProperty = { category: { type: 'string', enum: [...CATEGORIES] } };
 
-export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync, rates: RatesConfig): void {
+export function registerExpenseRoutes(app: FastifyInstance, db: Database, rates: RatesConfig): void {
   app.post<{ Params: { id: string }; Body: NewExpense }>(
     '/groups/:id/expenses',
     {
@@ -751,18 +769,22 @@ export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync, ra
       },
     },
     async (request, reply) => {
-      const accountId = requireCaller(db, request);
+      const accountId = await requireCaller(db, request);
       const id = await createExpense(db, rates, accountId, request.params.id, request.body);
       return reply.code(201).send({ id });
     },
   );
 
-  app.get<{ Params: { id: string } }>('/expenses/:id', { schema: { response: { 200: expenseSchema } } }, request => {
-    const accountId = requireCaller(db, request);
-    const expense = findExpenseOf(db, accountId, request.params.id);
-    if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
-    return expense;
-  });
+  app.get<{ Params: { id: string } }>(
+    '/expenses/:id',
+    { schema: { response: { 200: expenseSchema } } },
+    async request => {
+      const accountId = await requireCaller(db, request);
+      const expense = await findExpenseOf(db, accountId, request.params.id);
+      if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
+      return expense;
+    },
+  );
 
   app.put<{ Params: { id: string }; Body: ExpenseEdit }>(
     '/expenses/:id',
@@ -784,15 +806,15 @@ export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync, ra
       },
     },
     async (request, reply) => {
-      const accountId = requireCaller(db, request);
+      const accountId = await requireCaller(db, request);
       await editExpense(db, rates, accountId, request.params.id, request.body);
       return reply.code(204).send();
     },
   );
 
-  app.delete<{ Params: { id: string } }>('/expenses/:id', (request, reply) => {
-    const accountId = requireCaller(db, request);
-    deleteExpense(db, accountId, request.params.id);
+  app.delete<{ Params: { id: string } }>('/expenses/:id', async (request, reply) => {
+    const accountId = await requireCaller(db, request);
+    await deleteExpense(db, accountId, request.params.id);
     return reply.code(204).send();
   });
 }

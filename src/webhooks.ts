@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from './database';
 import { applyPaymentDecision } from './settlements';
 import { isValidWebhookSignature, type ProviderConfig } from './provider';
 import { Refusal } from './refusal';
@@ -15,13 +15,13 @@ import { Refusal } from './refusal';
  * The signature is over the body exactly as it was sent, so this scope reads the body as bytes and parses it
  * only once it is signed. The scope is its own, so that this parser serves this route alone.
  */
-export function registerProviderWebhookRoutes(app: FastifyInstance, db: DatabaseSync, provider: ProviderConfig): void {
+export function registerProviderWebhookRoutes(app: FastifyInstance, db: Database, provider: ProviderConfig): void {
   app.register(async scope => {
     scope.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_request, body, done) => {
       done(null, body);
     });
 
-    scope.post('/provider/webhooks', (request, reply) => {
+    scope.post('/provider/webhooks', async (request, reply) => {
       const body = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
       const signature = request.headers['provider-signature'];
       if (
@@ -30,7 +30,7 @@ export function registerProviderWebhookRoutes(app: FastifyInstance, db: Database
         throw new Refusal(401, 'Unauthorized', 'The webhook is not signed by the payment provider.');
       }
       const event = parseEvent(body);
-      if (event) applyPaymentDecision(db, event.paymentId, event.status);
+      if (event) await applyPaymentDecision(db, event.paymentId, event.status);
       return reply.code(204).send();
     });
   });

@@ -1,4 +1,3 @@
-import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { Application } from './app';
 import { openDatabase } from './database';
@@ -50,7 +49,7 @@ describe('notices', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
@@ -62,7 +61,7 @@ describe('notices', () => {
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   const expense = (fields: Record<string, unknown> = {}) => ({
@@ -168,7 +167,7 @@ describe('notices', () => {
   it('keeps exactly one notice per member when the server is stopped and started again', async () => {
     const expenseId = await recordExpense();
     await app.stop();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
 
     const graceNotices = await noticesOf(graceToken);
     expect(graceNotices).toMatchObject([{ expenseId, amount: 333 }]);
@@ -177,18 +176,17 @@ describe('notices', () => {
 
   it('refuses a second notice for the same member and expense', async () => {
     const expenseId = await recordExpense();
-    const other: DatabaseSync = openDatabase(database.path);
+    const other = await openDatabase(database.url);
     try {
-      expect(() =>
-        other
-          .prepare(
-            `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
-             SELECT ?, account_id, kind, group_id, expense_id, amount, created_at FROM notices WHERE expense_id = ? LIMIT 1`,
-          )
-          .run(randomUUID(), expenseId),
-      ).toThrow(/UNIQUE/);
+      await expect(
+        other.run(
+          `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
+           SELECT ?, account_id, kind, group_id, expense_id, amount, created_at FROM notices WHERE expense_id = ? LIMIT 1`,
+          [randomUUID(), expenseId],
+        ),
+      ).rejects.toThrow(/duplicate key/);
     } finally {
-      other.close();
+      await other.close();
     }
     expect(await noticesOf(graceToken)).toHaveLength(1);
   });

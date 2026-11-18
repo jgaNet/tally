@@ -51,7 +51,7 @@ describe('payout accounts', () => {
   beforeEach(async () => {
     database = temporaryDatabase();
     provider = await startFakeProvider();
-    app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+    app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: SECRET });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     groupId = (await call(app, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token: adaToken }))
@@ -80,7 +80,7 @@ describe('payout accounts', () => {
     for (const extra of extraApps.splice(0)) await extra.stop();
     await app.stop();
     await provider.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe('setting and reading a payout account', () => {
@@ -129,7 +129,7 @@ describe('payout accounts', () => {
 
     it('refuses the account when the provider does not answer within the time allowed', async () => {
       await app.stop();
-      app = await startApplication(database.path, {
+      app = await startApplication(database.url, {
         providerUrl: provider.url,
         providerWebhookSecret: SECRET,
         providerTimeoutMs: 150,
@@ -144,12 +144,12 @@ describe('payout accounts', () => {
       const url = gone.url;
       await gone.stop();
       await app.stop();
-      app = await startApplication(database.path, { providerUrl: url, providerWebhookSecret: SECRET });
+      app = await startApplication(database.url, { providerUrl: url, providerWebhookSecret: SECRET });
       expect((await setPayoutAccount('acct_ada', adaToken)).status).toBe(424);
     });
 
     it('refuses the account, and asks nothing, when the provider is not configured', async () => {
-      const unconfigured = await startApplication(database.path, { providerUrl: '' });
+      const unconfigured = await startApplication(database.url, { providerUrl: '' });
       extraApps.push(unconfigured);
       const answer = await setPayoutAccount('acct_ada', adaToken, unconfigured);
       expect(answer.status).toBe(409);

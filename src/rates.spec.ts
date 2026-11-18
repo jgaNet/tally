@@ -102,7 +102,7 @@ describe('the rates offered', () => {
   beforeEach(async () => {
     database = temporaryDatabase();
     rates = await startFakeRates();
-    app = await startApplication(database.path, { ratesUrl: rates.url, ratesTimeoutMs: 300 });
+    app = await startApplication(database.url, { ratesUrl: rates.url, ratesTimeoutMs: 300 });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ token: outsiderToken } = await accountOf(outsiderAccount));
@@ -117,7 +117,7 @@ describe('the rates offered', () => {
   afterEach(async () => {
     await app.stop();
     await rates.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe('reading the rate offered', () => {
@@ -194,7 +194,7 @@ describe('the rates offered', () => {
     });
 
     it('offers no rate on a server without a rates service', async () => {
-      const other = await startApplication(database.path);
+      const other = await startApplication(database.url);
       try {
         expect((await offered('CHF', `?date=${DAY}`, adaToken, other)).status).toBe(404);
       } finally {
@@ -256,7 +256,7 @@ describe('the rates offered', () => {
     });
 
     it('refuses an expense with no rate on a server without a rates service', async () => {
-      const other = await startApplication(database.path);
+      const other = await startApplication(database.url);
       try {
         expect(await record({}, other)).toEqual(refusal('NoRateOffered'));
       } finally {
@@ -290,7 +290,7 @@ describe('the rates offered', () => {
     });
 
     it('takes the rate given on a server without a rates service, whatever it is', async () => {
-      const other = await startApplication(database.path);
+      const other = await startApplication(database.url);
       try {
         const answer = await record({ original: francs({ rate: '0.5' }) }, other);
         expect(answer.status).toBe(201);

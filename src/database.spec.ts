@@ -1,14 +1,22 @@
 import { spawn } from 'node:child_process';
+import { createHmac } from 'node:crypto';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Application } from './app';
-import { inTransaction, openDatabase } from './database';
-import { ada, call, Reachable, startApplication, temporaryDatabase } from './test-support';
+import { hashPassword } from './credentials';
+import { openDatabase, type Queryable } from './database';
+import { openLegacyFile } from './legacy-sqlite';
+import { ada, call, makeDatabase, Reachable, startApplication, temporaryDatabase } from './test-support';
+
+const SECRET = 'whsec_database_test';
 
 /** The server of `src/server.ts` as a process of its own, so that a kill stops it as a crash would. */
-async function startServerProcess(databasePath: string): Promise<{ app: Reachable; kill(): Promise<void> }> {
+async function startServerProcess(databaseUrl: string): Promise<{ app: Reachable; kill(): Promise<void> }> {
   // Node runs the server itself, with tsx as its loader, so that the kill reaches the server.
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
-    env: { ...process.env, PORT: '0', DATABASE_PATH: databasePath, API_PREFIX: 'v1' },
+    env: { ...process.env, PORT: '0', DATABASE_URL: databaseUrl, DATABASE_PATH: '', API_PREFIX: 'v1' },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   const address = await new Promise<string>((resolve, reject) => {
@@ -30,54 +38,39 @@ async function startServerProcess(databasePath: string): Promise<{ app: Reachabl
   };
 }
 
-/**
- * Takes the categories and budgets out of a file, as a file from before them has none: the migrations that add them run
- * again when the file is set back to an older version. The split templates, which came after them, are taken out too.
- */
-function dropCategories(before: DatabaseSync): void {
-  before.exec('DROP TABLE template_shares');
-  before.exec('DROP TABLE templates');
-  before.exec('DROP TABLE budget_passings');
-  before.exec('DROP TABLE budgets');
-  before.exec('ALTER TABLE expenses DROP COLUMN category');
-}
-
-/**
- * Takes the archived moment of the groups out of a file, as a file from before groups could be archived has no column for it:
- * the migration that adds it runs again when the file is set back to an older version.
- */
-function dropArchives(before: DatabaseSync): void {
-  before.exec('ALTER TABLE groups DROP COLUMN archived_at');
-}
-
-/**
- * Takes the audit out of a file, as a file from before the audit existed has none: the migration that creates it runs again
- * when the file is set back to an older version.
- */
-function dropAudit(before: DatabaseSync): void {
-  before.exec('DROP TABLE audit_entries');
-}
-
 describe('the database', () => {
   let database: ReturnType<typeof temporaryDatabase>;
+  /** The SQLite file Tally kept before, which a server moves into the database when it starts on an empty one. */
+  let legacyDirectory: string;
+  let legacy: string;
   const apps: Application[] = [];
 
   beforeEach(() => {
     database = temporaryDatabase();
+    legacyDirectory = mkdtempSync(join(tmpdir(), 'tally-legacy-'));
+    legacy = join(legacyDirectory, 'tally.db');
   });
 
   afterEach(async () => {
     for (const app of apps.splice(0)) await app.stop();
-    database.remove();
+    await database.remove();
+    rmSync(legacyDirectory, { recursive: true, force: true });
   });
 
-  async function start(): Promise<Application> {
-    const app = await startApplication(database.path);
+  async function start(services: { providerWebhookSecret?: string } = {}): Promise<Application> {
+    const app = await startApplication(database.url, { databasePath: legacy, ...services });
     apps.push(app);
     return app;
   }
 
-  it('keeps accounts and sessions across a restart on the same file', async () => {
+  it('prepares an empty database and serves at once, with no file of the old kind to move', async () => {
+    const app = await start();
+    expect((await call(app, 'POST', '/accounts', { body: ada })).status).toBe(201);
+    expect((await call(app, 'POST', '/accounts/login', { body: ada })).status).toBe(200);
+    expect(existsSync(legacy)).toBe(false);
+  });
+
+  it('keeps accounts and sessions across a restart on the same database', async () => {
     const first = await start();
     await call(first, 'POST', '/accounts', { body: ada });
     const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
@@ -90,12 +83,13 @@ describe('the database', () => {
   });
 
   it('keeps what was committed when the server is killed, and a restarted server finds it', async () => {
-    const server = await startServerProcess(database.path);
+    await makeDatabase(database.url);
+    const server = await startServerProcess(database.url);
     await call(server.app, 'POST', '/accounts', { body: ada });
     const { token } = (await call(server.app, 'POST', '/accounts/login', { body: ada })).body;
     await server.kill();
 
-    const restarted = await startServerProcess(database.path);
+    const restarted = await startServerProcess(database.url);
     try {
       expect((await call(restarted.app, 'GET', '/accounts/me', { token })).status).toBe(200);
       expect((await call(restarted.app, 'POST', '/accounts/login', { body: ada })).status).toBe(200);
@@ -105,7 +99,8 @@ describe('the database', () => {
   });
 
   it('keeps the audit entry of a change answered as done, when the server is killed right after it', async () => {
-    const server = await startServerProcess(database.path);
+    await makeDatabase(database.url);
+    const server = await startServerProcess(database.url);
     const { id: adaId } = (await call(server.app, 'POST', '/accounts', { body: ada })).body;
     const { token } = (await call(server.app, 'POST', '/accounts/login', { body: ada })).body;
     const groupId = (await call(server.app, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token }))
@@ -117,7 +112,7 @@ describe('the database', () => {
     expect(answer.status).toBe(201);
     await server.kill();
 
-    const restarted = await startServerProcess(database.path);
+    const restarted = await startServerProcess(database.url);
     try {
       expect((await call(restarted.app, 'GET', `/groups/${groupId}/audit`, { token })).body).toEqual([
         {
@@ -134,7 +129,7 @@ describe('the database', () => {
     }
   });
 
-  it('is shared by several servers on the same file at once', async () => {
+  it('is shared by several servers on the same database at once', async () => {
     const first = await start();
     const second = await start();
     expect((await call(first, 'POST', '/accounts', { body: ada })).status).toBe(201);
@@ -151,732 +146,203 @@ describe('the database', () => {
     expect(answers.map(answer => answer.status).sort()).toEqual([201, 409]);
   });
 
-  it('takes reminders on a file at version 13, and keeps the notices it had in order', () => {
-    openDatabase(database.path).close();
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
+  it('runs a write transaction whole when it completes, and not at all when it throws', async () => {
+    await makeDatabase(database.url);
+    const db = await openDatabase(database.url);
+    const insert = (target: Queryable, id: string) =>
+      target.run('INSERT INTO accounts (id, email, name, password_hash) VALUES (?, ?, ?, ?)', [
+        id,
+        `${id}@example.com`,
+        id,
+        'x',
+      ]);
+    const count = async () => (await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM accounts'))?.n;
     try {
-      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
-      before.exec(`
-        DROP TABLE debt_notes;
-        DROP TABLE notices;
-        CREATE TABLE notices (
-          id TEXT PRIMARY KEY,
-          account_id TEXT NOT NULL REFERENCES accounts (id),
-          kind TEXT NOT NULL CHECK (kind IN ('expense')),
-          group_id TEXT NOT NULL REFERENCES groups (id),
-          expense_id TEXT NOT NULL,
-          amount INTEGER NOT NULL,
-          created_at TEXT NOT NULL
-        );
-        CREATE UNIQUE INDEX notices_expense_account ON notices (expense_id, account_id);
-        CREATE INDEX notices_account ON notices (account_id, created_at);
-        INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
-        INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
-        INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
-          VALUES ('n1', 'a', 'expense', 'g', 'e1', 5, '2026-11-02T00:00:00.000Z'),
-                 ('n2', 'a', 'expense', 'g', 'e2', 6, '2026-11-02T00:00:00.000Z');
-        DROP TABLE settlement_history;
-        ALTER TABLE payment_decisions DROP COLUMN decided_at;
-        ALTER TABLE expenses DROP COLUMN original_rate;
-        ALTER TABLE expenses DROP COLUMN original_amount;
-        ALTER TABLE expenses DROP COLUMN original_currency;
-        DROP TABLE recurring_shares;
-        DROP TABLE recurring;
-        PRAGMA user_version = 13;
+      await db.transaction(async tx => {
+        await insert(tx, 'first');
+        await insert(tx, 'second');
+      });
+      await expect(
+        db.transaction(async tx => {
+          await insert(tx, 'third');
+          throw new Error('the work fails');
+        }),
+      ).rejects.toThrow('the work fails');
+      expect(await count()).toBe(2);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('moves a file Tally kept into an empty database, and serves everything it held', async () => {
+    const file = openLegacyFile(legacy);
+    try {
+      const graceHash = await hashPassword('grace-password-1');
+      file.exec(`
+        INSERT INTO accounts (id, email, name, password_hash) VALUES
+          ('ada', 'ada@example.com', 'Ada Lovelace', '${await hashPassword(ada.password)}'),
+          ('grace', 'grace@example.com', 'Grace Hopper', '${graceHash}');
+        INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES
+          ('g1', 'The flat', 'EUR', 'ada', '2026-11-01T00:00:00.000Z');
+        INSERT INTO group_members (group_id, account_id, joined_at, joined_order, left_at, balance_offset) VALUES
+          ('g1', 'ada', '2026-11-01T00:00:00.000Z', 1, NULL, 0),
+          ('g1', 'grace', '2026-11-01T01:00:00.000Z', 2, NULL, 0);
+        INSERT INTO expenses (id, group_id, description, amount, date, paid_by, created_at, version, split_kind, category) VALUES
+          ('e1', 'g1', 'Groceries', 1000, '2026-11-02', 'ada', '2026-11-02T10:00:00.000Z', 1, 'equal', 'groceries');
+        INSERT INTO expense_shares (expense_id, position, account_id, amount) VALUES
+          ('e1', 0, 'ada', 500), ('e1', 1, 'grace', 500);
+        INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at) VALUES
+          ('s1', 'g1', 'grace', 'ada', 200, 'cash', 'paid', NULL, NULL, '2026-11-03T10:00:00.000Z'),
+          ('s2', 'g1', 'grace', 'ada', 100, 'provider', 'pending', 'pay_1', 'https://pay.example/pay_1', '2026-11-04T10:00:00.000Z');
+        INSERT INTO settlement_history (settlement_id, status, at) VALUES
+          ('s1', 'paid', '2026-11-03T10:00:00.000Z'),
+          ('s2', 'pending', '2026-11-04T10:00:00.000Z');
+        INSERT INTO notices (id, account_id, kind, group_id, expense_id, category, month, budget, amount, created_at) VALUES
+          ('n1', 'grace', 'expense', 'g1', 'e1', NULL, NULL, NULL, 500, '2026-11-02T10:00:00.000Z');
+        INSERT INTO budgets (group_id, category, amount) VALUES ('g1', 'food', 5000);
+        INSERT INTO audit_entries (id, group_id, at, account_id, action, subject_id, amount) VALUES
+          ('au1', 'g1', '2026-11-02T10:00:00.000Z', 'ada', 'expense-recorded', 'e1', 1000),
+          ('au2', 'g1', '2026-11-03T10:00:00.000Z', 'ada', 'settlement-paid', 's1', 200);
+        INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES
+          ('ada', 'acct_ada', '2026-11-01T00:00:00.000Z');
+        INSERT INTO templates (id, group_id, name, name_key, split_kind, created_by, created_at) VALUES
+          ('tp1', 'g1', 'Flat split', 'flat split', 'equal', 'ada', '2026-11-01T00:00:00.000Z');
+        INSERT INTO template_shares (template_id, position, account_id, value) VALUES
+          ('tp1', 0, 'ada', NULL), ('tp1', 1, 'grace', NULL);
+        INSERT INTO recurring (id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, created_at, category) VALUES
+          ('rc1', 'g1', 'ada', 'Rent', 90000, '2026-11-01', '2026-12-01', 'equal', '2026-11-01T00:00:00.000Z', 'rent');
+        INSERT INTO recurring_shares (recurring_id, position, account_id, value) VALUES
+          ('rc1', 0, 'ada', NULL), ('rc1', 1, 'grace', NULL);
+        INSERT INTO invitations (id, group_id, created_by, created_at) VALUES
+          ('inv1', 'g1', 'ada', '2026-11-01T00:00:00.000Z');
       `);
     } finally {
-      before.close();
+      file.close();
     }
 
-    const db = openDatabase(database.path);
-    try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 });
-      expect(db.prepare('SELECT id FROM notices ORDER BY rowid').all()).toEqual([{ id: 'n1' }, { id: 'n2' }]);
-      db.prepare(
-        "INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('r', 'a', 'reminder', 'g', NULL, 2500, '2026-11-09T00:00:00.000Z')",
-      ).run();
-      expect(db.prepare("SELECT COUNT(*) AS n FROM notices WHERE kind = 'reminder'").get()).toEqual({ n: 1 });
-    } finally {
-      db.close();
-    }
-  });
+    const app = await start({ providerWebhookSecret: SECRET });
+    const { token: adaToken } = (await call(app, 'POST', '/accounts/login', { body: ada })).body;
+    const { token: graceToken } = (
+      await call(app, 'POST', '/accounts/login', { body: { email: 'grace@example.com', password: 'grace-password-1' } })
+    ).body;
+    expect(adaToken).toEqual(expect.any(String));
+    expect(graceToken).toEqual(expect.any(String));
 
-  it('opens an existing file without changing its schema again', () => {
-    openDatabase(database.path).close();
-    const db = openDatabase(database.path);
-    try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 });
-    } finally {
-      db.close();
-    }
-  });
-
-  it('adds the notices to a file at version 12, with none in it, and refuses a second one per member', () => {
-    openDatabase(database.path).close();
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
-    try {
-      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
-      before.exec('DROP TABLE debt_notes');
-      before.exec('DROP TABLE notices');
-      before.exec('DROP TABLE settlement_history');
-      before.exec('ALTER TABLE payment_decisions DROP COLUMN decided_at');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
-      before.exec('DROP TABLE recurring_shares');
-      before.exec('DROP TABLE recurring');
-      before.exec('PRAGMA user_version = 12');
-    } finally {
-      before.close();
-    }
-
-    const db = openDatabase(database.path);
-    try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 });
-      expect(db.prepare('SELECT COUNT(*) AS count FROM notices').get()).toEqual({ count: 0 });
-      expect(() =>
-        db.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
-          INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
-          INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('n1', 'a', 'expense', 'g', 'e', 1, '2026-11-02T00:00:00.000Z');
-          INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('n2', 'a', 'expense', 'g', 'e', 1, '2026-11-02T00:00:00.000Z');`),
-      ).toThrow(/UNIQUE/);
-    } finally {
-      db.close();
-    }
-  });
-
-  it('reads an expense recorded before splits could be unequal as split equally', async () => {
-    const first = await start();
-    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
-    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
-    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
-      .id;
-    const expenseId = (
-      await call(first, 'POST', `/groups/${groupId}/expenses`, {
-        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
-        token,
-      })
-    ).body.id;
-    await first.stop();
-    apps.pop();
-
-    // The file as the schema was before splits could be unequal: no column for the kind of split, version 5.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
-    try {
-      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
-      before.exec('DROP TABLE payment_decisions');
-      before.exec('DROP TABLE payout_accounts');
-      before.exec('DROP TABLE settlements');
-      before.exec('ALTER TABLE expenses DROP COLUMN split_kind');
-      before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
-      before.exec('ALTER TABLE group_members DROP COLUMN left_at');
-      before.exec('DROP TABLE debt_notes');
-      before.exec('DROP TABLE notices');
-      before.exec('DROP TABLE settlement_history');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
-      before.exec('DROP TABLE recurring_shares');
-      before.exec('DROP TABLE recurring');
-      before.exec('PRAGMA user_version = 5');
-    } finally {
-      before.close();
-    }
-
-    const second = await start();
-    expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({
-      splitKind: 'equal',
-      shares: [{ memberId: adaId, amount: 1000 }],
+    const balances = () => call(app, 'GET', '/groups/g1/balances', { token: adaToken }).then(answer => answer.body);
+    expect(await balances()).toEqual([
+      { memberId: 'ada', balance: 300 },
+      { memberId: 'grace', balance: -300 },
+    ]);
+    expect((await call(app, 'GET', '/expenses/e1', { token: graceToken })).body.shares).toEqual([
+      { memberId: 'ada', amount: 500 },
+      { memberId: 'grace', amount: 500 },
+    ]);
+    expect((await call(app, 'GET', '/groups/g1/templates', { token: adaToken })).body).toEqual([
+      { id: 'tp1', groupId: 'g1', name: 'Flat split', splitBetween: ['ada', 'grace'] },
+    ]);
+    expect((await call(app, 'GET', '/recurring/rc1', { token: adaToken })).body).toMatchObject({ next: '2026-12-01' });
+    expect((await call(app, 'GET', '/invitations/inv1', { token: graceToken })).body).toEqual({
+      id: 'inv1',
+      groupId: 'g1',
+      groupName: 'The flat',
+      invitedBy: 'ada',
     });
-  });
+    expect((await call(app, 'GET', '/notices', { token: graceToken })).body).toMatchObject([
+      { id: 'n1', kind: 'expense', expenseId: 'e1', amount: 500 },
+    ]);
+    expect((await call(app, 'GET', '/groups/g1/budgets', { token: adaToken })).body).toEqual([
+      { category: 'food', amount: 5000, spent: 0 },
+    ]);
 
-  it('keeps the members recorded before leaving existed current, in the order they joined', async () => {
-    const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
-    const first = await start();
-    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
-    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
-    const graceId = (await call(first, 'POST', '/accounts', { body: grace })).body.id;
-    const graceToken = (await call(first, 'POST', '/accounts/login', { body: grace })).body.token;
-    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
-      .id;
-    const invitation = (await call(first, 'POST', `/groups/${groupId}/invitations`, { token })).body.id;
-    await call(first, 'POST', `/invitations/${invitation}/accept`, { token: graceToken });
-    await first.stop();
-    apps.pop();
-
-    // The file as the schema was before a membership could end: no column for it, version 6.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
-    try {
-      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
-      before.exec('DROP TABLE payment_decisions');
-      before.exec('DROP TABLE payout_accounts');
-      before.exec('DROP TABLE settlements');
-      before.exec('ALTER TABLE group_members DROP COLUMN joined_order');
-      before.exec('ALTER TABLE group_members DROP COLUMN left_at');
-      before.exec('DROP TABLE debt_notes');
-      before.exec('DROP TABLE notices');
-      before.exec('DROP TABLE settlement_history');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
-      before.exec('DROP TABLE recurring_shares');
-      before.exec('DROP TABLE recurring');
-      before.exec('PRAGMA user_version = 6');
-    } finally {
-      before.close();
-    }
-
-    const second = await start();
-    const members = (await call(second, 'GET', `/groups/${groupId}/members`, { token })).body;
-    expect(members.map((member: { memberId: string }) => member.memberId)).toEqual([adaId, graceId]);
-    expect(members[1].role).toBe('member');
-  });
-
-  it('keeps the expenses of a file recorded before settlements existed, and counts no settlement in them', async () => {
-    const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
-    const first = await start();
-    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
-    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
-    const graceId = (await call(first, 'POST', '/accounts', { body: grace })).body.id;
-    const graceToken = (await call(first, 'POST', '/accounts/login', { body: grace })).body.token;
-    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
-      .id;
-    const invitation = (await call(first, 'POST', `/groups/${groupId}/invitations`, { token })).body.id;
-    await call(first, 'POST', `/invitations/${invitation}/accept`, { token: graceToken });
-    const expenseId = (
-      await call(first, 'POST', `/groups/${groupId}/expenses`, {
-        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId, graceId] },
-        token,
-      })
-    ).body.id;
-    await first.stop();
-    apps.pop();
-
-    // The file as the schema was before settlements: no table for them, version 7.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
-    try {
-      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
-      before.exec('DROP TABLE payment_decisions');
-      before.exec('DROP TABLE payout_accounts');
-      before.exec('DROP TABLE settlements');
-      before.exec('DROP TABLE debt_notes');
-      before.exec('DROP TABLE notices');
-      before.exec('DROP TABLE settlement_history');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
-      before.exec('DROP TABLE recurring_shares');
-      before.exec('DROP TABLE recurring');
-      before.exec('PRAGMA user_version = 7');
-    } finally {
-      before.close();
-    }
-
-    const second = await start();
-    expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({
-      amount: 1000,
-      shares: [
-        { memberId: adaId, amount: 500 },
-        { memberId: graceId, amount: 500 },
-      ],
+    // The payment that waited at the provider lands when its webhook comes, and counts once, however often it comes.
+    const raw = JSON.stringify({
+      id: 'evt_1',
+      paymentId: 'pay_1',
+      status: 'succeeded',
+      at: '2026-11-05T10:00:00.000Z',
     });
-    expect((await call(second, 'GET', `/groups/${groupId}/balances`, { token })).body).toEqual([
-      { memberId: adaId, balance: 500 },
-      { memberId: graceId, balance: -500 },
+    const signature = createHmac('sha256', SECRET).update(raw).digest('hex');
+    const sendWebhook = () =>
+      call(app, 'POST', '/provider/webhooks', { raw, headers: { 'Provider-Signature': signature } });
+    expect((await sendWebhook()).status).toBe(204);
+    expect((await sendWebhook()).status).toBe(204);
+    expect(await balances()).toEqual([
+      { memberId: 'ada', balance: 200 },
+      { memberId: 'grace', balance: -200 },
+    ]);
+    const paid = (await call(app, 'GET', '/settlements/s2', { token: graceToken })).body;
+    expect(paid).toMatchObject({ status: 'paid', payUrl: 'https://pay.example/pay_1' });
+    expect(paid.history.map((entry: { status: string }) => entry.status)).toEqual(['pending', 'paid']);
+    const audit = (await call(app, 'GET', '/groups/g1/audit', { token: adaToken })).body;
+    expect(audit.filter((entry: { subjectId: string }) => entry.subjectId === 's2')).toEqual([
+      expect.objectContaining({ action: 'settlement-paid', by: 'grace', amount: 100 }),
     ]);
   });
 
-  it('keeps the cash settlements of a file recorded before settlements could go through the provider', () => {
-    openDatabase(database.path).close();
-    // The file as the schema was before provider settlements: the settlements table of version 8, one cash row.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
+  it('moves a file at an older version, migrating it first, and serves its accounts', async () => {
+    const file = new DatabaseSync(legacy);
     try {
-      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
-      before.exec(`
-        DROP TABLE payment_decisions;
-        DROP TABLE payout_accounts;
-        DROP TABLE settlements;
-        CREATE TABLE settlements (
+      file.exec(`
+        CREATE TABLE accounts (
           id TEXT PRIMARY KEY,
-          group_id TEXT NOT NULL REFERENCES groups (id),
-          payer_id TEXT NOT NULL REFERENCES accounts (id),
-          payee_id TEXT NOT NULL REFERENCES accounts (id),
-          amount INTEGER NOT NULL CHECK (amount >= 1),
-          method TEXT NOT NULL CHECK (method IN ('cash')),
-          status TEXT NOT NULL CHECK (status IN ('paid')),
-          created_at TEXT NOT NULL
+          email TEXT NOT NULL,
+          name TEXT NOT NULL,
+          password_hash TEXT NOT NULL
         );
-        CREATE INDEX settlements_group ON settlements (group_id);
-        INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x'), ('b', 'b@example.com', 'B', 'x');
-        INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
-        INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
-          VALUES ('s', 'g', 'b', 'a', 300, 'cash', 'paid', '2026-11-02T00:00:00.000Z');
-        DROP TABLE debt_notes;
-        DROP TABLE notices;
-        DROP TABLE settlement_history;
-        ALTER TABLE expenses DROP COLUMN original_rate;
-        ALTER TABLE expenses DROP COLUMN original_amount;
-        ALTER TABLE expenses DROP COLUMN original_currency;
-        DROP TABLE recurring_shares;
-        DROP TABLE recurring;
-        PRAGMA user_version = 8;
+        CREATE UNIQUE INDEX accounts_email ON accounts (email);
+        CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts (id), created_at TEXT NOT NULL);
+        CREATE TABLE operations (id TEXT PRIMARY KEY, account_id TEXT REFERENCES accounts (id), status TEXT NOT NULL, result TEXT, error_type TEXT, error_message TEXT, created_at TEXT NOT NULL);
+        PRAGMA user_version = 1;
       `);
+      file
+        .prepare('INSERT INTO accounts (id, email, name, password_hash) VALUES (?, ?, ?, ?)')
+        .run('ada', ada.email, ada.name, await hashPassword(ada.password));
     } finally {
-      before.close();
+      file.close();
     }
 
-    const db = openDatabase(database.path);
-    try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 });
-      expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
-        { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
-      ]);
-      // The rebuilt table takes the provider's settlements, pending or failed, as it takes cash.
-      db.exec(`INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
-        VALUES ('p', 'g', 'b', 'a', 100, 'provider', 'pending', '2026-11-03T00:00:00.000Z')`);
-      expect(() =>
-        db.exec(`INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
-          VALUES ('x', 'g', 'b', 'a', 100, 'cheque', 'paid', '2026-11-03T00:00:00.000Z')`),
-      ).toThrow();
-    } finally {
-      db.close();
-    }
+    const app = await start();
+    expect((await call(app, 'POST', '/accounts/login', { body: ada })).status).toBe(200);
   });
 
-  it('keeps the provider settlements and decisions of a file at version 10, and takes refunds', () => {
-    openDatabase(database.path).close();
-    // The file as the schema was at version 10: a provider settlement paid, and the decision kept for its payment.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
-    try {
-      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
-      before.exec(`
-        DROP TABLE payment_decisions;
-        DROP TABLE payout_accounts;
-        DROP TABLE settlements;
-        CREATE TABLE settlements (
-          id TEXT PRIMARY KEY,
-          group_id TEXT NOT NULL REFERENCES groups (id),
-          payer_id TEXT NOT NULL REFERENCES accounts (id),
-          payee_id TEXT NOT NULL REFERENCES accounts (id),
-          amount INTEGER NOT NULL CHECK (amount >= 1),
-          method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
-          status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed')),
-          provider_id TEXT,
-          pay_url TEXT,
-          created_at TEXT NOT NULL
-        );
-        CREATE INDEX settlements_group ON settlements (group_id);
-        CREATE UNIQUE INDEX settlements_provider ON settlements (provider_id) WHERE provider_id IS NOT NULL;
-        CREATE TABLE payment_decisions (
-          payment_id TEXT PRIMARY KEY,
-          status TEXT NOT NULL CHECK (status IN ('paid', 'failed'))
-        );
-        INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x'), ('b', 'b@example.com', 'B', 'x');
-        INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
-        INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at)
-          VALUES ('s', 'g', 'b', 'a', 300, 'provider', 'paid', 'pay_9', 'https://pay.example/pay_9', '2026-11-02T00:00:00.000Z');
-        INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_9', 'paid');
-        DROP TABLE debt_notes;
-        DROP TABLE notices;
-        DROP TABLE settlement_history;
-        ALTER TABLE expenses DROP COLUMN original_rate;
-        ALTER TABLE expenses DROP COLUMN original_amount;
-        ALTER TABLE expenses DROP COLUMN original_currency;
-        DROP TABLE recurring_shares;
-        DROP TABLE recurring;
-        PRAGMA user_version = 10;
-      `);
-    } finally {
-      before.close();
-    }
-
-    const db = openDatabase(database.path);
-    try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 });
-      expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
-        { id: 's', status: 'paid', provider_id: 'pay_9' },
-      ]);
-      expect(db.prepare('SELECT payment_id, status FROM payment_decisions').all()).toEqual([
-        { payment_id: 'pay_9', status: 'paid' },
-      ]);
-      // The rebuilt tables take a refund in progress, a refund made, and a refund said by the provider.
-      db.exec("UPDATE settlements SET status = 'refunding' WHERE id = 's'");
-      db.exec("UPDATE settlements SET status = 'refunded' WHERE id = 's'");
-      db.exec("INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_10', 'refunded')");
-      expect(() => db.exec("UPDATE settlements SET status = 'chargeback' WHERE id = 's'")).toThrow();
-      expect(() =>
-        db.exec("INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_11', 'pending')"),
-      ).toThrow();
-      // The provider's id of a payment is still given to one settlement only.
-      expect(() =>
-        db.exec(`INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_id, created_at)
-          VALUES ('t', 'g', 'b', 'a', 100, 'provider', 'pending', 'pay_9', '2026-11-03T00:00:00.000Z')`),
-      ).toThrow();
-    } finally {
-      db.close();
-    }
-  });
-
-  it('takes payout accounts on a file at version 11, and keeps the accounts it had', () => {
-    openDatabase(database.path).close();
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
-    try {
-      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
-      before.exec(`
-        INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
-        DROP TABLE payout_accounts;
-        DROP TABLE debt_notes;
-        DROP TABLE notices;
-        DROP TABLE settlement_history;
-        ALTER TABLE payment_decisions DROP COLUMN decided_at;
-        ALTER TABLE expenses DROP COLUMN original_rate;
-        ALTER TABLE expenses DROP COLUMN original_amount;
-        ALTER TABLE expenses DROP COLUMN original_currency;
-        DROP TABLE recurring_shares;
-        DROP TABLE recurring;
-        PRAGMA user_version = 11;
-      `);
-    } finally {
-      before.close();
-    }
-
-    const db = openDatabase(database.path);
-    try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 });
-      expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
-      db.exec(
-        "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
-      );
-      expect(db.prepare('SELECT account_id, provider_account_id FROM payout_accounts').all()).toEqual([
-        { account_id: 'a', provider_account_id: 'acct_a' },
-      ]);
-      // A payout account belongs to an account of the database, and a member has one at most.
-      expect(() =>
-        db.exec(
-          "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('nobody', 'acct_n', '2026-11-01T00:00:00.000Z')",
-        ),
-      ).toThrow();
-      expect(() =>
-        db.exec(
-          "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_b', '2026-11-01T00:00:00.000Z')",
-        ),
-      ).toThrow();
-    } finally {
-      db.close();
-    }
-  });
-
-  it('dates the settlements of a file at version 14 by when they were recorded, and their decisions by the migration', () => {
-    openDatabase(database.path).close();
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
-    try {
-      before.exec('ALTER TABLE group_members DROP COLUMN balance_offset');
-      before.exec(`
-        DROP TABLE settlement_history;
-        ALTER TABLE payment_decisions DROP COLUMN decided_at;
-        INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x'), ('b', 'b@example.com', 'B', 'x');
-        INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g', 'G', 'EUR', 'a', '2026-11-01T00:00:00.000Z');
-        INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_id, pay_url, created_at) VALUES
-          ('cash', 'g', 'b', 'a', 500, 'cash', 'paid', NULL, NULL, '2026-11-02T00:00:00.000Z'),
-          ('waiting', 'g', 'b', 'a', 300, 'provider', 'pending', NULL, NULL, '2026-11-03T00:00:00.000Z'),
-          ('settled', 'g', 'b', 'a', 200, 'provider', 'paid', 'pay_1', 'https://pay.example/pay_1', '2026-11-04T00:00:00.000Z');
-        INSERT INTO payment_decisions (payment_id, status) VALUES ('pay_1', 'paid');
-        ALTER TABLE expenses DROP COLUMN original_rate;
-        ALTER TABLE expenses DROP COLUMN original_amount;
-        ALTER TABLE expenses DROP COLUMN original_currency;
-        DROP TABLE recurring_shares;
-        DROP TABLE recurring;
-        PRAGMA user_version = 14;
-      `);
-    } finally {
-      before.close();
-    }
-
-    const db = openDatabase(database.path);
-    try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 });
-      const history = (id: string) =>
-        db.prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq').all(id);
-      expect(history('cash')).toEqual([{ status: 'paid', at: '2026-11-02T00:00:00.000Z' }]);
-      expect(history('waiting')).toEqual([{ status: 'pending', at: '2026-11-03T00:00:00.000Z' }]);
-      const settled = history('settled') as { status: string; at: string }[];
-      expect(settled.map(entry => entry.status)).toEqual(['pending', 'paid']);
-      expect(settled[0].at).toBe('2026-11-04T00:00:00.000Z');
-      expect(settled[1].at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-      expect(
-        db.prepare("SELECT decided_at IS NOT NULL AS dated FROM payment_decisions WHERE payment_id = 'pay_1'").get(),
-      ).toEqual({
-        dated: 1,
-      });
-    } finally {
-      db.close();
-    }
-  });
-
-  it('keeps all of a transaction that completes, and none of one that throws', () => {
-    const db = openDatabase(database.path);
-    try {
-      db.exec('CREATE TABLE notes (text TEXT NOT NULL)');
-      inTransaction(db, () => db.exec("INSERT INTO notes (text) VALUES ('kept')"));
-      expect(() =>
-        inTransaction(db, () => {
-          db.exec("INSERT INTO notes (text) VALUES ('rolled back')");
-          throw new Error('the work failed');
-        }),
-      ).toThrow('the work failed');
-      expect(db.prepare('SELECT text FROM notes').all()).toEqual([{ text: 'kept' }]);
-    } finally {
-      db.close();
-    }
-  });
-
-  it("reads the expenses of a file recorded before expenses could be paid in another currency as in the group's", async () => {
-    const first = await start();
-    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
-    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
-    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
-      .id;
-    const expenseId = (
-      await call(first, 'POST', `/groups/${groupId}/expenses`, {
-        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
-        token,
-      })
-    ).body.id;
-    await first.stop();
+  it('does not read the file again once it is moved, and does not move it into a database that holds Tally already', async () => {
+    const app = await start();
+    await call(app, 'POST', '/accounts', { body: { ...ada, email: 'grace@example.com', name: 'Grace Hopper' } });
+    await app.stop();
     apps.pop();
 
-    // The file as it was before an expense could be paid in another currency: no columns for it, one version less.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    dropCategories(before);
-    try {
-      const current = Number((before.prepare('PRAGMA user_version').get() as { user_version: number }).user_version);
-      before.exec('ALTER TABLE expenses DROP COLUMN original_rate');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_amount');
-      before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
-      before.exec('DROP TABLE recurring_shares');
-      before.exec('DROP TABLE recurring');
-      // Back to the migration that adds the original currency: nine versions below the current one, which now includes archived groups and the audit.
-      before.exec(`PRAGMA user_version = ${current - 9}`);
-    } finally {
-      before.close();
-    }
+    // A file that holds another account is not moved into the database, which holds Tally's state already.
+    const file = openLegacyFile(legacy);
+    file.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('ada', 'ada@example.com', 'Ada', 'x')`);
+    file.close();
+    const again = await start();
+    expect((await call(again, 'POST', '/accounts/login', { body: ada })).status).toBe(401);
+    expect(
+      (await call(again, 'POST', '/accounts/login', { body: { email: 'grace@example.com', password: ada.password } }))
+        .status,
+    ).toBe(200);
 
-    const second = await start();
-    const body = (await call(second, 'GET', `/expenses/${expenseId}`, { token })).body;
-    expect(body).toMatchObject({ amount: 1000, splitKind: 'equal' });
-    expect(body).not.toHaveProperty('original');
+    // Once moved, the file is not read again: a file that is no longer a database does not stop the server.
+    await again.stop();
+    apps.pop();
+    writeFileSync(legacy, 'not a database');
+    const restarted = await start();
+    expect((await call(restarted, 'POST', '/accounts', { body: { ...ada, email: 'linus@example.com' } })).status).toBe(
+      201,
+    );
   });
 
-  it('reads the expenses and recurring expenses of a file recorded before categories as other, and keeps its notices', async () => {
-    const first = await start();
-    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
-    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
-    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
-      .id;
-    const expenseId = (
-      await call(first, 'POST', `/groups/${groupId}/expenses`, {
-        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
-        token,
-      })
-    ).body.id;
-    const recurringId = (
-      await call(first, 'POST', `/groups/${groupId}/recurring`, {
-        body: { description: 'Rent', amount: 500, startsOn: '2026-11-01', splitBetween: [adaId] },
-        token,
-      })
-    ).body.id;
-    await first.stop();
-    apps.pop();
+  it('leaves the database empty when the file cannot be read, and moves it on the next start', async () => {
+    writeFileSync(legacy, 'not a database');
+    await expect(start()).rejects.toThrow();
 
-    // The file as it was before categories: no column for them and no budgets, one version less than the migrations ask.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    try {
-      dropCategories(before);
-      before.exec('ALTER TABLE recurring DROP COLUMN category');
-      before.exec('PRAGMA user_version = 18');
-    } finally {
-      before.close();
-    }
-
-    const second = await start();
-    expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({
-      category: 'other',
-    });
-    expect((await call(second, 'GET', `/recurring/${recurringId}`, { token })).body).toMatchObject({
-      category: 'other',
-    });
-    expect((await call(second, 'GET', `/groups/${groupId}/budgets`, { token })).body).toEqual([]);
-  });
-
-  it('takes split templates on a file at version 21, which has none, and keeps the expenses it had', async () => {
-    const first = await start();
-    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
-    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
-    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
-      .id;
-    const expenseId = (
-      await call(first, 'POST', `/groups/${groupId}/expenses`, {
-        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
-        token,
-      })
-    ).body.id;
-    await first.stop();
-    apps.pop();
-
-    // The file as it was before templates: no tables for them, one version less.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    before.exec('DROP TABLE receipts');
-    try {
-      before.exec('DROP TABLE template_shares');
-      before.exec('DROP TABLE templates');
-      before.exec('PRAGMA user_version = 21');
-    } finally {
-      before.close();
-    }
-
-    const second = await start();
-    expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({ amount: 1000 });
-    expect((await call(second, 'GET', `/groups/${groupId}/templates`, { token })).body).toEqual([]);
-  });
-
-  it('takes receipts on a file at version 22, which has none, and keeps the expenses it had', async () => {
-    const first = await start();
-    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
-    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
-    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
-      .id;
-    const expenseId = (
-      await call(first, 'POST', `/groups/${groupId}/expenses`, {
-        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
-        token,
-      })
-    ).body.id;
-    await first.stop();
-    apps.pop();
-
-    // The file as it was before receipts: no table for them, one version less.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    try {
-      before.exec('DROP TABLE receipts');
-      before.exec('PRAGMA user_version = 22');
-    } finally {
-      before.close();
-    }
-
-    const second = await start();
-    expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({ amount: 1000 });
-    expect((await call(second, 'GET', `/expenses/${expenseId}/receipt`, { token })).status).toBe(404);
-  });
-
-  it('takes archived groups on a file at version 23, which has none, and keeps the groups it had', async () => {
-    const first = await start();
-    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
-    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
-    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
-      .id;
-    await call(first, 'POST', `/groups/${groupId}/expenses`, {
-      body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
-      token,
-    });
-    await first.stop();
-    apps.pop();
-
-    // The file as it was before groups could be archived: no column for it, one version less.
-    const before = new DatabaseSync(database.path);
-    dropArchives(before);
-    dropAudit(before);
-    try {
-      before.exec('PRAGMA user_version = 23');
-    } finally {
-      before.close();
-    }
-
-    const second = await start();
-    expect((await call(second, 'GET', `/groups/${groupId}`, { token })).body).toMatchObject({
-      id: groupId,
-      name: 'The flat',
-    });
-    expect((await call(second, 'GET', `/groups/${groupId}`, { token })).body).not.toHaveProperty('archivedAt');
-    expect((await call(second, 'GET', `/groups/${groupId}/expenses`, { token })).body).toHaveLength(1);
-    expect((await call(second, 'POST', `/groups/${groupId}/archive`, { token })).status).toBe(204);
-  });
-
-  it('takes the audit on a file at version 24, which has none, and keeps the expenses it had with no entry for them', async () => {
-    const first = await start();
-    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
-    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
-    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
-      .id;
-    await call(first, 'POST', `/groups/${groupId}/expenses`, {
-      body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
-      token,
-    });
-    await first.stop();
-    apps.pop();
-
-    // The file as it was before the audit existed: no table for it, one version less.
-    const before = new DatabaseSync(database.path);
-    dropAudit(before);
-    try {
-      before.exec('PRAGMA user_version = 24');
-    } finally {
-      before.close();
-    }
-
-    const second = await start();
-    expect((await call(second, 'GET', `/groups/${groupId}/expenses`, { token })).body).toHaveLength(1);
-    expect((await call(second, 'GET', `/groups/${groupId}/audit`, { token })).body).toEqual([]);
-    const probe = new DatabaseSync(database.path);
-    try {
-      expect(probe.prepare('PRAGMA user_version').get()).toEqual({ user_version: 25 });
-    } finally {
-      probe.close();
-    }
+    rmSync(legacy);
+    const file = openLegacyFile(legacy);
+    file.exec(
+      `INSERT INTO accounts (id, email, name, password_hash) VALUES ('ada', 'ada@example.com', 'Ada', '${await hashPassword(ada.password)}')`,
+    );
+    file.close();
+    const app = await start();
+    expect((await call(app, 'POST', '/accounts/login', { body: ada })).status).toBe(200);
   });
 });

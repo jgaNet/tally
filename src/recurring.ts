@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
-import { inTransaction } from './database';
+import type { Database, Queryable } from './database';
 import { isRealDay, todayUtc } from './days';
 import {
   checkAmount,
@@ -118,14 +117,15 @@ function splitOfRows(row: RecurringRow, shares: RecurringShareRow[]): Split {
   }
 }
 
-function sharesOfRecurring(db: DatabaseSync, id: string): RecurringShareRow[] {
-  return db
-    .prepare('SELECT account_id, value FROM recurring_shares WHERE recurring_id = ? ORDER BY position')
-    .all(id) as unknown as RecurringShareRow[];
+function sharesOfRecurring(db: Queryable, id: string): Promise<RecurringShareRow[]> {
+  return db.all<RecurringShareRow>(
+    'SELECT account_id, value FROM recurring_shares WHERE recurring_id = ? ORDER BY position',
+    [id],
+  );
 }
 
-function recurringOf(db: DatabaseSync, row: RecurringRow): Recurring {
-  const split = splitOfRows(row, sharesOfRecurring(db, row.id));
+async function recurringOf(db: Queryable, row: RecurringRow): Promise<Recurring> {
+  const split = splitOfRows(row, await sharesOfRecurring(db, row.id));
   const recurring: Recurring = {
     id: row.id,
     groupId: row.group_id,
@@ -149,76 +149,90 @@ const COLUMNS =
  * Sets up a recurring expense of the group, the account its payer, and returns its id. It is checked as an expense is:
  * its description, its amount, its split; and its first day. For an account that is not a member, the group does not exist.
  */
-export function createRecurring(db: DatabaseSync, accountId: string, groupId: string, input: NewRecurring): string {
-  if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
-  refuseIfArchived(db, groupId);
+export async function createRecurring(
+  db: Database,
+  accountId: string,
+  groupId: string,
+  input: NewRecurring,
+): Promise<string> {
+  if (!(await findGroupOf(db, accountId, groupId))) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  await refuseIfArchived(db, groupId);
   const description = checkDescription(input.description);
   checkAmount(input.amount);
   checkStartsOn(input.startsOn);
   const id = randomUUID();
-  inTransaction(db, () => {
-    refuseIfArchived(db, groupId);
+  await db.transaction(async tx => {
+    await refuseIfArchived(tx, groupId);
     const split = splitGiven(input);
-    checkSplit(db, groupId, accountId, membersOf(split));
+    await checkSplit(tx, groupId, accountId, membersOf(split));
     sharesOf(split, input.amount);
-    db.prepare(
+    await tx.run(
       `INSERT INTO recurring (id, group_id, paid_by, description, amount, starts_on, next_on, split_kind, category, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      groupId,
-      accountId,
-      description,
-      input.amount,
-      input.startsOn,
-      input.startsOn,
-      split.kind,
-      input.category ?? DEFAULT_CATEGORY,
-      new Date().toISOString(),
+      [
+        id,
+        groupId,
+        accountId,
+        description,
+        input.amount,
+        input.startsOn,
+        input.startsOn,
+        split.kind,
+        input.category ?? DEFAULT_CATEGORY,
+        new Date().toISOString(),
+      ],
     );
-    const insert = db.prepare(
-      'INSERT INTO recurring_shares (recurring_id, position, account_id, value) VALUES (?, ?, ?, ?)',
-    );
-    if (split.kind === 'equal') split.members.forEach((member, position) => insert.run(id, position, member, null));
-    else if (split.kind === 'exact') {
-      split.shares.forEach((share, position) => insert.run(id, position, share.memberId, share.amount));
-    } else split.shares.forEach((share, position) => insert.run(id, position, share.memberId, share.shares));
+    const insert = (position: number, memberId: string, value: number | null) =>
+      tx.run('INSERT INTO recurring_shares (recurring_id, position, account_id, value) VALUES (?, ?, ?, ?)', [
+        id,
+        position,
+        memberId,
+        value,
+      ]);
+    if (split.kind === 'equal') {
+      for (const [position, member] of split.members.entries()) await insert(position, member, null);
+    } else if (split.kind === 'exact') {
+      for (const [position, share] of split.shares.entries()) await insert(position, share.memberId, share.amount);
+    } else {
+      for (const [position, share] of split.shares.entries()) await insert(position, share.memberId, share.shares);
+    }
   });
   return id;
 }
 
 /** The recurring expense, when the account is a member of its group. For anyone else it does not exist. */
-export function findRecurringOf(db: DatabaseSync, accountId: string, id: string): Recurring | undefined {
-  const row = db
-    .prepare(
-      `SELECT ${COLUMNS} FROM recurring r JOIN group_members m ON m.group_id = r.group_id
-       WHERE r.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
-    )
-    .get(id, accountId) as RecurringRow | undefined;
+export async function findRecurringOf(db: Queryable, accountId: string, id: string): Promise<Recurring | undefined> {
+  const row = await db.get<RecurringRow>(
+    `SELECT ${COLUMNS} FROM recurring r JOIN group_members m ON m.group_id = r.group_id
+     WHERE r.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
+    [id, accountId],
+  );
   return row && recurringOf(db, row);
 }
 
 /** The group's recurring expenses, the earliest set up first. For an account that is not a member, the group does not exist. */
-export function listRecurringOf(db: DatabaseSync, accountId: string, groupId: string): Recurring[] {
-  if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
-  const rows = db
-    .prepare(`SELECT ${COLUMNS} FROM recurring r WHERE r.group_id = ? ORDER BY r.seq`)
-    .all(groupId) as unknown as RecurringRow[];
-  return rows.map(row => recurringOf(db, row));
+export async function listRecurringOf(db: Queryable, accountId: string, groupId: string): Promise<Recurring[]> {
+  if (!(await findGroupOf(db, accountId, groupId))) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  const rows = await db.all<RecurringRow>(`SELECT ${COLUMNS} FROM recurring r WHERE r.group_id = ? ORDER BY r.seq`, [
+    groupId,
+  ]);
+  const recurring: Recurring[] = [];
+  for (const row of rows) recurring.push(await recurringOf(db, row));
+  return recurring;
 }
 
-function removeRecurring(db: DatabaseSync, id: string): void {
-  db.prepare('DELETE FROM recurring_shares WHERE recurring_id = ?').run(id);
-  db.prepare('DELETE FROM recurring WHERE id = ?').run(id);
+async function removeRecurring(db: Queryable, id: string): Promise<void> {
+  await db.run('DELETE FROM recurring_shares WHERE recurring_id = ?', [id]);
+  await db.run('DELETE FROM recurring WHERE id = ?', [id]);
 }
 
 /** Stops the recurring expense: only its payer and the owner of its group may. The expenses it recorded stay. */
-export function stopRecurring(db: DatabaseSync, accountId: string, id: string): void {
-  inTransaction(db, () => {
-    const recurring = findRecurringOf(db, accountId, id);
+export async function stopRecurring(db: Database, accountId: string, id: string): Promise<void> {
+  await db.transaction(async tx => {
+    const recurring = await findRecurringOf(tx, accountId, id);
     if (!recurring) throw new Refusal(404, 'NotFound', 'There is no such recurring expense.');
-    refuseIfArchived(db, recurring.groupId);
-    const isOwner = findGroupOf(db, accountId, recurring.groupId)?.ownerId === accountId;
+    await refuseIfArchived(tx, recurring.groupId);
+    const isOwner = (await findGroupOf(tx, accountId, recurring.groupId))?.ownerId === accountId;
     if (accountId !== recurring.paidBy && !isOwner) {
       throw new Refusal(
         403,
@@ -226,7 +240,7 @@ export function stopRecurring(db: DatabaseSync, accountId: string, id: string): 
         'Only the payer of the recurring expense or the owner of the group may stop it.',
       );
     }
-    removeRecurring(db, id);
+    await removeRecurring(tx, id);
   });
 }
 
@@ -236,34 +250,34 @@ export function stopRecurring(db: DatabaseSync, accountId: string, id: string): 
  * expense dated that day, and the next day moves on. When its payer or a member of its split is no longer a member of
  * the group, nothing more is recorded and the recurring expense is removed.
  */
-export function runRecurring(db: DatabaseSync, now: Date = new Date()): void {
+export async function runRecurring(db: Database, now: Date = new Date()): Promise<void> {
   const today = now.toISOString().slice(0, 10);
   const at = now.toISOString();
   // An archived group records nothing: its recurring expenses are left as they are, and so is their next day.
-  const due = db
-    .prepare(
-      `SELECT r.id FROM recurring r JOIN groups g ON g.id = r.group_id
-       WHERE r.next_on <= ? AND g.archived_at IS NULL ORDER BY r.seq`,
-    )
-    .all(today) as unknown as { id: string }[];
+  const due = await db.all<{ id: string }>(
+    `SELECT r.id FROM recurring r JOIN groups g ON g.id = r.group_id
+     WHERE r.next_on <= ? AND g.archived_at IS NULL ORDER BY r.seq`,
+    [today],
+  );
   for (const { id } of due) {
-    inTransaction(db, () => {
-      const row = db
-        .prepare(
-          `SELECT ${COLUMNS} FROM recurring r JOIN groups g ON g.id = r.group_id
-           WHERE r.id = ? AND r.next_on <= ? AND g.archived_at IS NULL`,
-        )
-        .get(id, today) as RecurringRow | undefined;
+    await db.transaction(async tx => {
+      const row = await tx.get<RecurringRow>(
+        `SELECT ${COLUMNS} FROM recurring r JOIN groups g ON g.id = r.group_id
+         WHERE r.id = ? AND r.next_on <= ? AND g.archived_at IS NULL`,
+        [id, today],
+      );
       if (!row) return;
-      const split = splitOfRows(row, sharesOfRecurring(db, id));
+      const split = splitOfRows(row, await sharesOfRecurring(tx, id));
       const members = [row.paid_by, ...membersOf(split)];
-      if (!members.every(memberId => isMember(db, row.group_id, memberId))) {
-        removeRecurring(db, id);
-        return;
+      for (const memberId of members) {
+        if (!(await isMember(tx, row.group_id, memberId))) {
+          await removeRecurring(tx, id);
+          return;
+        }
       }
       let day = row.next_on;
       while (day <= today) {
-        recordExpense(db, {
+        await recordExpense(tx, {
           id: randomUUID(),
           groupId: row.group_id,
           description: row.description,
@@ -277,12 +291,13 @@ export function runRecurring(db: DatabaseSync, now: Date = new Date()): void {
         });
         day = nextMonth(day);
       }
-      db.prepare('UPDATE recurring SET next_on = ? WHERE id = ?').run(day, id);
+      await tx.run('UPDATE recurring SET next_on = ? WHERE id = ?', [day, id]);
     });
   }
 }
 
 const idSchema = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } };
+
 const DAY_PATTERN = '^\\d{4}-\\d{2}-(0[1-9]|1\\d|2[0-8])$';
 
 const recurringSchema = {
@@ -317,7 +332,7 @@ const recurringSchema = {
   },
 };
 
-export function registerRecurringRoutes(app: FastifyInstance, db: DatabaseSync): void {
+export function registerRecurringRoutes(app: FastifyInstance, db: Database): void {
   app.post<{ Params: { id: string }; Body: NewRecurring }>(
     '/groups/:id/recurring',
     {
@@ -339,27 +354,31 @@ export function registerRecurringRoutes(app: FastifyInstance, db: DatabaseSync):
         response: { 201: idSchema },
       },
     },
-    (request, reply) => {
-      const accountId = requireCaller(db, request);
-      return reply.code(201).send({ id: createRecurring(db, accountId, request.params.id, request.body) });
+    async (request, reply) => {
+      const accountId = await requireCaller(db, request);
+      return reply.code(201).send({ id: await createRecurring(db, accountId, request.params.id, request.body) });
     },
   );
 
-  app.get<{ Params: { id: string } }>('/recurring/:id', { schema: { response: { 200: recurringSchema } } }, request => {
-    const accountId = requireCaller(db, request);
-    const recurring = findRecurringOf(db, accountId, request.params.id);
-    if (!recurring) throw new Refusal(404, 'NotFound', 'There is no such recurring expense.');
-    return recurring;
-  });
+  app.get<{ Params: { id: string } }>(
+    '/recurring/:id',
+    { schema: { response: { 200: recurringSchema } } },
+    async request => {
+      const accountId = await requireCaller(db, request);
+      const recurring = await findRecurringOf(db, accountId, request.params.id);
+      if (!recurring) throw new Refusal(404, 'NotFound', 'There is no such recurring expense.');
+      return recurring;
+    },
+  );
 
   app.get<{ Params: { id: string } }>(
     '/groups/:id/recurring',
     { schema: { response: { 200: { type: 'array', items: recurringSchema } } } },
-    request => listRecurringOf(db, requireCaller(db, request), request.params.id),
+    async request => listRecurringOf(db, await requireCaller(db, request), request.params.id),
   );
 
-  app.delete<{ Params: { id: string } }>('/recurring/:id', (request, reply) => {
-    stopRecurring(db, requireCaller(db, request), request.params.id);
+  app.delete<{ Params: { id: string } }>('/recurring/:id', async (request, reply) => {
+    await stopRecurring(db, await requireCaller(db, request), request.params.id);
     return reply.code(204).send();
   });
 }

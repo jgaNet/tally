@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Queryable } from './database';
 import { CATEGORIES, type Category } from './categories';
 import { requireCaller } from './sessions';
+import type { Database } from './database';
 
 /**
  * A notice: of an expense, to a member it concerns other than its payer, with their share of it; a reminder, with
@@ -38,18 +39,18 @@ interface NoticeRow {
  * write transaction that records the expense, so a notice exists exactly when its expense does. The payer gets
  * none: they recorded it.
  */
-export function writeExpenseNotices(
-  db: DatabaseSync,
+export async function writeExpenseNotices(
+  db: Queryable,
   expense: { id: string; groupId: string; paidBy: string; at: string },
   shares: readonly { memberId: string; amount: number }[],
-): void {
-  const insert = db.prepare(
-    `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
-     VALUES (?, ?, 'expense', ?, ?, ?, ?)`,
-  );
+): Promise<void> {
   for (const share of shares) {
     if (share.memberId === expense.paidBy) continue;
-    insert.run(randomUUID(), share.memberId, expense.groupId, expense.id, share.amount, expense.at);
+    await db.run(
+      `INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at)
+       VALUES (?, ?, 'expense', ?, ?, ?, ?)`,
+      [randomUUID(), share.memberId, expense.groupId, expense.id, share.amount, expense.at],
+    );
   }
 }
 
@@ -57,13 +58,12 @@ export function writeExpenseNotices(
  * The notices of the account, the most recent first. Only the account reads its own; they stay with it after it
  * leaves the group. `rowid` orders the notices made at the same moment, in the order they were written.
  */
-export function listNoticesOf(db: DatabaseSync, accountId: string): Notice[] {
-  const rows = db
-    .prepare(
-      `SELECT id, kind, group_id, expense_id, category, month, budget, amount, created_at FROM notices
-       WHERE account_id = ? ORDER BY created_at DESC, rowid DESC`,
-    )
-    .all(accountId) as unknown as NoticeRow[];
+export async function listNoticesOf(db: Queryable, accountId: string): Promise<Notice[]> {
+  const rows = await db.all<NoticeRow>(
+    `SELECT id, kind, group_id, expense_id, category, month, budget, amount, created_at FROM notices
+     WHERE account_id = ? ORDER BY created_at DESC, seq DESC`,
+    [accountId],
+  );
   return rows.map(row => {
     const notice: Notice = {
       id: row.id,
@@ -98,9 +98,9 @@ const noticeSchema = {
   },
 };
 
-export function registerNoticeRoutes(app: FastifyInstance, db: DatabaseSync): void {
-  app.get('/notices', { schema: { response: { 200: { type: 'array', items: noticeSchema } } } }, request => {
-    const accountId = requireCaller(db, request);
+export function registerNoticeRoutes(app: FastifyInstance, db: Database): void {
+  app.get('/notices', { schema: { response: { 200: { type: 'array', items: noticeSchema } } } }, async request => {
+    const accountId = await requireCaller(db, request);
     return listNoticesOf(db, accountId);
   });
 }

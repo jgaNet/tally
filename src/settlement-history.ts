@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Queryable } from './database';
 import { writeAudit } from './audit';
 import type { SettlementStatus } from './settlements';
 
@@ -22,12 +22,17 @@ export interface StatusEntry {
 }
 
 /** Writes the first entry of a settlement's history: the status it was recorded with. */
-export function addHistory(db: DatabaseSync, settlementId: string, status: SettlementStatus, at: string): void {
-  db.prepare('INSERT INTO settlement_history (settlement_id, status, at) VALUES (?, ?, ?)').run(
+export async function addHistory(
+  db: Queryable,
+  settlementId: string,
+  status: SettlementStatus,
+  at: string,
+): Promise<void> {
+  await db.run('INSERT INTO settlement_history (settlement_id, status, at) VALUES (?, ?, ?)', [
     settlementId,
     status,
     at,
-  );
+  ]);
 }
 
 /**
@@ -40,17 +45,24 @@ export function addHistory(db: DatabaseSync, settlementId: string, status: Settl
  * `settlement-refunded`, made by its payee. A move that does not change whether the balances count it (`refunding`, or
  * a settlement never counted, going to `refunded` or `failed`) has none.
  */
-export function moveSettlement(db: DatabaseSync, settlementId: string, status: SettlementStatus, at: string): void {
-  const before = db
-    .prepare('SELECT group_id, payer_id, payee_id, amount, method, status FROM settlements WHERE id = ?')
-    .get(settlementId) as unknown as SettlementState;
-  db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(status, settlementId);
-  addHistory(db, settlementId, status, at);
+export async function moveSettlement(
+  db: Queryable,
+  settlementId: string,
+  status: SettlementStatus,
+  at: string,
+): Promise<void> {
+  const before = await db.get<SettlementState>(
+    'SELECT group_id, payer_id, payee_id, amount, method, status FROM settlements WHERE id = ?',
+    [settlementId],
+  );
+  if (!before) throw new Error(`settlement ${settlementId} is not kept`);
+  await db.run('UPDATE settlements SET status = ? WHERE id = ?', [status, settlementId]);
+  await addHistory(db, settlementId, status, at);
   const countedBefore = COUNTED.includes(before.status);
   const countedAfter = COUNTED.includes(status);
   if (countedBefore === countedAfter) return;
   if (countedAfter) {
-    writeAudit(db, before.group_id, {
+    await writeAudit(db, before.group_id, {
       by: before.method === 'cash' ? before.payee_id : before.payer_id,
       action: 'settlement-paid',
       subjectId: settlementId,
@@ -58,7 +70,7 @@ export function moveSettlement(db: DatabaseSync, settlementId: string, status: S
       at,
     });
   } else {
-    writeAudit(db, before.group_id, {
+    await writeAudit(db, before.group_id, {
       by: before.payee_id,
       action: 'settlement-refunded',
       subjectId: settlementId,
@@ -69,15 +81,15 @@ export function moveSettlement(db: DatabaseSync, settlementId: string, status: S
 }
 
 /** The statuses a settlement has had, the earliest first. */
-export function historyOf(db: DatabaseSync, settlementId: string): StatusEntry[] {
-  return (
-    db
-      .prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq')
-      .all(settlementId) as unknown as StatusEntry[]
-  ).map(entry => ({ status: entry.status, at: entry.at }));
+export async function historyOf(db: Queryable, settlementId: string): Promise<StatusEntry[]> {
+  const entries = await db.all<StatusEntry>(
+    'SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq',
+    [settlementId],
+  );
+  return entries.map(entry => ({ status: entry.status, at: entry.at }));
 }
 
 /** Removes the history of a settlement, for a settlement that is about to be deleted. */
-export function forgetHistory(db: DatabaseSync, settlementId: string): void {
-  db.prepare('DELETE FROM settlement_history WHERE settlement_id = ?').run(settlementId);
+export async function forgetHistory(db: Queryable, settlementId: string): Promise<void> {
+  await db.run('DELETE FROM settlement_history WHERE settlement_id = ?', [settlementId]);
 }

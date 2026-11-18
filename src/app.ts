@@ -5,7 +5,7 @@ import { registerAuditRoutes } from './audit';
 import { registerArchiveRoutes } from './archive';
 import { registerBalanceRoutes } from './balances';
 import { registerBudgetRoutes } from './budgets';
-import { openDatabase } from './database';
+import { openDatabase, type Database } from './database';
 import { registerExpenseRoutes } from './expenses';
 import { registerGroupRoutes } from './groups';
 import { registerHistoryRoutes } from './history';
@@ -31,7 +31,7 @@ export interface Application {
   /** `http://host:port` once started. */
   readonly address: string;
   /** One run of the background job, at `now` (the present by default). The server runs it by itself every `JOBS_INTERVAL_SECONDS`. */
-  runJobs(now?: Date): void;
+  runJobs(now?: Date): Promise<void>;
   start(port?: number): Promise<void>;
   stop(): Promise<void>;
 }
@@ -43,7 +43,8 @@ function positiveNumber(value: string | undefined, fallback: number): number {
 
 /**
  * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default), and what it
- * knows is kept in the SQLite file at `databasePath`. The payment provider is reached at `providerUrl`, and
+ * knows is kept in the PostgreSQL database at `databaseUrl`. A `databasePath` naming a SQLite file Tally kept is
+ * moved into an empty database first (see `openDatabase`). The payment provider is reached at `providerUrl`, and
  * its webhooks are signed with `providerWebhookSecret`; `providerTimeoutMs` is how long it may take to answer.
  * The rates service is reached at `ratesUrl`, for `ratesTimeoutMs` at most; without it, no rate is offered.
  * The receipts store is reached at `receiptsUrl`, for `receiptsTimeoutMs` at most; without it, no receipt is kept.
@@ -51,7 +52,8 @@ function positiveNumber(value: string | undefined, fallback: number): number {
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
   port = Number(process.env.PORT || 10000),
-  databasePath = process.env.DATABASE_PATH || 'tally.db',
+  databaseUrl = process.env.DATABASE_URL,
+  databasePath = process.env.DATABASE_PATH || undefined,
   providerUrl = process.env.PROVIDER_URL || undefined,
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || undefined,
   providerTimeoutMs = 5000,
@@ -64,6 +66,7 @@ export async function createApplication({
 }: {
   apiPrefix?: string;
   port?: number;
+  databaseUrl?: string;
   databasePath?: string;
   providerUrl?: string;
   providerWebhookSecret?: string;
@@ -82,7 +85,8 @@ export async function createApplication({
   };
   const rates: RatesConfig = { url: ratesUrl, timeoutMs: ratesTimeoutMs };
   const receipts: ReceiptsConfig = { url: receiptsUrl, timeoutMs: receiptsTimeoutMs };
-  const db = openDatabase(databasePath);
+  if (!databaseUrl) throw new Error('DATABASE_URL must name the PostgreSQL database of Tally.');
+  const db: Database = await openDatabase(databaseUrl, databasePath);
   // Only the JSON the requests name is accepted: a value of another type is refused, never coerced.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
   server.setErrorHandler((error: FastifyError, request, reply) => {
@@ -123,10 +127,14 @@ export async function createApplication({
   let address = '';
   let timer: NodeJS.Timeout | undefined;
   let stopped = false;
-  const runJobs = (now?: Date): void => {
+  // The background job of the server: one run at a time, so a run that is slower than the interval is not joined by the next.
+  let running: Promise<void> = Promise.resolve();
+  let queued = false;
+  const runJobs = async (now?: Date): Promise<void> => {
     if (stopped) return;
-    runRecurring(db, now);
-    runReminders(db, reminderPeriodSeconds * 1000, now);
+    await runRecurring(db, now);
+    if (stopped) return;
+    await runReminders(db, reminderPeriodSeconds * 1000, now);
   };
   return {
     server,
@@ -138,11 +146,17 @@ export async function createApplication({
     async start(listenOn = port) {
       address = await server.listen({ port: listenOn, host: '127.0.0.1' });
       timer ??= setInterval(() => {
-        try {
-          runJobs();
-        } catch (error) {
-          server.log.error(error);
-        }
+        // One run waits at most: a tick while a run is still queued adds nothing.
+        if (queued) return;
+        queued = true;
+        running = running.then(async () => {
+          queued = false;
+          try {
+            await runJobs();
+          } catch (error) {
+            server.log.error(error);
+          }
+        });
       }, jobsIntervalSeconds * 1000);
       timer.unref();
     },
@@ -151,8 +165,9 @@ export async function createApplication({
       if (timer) clearInterval(timer);
       try {
         await server.close();
+        await running;
       } finally {
-        db.close();
+        await db.close();
       }
     },
   };

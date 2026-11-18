@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Queryable } from './database';
 import { findGroupOf } from './groups';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
@@ -49,23 +49,23 @@ interface AuditRow {
  * entry exists exactly when the change does, however many servers share the database. Nothing else writes or changes an
  * entry.
  */
-export function writeAudit(db: DatabaseSync, groupId: string, entry: NewAuditEntry): void {
-  db.prepare(
+export async function writeAudit(db: Queryable, groupId: string, entry: NewAuditEntry): Promise<void> {
+  await db.run(
     'INSERT INTO audit_entries (id, group_id, at, account_id, action, subject_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  ).run(randomUUID(), groupId, entry.at, entry.by, entry.action, entry.subjectId, entry.amount);
+    [randomUUID(), groupId, entry.at, entry.by, entry.action, entry.subjectId, entry.amount],
+  );
 }
 
 /**
  * The group's audit, the oldest entry first. Only a member of the group reads it: for anyone else the group does not
  * exist, and so does not the audit. Reading changes nothing.
  */
-export function listAuditOf(db: DatabaseSync, accountId: string, groupId: string): AuditEntry[] {
-  if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
-  const rows = db
-    .prepare(
-      'SELECT id, at, account_id AS by, action, subject_id, amount FROM audit_entries WHERE group_id = ? ORDER BY seq',
-    )
-    .all(groupId) as unknown as AuditRow[];
+export async function listAuditOf(db: Queryable, accountId: string, groupId: string): Promise<AuditEntry[]> {
+  if (!(await findGroupOf(db, accountId, groupId))) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  const rows = await db.all<AuditRow>(
+    'SELECT id, at, account_id AS by, action, subject_id, amount FROM audit_entries WHERE group_id = ? ORDER BY seq',
+    [groupId],
+  );
   return rows.map(row => ({
     id: row.id,
     at: row.at,
@@ -89,10 +89,10 @@ const auditEntrySchema = {
   },
 };
 
-export function registerAuditRoutes(app: FastifyInstance, db: DatabaseSync): void {
+export function registerAuditRoutes(app: FastifyInstance, db: Database): void {
   app.get<{ Params: { id: string } }>(
     '/groups/:id/audit',
     { schema: { response: { 200: { type: 'array', items: auditEntrySchema } } } },
-    request => listAuditOf(db, requireCaller(db, request), request.params.id),
+    async request => listAuditOf(db, await requireCaller(db, request), request.params.id),
   );
 }

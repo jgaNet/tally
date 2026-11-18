@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Queryable } from './database';
 import { findGroupOf } from './groups';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
@@ -39,7 +39,7 @@ type CountedStatuses = "('paid', 'refunding')" | "('paid', 'pending', 'refunding
  * It is one statement, so every balance is of the same snapshot of the database: an expense or a settlement
  * recorded meanwhile is counted in all of them or in none. A read changes nothing.
  */
-export function listBalances(db: DatabaseSync, groupId: string): Balance[] {
+export function listBalances(db: Queryable, groupId: string): Promise<Balance[]> {
   return balancesCounting(db, groupId, "('paid', 'refunding')");
 }
 
@@ -49,19 +49,18 @@ export function listBalances(db: DatabaseSync, groupId: string): Balance[] {
  * them, or to them. It is what a new settlement is decided on, and what the suggested settlements are made
  * from. The balances still add up to 0. A read changes nothing.
  */
-export function listBalancesIncludingWaiting(db: DatabaseSync, groupId: string): Balance[] {
+export function listBalancesIncludingWaiting(db: Queryable, groupId: string): Promise<Balance[]> {
   return balancesCounting(db, groupId, "('paid', 'pending', 'refunding')");
 }
 
 /**
- * The memberships of the group, the members who have left included, each with its raw balance: what its expenses
- * and settlements give, counting the settlements whose status is one of `statuses`. Every membership is read in
+ * The memberships of the group, the members who have left included, each with its raw balance: what its expenses and
+ * settlements give, counting the settlements whose status is one of `statuses`. Every membership is read in
  * the one statement, so they are of one snapshot of the database. The raw balances of a group add up to 0.
  */
-function membershipsOf(db: DatabaseSync, groupId: string, statuses: CountedStatuses): MembershipRow[] {
-  return db
-    .prepare(
-      `SELECT m.account_id AS member_id, m.left_at IS NULL AS active, m.balance_offset, g.owner_id,
+function membershipsOf(db: Queryable, groupId: string, statuses: CountedStatuses): Promise<MembershipRow[]> {
+  return db.all<MembershipRow>(
+    `SELECT m.account_id AS member_id, CASE WHEN m.left_at IS NULL THEN 1 ELSE 0 END AS active, m.balance_offset, g.owner_id,
          COALESCE((SELECT SUM(e.amount) FROM expenses e
                    WHERE e.group_id = m.group_id AND e.paid_by = m.account_id), 0)
          - COALESCE((SELECT SUM(s.amount) FROM expense_shares s JOIN expenses e ON e.id = s.expense_id
@@ -73,8 +72,8 @@ function membershipsOf(db: DatabaseSync, groupId: string, statuses: CountedStatu
        FROM group_members m JOIN groups g ON g.id = m.group_id
        WHERE m.group_id = ?
        ORDER BY m.joined_order`,
-    )
-    .all(groupId) as unknown as MembershipRow[];
+    [groupId],
+  );
 }
 
 /**
@@ -82,16 +81,16 @@ function membershipsOf(db: DatabaseSync, groupId: string, statuses: CountedStatu
  * settlements give, less their offset. It is what the owner takes over when the member leaves. 0 for an account that
  * is not a member of the group. A read changes nothing.
  */
-export function carriedBalanceOf(db: DatabaseSync, groupId: string, accountId: string): number {
-  const row = membershipsOf(db, groupId, "('paid', 'refunding')").find(
+export async function carriedBalanceOf(db: Queryable, groupId: string, accountId: string): Promise<number> {
+  const row = (await membershipsOf(db, groupId, "('paid', 'refunding')")).find(
     membership => membership.member_id === accountId,
   );
   return row ? row.raw - row.balance_offset : 0;
 }
 
 /** The balances, counting the settlements whose status is one of `statuses`. */
-function balancesCounting(db: DatabaseSync, groupId: string, statuses: CountedStatuses): Balance[] {
-  const memberships = membershipsOf(db, groupId, statuses);
+async function balancesCounting(db: Queryable, groupId: string, statuses: CountedStatuses): Promise<Balance[]> {
+  const memberships = await membershipsOf(db, groupId, statuses);
   const ownerId = memberships[0]?.owner_id;
   // What the members who have left carry to the owner: what each one's balance is, less its offset.
   const carried = memberships
@@ -112,23 +111,23 @@ function balancesCounting(db: DatabaseSync, groupId: string, statuses: CountedSt
  * except for the joining member, at 0. Called in the write transaction that joins the account to the group; it
  * changes nothing for an account that never was a member, as its raw balance is 0.
  */
-export function resetBalanceOnRejoin(db: DatabaseSync, groupId: string, accountId: string): void {
-  const row = membershipsOf(db, groupId, "('paid', 'refunding')").find(
+export async function resetBalanceOnRejoin(db: Queryable, groupId: string, accountId: string): Promise<void> {
+  const row = (await membershipsOf(db, groupId, "('paid', 'refunding')")).find(
     membership => membership.member_id === accountId,
   );
   if (!row) return;
   const change = row.raw - row.balance_offset;
   if (change === 0) return;
-  db.prepare('UPDATE group_members SET balance_offset = balance_offset + ? WHERE group_id = ? AND account_id = ?').run(
+  await db.run('UPDATE group_members SET balance_offset = balance_offset + ? WHERE group_id = ? AND account_id = ?', [
     change,
     groupId,
     accountId,
-  );
-  db.prepare('UPDATE group_members SET balance_offset = balance_offset - ? WHERE group_id = ? AND account_id = ?').run(
+  ]);
+  await db.run('UPDATE group_members SET balance_offset = balance_offset - ? WHERE group_id = ? AND account_id = ?', [
     change,
     groupId,
     row.owner_id,
-  );
+  ]);
 }
 
 const balanceSchema = {
@@ -138,13 +137,15 @@ const balanceSchema = {
 };
 
 /** The balances are read by the members of the group. For anyone else the group does not exist. */
-export function registerBalanceRoutes(app: FastifyInstance, db: DatabaseSync): void {
+export function registerBalanceRoutes(app: FastifyInstance, db: Database): void {
   app.get<{ Params: { id: string } }>(
     '/groups/:id/balances',
     { schema: { response: { 200: { type: 'array', items: balanceSchema } } } },
-    request => {
-      const accountId = requireCaller(db, request);
-      if (!findGroupOf(db, accountId, request.params.id)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    async request => {
+      const accountId = await requireCaller(db, request);
+      if (!(await findGroupOf(db, accountId, request.params.id))) {
+        throw new Refusal(404, 'NotFound', 'There is no such group.');
+      }
       return listBalances(db, request.params.id);
     },
   );

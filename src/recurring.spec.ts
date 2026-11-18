@@ -41,7 +41,7 @@ describe('recurring expenses', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     groupId = (await call(app, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token: adaToken }))
@@ -52,7 +52,7 @@ describe('recurring expenses', () => {
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   it('sets up a recurring expense and reads it as it was given', async () => {
@@ -140,7 +140,7 @@ describe('recurring expenses', () => {
     const created = await setUp(startsOn);
     expect(await expenses()).toEqual([]); // a read records nothing
     const now = new Date();
-    app.runJobs(now);
+    await app.runJobs(now);
     const today = now.toISOString().slice(0, 10);
     const due = [monthsAgo(2, 5), monthsAgo(1, 5), monthsAgo(0, 5)].filter(day => day <= today);
     const recorded = await expenses();
@@ -151,21 +151,21 @@ describe('recurring expenses', () => {
     expect(read.next.slice(8)).toBe('05');
     expect(read.startsOn).toBe(startsOn);
     // running again records nothing more, and the next day's run records it once
-    app.runJobs(now);
+    await app.runJobs(now);
     expect(await expenses()).toHaveLength(due.length);
-    app.runJobs(new Date(Date.parse(`${read.next}T00:00:00Z`) + 1000));
+    await app.runJobs(new Date(Date.parse(`${read.next}T00:00:00Z`) + 1000));
     expect(await expenses()).toHaveLength(due.length + 1);
   });
 
   it('records nothing before its day', async () => {
     await setUp(monthsAgo(-1, 5));
-    app.runJobs();
+    await app.runJobs();
     expect(await expenses()).toEqual([]);
   });
 
   it('makes expenses like any other: balances, notices, edits and deletes by the payer or owner', async () => {
     await setUp(monthsAgo(1, 5), { amount: 1001 });
-    app.runJobs(new Date(Date.parse(`${monthsAgo(1, 5)}T08:00:00Z`)));
+    await app.runJobs(new Date(Date.parse(`${monthsAgo(1, 5)}T08:00:00Z`)));
     const [expense] = await expenses();
     expect(expense.shares).toEqual([
       { memberId: adaId, amount: 501 },
@@ -191,12 +191,12 @@ describe('recurring expenses', () => {
     await call(app, 'POST', `/invitations/${invitation.body.id}/accept`, { token: hopper.token });
     const byGrace = await setUp(monthsAgo(1, 5), { splitBetween: [graceId] }, graceToken);
     expect((await call(app, 'DELETE', `/recurring/${byGrace.body.id}`, { token: hopper.token })).status).toBe(403);
-    app.runJobs(new Date(Date.parse(`${monthsAgo(1, 5)}T08:00:00Z`)));
+    await app.runJobs(new Date(Date.parse(`${monthsAgo(1, 5)}T08:00:00Z`)));
     expect(await expenses()).toHaveLength(1);
     expect((await call(app, 'DELETE', `/recurring/${byGrace.body.id}`, { token: adaToken })).status).toBe(204);
     expect((await call(app, 'GET', `/recurring/${byGrace.body.id}`, { token: adaToken })).status).toBe(404);
     expect((await call(app, 'DELETE', `/recurring/${byGrace.body.id}`, { token: adaToken })).status).toBe(404);
-    app.runJobs();
+    await app.runJobs();
     expect(await expenses()).toHaveLength(1);
     const own = await setUp(monthsAgo(-1, 5));
     expect((await call(app, 'DELETE', `/recurring/${own.body.id}`, { token: adaToken })).status).toBe(204);
@@ -207,7 +207,7 @@ describe('recurring expenses', () => {
     const byAda = await setUp(monthsAgo(1, 5));
     const byGrace = await setUp(monthsAgo(1, 5), { splitBetween: [graceId] }, graceToken);
     await call(app, 'POST', `/groups/${groupId}/leave`, { token: graceToken });
-    app.runJobs();
+    await app.runJobs();
     expect(await expenses()).toEqual([]);
     expect((await call(app, 'GET', `/recurring/${byAda.body.id}`, { token: adaToken })).status).toBe(404);
     expect((await call(app, 'GET', `/groups/${groupId}/recurring`, { token: adaToken })).body).toEqual([]);
@@ -216,18 +216,18 @@ describe('recurring expenses', () => {
 
   it('records each day once however many servers run on the database, and across restarts', async () => {
     await setUp(monthsAgo(2, 5));
-    const other = await startApplication(database.path);
+    const other = await startApplication(database.url);
     try {
       const now = new Date();
-      app.runJobs(now);
-      other.runJobs(now);
+      await app.runJobs(now);
+      await other.runJobs(now);
       const count = (await expenses()).length;
       expect(count).toBeGreaterThanOrEqual(2);
       await app.stop();
-      app = await startApplication(database.path);
+      app = await startApplication(database.url);
       const again = (await call(app, 'POST', '/accounts/login', { body: ada })).body.token;
       adaToken = again;
-      app.runJobs(now);
+      await app.runJobs(now);
       expect(await expenses()).toHaveLength(count);
     } finally {
       await other.stop();

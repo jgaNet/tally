@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Queryable } from './database';
 import { hashPassword, verifyPassword } from './credentials';
 import { Refusal } from './refusal';
 import { issueSession, requireCaller } from './sessions';
@@ -36,7 +36,7 @@ function length(text: string): number {
 }
 
 /** Creates the account and returns its id. A refused sign-up is a `Refusal`. */
-export async function signUp(db: DatabaseSync, input: SignUp): Promise<string> {
+export async function signUp(db: Queryable, input: SignUp): Promise<string> {
   const email = normalizeEmail(input.email);
   if (!EMAIL_SHAPE.test(email)) throw new Refusal(422, 'InvalidEmail', 'The email does not look like one.');
   if (length(input.password) < PASSWORD_MIN) {
@@ -49,9 +49,10 @@ export async function signUp(db: DatabaseSync, input: SignUp): Promise<string> {
   const id = randomUUID();
   const passwordHash = await hashPassword(input.password);
   // The unique index on email decides between two sign-ups of one email, even across servers.
-  const inserted = db
-    .prepare('INSERT INTO accounts (id, email, name, password_hash) VALUES (?, ?, ?, ?) ON CONFLICT (email) DO NOTHING')
-    .run(id, email, name, passwordHash);
+  const inserted = await db.run(
+    'INSERT INTO accounts (id, email, name, password_hash) VALUES (?, ?, ?, ?) ON CONFLICT (email) DO NOTHING',
+    [id, email, name, passwordHash],
+  );
   if (inserted.changes === 0) throw new Refusal(409, 'EmailTaken', 'An account already uses this email.');
   return id;
 }
@@ -63,17 +64,19 @@ let unknownAccountHash: Promise<string> | undefined;
  * password are refused alike, and both take the time of a password check, so the answer does not
  * reveal which emails have accounts.
  */
-export async function signIn(db: DatabaseSync, input: SignIn): Promise<string> {
-  const row = db.prepare('SELECT id, password_hash FROM accounts WHERE email = ?').get(normalizeEmail(input.email)) as
-    { id: string; password_hash: string } | undefined;
+export async function signIn(db: Database, input: SignIn): Promise<string> {
+  const row = await db.get<{ id: string; password_hash: string }>(
+    'SELECT id, password_hash FROM accounts WHERE email = ?',
+    [normalizeEmail(input.email)],
+  );
   unknownAccountHash ??= hashPassword('no account has this password');
   const matches = await verifyPassword(input.password, row ? row.password_hash : await unknownAccountHash);
   if (!row || !matches) throw new Refusal(401, 'InvalidCredentials', 'The email or the password is wrong.');
   return issueSession(db, row.id);
 }
 
-export function findAccount(db: DatabaseSync, id: string): Account | undefined {
-  return db.prepare('SELECT id, email, name FROM accounts WHERE id = ?').get(id) as Account | undefined;
+export async function findAccount(db: Queryable, id: string): Promise<Account | undefined> {
+  return db.get<Account>('SELECT id, email, name FROM accounts WHERE id = ?', [id]);
 }
 
 const idSchema = {
@@ -94,7 +97,7 @@ const stringBody = (fields: string[]) => ({
   properties: Object.fromEntries(fields.map(field => [field, { type: 'string' }])),
 });
 
-export function registerAccountRoutes(app: FastifyInstance, db: DatabaseSync): void {
+export function registerAccountRoutes(app: FastifyInstance, db: Database): void {
   app.post<{ Body: SignUp }>(
     '/accounts',
     { schema: { body: stringBody(['email', 'password', 'name']), response: { 201: idSchema } } },
@@ -115,9 +118,9 @@ export function registerAccountRoutes(app: FastifyInstance, db: DatabaseSync): v
     async request => ({ token: await signIn(db, request.body) }),
   );
 
-  app.get('/accounts/me', { schema: { response: { 200: accountSchema } } }, request => {
-    const id = requireCaller(db, request);
-    const account = findAccount(db, id);
+  app.get('/accounts/me', { schema: { response: { 200: accountSchema } } }, async request => {
+    const id = await requireCaller(db, request);
+    const account = await findAccount(db, id);
     if (!account) throw new Refusal(401, 'Unauthorized', 'The signed-in account no longer exists.');
     return account;
   });

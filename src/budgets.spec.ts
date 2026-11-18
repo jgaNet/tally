@@ -101,7 +101,7 @@ describe('budgets', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
@@ -114,7 +114,7 @@ describe('budgets', () => {
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe('categories', () => {
@@ -157,7 +157,7 @@ describe('budgets', () => {
         category: 'rent',
       });
 
-      app.runJobs();
+      await app.runJobs();
       const expenses = (await call(app, 'GET', `/groups/${groupId}/expenses`, { token: adaToken })).body;
       expect(expenses).toHaveLength(1);
       expect(expenses[0]).toMatchObject({ description: 'Rent', category: 'rent' });
@@ -392,7 +392,7 @@ describe('budgets', () => {
         token: adaToken,
       });
       expect(created.status).toBe(201);
-      app.runJobs();
+      await app.runJobs();
 
       for (const token of [adaToken, graceToken, linusToken]) {
         expect(await budgetNoticesOf(token)).toEqual([
@@ -414,7 +414,7 @@ describe('budgets', () => {
       await setBudget('groceries', 40000);
       await record({ category: 'groceries', amount: 50000 });
       await app.stop();
-      app = await startApplication(database.path);
+      app = await startApplication(database.url);
 
       await record({ category: 'groceries', amount: 10000 });
       for (const token of [adaToken, graceToken, linusToken]) {

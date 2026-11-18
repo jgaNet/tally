@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { openDatabase } from './database';
 import { Application } from './app';
 import { todayUtc } from './days';
 import { equalShares, sharesByWeight } from './expenses';
@@ -37,7 +37,7 @@ describe('expenses', () => {
 
   beforeEach(async () => {
     database = temporaryDatabase();
-    app = await startApplication(database.path);
+    app = await startApplication(database.url);
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     ({ id: graceId, token: graceToken } = await accountOf(grace));
     ({ id: linusId, token: linusToken } = await accountOf(linus));
@@ -49,7 +49,7 @@ describe('expenses', () => {
 
   afterEach(async () => {
     await app.stop();
-    database.remove();
+    await database.remove();
   });
 
   const expense = (fields: Record<string, unknown> = {}) => ({
@@ -461,7 +461,7 @@ describe('expenses', () => {
 
     it('keeps exactly one of two edits made at once from the same version, through two servers on one database', async () => {
       const id = await recordedExpense();
-      const other = await startApplication(database.path);
+      const other = await startApplication(database.url);
       try {
         const [first, second] = await Promise.all([
           call(app, 'PUT', `/expenses/${id}`, { body: edit({ splitBetween: [adaId, graceId] }), token: adaToken }),
@@ -537,7 +537,7 @@ describe('expenses', () => {
 
     it('deletes the expense once when two deletes are made at once through two servers on one database', async () => {
       const id = await recordedExpense();
-      const other = await startApplication(database.path);
+      const other = await startApplication(database.url);
       try {
         const [first, second] = await Promise.all([
           remove(id),
@@ -938,16 +938,20 @@ describe('expenses', () => {
     it('keeps the shares an expense was recorded with, and does not compute them again at a read', async () => {
       const id = await recordedExpense({ splitBetween: [graceId, adaId, linusId] });
       // As an expense recorded before the change: the remainder went to the payer, Ada.
-      const stored = new DatabaseSync(database.path);
+      const stored = await openDatabase(database.url);
       try {
-        stored
-          .prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND account_id = ?')
-          .run(333, id, graceId);
-        stored
-          .prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND account_id = ?')
-          .run(334, id, adaId);
+        await stored.run('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND account_id = ?', [
+          333,
+          id,
+          graceId,
+        ]);
+        await stored.run('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND account_id = ?', [
+          334,
+          id,
+          adaId,
+        ]);
       } finally {
-        stored.close();
+        await stored.close();
       }
       expect((await readExpense(id)).shares).toEqual([
         { memberId: graceId, amount: 333 },

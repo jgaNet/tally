@@ -91,7 +91,7 @@ describe('refunding a settlement paid through the payment provider', () => {
   beforeEach(async () => {
     database = temporaryDatabase();
     provider = await startFakeProvider();
-    app = await startApplication(database.path, { providerUrl: provider.url, providerWebhookSecret: SECRET });
+    app = await startApplication(database.url, { providerUrl: provider.url, providerWebhookSecret: SECRET });
     ({ id: adaId, token: adaToken } = await accountOf(ada));
     // Ada is paid through the provider, on her payout account. Setting it asks the provider, which is not a payment.
     expect(
@@ -127,7 +127,7 @@ describe('refunding a settlement paid through the payment provider', () => {
     for (const extra of extraApps.splice(0)) await extra.stop();
     await app.stop();
     await provider.stop();
-    database.remove();
+    await database.remove();
   });
 
   describe('the refund and the states it leads to', () => {
@@ -298,7 +298,7 @@ describe('refunding a settlement paid through the payment provider', () => {
 
     it('refuses a refund the provider does not answer in time, with 424, and changes nothing', async () => {
       const settlement = await paidSettlement();
-      const impatient = await startApplication(database.path, {
+      const impatient = await startApplication(database.url, {
         providerUrl: provider.url,
         providerWebhookSecret: SECRET,
         providerTimeoutMs: 100,
@@ -322,7 +322,7 @@ describe('refunding a settlement paid through the payment provider', () => {
 
     it('refuses a refund on a server with no payment provider set up, with 409, and changes nothing', async () => {
       const settlement = await paidSettlement();
-      const unconfigured = await startApplication(database.path);
+      const unconfigured = await startApplication(database.url);
       extraApps.push(unconfigured);
       expect(await refund(settlement, adaToken, unconfigured)).toEqual({
         status: 409,
