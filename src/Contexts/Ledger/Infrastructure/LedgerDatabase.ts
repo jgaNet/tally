@@ -42,6 +42,25 @@ export class LedgerDatabase {
           amount INTEGER NOT NULL,
           PRIMARY KEY (expense_id, position)
         );
+        CREATE TABLE IF NOT EXISTS ledger_recurring_expenses (
+          id TEXT PRIMARY KEY,
+          group_id TEXT NOT NULL,
+          paid_by TEXT NOT NULL,
+          description TEXT NOT NULL,
+          amount INTEGER NOT NULL,
+          starts_on TEXT NOT NULL,
+          next TEXT NOT NULL,
+          split_kind TEXT NOT NULL,
+          version INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE INDEX IF NOT EXISTS ledger_recurring_by_group ON ledger_recurring_expenses (group_id);
+        CREATE TABLE IF NOT EXISTS ledger_recurring_shares (
+          recurring_id TEXT NOT NULL REFERENCES ledger_recurring_expenses (id),
+          position INTEGER NOT NULL,
+          member_id TEXT NOT NULL,
+          share_value INTEGER NOT NULL,
+          PRIMARY KEY (recurring_id, position)
+        );
       `);
         this.#migrate(connection);
       });

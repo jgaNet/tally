@@ -24,6 +24,7 @@ why, what it costs, and when to revisit it.
 | [17](0017-the-writes-of-one-file-are-transactions-that-take-turns.md) | The writes of one database file are transactions that take turns, on one connection per process |
 | [18](0018-an-expense-in-another-currency-and-the-group-currency-port.md) | An expense in another currency is counted in the group's currency, through a port Ledger owns; the currencies are the shared kernel's |
 | [19](0019-an-offered-rate-is-a-port-ledger-owns-and-no-rate-is-not-no-service.md) | An offered rate is a port Ledger owns; "no rate" and "no rates service" are different answers, and the band is the expense's rule |
+| [20](0020-recurring-expenses-a-sweep-of-the-job-and-a-policy-on-its-fact.md) | Recurring expenses: an aggregate of Ledger, a sweep of the background job, and a policy on the day's fact |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

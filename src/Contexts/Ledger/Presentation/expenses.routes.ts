@@ -15,42 +15,12 @@ import {
   RecordExpenseInput,
 } from '@Contexts/Ledger/Application/Expenses';
 import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
-import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
+
+import { hasSplitShape, isObject, splitOf } from './splitBody';
 
 const SHAPE_REFUSAL =
   'The body must have description (a string), date (a string), exactly one of amount (a whole number) or original ({ currency, amount (a whole number), rate (a string, when given) }), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares })';
 const EDIT_SHAPE_REFUSAL = `${SHAPE_REFUSAL}, and version (a whole number)`;
-
-/** The three fields a body may split an expense by (request 7): exactly one of them is given. */
-const SPLIT_FIELDS = ['splitBetween', 'splitExactly', 'splitByShares'] as const;
-
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
-
-/** Whether the one split field given is of its shape: a list of member ids, of { memberId, amount }, or of { memberId, shares }. */
-const hasSplitShape = (body: Record<string, unknown>): boolean => {
-  const given = SPLIT_FIELDS.filter(field => body[field] !== undefined);
-  if (given.length !== 1) return false;
-  const value = body[given[0]];
-  if (!Array.isArray(value)) return false;
-  if (given[0] === 'splitBetween') return value.every(member => typeof member === 'string');
-  if (given[0] === 'splitExactly') {
-    return value.every(line => isObject(line) && typeof line.memberId === 'string' && Number.isInteger(line.amount));
-  }
-  return value.every(line => isObject(line) && typeof line.memberId === 'string' && Number.isInteger(line.shares));
-};
-
-/** The split a body asks for, as the domain takes it. Only called on a body `hasSplitShape` has accepted. */
-const splitOf = (body: Record<string, unknown>): SplitRequest => {
-  if (body.splitExactly !== undefined) {
-    const lines = body.splitExactly as { memberId: string; amount: number }[];
-    return { kind: 'exact', amounts: lines.map(({ memberId, amount }) => ({ memberId, amount })) };
-  }
-  if (body.splitByShares !== undefined) {
-    const lines = body.splitByShares as { memberId: string; shares: number }[];
-    return { kind: 'shares', shares: lines.map(({ memberId, shares }) => ({ memberId, shares })) };
-  }
-  return { kind: 'equal', memberIds: body.splitBetween as string[] };
-};
 
 /**
  * The amount a body gives, by shape (request 21, request 22): exactly one of `amount`, a whole number in the group's currency, or `original`,

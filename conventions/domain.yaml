@@ -73,6 +73,8 @@ contexts:
         meaning: what one member of a split owes of an expense, whole, the shares adding up to the amount exactly.
       - term: Balance
         meaning: what a member owes, or is owed, in a group, read from the expenses' shares and payers.
+      - term: Recurring expense
+        meaning: an expense its payer pays every month, from a day of the month on, recorded on each of its days by the background job, until it is stopped or a member it concerns has left.
       - term: Original amount
         meaning: what an expense was paid in another currency, with the rate its payer stated; its amount in the group's currency is the original times the rate, rounded.
   - id: Settlements

@@ -14,6 +14,8 @@ import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
+import { sweepRecurringExpenses } from '@Contexts/Ledger/Application/RecurringExpenses';
+import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
 import { localSettlementsModule, providerSignedBy } from '@Contexts/Settlements/module.local';
 import { localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
@@ -59,13 +61,21 @@ export async function createApplication({
     .registerRoutes('/', accountRoutes, { module: localGroupsModule })
     .registerRoutes('/', groupRoutes, { module: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
+    .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { module: localSettlementsModule, providerSignedBy })
     .registerRoutes('/', noticeRoutes, { module: localNotificationsModule });
 
   await app.startModules();
-  runEvery(jobsIntervalMs, app, logger, () => {
-    // A run of the background job (request 1, request 18): it notes the debts that last and reminds, in a context of its own, with no caller.
-    return localNotificationsModule.useCase(sweepDebts).run(undefined, app.executionContext(`job-${randomUUID()}`));
+  runEvery(jobsIntervalMs, app, logger, async () => {
+    // A run of the background job (request 1): the recurring expenses whose day came record their expense (request 23), then the
+    // debts that last are noted and reminded (request 18). Each runs in a context of its own, with no caller.
+    const recorded = await localLedgerModule
+      .useCase(sweepRecurringExpenses)
+      .run(undefined, app.executionContext(`job-${randomUUID()}`));
+    const reminded = await localNotificationsModule
+      .useCase(sweepDebts)
+      .run(undefined, app.executionContext(`job-${randomUUID()}`));
+    return recorded.isFailure() ? recorded : reminded;
   });
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with an
   // in-memory outbox, and the line is where a store's outbox would be relayed.

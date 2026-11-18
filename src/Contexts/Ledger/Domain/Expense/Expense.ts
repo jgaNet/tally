@@ -60,8 +60,12 @@ export class Expense extends AggregateRoot {
     this.#split = split;
   }
 
-  /** A new expense in the group, with its id generated here, recording that it was `ExpenseRecorded`. */
+  /**
+   * A new expense in the group, recording that it was `ExpenseRecorded`. Its id is generated here, unless it is the id a day of a recurring
+   * expense was born with (request 23, ADR 20), carried by the fact that day came: the policy that records it keeps that id.
+   */
   static register({
+    id,
     groupId,
     description,
     amount,
@@ -69,6 +73,7 @@ export class Expense extends AggregateRoot {
     date,
     split,
   }: {
+    id?: string;
     groupId: string;
     description: ExpenseDescription;
     amount: ExpenseAmount;
@@ -76,7 +81,16 @@ export class Expense extends AggregateRoot {
     date: ExpenseDate;
     split: Split;
   }): Expense {
-    const expense = new Expense(Id.generate(), 0, groupId, description, amount, original, date, split);
+    const expense = new Expense(
+      id === undefined ? Id.generate() : new Id(id),
+      0,
+      groupId,
+      description,
+      amount,
+      original,
+      date,
+      split,
+    );
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: expense._id.value,

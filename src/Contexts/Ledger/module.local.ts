@@ -12,7 +12,17 @@ import {
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/ExpenseEvents';
+import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpenseEvents';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
+import { RecurringExpenseDayCameHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCameHandler';
+import {
+  getGroupRecurringExpenses,
+  getRecurringExpense,
+  setUpRecurringExpense,
+  stopRecurringExpense,
+  sweepRecurringExpenses,
+} from '@Contexts/Ledger/Application/RecurringExpenses';
+import { SqliteRecurringExpenses } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenses';
 import { BalancesCountingSettlements } from '@Contexts/Ledger/Infrastructure/BalancesCountingSettlements';
 import { GroupCurrencyOfGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyOfGroups';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
@@ -32,6 +42,8 @@ const database = new LedgerDatabase(
   () => process.env.LEDGER_DATABASE_PATH || process.env.DATABASE_PATH || 'tally.sqlite',
 );
 const expenses = new SqliteExpenses(database);
+/** The recurring expenses (request 23), in the same file as the expenses they record. */
+const recurringExpenses = new SqliteRecurringExpenses(database);
 const groupMembers = new GroupMembersOfGroups(() => groupsMembersReadModel);
 /** The currency of a group, which an expense paid in another currency is counted against (request 21, ADR 18), read at a request too. */
 const groupCurrency = new GroupCurrencyOfGroups(() => groupsMembersReadModel);
@@ -55,7 +67,10 @@ export const ledgerBalancesReadModel = balancesCountingSettlements;
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
-  domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
+  domainEvents: [
+    { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] },
+    { event: RecurringExpenseDayCameEvent, handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers)] },
+  ],
   useCases: [
     recordExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
     getExpense(expenses, groupMembers),
@@ -65,5 +80,10 @@ export const localLedgerModule = new LiteModule({
     editExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
     deleteExpense(expenses, groupMembers, systemClock),
     getOfferedRate(groupCurrency, groupMembers, offeredRates, systemClock),
+    setUpRecurringExpense(recurringExpenses, groupMembers, systemClock),
+    stopRecurringExpense(recurringExpenses, groupMembers, systemClock),
+    getRecurringExpense(recurringExpenses, groupMembers),
+    getGroupRecurringExpenses(recurringExpenses, groupMembers),
+    sweepRecurringExpenses(recurringExpenses, groupMembers, systemClock),
   ],
 });

@@ -47,6 +47,10 @@ afterAll(async () => {
   await new Promise(resolve => rates.close(resolve));
 });
 
+/** Today, as the server says it: the `Date` header every answer carries, so that a test reads no clock of its own (ARCH-E2E). */
+const todayOfServer = async (): Promise<Date> =>
+  new Date(String((await http.request('GET', `${api}/accounts/me`)).headers.get('date')));
+
 let accountCount = 0;
 async function signedInPerson(name: string): Promise<{ token: string; id: string }> {
   accountCount += 1;
@@ -277,6 +281,31 @@ describe('Groups → Ledger', () => {
     });
     expect(refused.status).toBe(400);
   });
+  it('sets up, by the id Groups answered, a recurring expense in a group made in Groups, and only a member Groups has can be in its split', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const stranger = await signedInPerson('Stranger');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    ).body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as { id: string };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+    const now = await todayOfServer();
+    const startsOn = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 5)).toISOString().slice(0, 10);
+    const body = { description: 'Rent', amount: 1000, startsOn, splitBetween: [ada.id, grace.id] };
+
+    const refused = await http.request('POST', `${api}/groups/${groupId}/recurring`, { body, token: stranger.token });
+    expect(refused.status).toBe(404);
+    const set = await http.request('POST', `${api}/groups/${groupId}/recurring`, { body, token: ada.token });
+    expect(set.status).toBe(201);
+    const { id } = set.body as { id: string };
+
+    const listed = await http.request('GET', `${api}/groups/${groupId}/recurring`, { token: grace.token });
+    expect((listed.body as { id: string; groupId: string }[]).map(recurring => recurring.id)).toEqual([id]);
+    expect((listed.body as { groupId: string }[])[0].groupId).toBe(groupId);
+  });
+
   it('reads, from Groups, the currency of the group made in Groups: an expense paid in that currency is refused, and one paid in another is counted in it', async () => {
     const ada = await signedInPerson('Ada');
     const created = await http.request('POST', `${api}/groups`, {
