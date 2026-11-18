@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-1",
+  "ref": "18f2b2dd4d301fa78877cbcca01f599646fa871c",
+  "commit": "18f2b2dd4d301fa78877cbcca01f599646fa871c",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "delete-an-account",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 2 passed, 3 total",
+        "failed": [
+          "delete an account › erases the name and the email of a deleted account from everything Tally keeps"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● delete an account › erases the name and the email of a deleted account from everything Tally keeps",
+          "Tests:       1 failed, 2 passed, 3 total"
+        ]
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../18f2b2dd4d30.storms/delete-an-account.yaml is done, but Groups: typescript lacks the command expected by ../18f2b2dd4d30.storms/delete-an-account.yaml has: DeleteAccount (a signed-in account, DELETE /accounts/me, Account → AccountDeleted)",
+          "../18f2b2dd4d30.storms/delete-an-account.yaml is done, but Groups: typescript has a command expected by ../18f2b2dd4d30.storms/delete-an-account.yaml does not: DeleteAccount (a signed-in account, DELETE /accounts/me, Account → AccountDeleted; answered at once)"
+        ]
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 6126,
+  "workers": 1
+}
