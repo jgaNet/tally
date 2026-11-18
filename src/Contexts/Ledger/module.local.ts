@@ -1,6 +1,6 @@
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { groupAudit, groupMembers } from '@Contexts/Groups/module.local';
 import {
@@ -59,25 +59,25 @@ import {
   GetReceiptQueryHandler,
   GetGroupAuditQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
-import { SqliteAuditLog } from '@Contexts/Ledger/Infrastructure/SqliteAuditLog';
+import { PostgresAuditLog } from '@Contexts/Ledger/Infrastructure/PostgresAuditLog';
 import { SettlementAuditFromSettlements } from '@Contexts/Ledger/Infrastructure/SettlementAuditFromSettlements';
 import { PassedBalancesFromGroups } from '@Contexts/Ledger/Infrastructure/PassedBalancesFromGroups';
 import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
 import { HttpRatesService } from '@Contexts/Ledger/Infrastructure/HttpRatesService';
 import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/HttpReceiptStore';
-import { SqliteReceiptReadModels } from '@Contexts/Ledger/Infrastructure/SqliteReceiptReadModels';
-import { SqliteReceiptRepository } from '@Contexts/Ledger/Infrastructure/SqliteReceiptRepository';
+import { PostgresReceiptReadModels } from '@Contexts/Ledger/Infrastructure/PostgresReceiptReadModels';
+import { PostgresReceiptRepository } from '@Contexts/Ledger/Infrastructure/PostgresReceiptRepository';
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
-import { SqliteBudgetReadModels } from '@Contexts/Ledger/Infrastructure/SqliteBudgetReadModels';
-import { SqliteBudgetRepository } from '@Contexts/Ledger/Infrastructure/SqliteBudgetRepository';
-import { SqliteSplitTemplateReadModels } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateReadModels';
-import { SqliteSplitTemplateRepository } from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateRepository';
-import { SqliteExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteExpenseReadModels';
-import { SqliteExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteExpenseRepository';
+import { PostgresBudgetReadModels } from '@Contexts/Ledger/Infrastructure/PostgresBudgetReadModels';
+import { PostgresBudgetRepository } from '@Contexts/Ledger/Infrastructure/PostgresBudgetRepository';
+import { PostgresSplitTemplateReadModels } from '@Contexts/Ledger/Infrastructure/PostgresSplitTemplateReadModels';
+import { PostgresSplitTemplateRepository } from '@Contexts/Ledger/Infrastructure/PostgresSplitTemplateRepository';
+import { PostgresExpenseReadModels } from '@Contexts/Ledger/Infrastructure/PostgresExpenseReadModels';
+import { PostgresExpenseRepository } from '@Contexts/Ledger/Infrastructure/PostgresExpenseRepository';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
-import { SqliteMemberBalances } from '@Contexts/Ledger/Infrastructure/SqliteMemberBalances';
-import { SqliteRecurringExpenseReadModels } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseReadModels';
-import { SqliteRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseRepository';
+import { PostgresMemberBalances } from '@Contexts/Ledger/Infrastructure/PostgresMemberBalances';
+import { PostgresRecurringExpenseReadModels } from '@Contexts/Ledger/Infrastructure/PostgresRecurringExpenseReadModels';
+import { PostgresRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/PostgresRecurringExpenseRepository';
 import { IMemberBalancesQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IMemberBalancesQueries';
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Events/BudgetEvents';
 import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
@@ -89,8 +89,8 @@ import { RecurringExpenseDayCameHandler } from '@Contexts/Ledger/Application/Eve
 import { RecurringExpenseSweepJob } from '@Contexts/Ledger/Application/Jobs/RecurringExpenseSweep/RecurringExpenseSweepJob';
 
 const database = sharedDatabase();
-const expenses = new SqliteExpenseRepository(database);
-const expenseReadModels = new SqliteExpenseReadModels(database);
+const expenses = new PostgresExpenseRepository(database);
+const expenseReadModels = new PostgresExpenseReadModels(database);
 /**
  * Who may be in a split: Groups' membership, read through the port Ledger owns (ADR 3). Groups' wiring imports `memberBalances`
  * from this file too (ADR 4), so the port reads Groups' export when it is asked, not while this file is evaluated.
@@ -112,31 +112,31 @@ const offeredRates = new HttpRatesService();
  */
 const settled = new SettledAmountsFromSettlements(() => settlementsSettledAmounts);
 /** The balances: counted into in the transaction of each expense, and read by a member of the group (T4), with what is settled. */
-const balances = new SqliteMemberBalances(database, settled, members);
+const balances = new PostgresMemberBalances(database, settled, members);
 /** The recurring expenses (request 23): what each is, kept between the runs of the sweep, and their read models. */
-const recurringExpenses = new SqliteRecurringExpenseRepository(database);
-const recurringReadModels = new SqliteRecurringExpenseReadModels(database);
+const recurringExpenses = new PostgresRecurringExpenseRepository(database);
+const recurringReadModels = new PostgresRecurringExpenseReadModels(database);
 /** The budgets (request 24): one per group and category, and what a month spends in each, read from the expenses above. */
-const budgets = new SqliteBudgetRepository(database);
-const budgetReadModels = new SqliteBudgetReadModels(database);
+const budgets = new PostgresBudgetRepository(database);
+const budgetReadModels = new PostgresBudgetReadModels(database);
 /** The split templates (request 25): saved under a name in a group, and the splits expenses are split by in place of their own. */
-const splitTemplates = new SqliteSplitTemplateRepository(database);
-const templateReadModels = new SqliteSplitTemplateReadModels(database);
+const splitTemplates = new PostgresSplitTemplateRepository(database);
+const templateReadModels = new PostgresSplitTemplateReadModels(database);
 /**
  * The receipts (request 26, ADR 17): one per expense, kept in the receipts store the server is started with (`RECEIPTS_URL`, read when a
  * file is kept, so a server started without it refuses every receipt). The store is Ledger's port; its adapter is an HTTP client.
  */
-const receipts = new SqliteReceiptRepository(database);
+const receipts = new PostgresReceiptRepository(database);
 /**
  * The audit of the money (request 28, ADR 19): the expenses' entries are Ledger's own; the settlements' and the balances passed are read
  * through the ports Ledger owns, each written by the context that made the change.
  */
-const audit = new SqliteAuditLog(database);
+const audit = new PostgresAuditLog(database);
 // What a member's statement reads (requests 8 and 29): the group's members, when each expense was recorded, and the settlements counted.
 const statementSources = { groupMembers: members, audit, settled };
 const settlementAudit = new SettlementAuditFromSettlements(() => settlementsAudit);
 const passedBalances = new PassedBalancesFromGroups(() => groupAudit);
-const receiptReadModels = new SqliteReceiptReadModels(database);
+const receiptReadModels = new PostgresReceiptReadModels(database);
 const receiptStore = new HttpReceiptStore();
 /**
  * The sweep of the recurring expenses (request 23, ADR 14): the process runs it every JOBS_INTERVAL_SECONDS, as the debt sweep (ADR 10),

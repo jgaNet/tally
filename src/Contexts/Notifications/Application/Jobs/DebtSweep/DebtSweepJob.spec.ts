@@ -3,14 +3,16 @@ import { expect, jest } from '@jest/globals';
 import { EventBus } from '@Architecture/Application/EventBus';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { ConcurrencyConflictException, Id } from '@Architecture/Domain';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
-import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
+import { randomBytes } from 'node:crypto';
+
+import { PostgresDatabase, closeDatabases } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { PostgresOutbox } from '@Architecture/Infrastructure/Postgres/PostgresOutbox';
+import { PostgresUnitOfWork } from '@Architecture/Infrastructure/Postgres/PostgresUnitOfWork';
 
 import { IOutstandingDebts, OutstandingDebt } from '@Contexts/Notifications/Application/Ports/IOutstandingDebts';
 import { DebtSweepJob } from '@Contexts/Notifications/Application/Jobs/DebtSweep/DebtSweepJob';
 import { DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
-import { SqliteDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/SqliteDebtWatchRepository';
+import { PostgresDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/PostgresDebtWatchRepository';
 
 const WEEK_SECONDS = 604_800;
 const DAY = 86_400_000;
@@ -24,19 +26,19 @@ class Debts implements IOutstandingDebts {
   }
 }
 
-/** A sweep over an in-memory file, with a unit of work of its own and a bus that records what is published from the outbox. */
+/** A sweep over an database of its own, with a unit of work of its own and a bus that records what is published from the outbox. */
 function setUp() {
-  const database = new SqliteDatabase(':memory:');
+  const database = new PostgresDatabase(process.env.DATABASE_URL as string, `sweep_${randomBytes(6).toString('hex')}`);
   const publish = jest.fn((_event: unknown, _context: unknown, _messageId?: unknown) => undefined);
   const eventBus = { connect: jest.fn(), publish, subscribe: jest.fn() } as unknown as EventBus;
   const context = new ExecutionContext({
     traceId: 'sweep',
     eventBus,
     auth: {},
-    unitOfWork: new SqliteUnitOfWork(database, new SqliteOutbox(database)),
+    unitOfWork: new PostgresUnitOfWork(database, new PostgresOutbox(database)),
   });
   const debts = new Debts();
-  const watches = new SqliteDebtWatchRepository(database);
+  const watches = new PostgresDebtWatchRepository(database);
   const sweep = (at: Date) => new DebtSweepJob(debts, watches, () => at, WEEK_SECONDS).run(context);
   /** The names of the domain events published since the last call. */
   const published = () => {
@@ -44,10 +46,12 @@ function setUp() {
     publish.mockClear();
     return names;
   };
-  return { debts, watches, sweep, published };
+  return { database, debts, watches, sweep, published };
 }
 
 describe('DebtSweepJob (ADR 10)', () => {
+  afterAll(closeDatabases);
+
   it('notes a debt above 2000 from the sweep that first sees it, and reminds it a week later, and again each week it lasts', async () => {
     const { debts, sweep, published } = setUp();
     debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2500 }];
@@ -117,9 +121,10 @@ describe('DebtSweepJob (ADR 10)', () => {
   });
 });
 
-describe('SqliteDebtWatchRepository (ADR 10)', () => {
+describe('PostgresDebtWatchRepository (ADR 10)', () => {
   it('refuses a watch saved at a version another save has moved past, so the sweep reads it again', async () => {
-    const { watches } = setUp();
+    const { database, watches } = setUp();
+    await database.prepare();
     const opened = DebtWatch.open({ groupId: new Id('flat'), memberId: new Id('cy') });
     opened.see({ owed: 2500, now: day(0) });
     expect((await watches.save(opened)).isFailure()).toBe(false);

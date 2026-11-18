@@ -1,4 +1,4 @@
-# 2. One SQLite file for what the application knows
+# 2. One SQLite file for what the application knows (superseded by ADR 21)
 
 ## Context
 

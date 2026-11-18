@@ -1,8 +1,9 @@
 import { Logger, relayOutbox } from '@Architecture/Application';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
-import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
-import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
+import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { PostgresOutbox } from '@Architecture/Infrastructure/Postgres/PostgresOutbox';
+import { moveFromFile } from '@Bootstrap/Fastify/moveFromFile';
+import { PostgresUnitOfWork } from '@Architecture/Infrastructure/Postgres/PostgresUnitOfWork';
 
 import { localTrackerModule, trackedEventBus } from '@Contexts/Tracker/module.local';
 import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes';
@@ -46,16 +47,18 @@ export async function createApplication({
     .split(',')
     .filter(Boolean),
 }: { logger?: Logger; apiPrefix?: string; port?: number; webOrigins?: string[] } = {}): Promise<FastifyApplication> {
-  // What the application knows is kept in one SQLite file (ADR 2): the state, the outbox and the operations.
+  // What the application knows is kept in one PostgreSQL database (ADR 30): the state, the outbox and the operations.
+  // Nothing is asked of it before it is prepared, below: the tables the modules declared are made once, and a database that
+  // held nothing of the application's first takes in what the SQLite file `DATABASE_PATH` names held.
   const database = sharedDatabase();
-  const outbox = new SqliteOutbox(database);
+  const outbox = new PostgresOutbox(database);
   const app = new FastifyApplication({
     logger,
     apiPrefix,
     port,
     webOrigins,
     authenticate,
-    unitOfWork: () => new SqliteUnitOfWork(database, outbox),
+    unitOfWork: () => new PostgresUnitOfWork(database, outbox),
   })
     .setEventBus(trackedEventBus)
     .registerModule(localTrackerModule)
@@ -81,6 +84,7 @@ export async function createApplication({
     .registerRoutes('/operations', operationRoutes, { operationsModule: localTrackerModule })
     .registerRoutes('/tracker/operations', operationRoutes, { operationsModule: localTrackerModule });
 
+  await database.prepare(moveFromFile(process.env.DATABASE_PATH));
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): nothing, with
   // the file's outbox, and the line is where it is relayed. The context is

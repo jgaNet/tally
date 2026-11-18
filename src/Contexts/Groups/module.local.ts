@@ -1,6 +1,6 @@
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import {
   AcceptInvitationCommandEvent,
@@ -26,12 +26,12 @@ import {
 } from '@Contexts/Groups/Application/Queries';
 import { HmacTokenIssuer } from '@Contexts/Groups/Infrastructure/HmacTokenIssuer';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
-import { SqliteAccountReadModels } from '@Contexts/Groups/Infrastructure/SqliteAccountReadModels';
-import { SqliteAccountRepository } from '@Contexts/Groups/Infrastructure/SqliteAccountRepository';
-import { SqliteGroupReadModels } from '@Contexts/Groups/Infrastructure/SqliteGroupReadModels';
-import { SqliteGroupRepository } from '@Contexts/Groups/Infrastructure/SqliteGroupRepository';
-import { SqliteInvitationReadModels } from '@Contexts/Groups/Infrastructure/SqliteInvitationReadModels';
-import { SqliteInvitationRepository } from '@Contexts/Groups/Infrastructure/SqliteInvitationRepository';
+import { PostgresAccountReadModels } from '@Contexts/Groups/Infrastructure/PostgresAccountReadModels';
+import { PostgresAccountRepository } from '@Contexts/Groups/Infrastructure/PostgresAccountRepository';
+import { PostgresGroupReadModels } from '@Contexts/Groups/Infrastructure/PostgresGroupReadModels';
+import { PostgresGroupRepository } from '@Contexts/Groups/Infrastructure/PostgresGroupRepository';
+import { PostgresInvitationReadModels } from '@Contexts/Groups/Infrastructure/PostgresInvitationReadModels';
+import { PostgresInvitationRepository } from '@Contexts/Groups/Infrastructure/PostgresInvitationRepository';
 import { authenticateWithToken } from '@Contexts/Groups/Presentation/API/REST/authenticate';
 import { BalancesFromLedger } from '@Contexts/Groups/Infrastructure/BalancesFromLedger';
 import { memberBalances as ledgerMemberBalances } from '@Contexts/Ledger/module.local';
@@ -39,15 +39,15 @@ import { waitingPayments as settlementsWaitingPayments } from '@Contexts/Settlem
 import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsFromSettlements';
 import { IGroupMembersQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembersQueries';
 import { IGroupAuditQueries } from '@Contexts/Groups/Domain/Group/Ports/IGroupAuditQueries';
-import { SqliteGroupAuditLog } from '@Contexts/Groups/Infrastructure/SqliteGroupAuditLog';
+import { PostgresGroupAuditLog } from '@Contexts/Groups/Infrastructure/PostgresGroupAuditLog';
 
 const database = sharedDatabase();
-const accounts = new SqliteAccountRepository(database);
-const accountReadModels = new SqliteAccountReadModels(database);
-const groups = new SqliteGroupRepository(database);
-const groupReadModels = new SqliteGroupReadModels(database);
-const invitations = new SqliteInvitationRepository(database);
-const invitationReadModels = new SqliteInvitationReadModels(database);
+const accounts = new PostgresAccountRepository(database);
+const accountReadModels = new PostgresAccountReadModels(database);
+const groups = new PostgresGroupRepository(database);
+const groupReadModels = new PostgresGroupReadModels(database);
+const invitations = new PostgresInvitationRepository(database);
+const invitationReadModels = new PostgresInvitationReadModels(database);
 const passwordHasher = new ScryptPasswordHasher();
 const tokens = HmacTokenIssuer.inDatabase(database);
 
@@ -58,7 +58,7 @@ const tokens = HmacTokenIssuer.inDatabase(database);
 export const groupMembers: IGroupMembersQueries = groupReadModels;
 
 /** The balances passed to the owner when members left (request 28), read by Ledger's audit: Groups' audit, exported (ADR 19). */
-const audit = new SqliteGroupAuditLog(database);
+const audit = new PostgresGroupAuditLog(database);
 export const groupAudit: IGroupAuditQueries = audit;
 
 /**

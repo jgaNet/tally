@@ -1,6 +1,6 @@
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { memberBalances as ledgerMemberBalances } from '@Contexts/Ledger/module.local';
 import { groupMembers as groupsMembers } from '@Contexts/Groups/module.local';
@@ -39,11 +39,11 @@ import { GroupBalancesFromLedger } from '@Contexts/Settlements/Infrastructure/Gr
 import { HmacWebhookSignatures } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignatures';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
 import { SettlementMembersFromGroups } from '@Contexts/Settlements/Infrastructure/SettlementMembersFromGroups';
-import { SqlitePayoutAccountReadModels } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountReadModels';
-import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountRepository';
-import { SqliteSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/SqliteSettlementBookRepository';
-import { SqliteSettlementReadModels } from '@Contexts/Settlements/Infrastructure/SqliteSettlementReadModels';
-import { SqliteSettlementAuditLog } from '@Contexts/Settlements/Infrastructure/SqliteSettlementAuditLog';
+import { PostgresPayoutAccountReadModels } from '@Contexts/Settlements/Infrastructure/PostgresPayoutAccountReadModels';
+import { PostgresPayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/PostgresPayoutAccountRepository';
+import { PostgresSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/PostgresSettlementBookRepository';
+import { PostgresSettlementReadModels } from '@Contexts/Settlements/Infrastructure/PostgresSettlementReadModels';
+import { PostgresSettlementAuditLog } from '@Contexts/Settlements/Infrastructure/PostgresSettlementAuditLog';
 import { ISettlementAuditQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementAuditQueries';
 
 /**
@@ -53,12 +53,12 @@ import { ISettlementAuditQueries } from '@Contexts/Settlements/Domain/Settlement
  * read from the environment when they are used, so the server refuses a provider it has no URL for, and nothing else.
  */
 const database = sharedDatabase();
-const books = new SqliteSettlementBookRepository(database);
-const readModels = new SqliteSettlementReadModels(database);
+const books = new PostgresSettlementBookRepository(database);
+const readModels = new PostgresSettlementReadModels(database);
 /** The audit of the money the settlements move (request 28), written in each change's transaction and read by Ledger's audit (ADR 19). */
-const audit = new SqliteSettlementAuditLog(database);
-const payoutAccounts = new SqlitePayoutAccountRepository(database);
-const payoutAccountReadModels = new SqlitePayoutAccountReadModels(database);
+const audit = new PostgresSettlementAuditLog(database);
+const payoutAccounts = new PostgresPayoutAccountRepository(database);
+const payoutAccountReadModels = new PostgresPayoutAccountReadModels(database);
 
 /** What has been settled in a group, read by Ledger when it reads a balance (ADR 7): Settlements' read model, exported. */
 export const settledAmounts: ISettledAmountsQueries = readModels;

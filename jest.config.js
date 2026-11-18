@@ -11,7 +11,11 @@ const isCI = process.env.CI === 'true';
 process.env.ADMIN_IDENTIFIER ||= 'admin@admin.fr';
 process.env.ADMIN_PASSWORD ||= 'admin';
 
+// Each suite keeps its tables in a schema of its own on the database `DATABASE_URL` names, so that suites run side by side
+// and none finds what another left (the application itself uses the database's own schema).
 export default {
+  setupFiles: ['<rootDir>/jest.setup.js'],
+  setupFilesAfterEnv: ['<rootDir>/jest.teardown.js'],
   verbose: true,
   collectCoverage: false,
   resetModules: true,

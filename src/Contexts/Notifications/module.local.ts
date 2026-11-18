@@ -1,6 +1,6 @@
 import { Module } from '@Architecture/Application';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { sharedDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { sharedDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import {
   BudgetPassedIntegrationEvent,
@@ -14,15 +14,15 @@ import { GetMyNoticesQueryHandler } from '@Contexts/Notifications/Application/Qu
 import { DebtSweepJob } from '@Contexts/Notifications/Application/Jobs/DebtSweep/DebtSweepJob';
 import { ReminderIssuedEvent } from '@Contexts/Notifications/Domain/DebtWatch/Events/DebtWatchEvents';
 import { OutstandingDebtsFromSettlements } from '@Contexts/Notifications/Infrastructure/OutstandingDebtsFromSettlements';
-import { SqliteDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/SqliteDebtWatchRepository';
-import { SqliteNoticeReadModels } from '@Contexts/Notifications/Infrastructure/SqliteNoticeReadModels';
-import { SqliteNoticeRepository } from '@Contexts/Notifications/Infrastructure/SqliteNoticeRepository';
+import { PostgresDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/PostgresDebtWatchRepository';
+import { PostgresNoticeReadModels } from '@Contexts/Notifications/Infrastructure/PostgresNoticeReadModels';
+import { PostgresNoticeRepository } from '@Contexts/Notifications/Infrastructure/PostgresNoticeRepository';
 import { outstandingDebtsQueries } from '@Contexts/Settlements/module.local';
 
 const database = sharedDatabase();
-const notices = new SqliteNoticeRepository(database);
-const noticeReadModels = new SqliteNoticeReadModels(database);
-const debtWatches = new SqliteDebtWatchRepository(database);
+const notices = new PostgresNoticeRepository(database);
+const noticeReadModels = new PostgresNoticeReadModels(database);
+const debtWatches = new PostgresDebtWatchRepository(database);
 
 /** What each member still owes, read through the port Notifications owns (ADR 10): Settlements' read model, read when it is asked. */
 const outstandingDebts = new OutstandingDebtsFromSettlements(() => outstandingDebtsQueries);

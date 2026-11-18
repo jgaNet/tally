@@ -148,3 +148,9 @@ One canonical example per concept, rendered from `conventions/concepts.yaml` and
 
 Why the architecture is the way it is, in the reference: [docs/adr](https://github.com/jgaNet/clean-ddd/tree/main/docs/adr).
 Your own decisions go in [`docs/adr`](docs/adr/README.md), numbered from 1.
+
+## Configuration
+
+The application keeps its state in the PostgreSQL database `DATABASE_URL` names (ADR 21). A server started on a database that holds
+nothing of its own yet first moves into it what the SQLite file `DATABASE_PATH` names held, if there is one, and then serves; the
+file is not read again. `DATABASE_SCHEMA`, when set, keeps the tables in a schema of their own (the test suites set it).

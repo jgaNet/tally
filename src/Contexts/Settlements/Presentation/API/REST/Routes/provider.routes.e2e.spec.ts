@@ -1,8 +1,6 @@
 import { createHmac } from 'crypto';
-import { mkdtempSync, rmSync } from 'fs';
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
-import { tmpdir } from 'os';
 
 import { jest } from '@jest/globals';
 
@@ -550,7 +548,7 @@ async function deliver(body: object): Promise<Operation> {
   return outcome((answer.body as { operationId: string }).operationId);
 }
 
-/** Starts a fresh application on the database file `DATABASE_PATH` names, as a server started after a stop does. */
+/** Starts a fresh application on the database `DATABASE_URL` names, as a server started after a stop does. */
 async function startOnFile(): Promise<FastifyApplication> {
   jest.resetModules();
   const { createApplication: create } = await import('@Bootstrap/Fastify/createApplication');
@@ -634,11 +632,8 @@ describe('webhooks late, twice or out of order (request 14)', () => {
     });
   });
 
-  it('applies a webhook that arrives after Tally was stopped and started again on the same file, and acknowledges one that changes nothing', async () => {
-    const directory = mkdtempSync(`${tmpdir()}/tally-webhooks-`);
-    const previousDatabase = process.env.DATABASE_PATH;
+  it('applies a webhook that arrives after Tally was stopped and started again on the same database, and acknowledges one that changes nothing', async () => {
     const previousHttp = { http, api };
-    process.env.DATABASE_PATH = `${directory}/tally.sqlite`;
     let running: FastifyApplication | undefined;
     try {
       running = await startOnFile();
@@ -646,7 +641,7 @@ describe('webhooks late, twice or out of order (request 14)', () => {
       const settlementId = (await payThroughProvider(bob.token, groupId, { to: ann.id, amount: 30 })).result as string;
       const { paymentId } = lastPayment();
 
-      // Tally stops before the provider's webhook arrives, and is started again on the same file.
+      // Tally stops before the provider's webhook arrives, and is started again on the same database.
       await running.stop();
       running = await startOnFile();
 
@@ -679,9 +674,6 @@ describe('webhooks late, twice or out of order (request 14)', () => {
       if (running) await running.stop();
       http = previousHttp.http;
       api = previousHttp.api;
-      if (previousDatabase === undefined) delete process.env.DATABASE_PATH;
-      else process.env.DATABASE_PATH = previousDatabase;
-      rmSync(directory, { recursive: true, force: true });
     }
   });
 });

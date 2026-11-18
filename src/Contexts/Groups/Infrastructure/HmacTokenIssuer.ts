@@ -1,19 +1,19 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { ITokenIssuer } from '@Contexts/Groups/Application/Ports/ITokenIssuer';
 
 /**
- * A token is `<payload>.<signature>`: the account it names and its expiry, signed with a secret the database file
+ * A token is `<payload>.<signature>`: the account it names and its expiry, signed with a secret the database
  * keeps once for every server on it, so a token is good on any of them and after any restart.
  */
 export class HmacTokenIssuer implements ITokenIssuer {
   static readonly LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
-  constructor(private secret: string) {}
+  constructor(private secret: string | (() => string)) {}
 
-  static inDatabase(database: SqliteDatabase): HmacTokenIssuer {
+  static inDatabase(database: PostgresDatabase): HmacTokenIssuer {
     return new HmacTokenIssuer(database.setting('token-secret', () => randomBytes(32).toString('hex')));
   }
 
@@ -40,6 +40,8 @@ export class HmacTokenIssuer implements ITokenIssuer {
   }
 
   private sign(encoded: string): string {
-    return createHmac('sha256', this.secret).update(encoded).digest('base64url');
+    return createHmac('sha256', typeof this.secret === 'string' ? this.secret : this.secret())
+      .update(encoded)
+      .digest('base64url');
   }
 }

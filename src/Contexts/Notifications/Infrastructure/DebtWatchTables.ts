@@ -1,8 +1,8 @@
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 /** The debt watches, in the application's file (ADR 10): one per member and group, so that two sweeps at once meet on one row. */
-export function createDebtWatchTables(database: SqliteDatabase): void {
-  database.exec(`CREATE TABLE IF NOT EXISTS debt_watches (
+export function createDebtWatchTables(database: PostgresDatabase): void {
+  database.declare(`CREATE TABLE IF NOT EXISTS debt_watches (
     id TEXT PRIMARY KEY,
     group_id TEXT NOT NULL,
     member_id TEXT NOT NULL,
@@ -11,5 +11,5 @@ export function createDebtWatchTables(database: SqliteDatabase): void {
     version INTEGER NOT NULL,
     UNIQUE (group_id, member_id)
   )`);
-  database.exec('CREATE INDEX IF NOT EXISTS debt_watches_noted ON debt_watches (noted_since)');
+  database.declare('CREATE INDEX IF NOT EXISTS debt_watches_noted ON debt_watches (noted_since)');
 }

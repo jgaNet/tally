@@ -24,6 +24,8 @@ why, what it costs, and when to revisit it.
 | [17](0017-a-receipt-is-an-aggregate-of-ledger-kept-in-an-outside-store-behind-a-port.md) | A receipt is an aggregate of Ledger, kept in an outside store behind a port Ledger owns |
 | [18](0018-a-group-is-archived-by-its-owner-and-every-change-in-it-is-refused-by-one-name.md) | A group is archived by its owner, decided by Groups, and every change in it is refused by one name |
 | [19](0019-each-context-writes-its-own-audit-entries-in-its-transaction-and-ledger-reads-them-through-owned-ports.md) | Each context writes its own audit entries in the transaction of its change, and Ledger reads them through ports it owns |
+| [20](0020-a-members-statement-lists-the-settlements-the-balances-count-and-is-read-as-csv.md) | A member's statement lists the settlements the balances count, and is read as CSV through a query of its own |
+| [21](0021-the-application-keeps-its-state-in-postgresql-and-moves-its-sqlite-file-into-it-once.md) | The application keeps its state in PostgreSQL, and moves what its SQLite file held into it once |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
