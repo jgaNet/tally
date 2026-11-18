@@ -1,4 +1,3 @@
-import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
 import { openDatabase } from './database';
@@ -15,12 +14,12 @@ describe('leaving a group', () => {
 
   beforeEach(async () => {
     directory = testDirectory();
-    app = await startApplication(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
   });
 
   afterEach(async () => {
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -519,30 +518,50 @@ describe('leaving a group', () => {
   });
 
   describe('a file written before leaving', () => {
-    it('gives its memberships no leaving date, so every member is still a member', () => {
-      const path = join(dirname(directory.databasePath), 'written-before-leaving.db');
-      const old = new DatabaseSync(path);
-      old.exec(`
-        CREATE TABLE group_members (
-          group_id   TEXT NOT NULL,
-          account_id TEXT NOT NULL,
-          joined_at  TEXT NOT NULL,
-          PRIMARY KEY (group_id, account_id)
-        );
-        INSERT INTO group_members (group_id, account_id, joined_at) VALUES ('g', 'a', '2026-01-01T00:00:00.000Z');
-      `);
-      old.close();
-
-      const db = openDatabase(path);
+    it('gives its memberships no leaving date, so every member is still a member', async () => {
+      const written = testDirectory();
       try {
-        const columns = db.prepare('PRAGMA table_info(group_members)').all() as unknown as { name: string }[];
-        expect(columns.map(column => column.name)).toContain('left_at');
-        expect(db.prepare('SELECT left_at FROM group_members').all()).toEqual([{ left_at: null }]);
-        // Nothing had been passed on before, so every membership's base is 0.
-        expect(columns.map(column => column.name)).toContain('balance_base');
-        expect(db.prepare('SELECT balance_base FROM group_members').all()).toEqual([{ balance_base: 0 }]);
+        const old = new DatabaseSync(written.legacyPath);
+        old.exec(`
+          CREATE TABLE accounts (
+            id TEXT PRIMARY KEY, email TEXT NOT NULL, email_key TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+            password_hash TEXT NOT NULL, created_at TEXT NOT NULL
+          );
+          INSERT INTO accounts VALUES ('a', 'a@example.org', 'a@example.org', 'A', 'x', '2026-01-01T00:00:00.000Z');
+          CREATE TABLE groups (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, currency TEXT NOT NULL, owner_id TEXT NOT NULL,
+            created_at TEXT NOT NULL, archived_at TEXT
+          );
+          INSERT INTO groups VALUES ('g', 'Flat', 'EUR', 'a', '2026-01-01T00:00:00.000Z', NULL);
+          CREATE TABLE group_members (
+            group_id   TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            joined_at  TEXT NOT NULL,
+            PRIMARY KEY (group_id, account_id)
+          );
+          INSERT INTO group_members (group_id, account_id, joined_at) VALUES ('g', 'a', '2026-01-01T00:00:00.000Z');
+        `);
+        old.close();
+        const upgradedApp = await startApplication(written.databaseUrl, { databasePath: written.legacyPath });
+        await upgradedApp.stop();
+
+        const db = await openDatabase({ url: written.databaseUrl });
+        try {
+          const columns = await db
+            .prepare(
+              `SELECT column_name AS name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'group_members'`,
+            )
+            .all<{ name: string }>();
+          expect(columns.map(column => column.name)).toContain('left_at');
+          expect(await db.prepare('SELECT left_at FROM group_members').all()).toEqual([{ left_at: null }]);
+          // Nothing had been passed on before, so every membership's base is 0.
+          expect(columns.map(column => column.name)).toContain('balance_base');
+          expect(await db.prepare('SELECT balance_base FROM group_members').all()).toEqual([{ balance_base: 0 }]);
+        } finally {
+          await db.close();
+        }
       } finally {
-        db.close();
+        await written.remove();
       }
     });
   });

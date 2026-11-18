@@ -1,24 +1,23 @@
-import type { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
-import { openDatabase } from './database';
+import { type Database, openDatabase } from './database';
 import { send, signedUpAccount, startApplication, testDirectory, type TestDirectory } from './test-helpers';
 
 describe('groups', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
 
   beforeEach(async () => {
     directory = testDirectory();
-    app = await startApplication(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
     // A second connection to the same file, as another server would hold, adds members directly.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -32,12 +31,10 @@ describe('groups', () => {
   }
 
   /** Makes `accountId` a member of `groupId`, as an invitation would once it exists. */
-  function addMember(groupId: string, accountId: string): void {
-    db.prepare('INSERT INTO group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)').run(
-      groupId,
-      accountId,
-      new Date().toISOString(),
-    );
+  async function addMember(groupId: string, accountId: string): Promise<void> {
+    await db
+      .prepare('INSERT INTO group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)')
+      .run(groupId, accountId, new Date().toISOString());
   }
 
   describe('creating a group', () => {
@@ -169,7 +166,7 @@ describe('groups', () => {
       const ana = await signedUpAccount(app, { email: 'ana@example.org' });
       const ben = await signedUpAccount(app, { email: 'ben@example.org' });
       const id = await createGroup(ana.token, { name: 'Climbing club' });
-      addMember(id, ben.id);
+      await addMember(id, ben.id);
       const reply = await send(app, 'GET', `/groups/${id}`, { token: ben.token });
       expect(reply.status).toBe(200);
       expect(reply.body).toMatchObject({ id, name: 'Climbing club', ownerId: ana.id });
@@ -228,7 +225,7 @@ describe('groups', () => {
       const ben = await signedUpAccount(app, { email: 'ben@example.org' });
       const anas = await createGroup(ana.token, { name: 'Anas' });
       const bens = await createGroup(ben.token, { name: 'Bens' });
-      addMember(bens, ana.id);
+      await addMember(bens, ana.id);
       const reply = await send(app, 'GET', '/groups/mine', { token: ana.token });
       expect(reply.body).toEqual([
         { id: bens, name: 'Bens', currency: 'EUR', ownerId: ben.id },
@@ -267,8 +264,8 @@ describe('groups', () => {
       const ben = await signedUpAccount(app, { email: 'ben@example.org', name: 'Ben' });
       const cleo = await signedUpAccount(app, { email: 'cleo@example.org', name: 'Cleo' });
       const id = await createGroup(ana.token);
-      addMember(id, cleo.id);
-      addMember(id, ben.id);
+      await addMember(id, cleo.id);
+      await addMember(id, ben.id);
       const reply = await send(app, 'GET', `/groups/${id}/members`, { token: ben.token });
       expect(reply.body).toEqual([
         { memberId: ana.id, name: 'Ana', role: 'owner', joinedAt: expect.any(String) },
@@ -281,7 +278,7 @@ describe('groups', () => {
       const ana = await signedUpAccount(app, { email: 'ana@example.org' });
       const ben = await signedUpAccount(app, { email: 'ben@example.org' });
       const id = await createGroup(ana.token);
-      addMember(id, ben.id);
+      await addMember(id, ben.id);
       const asOwner = await send(app, 'GET', `/groups/${id}/members`, { token: ana.token });
       const asMember = await send(app, 'GET', `/groups/${id}/members`, { token: ben.token });
       expect(asMember.body).toEqual(asOwner.body);

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { auditOfGroup } from '../audit';
 import { requireCaller } from '../http';
 
@@ -25,14 +25,14 @@ const AUDIT_ENTRY = {
   },
 };
 
-export function registerAuditRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerAuditRoutes(server: FastifyInstance, db: Database): void {
   // Only a member of the group reads its audit, the oldest first; to anyone else the group does not exist.
   server.get<{ Params: { id: string } }>(
     '/groups/:id/audit',
     { schema: { response: { 200: { type: 'array', items: AUDIT_ENTRY } } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return auditOfGroup(db, caller.id, request.params.id);
+      const caller = await requireCaller(db, request);
+      return await auditOfGroup(db, caller.id, request.params.id);
     },
   );
 }

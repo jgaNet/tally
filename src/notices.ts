@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Querier } from './database';
 import type { Category } from './categories';
 
 /**
@@ -51,8 +51,8 @@ interface NoticeRow {
  * their share, all made at `at`. Written by the caller's transaction, so they exist exactly when the
  * expense does. The table keeps one per expense and recipient, so a repeated write is refused.
  */
-export function noticeExpense(
-  db: DatabaseSync,
+export async function noticeExpense(
+  db: Querier,
   input: {
     expenseId: string;
     groupId: string;
@@ -60,7 +60,7 @@ export function noticeExpense(
     shares: readonly { readonly memberId: string; readonly amount: number }[];
     at: string;
   },
-): void {
+): Promise<void> {
   const { expenseId, groupId, payerId, shares, at } = input;
   const insert = db.prepare(
     `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
@@ -69,7 +69,7 @@ export function noticeExpense(
   for (const share of shares) {
     // The payer recorded the expense: they get no notice of it.
     if (share.memberId === payerId) continue;
-    insert.run(randomUUID(), share.memberId, groupId, expenseId, share.amount, at);
+    await insert.run(randomUUID(), share.memberId, groupId, expenseId, share.amount, at);
   }
 }
 
@@ -77,13 +77,13 @@ export function noticeExpense(
  * The notices of `accountId`, the most recent first. Only the notices addressed to the account are read,
  * and they stay after the account leaves a group. Reading never changes them.
  */
-export function noticesOf(db: DatabaseSync, accountId: string): Notice[] {
-  const rows = db
+export async function noticesOf(db: Querier, accountId: string): Promise<Notice[]> {
+  const rows = await db
     .prepare(
       `SELECT id, kind, group_id, expense_id, category, month, budget, amount, created_at FROM notices
-       WHERE recipient_id = ? ORDER BY created_at DESC, rowid DESC`,
+       WHERE recipient_id = ? ORDER BY created_at DESC, seq DESC`,
     )
-    .all(accountId) as unknown as NoticeRow[];
+    .all<NoticeRow>(accountId);
   return rows.map((row): Notice => {
     if (row.kind === 'reminder') {
       return { id: row.id, kind: 'reminder', groupId: row.group_id, amount: row.amount, at: row.created_at };
@@ -112,8 +112,8 @@ export function noticesOf(db: DatabaseSync, accountId: string): Notice[] {
 }
 
 /** Makes a budget's notice to `recipientId`: `amount` is what the `month` of `category` spends, over `budget`. */
-export function noticeBudget(
-  db: DatabaseSync,
+export async function noticeBudget(
+  db: Querier,
   input: {
     recipientId: string;
     groupId: string;
@@ -123,29 +123,33 @@ export function noticeBudget(
     amount: number;
     at: string;
   },
-): void {
-  db.prepare(
-    `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, category, month, budget, amount, created_at)
-     VALUES (?, ?, 'budget', ?, NULL, ?, ?, ?, ?, ?)`,
-  ).run(
-    randomUUID(),
-    input.recipientId,
-    input.groupId,
-    input.category,
-    input.month,
-    input.budget,
-    input.amount,
-    input.at,
-  );
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, category, month, budget, amount, created_at)
+       VALUES (?, ?, 'budget', ?, NULL, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      randomUUID(),
+      input.recipientId,
+      input.groupId,
+      input.category,
+      input.month,
+      input.budget,
+      input.amount,
+      input.at,
+    );
 }
 
 /** Makes a reminder to `recipientId` of the `amount` they still owe in `groupId`, made at `at`. */
-export function noticeReminder(
-  db: DatabaseSync,
+export async function noticeReminder(
+  db: Querier,
   input: { recipientId: string; groupId: string; amount: number; at: string },
-): void {
-  db.prepare(
-    `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
-     VALUES (?, ?, 'reminder', ?, NULL, ?, ?)`,
-  ).run(randomUUID(), input.recipientId, input.groupId, input.amount, input.at);
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
+       VALUES (?, ?, 'reminder', ?, NULL, ?, ?)`,
+    )
+    .run(randomUUID(), input.recipientId, input.groupId, input.amount, input.at);
 }

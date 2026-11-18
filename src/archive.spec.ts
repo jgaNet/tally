@@ -3,7 +3,9 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { type Application, createApplication } from './app';
-import { send, signedUpAccount, testDirectory, type Reply, type TestDirectory } from './test-helpers';
+import { openDatabase } from './database';
+import { createLegacyFile } from './legacy-file';
+import { ensureDatabase, send, signedUpAccount, testDirectory, type Reply, type TestDirectory } from './test-helpers';
 
 const SECRET = 'shared with the provider';
 const START = Date.parse('2026-11-10T09:00:00.000Z');
@@ -38,26 +40,70 @@ interface ProviderCall {
   body: unknown;
 }
 
-/** Every row of every table of the file at `path`, as text: what a change to the file would alter. */
-function dumpOf(path: string): string {
-  const db = new DatabaseSync(path);
+/** Every table of the database at `url`, with its rows in the order they were written (`seq`), or in no order. */
+async function tablesOf(url: string): Promise<{ name: string; rows: Record<string, unknown>[] }[]> {
+  const db = await openDatabase({ url });
   try {
-    const tables = db
-      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
-      .all() as { name: string }[];
-    return JSON.stringify(tables.map(({ name }) => [name, db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all()]));
+    const names = await db
+      .prepare(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`)
+      .all<{ table_name: string }>();
+    const tables = [];
+    for (const { table_name: name } of names) {
+      const ordered = await db
+        .prepare(
+          `SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = 'seq'`,
+        )
+        .get(name);
+      const rows = await db
+        .prepare(`SELECT * FROM "${name}"${ordered ? ' ORDER BY seq' : ''}`)
+        .all<Record<string, unknown>>();
+      tables.push({ name, rows });
+    }
+    return tables;
   } finally {
-    db.close();
+    await db.close();
   }
 }
 
-/** The row of a query of the file at `path`, as the file holds it now. */
-function rowOf(path: string, sql: string, ...params: string[]): Record<string, unknown> {
-  const db = new DatabaseSync(path);
+/** Every row of every table of the database at `url`, as text, each table's rows sorted: what a change would alter. */
+async function dumpOf(url: string): Promise<string> {
+  const tables = await tablesOf(url);
+  return JSON.stringify(tables.map(({ name, rows }) => [name, rows.map(row => JSON.stringify(row)).sort()]));
+}
+
+/**
+ * Writes the SQLite file at `path` as an earlier version of Tally left it: every row of the database at `url`, in the
+ * file's tables, and no `archived_at` on its groups (a file written before archiving).
+ */
+async function writeEarlierFile(url: string, path: string): Promise<void> {
+  const tables = await tablesOf(url);
+  createLegacyFile(path);
+  const file = new DatabaseSync(path);
   try {
-    return db.prepare(sql).get(...params) as Record<string, unknown>;
+    file.exec('PRAGMA foreign_keys = OFF');
+    for (const { name, rows } of tables) {
+      for (const row of rows) {
+        const columns = Object.keys(row).filter(column => column !== 'seq');
+        file
+          .prepare(
+            `INSERT INTO "${name}" (${columns.map(column => `"${column}"`).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+          )
+          .run(...columns.map(column => (row[column] ?? null) as string | number | null));
+      }
+    }
+    file.exec('ALTER TABLE groups DROP COLUMN archived_at');
   } finally {
-    db.close();
+    file.close();
+  }
+}
+
+/** The row of a query of the database at `url`, as it holds it now. */
+async function rowOf(url: string, sql: string, ...params: unknown[]): Promise<Record<string, unknown>> {
+  const db = await openDatabase({ url });
+  try {
+    return (await db.prepare(sql).get(...params)) as Record<string, unknown>;
+  } finally {
+    await db.close();
   }
 }
 
@@ -105,9 +151,11 @@ describe('archiving a group', () => {
   let nextRefund: number;
 
   /** The application, started over the test's file with the fake provider and receipts store. */
-  async function startApp(): Promise<Application> {
+  async function startApp(databaseUrl = directory.databaseUrl, databasePath = ''): Promise<Application> {
+    await ensureDatabase(databaseUrl);
     const started = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl,
+      databasePath,
       providerUrl,
       providerWebhookSecret: SECRET,
       receiptsUrl,
@@ -158,12 +206,12 @@ describe('archiving a group', () => {
     await app.stop();
     await closed(providerServer);
     await closed(storeServer);
-    directory.remove();
+    await directory.remove();
   });
 
   /** What a refused change must leave as it is: every row of the file, and what the provider and the store were asked. */
-  function snapshot(): { rows: string; provider: number; store: number } {
-    return { rows: dumpOf(directory.databasePath), provider: providerCalls.length, store: storeCalls };
+  async function snapshot(): Promise<{ rows: string; provider: number; store: number }> {
+    return { rows: await dumpOf(directory.databaseUrl), provider: providerCalls.length, store: storeCalls };
   }
 
   async function createGroup(token: string, name = 'Flat'): Promise<string> {
@@ -297,10 +345,8 @@ describe('archiving a group', () => {
         201,
       ).body as { id: string }
     ).id;
-    const paymentId = rowOf(
-      directory.databasePath,
-      'SELECT provider_payment_id FROM settlements WHERE id = ?',
-      settlementId,
+    const paymentId = (
+      await rowOf(directory.databaseUrl, 'SELECT provider_payment_id FROM settlements WHERE id = ?', settlementId)
     ).provider_payment_id as string;
     expect(
       await deliver({ id: `evt_${paymentId}`, paymentId, status: 'succeeded', at: new Date(now).toISOString() }),
@@ -338,20 +384,20 @@ describe('archiving a group', () => {
 
     it('refuses a member who is not the owner, as NotOwner, and changes nothing', async () => {
       const { ben, groupId } = await settledGroup();
-      const before = snapshot();
+      const before = await snapshot();
       const reply = await send(app, 'POST', `/groups/${groupId}/archive`, { token: ben.token });
       expect(reply.status).toBe(403);
       expect(reply.body).toMatchObject({ statusCode: 403, error: 'NotOwner' });
-      expect(snapshot()).toEqual(before);
+      expect(await snapshot()).toEqual(before);
     });
 
     it('refuses a request from someone who is no member, as if the group did not exist, and changes nothing', async () => {
       const { dee, groupId } = await settledGroup();
-      const before = snapshot();
+      const before = await snapshot();
       const reply = await send(app, 'POST', `/groups/${groupId}/archive`, { token: dee.token });
       expect(reply.status).toBe(404);
       expect(reply.body).toMatchObject({ statusCode: 404, error: 'GroupNotFound' });
-      expect(snapshot()).toEqual(before);
+      expect(await snapshot()).toEqual(before);
     });
 
     it('refuses while a balance is not 0, as BalancesAreNotZero, and changes nothing', async () => {
@@ -360,11 +406,11 @@ describe('archiving a group', () => {
       const groupId = await createGroup(ana.token);
       await join(ana.token, groupId, ben.token);
       await recordExpense(ana.token, groupId, { splitBetween: [ana.id, ben.id] });
-      const before = snapshot();
+      const before = await snapshot();
       const reply = await send(app, 'POST', `/groups/${groupId}/archive`, { token: ana.token });
       expect(reply.status).toBe(409);
       expect(reply.body).toMatchObject({ statusCode: 409, error: 'BalancesAreNotZero' });
-      expect(snapshot()).toEqual(before);
+      expect(await snapshot()).toEqual(before);
       expect(must(await send(app, 'GET', `/groups/${groupId}`, { token: ana.token }), 200).body).not.toHaveProperty(
         'archivedAt',
       );
@@ -373,11 +419,11 @@ describe('archiving a group', () => {
     it('refuses while a refund of a settlement through the provider is under way, as SettlementIsInProgress', async () => {
       const { ana, groupId, settlementId } = await providerSettledGroup();
       must(await send(app, 'POST', `/settlements/${settlementId}/refund`, { token: ana.token }), 204);
-      const before = snapshot();
+      const before = await snapshot();
       const reply = await send(app, 'POST', `/groups/${groupId}/archive`, { token: ana.token });
       expect(reply.status).toBe(409);
       expect(reply.body).toMatchObject({ statusCode: 409, error: 'SettlementIsInProgress' });
-      expect(snapshot()).toEqual(before);
+      expect(await snapshot()).toEqual(before);
     });
 
     it('refuses to archive again, as GroupIsArchived, and keeps the time it was archived', async () => {
@@ -389,11 +435,11 @@ describe('archiving a group', () => {
         }
       ).archivedAt;
       now += DAY_MS;
-      const before = snapshot();
+      const before = await snapshot();
       const reply = await send(app, 'POST', `/groups/${groupId}/archive`, { token: ana.token });
       expect(reply.status).toBe(409);
       expect(reply.body).toMatchObject({ statusCode: 409, error: 'GroupIsArchived' });
-      expect(snapshot()).toEqual(before);
+      expect(await snapshot()).toEqual(before);
       expect(
         (must(await send(app, 'GET', `/groups/${groupId}`, { token: ben.token }), 200).body as { archivedAt: string })
           .archivedAt,
@@ -403,18 +449,20 @@ describe('archiving a group', () => {
     it('reads a group of a file written before archiving as not archived, and archives it', async () => {
       const { ana, ben, groupId } = await settledGroup();
       await app.stop();
-      const db = new DatabaseSync(directory.databasePath);
-      db.exec('ALTER TABLE groups DROP COLUMN archived_at');
-      db.close();
-      app = await startApp();
-
-      expect(must(await send(app, 'GET', `/groups/${groupId}`, { token: ben.token }), 200).body).not.toHaveProperty(
-        'archivedAt',
-      );
-      must(await send(app, 'POST', `/groups/${groupId}/archive`, { token: ana.token }), 204);
-      expect(must(await send(app, 'GET', `/groups/${groupId}`, { token: ben.token }), 200).body).toMatchObject({
-        archivedAt: expect.any(String),
-      });
+      const migrated = testDirectory();
+      await writeEarlierFile(directory.databaseUrl, directory.legacyPath);
+      app = await startApp(migrated.databaseUrl, directory.legacyPath);
+      try {
+        expect(must(await send(app, 'GET', `/groups/${groupId}`, { token: ben.token }), 200).body).not.toHaveProperty(
+          'archivedAt',
+        );
+        must(await send(app, 'POST', `/groups/${groupId}/archive`, { token: ana.token }), 204);
+        expect(must(await send(app, 'GET', `/groups/${groupId}`, { token: ben.token }), 200).body).toMatchObject({
+          archivedAt: expect.any(String),
+        });
+      } finally {
+        await migrated.remove();
+      }
     });
   });
 
@@ -476,7 +524,7 @@ describe('archiving a group', () => {
 
     it.each(Object.keys(CHANGES))('refuses %s as GroupIsArchived, and changes nothing', async action => {
       const fixture = await archivedGroup();
-      const before = snapshot();
+      const before = await snapshot();
       const reply = await CHANGES[action](fixture);
       expect(reply.status).toBe(409);
       expect(reply.body).toMatchObject({
@@ -484,17 +532,17 @@ describe('archiving a group', () => {
         error: 'GroupIsArchived',
         message: 'The group is archived: nothing in it changes.',
       });
-      expect(snapshot()).toEqual(before);
+      expect(await snapshot()).toEqual(before);
     });
 
     it('refuses a refund of a settlement through the provider, and asks the provider nothing', async () => {
       const { ana, groupId, settlementId } = await providerSettledGroup();
       must(await send(app, 'POST', `/groups/${groupId}/archive`, { token: ana.token }), 204);
-      const before = snapshot();
+      const before = await snapshot();
       const reply = await send(app, 'POST', `/settlements/${settlementId}/refund`, { token: ana.token });
       expect(reply.status).toBe(409);
       expect(reply.body).toMatchObject({ statusCode: 409, error: 'GroupIsArchived' });
-      expect(snapshot()).toEqual(before);
+      expect(await snapshot()).toEqual(before);
       expect(
         must(await send(app, 'GET', `/settlements/${settlementId}`, { token: ana.token }), 200).body,
       ).toMatchObject({
@@ -505,11 +553,11 @@ describe('archiving a group', () => {
     it('keeps a settlement of an archived group as it is when the provider says it was refunded', async () => {
       const { ana, groupId, settlementId, paymentId } = await providerSettledGroup();
       must(await send(app, 'POST', `/groups/${groupId}/archive`, { token: ana.token }), 204);
-      const before = snapshot();
+      const before = await snapshot();
       expect(
         await deliver({ id: `evt_refunded_${paymentId}`, paymentId, status: 'refunded', at: '2026-11-11T09:00:00Z' }),
       ).toBe(204);
-      expect(snapshot()).toEqual(before);
+      expect(await snapshot()).toEqual(before);
       expect(
         must(await send(app, 'GET', `/settlements/${settlementId}`, { token: ana.token }), 200).body,
       ).toMatchObject({
@@ -591,7 +639,7 @@ describe('archiving a group', () => {
       );
 
       now = Date.parse('2026-11-12T09:00:00.000Z');
-      app.runJobs();
+      await app.runJobs();
 
       const expensesOf = async (id: string) =>
         (must(await send(app, 'GET', `/groups/${id}/expenses`, { token: ana.token }), 200).body as unknown[]).length;
@@ -609,9 +657,9 @@ describe('archiving a group', () => {
       await join(ana.token, groupId, ben.token);
       // Ben owes 30.00 from the start: noticed at the first sweep, reminded a week on.
       await recordExpense(ana.token, groupId, { amount: 6000, splitBetween: [ana.id, ben.id] });
-      app.runJobs();
+      await app.runJobs();
       now += 8 * DAY_MS;
-      app.runJobs();
+      await app.runJobs();
       must(
         await send(app, 'POST', `/groups/${groupId}/settlements/cash`, {
           token: ana.token,
@@ -622,9 +670,9 @@ describe('archiving a group', () => {
       must(await send(app, 'POST', `/groups/${groupId}/archive`, { token: ana.token }), 204);
 
       now += 8 * DAY_MS;
-      app.runJobs();
+      await app.runJobs();
       expect(
-        rowOf(directory.databasePath, 'SELECT COUNT(*) AS n FROM lasting_debts WHERE group_id = ?', groupId),
+        await rowOf(directory.databaseUrl, 'SELECT COUNT(*) AS n FROM lasting_debts WHERE group_id = ?', groupId),
       ).toEqual({
         n: 1,
       });

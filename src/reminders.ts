@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from './database';
 import { balancesOfGroup } from './balances';
 import { noticeReminder } from './notices';
 import { inTransaction } from './transactions';
@@ -24,48 +24,44 @@ interface LastingDebtRow {
  *   again from the run that sees it.
  * - A member noted for `periodMs` or more, and not reminded in the last `periodMs`, is reminded at `now`.
  *
- * The run is one write transaction (`BEGIN IMMEDIATE`): servers sharing the file run it one after the other, and
+ * The run is one write transaction, under the write lock: servers sharing the database run it one after the other, and
  * each sees what the one before it noted and reminded, so a member is reminded at most once a period for a group.
  * An archived group is not looked at: it changes nothing. Answers how many reminders it made.
  */
-export function sweepReminders(db: DatabaseSync, now: Date, periodMs: number): number {
+export async function sweepReminders(db: Database, now: Date, periodMs: number): Promise<number> {
   const at = now.toISOString();
   const nowMs = now.getTime();
-  return inTransaction(db, () => {
+  return inTransaction(db, async tx => {
     let reminded = 0;
-    const groups = db
-      .prepare('SELECT id FROM groups WHERE archived_at IS NULL ORDER BY created_at ASC, rowid ASC')
-      .all() as unknown as {
-      id: string;
-    }[];
-    const watchedOf = db.prepare('SELECT account_id, noted_at, last_reminded_at FROM lasting_debts WHERE group_id = ?');
-    const note = db.prepare('INSERT INTO lasting_debts (group_id, account_id, noted_at) VALUES (?, ?, ?)');
-    const forget = db.prepare('DELETE FROM lasting_debts WHERE group_id = ? AND account_id = ?');
-    const markReminded = db.prepare(
+    const groups = await tx
+      .prepare('SELECT id FROM groups WHERE archived_at IS NULL ORDER BY created_at ASC, seq ASC')
+      .all<{ id: string }>();
+    const watchedOf = tx.prepare('SELECT account_id, noted_at, last_reminded_at FROM lasting_debts WHERE group_id = ?');
+    const note = tx.prepare('INSERT INTO lasting_debts (group_id, account_id, noted_at) VALUES (?, ?, ?)');
+    const forget = tx.prepare('DELETE FROM lasting_debts WHERE group_id = ? AND account_id = ?');
+    const markReminded = tx.prepare(
       'UPDATE lasting_debts SET last_reminded_at = ? WHERE group_id = ? AND account_id = ?',
     );
     for (const group of groups) {
       const owing = new Map<string, number>();
-      for (const { memberId, balance } of balancesOfGroup(db, group.id, { includePending: true })) {
+      for (const { memberId, balance } of await balancesOfGroup(tx, group.id, { includePending: true })) {
         if (-balance > REMINDER_THRESHOLD) owing.set(memberId, -balance);
       }
-      const watched = new Map(
-        (watchedOf.all(group.id) as unknown as LastingDebtRow[]).map(row => [row.account_id, row]),
-      );
+      const watched = new Map((await watchedOf.all<LastingDebtRow>(group.id)).map(row => [row.account_id, row]));
       for (const accountId of watched.keys()) {
-        if (!owing.has(accountId)) forget.run(group.id, accountId);
+        if (!owing.has(accountId)) await forget.run(group.id, accountId);
       }
       for (const [accountId, amount] of owing) {
         const debt = watched.get(accountId);
         if (!debt) {
-          note.run(group.id, accountId, at);
+          await note.run(group.id, accountId, at);
           continue;
         }
         const lasted = nowMs - Date.parse(debt.noted_at) >= periodMs;
         const remindedLately = debt.last_reminded_at !== null && nowMs - Date.parse(debt.last_reminded_at) < periodMs;
         if (lasted && !remindedLately) {
-          noticeReminder(db, { recipientId: accountId, groupId: group.id, amount, at });
-          markReminded.run(at, group.id, accountId);
+          await noticeReminder(tx, { recipientId: accountId, groupId: group.id, amount, at });
+          await markReminded.run(at, group.id, accountId);
           reminded += 1;
         }
       }

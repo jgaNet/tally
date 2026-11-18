@@ -1,6 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
-import { openDatabase } from './database';
+import { type Database, openDatabase } from './database';
 import { equalShares } from './expenses';
 import { send, signedUpAccount, startApplication, testDirectory, type TestDirectory } from './test-helpers';
 
@@ -12,19 +11,19 @@ function utcDay(offset: number): string {
 describe('balances', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
 
   beforeEach(async () => {
     directory = testDirectory();
-    app = await startApplication(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
     // A second connection to the same file, to count what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -64,9 +63,9 @@ describe('balances', () => {
   }
 
   /** How many expenses and shares the file holds, read on the second connection. */
-  function storedCounts(): { expenses: number; shares: number } {
-    const expenses = db.prepare('SELECT COUNT(*) AS n FROM expenses').get() as { n: number };
-    const shares = db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get() as { n: number };
+  async function storedCounts(): Promise<{ expenses: number; shares: number }> {
+    const expenses = (await db.prepare('SELECT COUNT(*) AS n FROM expenses').get()) as { n: number };
+    const shares = (await db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get()) as { n: number };
     return { expenses: expenses.n, shares: shares.n };
   }
 
@@ -231,11 +230,11 @@ describe('balances', () => {
     const groupId = await createGroup(ana.token);
     await join(ana.token, groupId, ben.token);
     await record(app, ana.token, groupId, 1000, [ana.id, ben.id]);
-    const before = storedCounts();
+    const before = await storedCounts();
     const first = await balancesAs(ana.token, groupId);
     const second = await balancesAs(ben.token, groupId);
     expect(second.body).toEqual(first.body);
-    expect(storedCounts()).toEqual(before);
+    expect(await storedCounts()).toEqual(before);
   });
 
   it('answers 404 to a signed-in account that is not a member, as if the group did not exist', async () => {
@@ -264,15 +263,15 @@ describe('balances', () => {
     await record(app, ben.token, groupId, 999, [ana.id, ben.id]);
     const before = await balancesAs(ana.token, groupId);
     await app.stop();
-    db.close();
+    await db.close();
 
-    app = await startApplication(directory.databasePath);
-    db = openDatabase(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
+    db = await openDatabase({ url: directory.databaseUrl });
     expect((await balancesAs(ana.token, groupId)).body).toEqual(before.body);
   });
 
   it('adds up to 0 and counts each expense once, however many servers record them at once', async () => {
-    const second = await startApplication(directory.databasePath);
+    const second = await startApplication(directory.databaseUrl);
     try {
       const ana = await signedUpAccount(app, { email: 'ana@example.org' });
       const ben = await signedUpAccount(app, { email: 'ben@example.org' });
@@ -323,7 +322,7 @@ describe('balances', () => {
       const balances = (await balancesAs(ana.token, groupId)).body as { memberId: string; balance: number }[];
       expect(balances).toEqual([...expected].map(([memberId, balance]) => ({ memberId, balance })));
       expect(balances.reduce((sum, { balance }) => sum + balance, 0)).toBe(0);
-      expect(storedCounts()).toEqual({ expenses: 40, shares: expenses.reduce((n, e) => n + e.split.length, 0) });
+      expect(await storedCounts()).toEqual({ expenses: 40, shares: expenses.reduce((n, e) => n + e.split.length, 0) });
     } finally {
       await second.stop();
     }

@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from './database';
 import { findGroupOfMember, isOrWasMember } from './groups';
 import { Refusal } from './refusal';
 import { inReadSnapshot } from './transactions';
@@ -90,38 +90,43 @@ function byDateThenInstant(a: CountedEntry, b: CountedEntry): number {
  * A settlement is counted as the balances count it (see `balances.ts`): a cash one from when it is recorded, a
  * provider one from when it is paid until it is refunded. So a `pending`, `failed` or `refunded` settlement is
  * left out, and a `refunding` one is listed, since the money has not gone back yet. Its date is the UTC day of
- * the first `paid` in its history. It reads one consistent state of the file and changes nothing.
+ * the first `paid` in its history. It reads one consistent state of the database and changes nothing.
  */
-export function statementOfMember(db: DatabaseSync, readerId: string, groupId: string, memberId: string): Statement {
-  return inReadSnapshot(db, () => {
-    if (!findGroupOfMember(db, readerId, groupId)) {
+export async function statementOfMember(
+  db: Database,
+  readerId: string,
+  groupId: string,
+  memberId: string,
+): Promise<Statement> {
+  return inReadSnapshot(db, async snapshot => {
+    if (!(await findGroupOfMember(snapshot, readerId, groupId))) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
     // A member who left keeps a statement, read by the group's current members.
-    if (!isOrWasMember(db, memberId, groupId)) {
+    if (!(await isOrWasMember(snapshot, memberId, groupId))) {
       throw new Refusal(404, 'MemberNotFound', 'No member of the group has this id.');
     }
     // The share is joined on the member alone, so each expense appears once: a member is listed once in a split.
-    const expenseRows = db
+    const expenseRows = await snapshot
       .prepare(
         `SELECT e.id, e.spent_on, e.description, e.amount, e.paid_by, e.created_at, s.amount AS share
          FROM expenses e
          LEFT JOIN expense_shares s ON s.expense_id = e.id AND s.member_id = ?
          WHERE e.group_id = ? AND (e.paid_by = ? OR s.member_id IS NOT NULL)
-         ORDER BY e.spent_on ASC, e.created_at ASC, e.rowid ASC`,
+         ORDER BY e.spent_on ASC, e.created_at ASC, e.seq ASC`,
       )
-      .all(memberId, groupId, memberId) as unknown as ExpenseRow[];
+      .all<ExpenseRow>(memberId, groupId, memberId);
     // Counted as the balances count them: paid, or refunding (not yet given back), and not refunded.
-    const settlementRows = db
+    const settlementRows = await snapshot
       .prepare(
         `SELECT st.id, st.payer_id, st.payee_id, st.amount, st.method,
                 COALESCE((SELECT MIN(h.at) FROM settlement_statuses h
                           WHERE h.settlement_id = st.id AND h.status = 'paid'), st.created_at) AS counted_at
          FROM settlements st
          WHERE st.group_id = ? AND (st.payer_id = ? OR st.payee_id = ?) AND st.status IN ('paid', 'refunding')
-         ORDER BY counted_at ASC, st.rowid ASC`,
+         ORDER BY counted_at ASC, st.seq ASC`,
       )
-      .all(groupId, memberId, memberId) as unknown as SettlementRow[];
+      .all<SettlementRow>(groupId, memberId, memberId);
 
     const counted: CountedEntry[] = [
       ...expenseRows.map((row): CountedEntry => ({

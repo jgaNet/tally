@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
 import type { ProviderConfig } from '../provider';
@@ -72,14 +72,14 @@ const TRANSFER = {
   properties: { from: { type: 'string' }, to: { type: 'string' }, amount: { type: 'integer' } },
 };
 
-export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSync, provider: ProviderConfig): void {
+export function registerSettlementRoutes(server: FastifyInstance, db: Database, provider: ProviderConfig): void {
   // Only a current member of the group lists its settlements; to anyone else the group does not exist.
   server.get<{ Params: { id: string } }>(
     '/groups/:id/settlements',
     { schema: { response: { 200: { type: 'array', items: SETTLEMENT } } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return settlementsOfGroup(db, caller.id, request.params.id);
+      const caller = await requireCaller(db, request);
+      return await settlementsOfGroup(db, caller.id, request.params.id);
     },
   );
 
@@ -88,8 +88,8 @@ export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSy
     '/groups/:id/settlements/suggested',
     { schema: { response: { 200: { type: 'array', items: TRANSFER } } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return suggestedSettlement(db, caller.id, request.params.id);
+      const caller = await requireCaller(db, request);
+      return await suggestedSettlement(db, caller.id, request.params.id);
     },
   );
 
@@ -98,8 +98,8 @@ export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSy
     '/groups/:id/settlements/cash',
     { schema: { body: RECORD_CASH_SETTLEMENT_BODY, response: { 201: ID } } },
     async (request, reply) => {
-      const caller = requireCaller(db, request);
-      const id = recordCashSettlement(db, {
+      const caller = await requireCaller(db, request);
+      const id = await recordCashSettlement(db, {
         groupId: request.params.id,
         payeeId: caller.id,
         payerId: request.body.from,
@@ -114,7 +114,7 @@ export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSy
     '/groups/:id/settlements/provider',
     { schema: { body: REQUEST_PROVIDER_SETTLEMENT_BODY, response: { 201: ID } } },
     async (request, reply) => {
-      const caller = requireCaller(db, request);
+      const caller = await requireCaller(db, request);
       const id = await requestProviderSettlement(db, provider, {
         groupId: request.params.id,
         payerId: caller.id,
@@ -127,7 +127,7 @@ export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSy
 
   // The payee is the caller, who asks the provider to refund the settlement; a caller who is not a member sees no settlement.
   server.post<{ Params: { id: string } }>('/settlements/:id/refund', async (request, reply) => {
-    const caller = requireCaller(db, request);
+    const caller = await requireCaller(db, request);
     await refundSettlement(db, provider, { settlementId: request.params.id, accountId: caller.id });
     return reply.code(204).send();
   });
@@ -137,8 +137,8 @@ export function registerSettlementRoutes(server: FastifyInstance, db: DatabaseSy
     '/settlements/:id',
     { schema: { response: { 200: SETTLEMENT } } },
     async request => {
-      const caller = requireCaller(db, request);
-      const settlement = findSettlementOfMember(db, caller.id, request.params.id);
+      const caller = await requireCaller(db, request);
+      const settlement = await findSettlementOfMember(db, caller.id, request.params.id);
       if (!settlement) throw new Refusal(404, 'SettlementNotFound', 'No settlement has this id.');
       return settlement;
     },

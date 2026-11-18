@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { requireCaller } from '../http';
 import { statementAsCsv, statementOfMember } from '../statements';
 
@@ -28,15 +28,15 @@ const STATEMENT = {
   },
 };
 
-export function registerStatementRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerStatementRoutes(server: FastifyInstance, db: Database): void {
   // Only a member of the group reads a statement of its members, their own included; to anyone else the
   // group does not exist, and a statement of someone who is not a member does not exist either.
   server.get<{ Params: { id: string; memberId: string } }>(
     '/groups/:id/members/:memberId/statement',
     { schema: { response: { 200: STATEMENT } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return statementOfMember(db, caller.id, request.params.id, request.params.memberId);
+      const caller = await requireCaller(db, request);
+      return await statementOfMember(db, caller.id, request.params.id, request.params.memberId);
     },
   );
 
@@ -44,8 +44,8 @@ export function registerStatementRoutes(server: FastifyInstance, db: DatabaseSyn
   server.get<{ Params: { id: string; memberId: string } }>(
     '/groups/:id/members/:memberId/statement.csv',
     async (request, reply) => {
-      const caller = requireCaller(db, request);
-      const statement = statementOfMember(db, caller.id, request.params.id, request.params.memberId);
+      const caller = await requireCaller(db, request);
+      const statement = await statementOfMember(db, caller.id, request.params.id, request.params.memberId);
       return reply.header('content-type', 'text/csv; charset=utf-8').send(statementAsCsv(statement));
     },
   );

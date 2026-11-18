@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Querier } from './database';
 import { isCalendarDay, todayInUtc } from './days';
 import { CURRENCIES, findGroupOfMember, type Currency } from './groups';
 import { Refusal } from './refusal';
@@ -78,12 +78,12 @@ export interface OfferedRateOfGroup {
  * date is not a real day of the calendar. It changes nothing.
  */
 export async function ratesOfferedToGroup(
-  db: DatabaseSync,
+  db: Querier,
   rates: RatesConfig,
   input: { accountId: string; groupId: string; currency: string; date: string | undefined },
 ): Promise<OfferedRateOfGroup> {
   const { accountId, groupId, currency } = input;
-  const group = findGroupOfMember(db, accountId, groupId);
+  const group = await findGroupOfMember(db, accountId, groupId);
   if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
   const date = input.date ?? todayInUtc();
   if (!isCalendarDay(date)) {

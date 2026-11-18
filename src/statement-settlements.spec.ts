@@ -1,10 +1,9 @@
 import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { DatabaseSync } from 'node:sqlite';
 import { type Application, createApplication } from './app';
-import { openDatabase } from './database';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { type Database, openDatabase } from './database';
+import { type TestDirectory, ensureDatabase, send, signedUpAccount, testDirectory } from './test-helpers';
 
 const SECRET = 'shared with the provider';
 const HEADER = 'date,kind,id,description,paid,share,balance\r\n';
@@ -22,7 +21,7 @@ function signed(body: string): string {
 describe('a statement with the settlements the balances count', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
   let provider: Server;
   let providerUrl: string;
   let nextPayment: number;
@@ -58,24 +57,25 @@ describe('a statement with the settlements the balances count', () => {
     });
     await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
     providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+    await ensureDatabase(directory.databaseUrl);
     app = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       providerUrl,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 200,
     });
     await app.start(0);
     // A second connection to the same file, to read what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     for (const other of extra.splice(0)) await other.stop();
     await app.stop();
     await new Promise<void>(resolve => provider.close(() => resolve()));
     provider.closeAllConnections();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -159,8 +159,8 @@ describe('a statement with the settlements the balances count', () => {
   }
 
   /** The provider's id of the payment of the settlement `id`, as Tally keeps it. */
-  function paymentOf(id: string): string {
-    const row = db.prepare('SELECT provider_payment_id FROM settlements WHERE id = ?').get(id) as {
+  async function paymentOf(id: string): Promise<string> {
+    const row = (await db.prepare('SELECT provider_payment_id FROM settlements WHERE id = ?').get(id)) as {
       provider_payment_id: string;
     };
     return row.provider_payment_id;
@@ -250,7 +250,7 @@ describe('a statement with the settlements the balances count', () => {
       entries: [{ kind: 'expense', expenseId: dinner }],
     });
 
-    expect(await providerSays(paymentOf(settlement), 'succeeded')).toBe(204);
+    expect(await providerSays(await paymentOf(settlement), 'succeeded')).toBe(204);
     const read = (await send(app, 'GET', `/settlements/${settlement}`, { token: ben.token })).body as {
       history: { status: string; at: string }[];
     };
@@ -290,7 +290,7 @@ describe('a statement with the settlements the balances count', () => {
   it('leaves out a settlement through the provider that failed, and counts it in no balance', async () => {
     const { ann, ben, groupId, dinner } = await annAndBenOwing1500();
     const failed = await askToPay(ben.token, groupId, ann.id, 500);
-    expect(await providerSays(paymentOf(failed), 'failed')).toBe(204);
+    expect(await providerSays(await paymentOf(failed), 'failed')).toBe(204);
     const statement = (await statementAs(ben.token, groupId, ben.id)).body as { balance: number; entries: unknown[] };
     expect(statement.entries).toEqual([
       {
@@ -310,7 +310,7 @@ describe('a statement with the settlements the balances count', () => {
   it('keeps a settlement being refunded in the statement, and leaves it out once the provider says it is refunded', async () => {
     const { ann, ben, groupId } = await annAndBenOwing1500();
     const settlement = await askToPay(ben.token, groupId, ann.id, 500);
-    expect(await providerSays(paymentOf(settlement), 'succeeded')).toBe(204);
+    expect(await providerSays(await paymentOf(settlement), 'succeeded')).toBe(204);
     const refund = await send(app, 'POST', `/settlements/${settlement}/refund`, { token: ann.token });
     expect(refund.status).toBe(204);
     const refunding = (await statementAs(ben.token, groupId, ben.id)).body as { balance: number; entries: unknown[] };
@@ -319,7 +319,7 @@ describe('a statement with the settlements the balances count', () => {
     );
     expect(refunding.balance).toBe(-1000);
 
-    expect(await providerSays(paymentOf(settlement), 'refunded')).toBe(204);
+    expect(await providerSays(await paymentOf(settlement), 'refunded')).toBe(204);
     expect((await statementAs(ben.token, groupId, ben.id)).body).toMatchObject({ balance: -1500 });
     expect(((await statementAs(ben.token, groupId, ben.id)).body as { entries: unknown[] }).entries).toHaveLength(1);
     await expectStatementBalancesMatchGroup(ben.token, groupId, [ben.id, ann.id]);
@@ -347,7 +347,7 @@ describe('a statement with the settlements the balances count', () => {
     await settleInCash(ann.token, groupId, ben.id, 400);
     const pending = await askToPay(ben.token, groupId, ann.id, 300);
     await expectStatementBalancesMatchGroup(ben.token, groupId, [ben.id, ann.id]);
-    expect(await providerSays(paymentOf(pending), 'succeeded')).toBe(204);
+    expect(await providerSays(await paymentOf(pending), 'succeeded')).toBe(204);
     const balances = await expectStatementBalancesMatchGroup(ben.token, groupId, [ben.id, ann.id]);
     expect(balances).toEqual({ [ann.id]: 800, [ben.id]: -800 });
   });

@@ -1,6 +1,5 @@
-import { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
-import { openDatabase } from './database';
+import { type Database, openDatabase } from './database';
 import { send, signedUpAccount, startApplication, testDirectory, type TestDirectory } from './test-helpers';
 
 /** The day `offset` days from today, in UTC, as `YYYY-MM-DD`. */
@@ -11,19 +10,19 @@ function utcDay(offset: number): string {
 describe('notices', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
 
   beforeEach(async () => {
     directory = testDirectory();
-    app = await startApplication(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
     // A second connection to the same file, to count what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -56,8 +55,8 @@ describe('notices', () => {
   }
 
   /** How many notices the file holds, read on the second connection. */
-  function storedNotices(): number {
-    return (db.prepare('SELECT COUNT(*) AS n FROM notices').get() as { n: number }).n;
+  async function storedNotices(): Promise<number> {
+    return ((await db.prepare('SELECT COUNT(*) AS n FROM notices').get()) as { n: number }).n;
   }
 
   it('makes a notice to each member of the split but the payer, of their share', async () => {
@@ -127,7 +126,7 @@ describe('notices', () => {
 
     expect((await record(bob.token, groupId, { splitBetween: [bob.id] })).status).toBe(201);
     expect(await noticesAs(bob.token)).toEqual({ status: 200, body: [] });
-    expect(storedNotices()).toBe(0);
+    expect(await storedNotices()).toBe(0);
   });
 
   it('makes no notice when an expense is refused, nor when it is edited or deleted', async () => {
@@ -142,20 +141,20 @@ describe('notices', () => {
       body: { description: '  ', amount: 900, date: utcDay(0), splitBetween: [bob.id, cy.id] },
     });
     expect(refused.status).toBe(422);
-    expect(storedNotices()).toBe(0);
+    expect(await storedNotices()).toBe(0);
 
     const expense = await record(bob.token, groupId, { splitBetween: [bob.id, cy.id] });
-    expect(storedNotices()).toBe(1);
+    expect(await storedNotices()).toBe(1);
 
     const edited = await send(app, 'PUT', `/expenses/${expense.id}`, {
       token: bob.token,
       body: { description: 'Pasta', amount: 1200, date: utcDay(0), splitBetween: [bob.id, cy.id], version: 1 },
     });
     expect(edited.status).toBe(200);
-    expect(storedNotices()).toBe(1);
+    expect(await storedNotices()).toBe(1);
 
     expect((await send(app, 'DELETE', `/expenses/${expense.id}`, { token: bob.token })).status).toBe(204);
-    expect(storedNotices()).toBe(1);
+    expect(await storedNotices()).toBe(1);
     // The notice made when the expense was recorded stays, and is read as it was.
     expect(await noticesAs(cy.token)).toMatchObject({ body: [{ expenseId: expense.id, amount: 450 }] });
   });
@@ -196,11 +195,11 @@ describe('notices', () => {
     const expense = await record(bob.token, groupId, { splitBetween: [bob.id, cy.id] });
 
     await app.stop();
-    db.close();
-    app = await startApplication(directory.databasePath);
-    db = openDatabase(directory.databasePath);
+    await db.close();
+    app = await startApplication(directory.databaseUrl);
+    db = await openDatabase({ url: directory.databaseUrl });
 
-    expect(storedNotices()).toBe(1);
+    expect(await storedNotices()).toBe(1);
     expect(await noticesAs(cy.token)).toMatchObject({ status: 200, body: [{ expenseId: expense.id }] });
   });
 
@@ -211,14 +210,14 @@ describe('notices', () => {
     await join(bob.token, groupId, cy.token);
     const expense = await record(bob.token, groupId, { splitBetween: [bob.id, cy.id] });
 
-    expect(() =>
-      db
-        .prepare(
-          `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
-           VALUES ('again', ?, 'expense', ?, ?, 1, '2026-01-01T00:00:00.000Z')`,
-        )
-        .run(cy.id, groupId, expense.id as string),
-    ).toThrow(/UNIQUE constraint failed/);
+    const again = db
+      .prepare(
+        `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
+         VALUES ('again', ?, 'expense', ?, ?, 1, '2026-01-01T00:00:00.000Z')`,
+      )
+      .run(cy.id, groupId, expense.id as string);
+    // The unique key of notices refuses it: PostgreSQL's unique violation, code 23505.
+    await expect(again).rejects.toMatchObject({ code: '23505' });
   });
 
   it('lets a person read only their own notices', async () => {

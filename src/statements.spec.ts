@@ -1,6 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
-import { openDatabase } from './database';
+import { type Database, openDatabase } from './database';
 import { send, signedUpAccount, startApplication, testDirectory, type TestDirectory } from './test-helpers';
 
 /** The day `offset` days from today, in UTC, as `YYYY-MM-DD`. */
@@ -11,19 +10,19 @@ function utcDay(offset: number): string {
 describe('a statement of a member', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
 
   beforeEach(async () => {
     directory = testDirectory();
-    app = await startApplication(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
     // A second connection to the same file, to count what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -69,9 +68,9 @@ describe('a statement of a member', () => {
   }
 
   /** How many expenses and shares the file holds, read on the second connection. */
-  function storedCounts(): { expenses: number; shares: number } {
-    const expenses = db.prepare('SELECT COUNT(*) AS n FROM expenses').get() as { n: number };
-    const shares = db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get() as { n: number };
+  async function storedCounts(): Promise<{ expenses: number; shares: number }> {
+    const expenses = (await db.prepare('SELECT COUNT(*) AS n FROM expenses').get()) as { n: number };
+    const shares = (await db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get()) as { n: number };
     return { expenses: expenses.n, shares: shares.n };
   }
 
@@ -307,11 +306,11 @@ describe('a statement of a member', () => {
     const groupId = await createGroup(ana.token);
     await join(ana.token, groupId, ben.token);
     await record(ana.token, groupId, 'Bread', 1000, [ana.id, ben.id], utcDay(0));
-    const before = storedCounts();
+    const before = await storedCounts();
     const first = await statementAs(ana.token, groupId, ben.id);
     const second = await statementAs(ben.token, groupId, ben.id);
     expect(second.body).toEqual(first.body);
-    expect(storedCounts()).toEqual(before);
+    expect(await storedCounts()).toEqual(before);
   });
 
   it('keeps the statement across restarts', async () => {
@@ -322,10 +321,10 @@ describe('a statement of a member', () => {
     await record(ben.token, groupId, 'Bread', 999, [ana.id, ben.id], utcDay(0));
     const before = await statementAs(ana.token, groupId, ben.id);
     await app.stop();
-    db.close();
+    await db.close();
 
-    app = await startApplication(directory.databasePath);
-    db = openDatabase(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
+    db = await openDatabase({ url: directory.databaseUrl });
     expect((await statementAs(ana.token, groupId, ben.id)).body).toEqual(before.body);
   });
 });

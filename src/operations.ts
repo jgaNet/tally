@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Querier } from './database';
 
 /** The state of an operation: `PENDING` until it ends, then `SUCCESS` with a result or `ERROR` with a refusal. */
 export type Outcome =
@@ -24,27 +24,32 @@ interface OperationRow {
 }
 
 /** Records an operation a request started, and returns its id. */
-export function recordOperation(db: DatabaseSync, input: { accountId: string | null; outcome: Outcome }): string {
+export async function recordOperation(
+  db: Querier,
+  input: { accountId: string | null; outcome: Outcome },
+): Promise<string> {
   const { accountId, outcome } = input;
   const id = randomUUID();
-  db.prepare(
-    `INSERT INTO operations (id, status, result, error_type, error_message, account_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    outcome.status,
-    outcome.status === 'SUCCESS' && outcome.result !== undefined ? JSON.stringify(outcome.result) : null,
-    outcome.status === 'ERROR' ? outcome.error.type : null,
-    outcome.status === 'ERROR' ? outcome.error.message : null,
-    accountId,
-    new Date().toISOString(),
-  );
+  await db
+    .prepare(
+      `INSERT INTO operations (id, status, result, error_type, error_message, account_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      outcome.status,
+      outcome.status === 'SUCCESS' && outcome.result !== undefined ? JSON.stringify(outcome.result) : null,
+      outcome.status === 'ERROR' ? outcome.error.type : null,
+      outcome.status === 'ERROR' ? outcome.error.message : null,
+      accountId,
+      new Date().toISOString(),
+    );
   return id;
 }
 
 /** The operation with this id, or `undefined`. Reading never changes it. */
-export function findOperation(db: DatabaseSync, id: string): Operation | undefined {
-  const row = db.prepare('SELECT * FROM operations WHERE id = ?').get(id) as OperationRow | undefined;
+export async function findOperation(db: Querier, id: string): Promise<Operation | undefined> {
+  const row = await db.prepare('SELECT * FROM operations WHERE id = ?').get<OperationRow>(id);
   if (!row) return undefined;
   return { id: row.id, accountId: row.account_id, outcome: outcomeOf(row) };
 }

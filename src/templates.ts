@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
 import type { SplitInput } from './expenses';
+import type { Database, Querier } from './database';
 import { assertNotArchived, findGroupOfMember, membersOfGroup } from './groups';
 import { Refusal } from './refusal';
 import { characters } from './text';
@@ -45,10 +45,10 @@ function templateOf(row: TemplateRow, parts: readonly PartRow[]): Template {
   return { id: row.id, groupId: row.group_id, name: row.name, split: splitOf(row.split_kind, parts) };
 }
 
-function partsOf(db: DatabaseSync, templateId: string): PartRow[] {
+async function partsOf(db: Querier, templateId: string): Promise<PartRow[]> {
   return db
     .prepare('SELECT member_id, shares FROM template_parts WHERE template_id = ? ORDER BY position ASC')
-    .all(templateId) as unknown as PartRow[];
+    .all<PartRow>(templateId);
 }
 
 const COLUMNS = 'id, group_id, saved_by, name, split_kind';
@@ -66,7 +66,7 @@ function nameKeyOf(trimmedName: string): string {
  * spaces; the members of the split are members of the group, each listed once; each has at least 1 share. Answers the
  * name trimmed. Refused with `422`, the error naming the rule.
  */
-function checkTemplate(db: DatabaseSync, groupId: string, name: string, split: TemplateSplit): string {
+async function checkTemplate(db: Querier, groupId: string, name: string, split: TemplateSplit): Promise<string> {
   const trimmedName = name.trim();
   if (characters(name) > MAX_NAME_LENGTH || trimmedName.length === 0) {
     throw new Refusal(
@@ -82,7 +82,7 @@ function checkTemplate(db: DatabaseSync, groupId: string, name: string, split: T
   if (new Set(members).size !== members.length) {
     throw new Refusal(422, 'SplitRepeatsAMember', 'Each member may be listed once in the split.');
   }
-  const groupMembers = new Set(membersOfGroup(db, groupId).map(member => member.memberId));
+  const groupMembers = new Set((await membersOfGroup(db, groupId)).map(member => member.memberId));
   if (members.some(memberId => !groupMembers.has(memberId))) {
     throw new Refusal(422, 'MemberNotInGroup', 'Every member of the split must be a member of the group.');
   }
@@ -93,23 +93,26 @@ function checkTemplate(db: DatabaseSync, groupId: string, name: string, split: T
 }
 
 /** Refuses a name another template of the group, other than `exceptId`, already has: `409`. */
-function refuseNameTaken(db: DatabaseSync, groupId: string, nameKey: string, exceptId?: string): void {
-  const taken = db.prepare('SELECT id FROM templates WHERE group_id = ? AND name_key = ?').get(groupId, nameKey) as
-    { id: string } | undefined;
+async function refuseNameTaken(db: Querier, groupId: string, nameKey: string, exceptId?: string): Promise<void> {
+  const taken = await db
+    .prepare('SELECT id FROM templates WHERE group_id = ? AND name_key = ?')
+    .get<{ id: string }>(groupId, nameKey);
   if (taken && taken.id !== exceptId) {
     throw new Refusal(409, 'TemplateNameIsTaken', 'The group already has a template with this name.');
   }
 }
 
 /** Writes the parts of a template's split, in the order of the split: the shares of a split by shares, none for an equal one. */
-function writeParts(db: DatabaseSync, templateId: string, split: TemplateSplit): void {
+async function writeParts(db: Querier, templateId: string, split: TemplateSplit): Promise<void> {
   const insert = db.prepare(
     'INSERT INTO template_parts (template_id, position, member_id, shares) VALUES (?, ?, ?, ?)',
   );
   if (split.kind === 'equal') {
-    split.memberIds.forEach((memberId, position) => insert.run(templateId, position, memberId, null));
+    for (const [position, memberId] of split.memberIds.entries())
+      await insert.run(templateId, position, memberId, null);
   } else {
-    split.parts.forEach((part, position) => insert.run(templateId, position, part.memberId, part.shares));
+    for (const [position, part] of split.parts.entries())
+      await insert.run(templateId, position, part.memberId, part.shares);
   }
 }
 
@@ -118,38 +121,44 @@ function writeParts(db: DatabaseSync, templateId: string, split: TemplateSplit):
  * not a member of the group, with `409` when the group already has a template of that name (whatever its case), and with
  * `422` when the name or the split breaks a rule (see {@link checkTemplate}).
  */
-export function saveTemplate(
-  db: DatabaseSync,
+export async function saveTemplate(
+  db: Database,
   input: { groupId: string; callerId: string; name: string; split: TemplateSplit },
-): string {
+): Promise<string> {
   const { groupId, callerId, split } = input;
   const id = randomUUID();
-  inTransaction(db, () => {
-    const group = findGroupOfMember(db, callerId, groupId);
+  await inTransaction(db, async tx => {
+    const group = await findGroupOfMember(tx, callerId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     assertNotArchived(group);
-    const name = checkTemplate(db, groupId, input.name, split);
+    const name = await checkTemplate(tx, groupId, input.name, split);
     const nameKey = nameKeyOf(name);
-    refuseNameTaken(db, groupId, nameKey);
-    db.prepare(
-      'INSERT INTO templates (id, group_id, saved_by, name, name_key, split_kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, groupId, callerId, name, nameKey, split.kind, new Date().toISOString());
-    writeParts(db, id, split);
+    await refuseNameTaken(tx, groupId, nameKey);
+    await tx
+      .prepare(
+        'INSERT INTO templates (id, group_id, saved_by, name, name_key, split_kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, groupId, callerId, name, nameKey, split.kind, new Date().toISOString());
+    await writeParts(tx, id, split);
   });
   return id;
 }
 
 /**
  * The group's templates, the earliest saved first, each with the split it was given. Refused with `404` when `accountId`
- * is not a member of the group, as if it did not exist. It reads one consistent state of the file and changes nothing.
+ * is not a member of the group, as if it did not exist. It reads one consistent state of the database and changes nothing.
  */
-export function templatesOfGroup(db: DatabaseSync, accountId: string, groupId: string): Template[] {
-  return inReadSnapshot(db, () => {
-    if (!findGroupOfMember(db, accountId, groupId)) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
-    const rows = db
-      .prepare(`SELECT ${COLUMNS} FROM templates WHERE group_id = ? ORDER BY created_at ASC, rowid ASC`)
-      .all(groupId) as unknown as TemplateRow[];
-    return rows.map(row => templateOf(row, partsOf(db, row.id)));
+export async function templatesOfGroup(db: Database, accountId: string, groupId: string): Promise<Template[]> {
+  return inReadSnapshot(db, async snapshot => {
+    if (!(await findGroupOfMember(snapshot, accountId, groupId))) {
+      throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    }
+    const rows = await snapshot
+      .prepare(`SELECT ${COLUMNS} FROM templates WHERE group_id = ? ORDER BY created_at ASC, seq ASC`)
+      .all<TemplateRow>(groupId);
+    const templates: Template[] = [];
+    for (const row of rows) templates.push(templateOf(row, await partsOf(snapshot, row.id)));
+    return templates;
   });
 }
 
@@ -157,19 +166,24 @@ export function templatesOfGroup(db: DatabaseSync, accountId: string, groupId: s
  * The split of the template with this id, when it is one of the templates of `groupId`; `undefined` otherwise. Used when an
  * expense of the group is split by it: the caller has checked that the expense is the group's.
  */
-export function splitOfTemplate(db: DatabaseSync, groupId: string, templateId: string): TemplateSplit | undefined {
-  const row = db.prepare(`SELECT ${COLUMNS} FROM templates WHERE id = ? AND group_id = ?`).get(templateId, groupId) as
-    TemplateRow | undefined;
-  return row && splitOf(row.split_kind, partsOf(db, row.id));
+export async function splitOfTemplate(
+  db: Querier,
+  groupId: string,
+  templateId: string,
+): Promise<TemplateSplit | undefined> {
+  const row = await db
+    .prepare(`SELECT ${COLUMNS} FROM templates WHERE id = ? AND group_id = ?`)
+    .get<TemplateRow>(templateId, groupId);
+  return row && splitOf(row.split_kind, await partsOf(db, row.id));
 }
 
 /**
  * The template a member may change: they must be a member of its group, else `404` as if it did not exist; and the member
  * who saved it or the group's owner, else `403`.
  */
-function templateChangeableBy(db: DatabaseSync, editorId: string, templateId: string): TemplateRow {
-  const row = db.prepare(`SELECT ${COLUMNS} FROM templates WHERE id = ?`).get(templateId) as TemplateRow | undefined;
-  const group = row && findGroupOfMember(db, editorId, row.group_id);
+async function templateChangeableBy(db: Querier, editorId: string, templateId: string): Promise<TemplateRow> {
+  const row = await db.prepare(`SELECT ${COLUMNS} FROM templates WHERE id = ?`).get<TemplateRow>(templateId);
+  const group = row && (await findGroupOfMember(db, editorId, row.group_id));
   if (!row || !group) throw new Refusal(404, 'TemplateNotFound', 'No template has this id.');
   assertNotArchived(group);
   if (editorId !== row.saved_by && editorId !== group.ownerId) {
@@ -187,24 +201,21 @@ function templateChangeableBy(db: DatabaseSync, editorId: string, templateId: st
  * the member who saved it or the group's owner may (see {@link templateChangeableBy}). Expenses already split by it are not
  * changed.
  */
-export function replaceTemplate(
-  db: DatabaseSync,
+export async function replaceTemplate(
+  db: Database,
   input: { templateId: string; editorId: string; name: string; split: TemplateSplit },
-): void {
+): Promise<void> {
   const { templateId, editorId, split } = input;
-  inTransaction(db, () => {
-    const row = templateChangeableBy(db, editorId, templateId);
-    const name = checkTemplate(db, row.group_id, input.name, split);
+  await inTransaction(db, async tx => {
+    const row = await templateChangeableBy(tx, editorId, templateId);
+    const name = await checkTemplate(tx, row.group_id, input.name, split);
     const nameKey = nameKeyOf(name);
-    refuseNameTaken(db, row.group_id, nameKey, templateId);
-    db.prepare('UPDATE templates SET name = ?, name_key = ?, split_kind = ? WHERE id = ?').run(
-      name,
-      nameKey,
-      split.kind,
-      templateId,
-    );
-    db.prepare('DELETE FROM template_parts WHERE template_id = ?').run(templateId);
-    writeParts(db, templateId, split);
+    await refuseNameTaken(tx, row.group_id, nameKey, templateId);
+    await tx
+      .prepare('UPDATE templates SET name = ?, name_key = ?, split_kind = ? WHERE id = ?')
+      .run(name, nameKey, split.kind, templateId);
+    await tx.prepare('DELETE FROM template_parts WHERE template_id = ?').run(templateId);
+    await writeParts(tx, templateId, split);
   });
 }
 
@@ -212,10 +223,10 @@ export function replaceTemplate(
  * Removes the template, under the same rules as replacing it (see {@link replaceTemplate}). Expenses already split by it are
  * not changed.
  */
-export function removeTemplate(db: DatabaseSync, input: { templateId: string; editorId: string }): void {
-  inTransaction(db, () => {
-    templateChangeableBy(db, input.editorId, input.templateId);
-    db.prepare('DELETE FROM template_parts WHERE template_id = ?').run(input.templateId);
-    db.prepare('DELETE FROM templates WHERE id = ?').run(input.templateId);
+export async function removeTemplate(db: Database, input: { templateId: string; editorId: string }): Promise<void> {
+  await inTransaction(db, async tx => {
+    await templateChangeableBy(tx, input.editorId, input.templateId);
+    await tx.prepare('DELETE FROM template_parts WHERE template_id = ?').run(input.templateId);
+    await tx.prepare('DELETE FROM templates WHERE id = ?').run(input.templateId);
   });
 }

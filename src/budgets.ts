@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Querier } from './database';
 import { CATEGORIES, isCategory, type Category } from './categories';
 import { assertNotArchived, findGroupOfMember, membersOfGroup, type Group } from './groups';
 import { noticeBudget } from './notices';
@@ -40,23 +40,23 @@ function monthDays(month: string): { from: string; to: string } {
  * What the group's expenses of `category` dated in `month` add up to, in the group's currency. A deleted expense is no
  * longer kept, so it counts in nothing.
  */
-function spentIn(db: DatabaseSync, groupId: string, category: Category, month: string): number {
+async function spentIn(db: Querier, groupId: string, category: Category, month: string): Promise<number> {
   const { from, to } = monthDays(month);
-  const row = db
+  const row = await db
     .prepare(
       `SELECT COALESCE(SUM(amount), 0) AS total FROM expenses
        WHERE group_id = ? AND category = ? AND spent_on >= ? AND spent_on < ?`,
     )
-    .get(groupId, category, from, to) as { total: number };
-  return row.total;
+    .get<{ total: number }>(groupId, category, from, to);
+  return Number(row?.total ?? 0);
 }
 
 /**
  * The group, when `callerId` is its owner; a non-member is `404` (as if it did not exist), an archived group `409` (see
  * {@link assertNotArchived}), another member `403`.
  */
-function ownedGroup(db: DatabaseSync, callerId: string, groupId: string): Group {
-  const group = findGroupOfMember(db, callerId, groupId);
+async function ownedGroup(db: Querier, callerId: string, groupId: string): Promise<Group> {
+  const group = await findGroupOfMember(db, callerId, groupId);
   if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
   assertNotArchived(group);
   if (group.ownerId !== callerId) {
@@ -78,13 +78,13 @@ function knownCategory(category: string): Category {
  * no notice by itself. Refused with `404` for a non-member, `403` for a member who is not the owner, `422` when the
  * category is not one of the categories or the amount is not a whole number from {@link MIN_BUDGET} to {@link MAX_BUDGET}.
  */
-export function setBudget(
-  db: DatabaseSync,
+export async function setBudget(
+  db: Database,
   input: { groupId: string; callerId: string; category: string; amount: number },
-): void {
+): Promise<void> {
   const { groupId, callerId, amount } = input;
-  inTransaction(db, () => {
-    ownedGroup(db, callerId, groupId);
+  await inTransaction(db, async tx => {
+    await ownedGroup(tx, callerId, groupId);
     const category = knownCategory(input.category);
     if (!Number.isInteger(amount) || amount < MIN_BUDGET || amount > MAX_BUDGET) {
       throw new Refusal(
@@ -93,10 +93,12 @@ export function setBudget(
         `A budget must be a whole number from ${MIN_BUDGET} to ${MAX_BUDGET}.`,
       );
     }
-    db.prepare(
-      `INSERT INTO budgets (group_id, category, amount) VALUES (?, ?, ?)
-       ON CONFLICT (group_id, category) DO UPDATE SET amount = excluded.amount`,
-    ).run(groupId, category, amount);
+    await tx
+      .prepare(
+        `INSERT INTO budgets (group_id, category, amount) VALUES (?, ?, ?)
+         ON CONFLICT (group_id, category) DO UPDATE SET amount = excluded.amount`,
+      )
+      .run(groupId, category, amount);
   });
 }
 
@@ -104,12 +106,15 @@ export function setBudget(
  * Removes the budget of a category of a group: its owner only (refused as {@link setBudget} is). Removing a category
  * that has no budget changes nothing and is answered the same.
  */
-export function removeBudget(db: DatabaseSync, input: { groupId: string; callerId: string; category: string }): void {
+export async function removeBudget(
+  db: Database,
+  input: { groupId: string; callerId: string; category: string },
+): Promise<void> {
   const { groupId, callerId } = input;
-  inTransaction(db, () => {
-    ownedGroup(db, callerId, groupId);
+  await inTransaction(db, async tx => {
+    await ownedGroup(tx, callerId, groupId);
     const category = knownCategory(input.category);
-    db.prepare('DELETE FROM budgets WHERE group_id = ? AND category = ?').run(groupId, category);
+    await tx.prepare('DELETE FROM budgets WHERE group_id = ? AND category = ?').run(groupId, category);
   });
 }
 
@@ -118,16 +123,24 @@ export function removeBudget(db: DatabaseSync, input: { groupId: string; callerI
  * amount and what the month of `now` (in UTC) spends in it. Refused with `404` when `accountId` is not a member, as if
  * the group did not exist. Reading changes nothing.
  */
-export function budgetsOfGroup(db: DatabaseSync, accountId: string, groupId: string, now: Date): Budget[] {
-  return inReadSnapshot(db, () => {
-    if (!findGroupOfMember(db, accountId, groupId)) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
-    const rows = db
+export async function budgetsOfGroup(db: Database, accountId: string, groupId: string, now: Date): Promise<Budget[]> {
+  return inReadSnapshot(db, async snapshot => {
+    if (!(await findGroupOfMember(snapshot, accountId, groupId))) {
+      throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
+    }
+    const rows = await snapshot
       .prepare('SELECT category, amount FROM budgets WHERE group_id = ?')
-      .all(groupId) as unknown as BudgetRow[];
+      .all<BudgetRow>(groupId);
     const month = monthOf(now);
-    return rows
-      .map(row => ({ category: row.category, amount: row.amount, spent: spentIn(db, groupId, row.category, month) }))
-      .sort((a, b) => CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category));
+    const budgets: Budget[] = [];
+    for (const row of rows) {
+      budgets.push({
+        category: row.category,
+        amount: Number(row.amount),
+        spent: await spentIn(snapshot, groupId, row.category, month),
+      });
+    }
+    return budgets.sort((a, b) => CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category));
   });
 }
 
@@ -137,34 +150,32 @@ export function budgetsOfGroup(db: DatabaseSync, accountId: string, groupId: str
  * spends. A month of a category is noticed once, ever: a month that goes further over, or comes back under and over
  * again, makes no other. Called in the transaction that keeps the expense, so the notices exist exactly when it does.
  */
-export function noticeBudgetPassed(
-  db: DatabaseSync,
+export async function noticeBudgetPassed(
+  db: Querier,
   input: { groupId: string; category: Category; date: string; at: string },
-): void {
+): Promise<void> {
   const { groupId, category, at } = input;
   const month = input.date.slice(0, 7);
-  const budget = db.prepare('SELECT amount FROM budgets WHERE group_id = ? AND category = ?').get(groupId, category) as
-    { amount: number } | undefined;
+  const budget = await db
+    .prepare('SELECT amount FROM budgets WHERE group_id = ? AND category = ?')
+    .get<{ amount: number }>(groupId, category);
   if (budget === undefined) return;
-  const spent = spentIn(db, groupId, category, month);
+  const spent = await spentIn(db, groupId, category, month);
   if (spent <= budget.amount) return;
-  const passed = db
+  const passed = await db
     .prepare('SELECT 1 FROM budget_months_passed WHERE group_id = ? AND category = ? AND month = ?')
     .get(groupId, category, month);
   if (passed !== undefined) return;
-  db.prepare('INSERT INTO budget_months_passed (group_id, category, month, passed_at) VALUES (?, ?, ?, ?)').run(
-    groupId,
-    category,
-    month,
-    at,
-  );
-  for (const member of membersOfGroup(db, groupId)) {
-    noticeBudget(db, {
+  await db
+    .prepare('INSERT INTO budget_months_passed (group_id, category, month, passed_at) VALUES (?, ?, ?, ?)')
+    .run(groupId, category, month, at);
+  for (const member of await membersOfGroup(db, groupId)) {
+    await noticeBudget(db, {
       recipientId: member.memberId,
       groupId,
       category,
       month,
-      budget: budget.amount,
+      budget: Number(budget.amount),
       amount: spent,
       at,
     });

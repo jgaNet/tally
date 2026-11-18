@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Querier } from './database';
 import { recordAudit } from './audit';
 import { noticeBudgetPassed } from './budgets';
 import { CATEGORIES, DEFAULT_CATEGORY, isCategory, type Category } from './categories';
@@ -269,9 +269,9 @@ function amountInGroupCurrency(
 }
 
 /** The split an expense gives, with a template's split in place of it: it is then the split of the template in the group. */
-function resolveSplit(db: DatabaseSync, groupId: string, given: SplitGiven): SplitInput {
+async function resolveSplit(db: Querier, groupId: string, given: SplitGiven): Promise<SplitInput> {
   if (given.kind !== 'template') return given;
-  const split = splitOfTemplate(db, groupId, given.templateId);
+  const split = await splitOfTemplate(db, groupId, given.templateId);
   if (!split) {
     throw new Refusal(422, 'TemplateNotInGroup', 'The template must be one of the templates of the group.');
   }
@@ -325,22 +325,22 @@ function sharesOfSplit(amount: number, split: SplitInput): Share[] {
  * paid in, the shares it gives, and its category (`other` when none is given). Refused with `422` (the error names the
  * rule) when a rule is broken. Writes nothing; the caller runs it in its transaction.
  */
-export function checkExpenseFields(
-  db: DatabaseSync,
+export async function checkExpenseFields(
+  db: Querier,
   groupId: string,
   groupCurrency: Currency,
   payerId: string,
   fields: ExpenseFields,
   offer: RateOffer,
   today: string = todayInUtc(),
-): {
+): Promise<{
   description: string;
   amount: number;
   original: OriginalAmount | undefined;
   shares: Share[];
   category: Category;
   splitKind: SplitKind;
-} {
+}> {
   const { description, date } = fields;
   const category = fields.category ?? DEFAULT_CATEGORY;
   if (!isCategory(category)) {
@@ -364,7 +364,7 @@ export function checkExpenseFields(
   if (date > today) {
     throw new Refusal(422, 'DateIsInTheFuture', 'The date must not be after today (UTC).');
   }
-  const split = resolveSplit(db, groupId, fields.split);
+  const split = await resolveSplit(db, groupId, fields.split);
   const members = membersOfSplit(split);
   if (members.length === 0) {
     throw new Refusal(422, 'SplitIsEmpty', 'The expense must be split between at least one member.');
@@ -372,7 +372,7 @@ export function checkExpenseFields(
   if (new Set(members).size !== members.length) {
     throw new Refusal(422, 'SplitRepeatsAMember', 'Each member may be listed once in the split.');
   }
-  const groupMembers = new Set(membersOfGroup(db, groupId).map(member => member.memberId));
+  const groupMembers = new Set((await membersOfGroup(db, groupId)).map(member => member.memberId));
   if (members.some(memberId => !groupMembers.has(memberId))) {
     throw new Refusal(422, 'MemberNotInGroup', 'Every member of the split must be a member of the group.');
   }
@@ -391,13 +391,13 @@ export function checkExpenseFields(
 }
 
 /** Writes the expense's shares, in the order of the split. */
-function writeShares(db: DatabaseSync, expenseId: string, shares: readonly Share[]) {
+async function writeShares(db: Querier, expenseId: string, shares: readonly Share[]): Promise<void> {
   const insertShare = db.prepare(
     'INSERT INTO expense_shares (expense_id, position, member_id, amount) VALUES (?, ?, ?, ?)',
   );
-  shares.forEach((share, position) => {
-    insertShare.run(expenseId, position, share.memberId, share.amount);
-  });
+  for (const [position, share] of shares.entries()) {
+    await insertShare.run(expenseId, position, share.memberId, share.amount);
+  }
 }
 
 /**
@@ -413,8 +413,8 @@ function originalColumns(original: OriginalAmount | undefined): [Currency | null
  * notices its month of its category as passed, when it passes the category's budget. The caller's transaction keeps
  * them together. `recurring` names the recurring expense and the day it is recorded for.
  */
-export function insertExpense(
-  db: DatabaseSync,
+export async function insertExpense(
+  db: Querier,
   input: {
     id: string;
     groupId: string;
@@ -431,34 +431,43 @@ export function insertExpense(
     at: string;
     recurring?: string;
   },
-): void {
+): Promise<void> {
   const { id, groupId, payerId, date, checked, at } = input;
   const [originalCurrency, originalAmount, rate] = originalColumns(checked.original);
-  db.prepare(
-    `INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind,
-       original_currency, original_amount, rate, recurring_id, recurring_day, category, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
+  await db
+    .prepare(
+      `INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind,
+         original_currency, original_amount, rate, recurring_id, recurring_day, category, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      groupId,
+      checked.description,
+      checked.amount,
+      date,
+      payerId,
+      checked.splitKind,
+      originalCurrency,
+      originalAmount,
+      rate,
+      input.recurring ?? null,
+      input.recurring === undefined ? null : date,
+      checked.category,
+      at,
+    );
+  await writeShares(db, id, checked.shares);
+  await recordAudit(db, {
     groupId,
-    checked.description,
-    checked.amount,
-    date,
-    payerId,
-    checked.splitKind,
-    originalCurrency,
-    originalAmount,
-    rate,
-    input.recurring ?? null,
-    input.recurring === undefined ? null : date,
-    checked.category,
     at,
-  );
-  writeShares(db, id, checked.shares);
-  recordAudit(db, { groupId, at, by: payerId, action: 'expense-recorded', subjectId: id, amount: checked.amount });
+    by: payerId,
+    action: 'expense-recorded',
+    subjectId: id,
+    amount: checked.amount,
+  });
   // The members of the split are told of their shares in the same transaction: the notices exist with the expense.
-  noticeExpense(db, { expenseId: id, groupId, payerId, shares: checked.shares, at });
-  noticeBudgetPassed(db, { groupId, category: checked.category, date, at });
+  await noticeExpense(db, { expenseId: id, groupId, payerId, shares: checked.shares, at });
+  await noticeBudgetPassed(db, { groupId, category: checked.category, date, at });
 }
 
 export interface RecordExpenseInput extends ExpenseFields {
@@ -496,23 +505,23 @@ async function rateOfferFor(
  * The rate is asked outside any transaction, so that no write is held while it answers; the rules are checked again
  * in the transaction that keeps the expense, so a member who left in between is refused as before.
  */
-export async function recordExpense(db: DatabaseSync, rates: RatesConfig, input: RecordExpenseInput): Promise<string> {
+export async function recordExpense(db: Database, rates: RatesConfig, input: RecordExpenseInput): Promise<string> {
   const { groupId, payerId, date } = input;
   const id = randomUUID();
-  const asked = findGroupOfMember(db, payerId, groupId);
+  const asked = await findGroupOfMember(db, payerId, groupId);
   if (!asked) {
     throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
   }
   assertNotArchived(asked);
   const offer = await rateOfferFor(rates, asked.currency, input.amount, date);
-  inTransaction(db, () => {
-    const group = findGroupOfMember(db, payerId, groupId);
+  await inTransaction(db, async tx => {
+    const group = await findGroupOfMember(tx, payerId, groupId);
     if (!group) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
     assertNotArchived(group);
-    const checked = checkExpenseFields(db, groupId, group.currency, payerId, input, offer);
-    insertExpense(db, { id, groupId, payerId, date, checked, at: new Date().toISOString() });
+    const checked = await checkExpenseFields(tx, groupId, group.currency, payerId, input, offer);
+    await insertExpense(tx, { id, groupId, payerId, date, checked, at: new Date().toISOString() });
   });
   return id;
 }
@@ -530,12 +539,12 @@ function expenseOf(row: ExpenseRow, shares: readonly ShareRow[]): Expense {
     id: row.id,
     groupId: row.group_id,
     description: row.description,
-    amount: row.amount,
+    amount: Number(row.amount),
     date: row.spent_on,
     paidBy: row.paid_by,
-    version: row.version,
+    version: Number(row.version),
     splitKind: row.split_kind,
-    shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
+    shares: shares.map(share => ({ memberId: share.member_id, amount: Number(share.amount) })),
     ...(original ? { original } : {}),
     category: row.category,
   };
@@ -545,19 +554,23 @@ function expenseOf(row: ExpenseRow, shares: readonly ShareRow[]): Expense {
  * The expense with this id, when `accountId` is a member of its group; `undefined` otherwise, as if it
  * did not exist. Reading never changes it.
  */
-export function findExpenseOfMember(db: DatabaseSync, accountId: string, expenseId: string): Expense | undefined {
-  const row = db
+export async function findExpenseOfMember(
+  db: Querier,
+  accountId: string,
+  expenseId: string,
+): Promise<Expense | undefined> {
+  const row = await db
     .prepare(
       `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, e.version, e.split_kind,
               e.original_currency, e.original_amount, e.rate, e.category FROM expenses e
        JOIN group_members m ON m.group_id = e.group_id
        WHERE e.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
-    .get(expenseId, accountId) as ExpenseRow | undefined;
+    .get<ExpenseRow>(expenseId, accountId);
   if (!row) return undefined;
-  const shares = db
+  const shares = await db
     .prepare('SELECT member_id, amount FROM expense_shares WHERE expense_id = ? ORDER BY position ASC')
-    .all(row.id) as unknown as ShareRow[];
+    .all<ShareRow>(row.id);
   return expenseOf(row, shares);
 }
 
@@ -565,27 +578,27 @@ export function findExpenseOfMember(db: DatabaseSync, accountId: string, expense
  * Every expense of the group that is not deleted, as a member of the group reads each: the latest date
  * first, and on the same date the most recently recorded first. An edit does not change when an
  * expense was recorded, so it does not move it. Refused with `404` when `accountId` is not a member of
- * the group, as if it did not exist. It reads one consistent state of the file and changes nothing.
+ * the group, as if it did not exist. It reads one consistent state of the database and changes nothing.
  */
-export function expensesOfGroup(db: DatabaseSync, accountId: string, groupId: string): Expense[] {
-  return inReadSnapshot(db, () => {
-    if (!findGroupOfMember(db, accountId, groupId)) {
+export async function expensesOfGroup(db: Database, accountId: string, groupId: string): Promise<Expense[]> {
+  return inReadSnapshot(db, async snapshot => {
+    if (!(await findGroupOfMember(snapshot, accountId, groupId))) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
-    const rows = db
+    const rows = await snapshot
       .prepare(
         `SELECT id, group_id, description, amount, spent_on, paid_by, version, split_kind,
                 original_currency, original_amount, rate, category FROM expenses
-         WHERE group_id = ? ORDER BY spent_on DESC, created_at DESC, rowid DESC`,
+         WHERE group_id = ? ORDER BY spent_on DESC, created_at DESC, seq DESC`,
       )
-      .all(groupId) as unknown as ExpenseRow[];
-    const shareRows = db
+      .all<ExpenseRow>(groupId);
+    const shareRows = await snapshot
       .prepare(
         `SELECT s.expense_id, s.member_id, s.amount FROM expense_shares s
          JOIN expenses e ON e.id = s.expense_id
          WHERE e.group_id = ? ORDER BY s.expense_id ASC, s.position ASC`,
       )
-      .all(groupId) as unknown as ShareOfExpenseRow[];
+      .all<ShareOfExpenseRow>(groupId);
     const sharesByExpense = new Map<string, ShareRow[]>();
     for (const share of shareRows) {
       const shares = sharesByExpense.get(share.expense_id) ?? [];
@@ -602,20 +615,20 @@ export function expensesOfGroup(db: DatabaseSync, accountId: string, groupId: st
  * split has left the group cannot be changed (`409`): an expense of a member who left stays as it was. Answers the expense
  * as it is now.
  */
-export function expenseChangeableBy(
-  db: DatabaseSync,
+export async function expenseChangeableBy(
+  db: Querier,
   editorId: string,
   expenseId: string,
-): { expense: Expense; group: Group } {
-  const expense = findExpenseOfMember(db, editorId, expenseId);
+): Promise<{ expense: Expense; group: Group }> {
+  const expense = await findExpenseOfMember(db, editorId, expenseId);
   if (!expense) throw new Refusal(404, 'ExpenseNotFound', 'No expense has this id.');
-  const group = findGroupOfMember(db, editorId, expense.groupId);
+  const group = await findGroupOfMember(db, editorId, expense.groupId);
   if (!group) throw new Refusal(404, 'ExpenseNotFound', 'No expense has this id.');
   assertNotArchived(group);
   if (editorId !== expense.paidBy && editorId !== group.ownerId) {
     throw new Refusal(403, 'NotPayerOrOwner', 'Only the payer of the expense or the owner of its group may change it.');
   }
-  const currentMembers = new Set(membersOfGroup(db, expense.groupId).map(member => member.memberId));
+  const currentMembers = new Set((await membersOfGroup(db, expense.groupId)).map(member => member.memberId));
   const concernsLeaver =
     !currentMembers.has(expense.paidBy) || expense.shares.some(share => !currentMembers.has(share.memberId));
   if (concernsLeaver) {
@@ -646,15 +659,15 @@ export interface EditExpenseInput extends ExpenseFields {
  * changed since the version given. A refused edit keeps nothing: the edit is one transaction, so two edits of one
  * version cannot both be kept.
  */
-export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: EditExpenseInput): Promise<Expense> {
+export async function editExpense(db: Database, rates: RatesConfig, input: EditExpenseInput): Promise<Expense> {
   const { expenseId, editorId, version, date } = input;
   // The rate is asked for the expense as it is now, outside the transaction; the edit's own rules are checked inside it.
-  const asked = findExpenseOfMember(db, editorId, expenseId);
-  const askedGroup = asked && findGroupOfMember(db, editorId, asked.groupId);
+  const asked = await findExpenseOfMember(db, editorId, expenseId);
+  const askedGroup = asked && (await findGroupOfMember(db, editorId, asked.groupId));
   if (askedGroup) assertNotArchived(askedGroup);
   const offer = askedGroup ? await rateOfferFor(rates, askedGroup.currency, input.amount, date) : undefined;
-  return inTransaction(db, () => {
-    const { expense, group } = expenseChangeableBy(db, editorId, expenseId);
+  return inTransaction(db, async tx => {
+    const { expense, group } = await expenseChangeableBy(tx, editorId, expenseId);
     if (expense.version !== version) {
       throw new Refusal(
         409,
@@ -662,9 +675,9 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
         `The expense has changed since version ${version}: it is at version ${expense.version}. Read it again.`,
       );
     }
-    const checked = checkExpenseFields(db, expense.groupId, group.currency, expense.paidBy, input, offer);
+    const checked = await checkExpenseFields(tx, expense.groupId, group.currency, expense.paidBy, input, offer);
     const [originalCurrency, originalAmount, rate] = originalColumns(checked.original);
-    const updated = db
+    const updated = await tx
       .prepare(
         `UPDATE expenses SET description = ?, amount = ?, spent_on = ?, split_kind = ?,
                 original_currency = ?, original_amount = ?, rate = ?, category = ?, version = version + 1
@@ -685,10 +698,10 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
     if (updated.changes !== 1) {
       throw new Refusal(409, 'ExpenseChanged', 'The expense has changed since it was read. Read it again.');
     }
-    db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
-    writeShares(db, expenseId, checked.shares);
+    await tx.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
+    await writeShares(tx, expenseId, checked.shares);
     const at = new Date().toISOString();
-    recordAudit(db, {
+    await recordAudit(tx, {
       groupId: expense.groupId,
       at,
       by: editorId,
@@ -697,21 +710,21 @@ export async function editExpense(db: DatabaseSync, rates: RatesConfig, input: E
       amount: checked.amount,
     });
     // The month the edit leaves the expense in, in its category, is checked against the budget as a record is.
-    noticeBudgetPassed(db, { groupId: expense.groupId, category: checked.category, date, at });
-    return findExpenseOfMember(db, editorId, expenseId) as Expense;
+    await noticeBudgetPassed(tx, { groupId: expense.groupId, category: checked.category, date, at });
+    return (await findExpenseOfMember(tx, editorId, expenseId)) as Expense;
   });
 }
 
 /**
  * Deletes the expense, and its receipt with it: it is no longer read, and counts in no balance. Refused like an edit: `404`
- * when the deleter is not a member of its group, `403` when they are neither its payer nor the
- * group's owner.
+ * when the deleter is not a member of its group, `403` when they are neither its payer nor the group's
+ * owner.
  */
-export function deleteExpense(db: DatabaseSync, input: { expenseId: string; deleterId: string }): void {
+export async function deleteExpense(db: Database, input: { expenseId: string; deleterId: string }): Promise<void> {
   const { expenseId, deleterId } = input;
-  inTransaction(db, () => {
-    const { expense } = expenseChangeableBy(db, deleterId, expenseId);
-    recordAudit(db, {
+  await inTransaction(db, async tx => {
+    const { expense } = await expenseChangeableBy(tx, deleterId, expenseId);
+    await recordAudit(tx, {
       groupId: expense.groupId,
       at: new Date().toISOString(),
       by: deleterId,
@@ -719,8 +732,8 @@ export function deleteExpense(db: DatabaseSync, input: { expenseId: string; dele
       subjectId: expenseId,
       amount: expense.amount,
     });
-    db.prepare('DELETE FROM receipts WHERE expense_id = ?').run(expenseId);
-    db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
-    db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
+    await tx.prepare('DELETE FROM receipts WHERE expense_id = ?').run(expenseId);
+    await tx.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);
+    await tx.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
   });
 }

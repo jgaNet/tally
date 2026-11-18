@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { requireCaller } from '../http';
 import {
   removeTemplate,
@@ -75,14 +75,14 @@ function projection(template: Template) {
   return { ...fields, splitByShares: split.parts };
 }
 
-export function registerTemplateRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerTemplateRoutes(server: FastifyInstance, db: Database): void {
   // Any member of the group saves a template of it; the name is unique in the group.
   server.post<{ Params: { id: string }; Body: TemplateBody }>(
     '/groups/:id/templates',
     { schema: { body: TEMPLATE_BODY, response: { 201: ID } } },
     async (request, reply) => {
-      const caller = requireCaller(db, request);
-      const id = saveTemplate(db, {
+      const caller = await requireCaller(db, request);
+      const id = await saveTemplate(db, {
         groupId: request.params.id,
         callerId: caller.id,
         name: request.body.name,
@@ -97,8 +97,8 @@ export function registerTemplateRoutes(server: FastifyInstance, db: DatabaseSync
     '/groups/:id/templates',
     { schema: { response: { 200: { type: 'array', items: TEMPLATE } } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return templatesOfGroup(db, caller.id, request.params.id).map(projection);
+      const caller = await requireCaller(db, request);
+      return (await templatesOfGroup(db, caller.id, request.params.id)).map(projection);
     },
   );
 
@@ -107,8 +107,8 @@ export function registerTemplateRoutes(server: FastifyInstance, db: DatabaseSync
     '/templates/:id',
     { schema: { body: TEMPLATE_BODY } },
     async (request, reply) => {
-      const caller = requireCaller(db, request);
-      replaceTemplate(db, {
+      const caller = await requireCaller(db, request);
+      await replaceTemplate(db, {
         templateId: request.params.id,
         editorId: caller.id,
         name: request.body.name,
@@ -120,8 +120,8 @@ export function registerTemplateRoutes(server: FastifyInstance, db: DatabaseSync
 
   // Only the member who saved the template, or the group's owner, removes it.
   server.delete<{ Params: { id: string } }>('/templates/:id', async (request, reply) => {
-    const caller = requireCaller(db, request);
-    removeTemplate(db, { templateId: request.params.id, editorId: caller.id });
+    const caller = await requireCaller(db, request);
+    await removeTemplate(db, { templateId: request.params.id, editorId: caller.id });
     return reply.code(204).send();
   });
 }

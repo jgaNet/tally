@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { requireCaller } from '../http';
 import { CATEGORIES } from '../categories';
 import { CURRENCIES } from '../groups';
@@ -176,13 +176,13 @@ function amountOf(body: RecordExpenseBody): ExpenseAmount {
   return { kind: 'group', amount: body.amount as number };
 }
 
-export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync, rates: RatesConfig): void {
+export function registerExpenseRoutes(server: FastifyInstance, db: Database, rates: RatesConfig): void {
   // The payer is the caller; a caller who is not a member of the group sees no group to record in.
   server.post<{ Params: { id: string }; Body: RecordExpenseBody }>(
     '/groups/:id/expenses',
     { schema: { body: RECORD_EXPENSE_BODY, response: { 201: ID } } },
     async (request, reply) => {
-      const caller = requireCaller(db, request);
+      const caller = await requireCaller(db, request);
       const { description, date, category } = request.body;
       const id = await recordExpense(db, rates, {
         groupId: request.params.id,
@@ -202,15 +202,15 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync,
     '/groups/:id/expenses',
     { schema: { response: { 200: { type: 'array', items: EXPENSE } } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return expensesOfGroup(db, caller.id, request.params.id);
+      const caller = await requireCaller(db, request);
+      return await expensesOfGroup(db, caller.id, request.params.id);
     },
   );
 
   // Only a member of the expense's group reads it; to anyone else it does not exist.
   server.get<{ Params: { id: string } }>('/expenses/:id', { schema: { response: { 200: EXPENSE } } }, async request => {
-    const caller = requireCaller(db, request);
-    const expense = findExpenseOfMember(db, caller.id, request.params.id);
+    const caller = await requireCaller(db, request);
+    const expense = await findExpenseOfMember(db, caller.id, request.params.id);
     if (!expense) throw new Refusal(404, 'ExpenseNotFound', 'No expense has this id.');
     return expense;
   });
@@ -221,9 +221,9 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync,
     '/expenses/:id',
     { schema: { body: EDIT_EXPENSE_BODY, response: { 200: EXPENSE } } },
     async request => {
-      const caller = requireCaller(db, request);
+      const caller = await requireCaller(db, request);
       const { description, date, version, category } = request.body;
-      return editExpense(db, rates, {
+      return await editExpense(db, rates, {
         expenseId: request.params.id,
         editorId: caller.id,
         description,
@@ -238,8 +238,8 @@ export function registerExpenseRoutes(server: FastifyInstance, db: DatabaseSync,
 
   // Only the expense's payer or its group's owner deletes it.
   server.delete<{ Params: { id: string } }>('/expenses/:id', async (request, reply) => {
-    const caller = requireCaller(db, request);
-    deleteExpense(db, { expenseId: request.params.id, deleterId: caller.id });
+    const caller = await requireCaller(db, request);
+    await deleteExpense(db, { expenseId: request.params.id, deleterId: caller.id });
     return reply.code(204).send();
   });
 }

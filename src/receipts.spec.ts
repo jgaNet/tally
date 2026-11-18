@@ -1,10 +1,9 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { DatabaseSync } from 'node:sqlite';
 import { createApplication, type Application } from './app';
-import { openDatabase } from './database';
+import { type Database, openDatabase } from './database';
 import { MAX_RECEIPT_BYTES } from './receipts';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { ensureDatabase, send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
 
 /** The day `offset` days from today, in UTC, as `YYYY-MM-DD`. */
 function utcDay(offset: number): string {
@@ -100,8 +99,9 @@ describe('receipts', () => {
     });
     await new Promise<void>(resolve => service.listen(0, '127.0.0.1', resolve));
     serviceUrl = `http://127.0.0.1:${(service.address() as AddressInfo).port}`;
+    await ensureDatabase(directory.databaseUrl);
     app = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       receiptsUrl: serviceUrl,
       receiptsTimeoutMs: 200,
     });
@@ -112,7 +112,7 @@ describe('receipts', () => {
     await app.stop();
     await new Promise<void>(resolve => service.close(() => resolve()));
     service.closeAllConnections();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -441,11 +441,11 @@ describe('receipts', () => {
       await attach(ana.token, expenseId, JPEG);
       expect((await send(app, 'DELETE', `/expenses/${expenseId}`, { token: ana.token })).status).toBe(204);
       expect((await readReceipt(ana.token, expenseId)).status).toBe(404);
-      const counter: DatabaseSync = openDatabase(directory.databasePath);
+      const counter: Database = await openDatabase({ url: directory.databaseUrl });
       try {
-        expect((counter.prepare('SELECT COUNT(*) AS n FROM receipts').get() as { n: number }).n).toBe(0);
+        expect(((await counter.prepare('SELECT COUNT(*) AS n FROM receipts').get()) as { n: number }).n).toBe(0);
       } finally {
-        counter.close();
+        await counter.close();
       }
     });
   });
@@ -455,8 +455,9 @@ describe('receipts', () => {
       const { ana, expenseId } = await setUp();
       await attach(ana.token, expenseId, PNG);
       await app.stop();
+      await ensureDatabase(directory.databaseUrl);
       app = await createApplication({
-        databasePath: directory.databasePath,
+        databaseUrl: directory.databaseUrl,
         receiptsUrl: serviceUrl,
         receiptsTimeoutMs: 200,
       });
@@ -472,7 +473,8 @@ describe('receipts', () => {
   describe('without a receipts store', () => {
     it('refuses a receipt with 424, sends nothing, and keeps nothing', async () => {
       const unconfigured = testDirectory();
-      const unconfiguredApp = await createApplication({ databasePath: unconfigured.databasePath, receiptsUrl: '' });
+      await ensureDatabase(unconfigured.databaseUrl);
+      const unconfiguredApp = await createApplication({ databaseUrl: unconfigured.databaseUrl, receiptsUrl: '' });
       await unconfiguredApp.start(0);
       try {
         const ana = await signedUpAccount(unconfiguredApp, { email: 'ana@example.org', name: 'Ana' });
@@ -498,7 +500,7 @@ describe('receipts', () => {
         ).toBe(404);
       } finally {
         await unconfiguredApp.stop();
-        unconfigured.remove();
+        await unconfigured.remove();
       }
     });
   });

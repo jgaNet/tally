@@ -1,5 +1,5 @@
 import { createApplication, type Application } from './app';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { type TestDirectory, ensureDatabase, send, signedUpAccount, testDirectory } from './test-helpers';
 
 const START = Date.parse('2026-11-10T09:00:00.000Z');
 
@@ -9,7 +9,8 @@ describe('recurring expenses', () => {
   let now: number;
 
   async function startAt(): Promise<Application> {
-    const started = await createApplication({ databasePath: directory.databasePath, clock: () => new Date(now) });
+    await ensureDatabase(directory.databaseUrl);
+    const started = await createApplication({ databaseUrl: directory.databaseUrl, clock: () => new Date(now) });
     await started.start(0);
     return started;
   }
@@ -22,7 +23,7 @@ describe('recurring expenses', () => {
 
   afterEach(async () => {
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   async function group() {
@@ -148,8 +149,8 @@ describe('recurring expenses', () => {
     await send(app, 'GET', `/recurring/${id}`, { token: bob.token });
     expect(await expensesOf(bob.token, groupId)).toEqual([]);
 
-    app.runJobs();
-    app.runJobs();
+    await app.runJobs();
+    await app.runJobs();
     const expenses = await expensesOf(bob.token, groupId);
     expect(expenses.map(e => e.date)).toEqual(['2026-11-05', '2026-10-05', '2026-09-05']);
     expect(expenses[0]).toMatchObject({
@@ -165,19 +166,20 @@ describe('recurring expenses', () => {
     expect(read.body).toMatchObject({ next: '2026-12-05' });
 
     // A second server on the same file does not record them again.
-    const other = await createApplication({ databasePath: directory.databasePath, clock: () => new Date(now) });
-    other.runJobs();
+    await ensureDatabase(directory.databaseUrl);
+    const other = await createApplication({ databaseUrl: directory.databaseUrl, clock: () => new Date(now) });
+    await other.runJobs();
     await other.stop();
     expect(await expensesOf(bob.token, groupId)).toHaveLength(3);
 
     now = Date.parse('2026-12-04T23:59:00.000Z');
-    app.runJobs();
+    await app.runJobs();
     expect(await expensesOf(bob.token, groupId)).toHaveLength(3);
     now = Date.parse('2026-12-05T00:00:00.000Z');
-    app.runJobs();
+    await app.runJobs();
     expect((await expensesOf(bob.token, groupId))[0]?.date).toBe('2026-12-05');
     now = Date.parse('2027-02-20T00:00:00.000Z');
-    app.runJobs();
+    await app.runJobs();
     expect((await expensesOf(bob.token, groupId)).map(e => e.date).slice(0, 3)).toEqual([
       '2027-02-05',
       '2027-01-05',
@@ -188,7 +190,7 @@ describe('recurring expenses', () => {
   it('records expenses like any other: balances, notices, edit and delete, and a deleted one is not recorded again', async () => {
     const { bob, cy, groupId } = await group();
     await send(app, 'POST', `/groups/${groupId}/recurring`, { token: bob.token, body: rent(bob, cy, '2026-11-05') });
-    app.runJobs();
+    await app.runJobs();
     const balances = await send(app, 'GET', `/groups/${groupId}/balances`, { token: bob.token });
     expect(balances.body).toEqual([
       { memberId: bob.id, balance: 500 },
@@ -198,7 +200,7 @@ describe('recurring expenses', () => {
     expect(notices.body).toEqual([expect.objectContaining({ kind: 'expense', groupId, amount: 500 })]);
     const [expense] = await expensesOf(bob.token, groupId);
     expect((await send(app, 'DELETE', `/expenses/${expense?.id}`, { token: bob.token })).status).toBe(204);
-    app.runJobs();
+    await app.runJobs();
     expect(await expensesOf(bob.token, groupId)).toEqual([]);
   });
 
@@ -210,7 +212,7 @@ describe('recurring expenses', () => {
       body: rent(bob, cy, '2026-11-05'),
     });
     const id = (made.body as { id: string }).id;
-    app.runJobs();
+    await app.runJobs();
     expect((await send(app, 'DELETE', `/recurring/${id}`, { token: dan.token })).status).toBe(404);
     const other = await send(app, 'POST', `/groups/${groupId}/recurring`, {
       token: cy.token,
@@ -222,7 +224,7 @@ describe('recurring expenses', () => {
       (await send(app, 'DELETE', `/recurring/${(other.body as { id: string }).id}`, { token: cy.token })).status,
     ).toBe(204); // the payer
     now = Date.parse('2026-12-20T00:00:00.000Z');
-    app.runJobs();
+    await app.runJobs();
     expect(await expensesOf(bob.token, groupId)).toHaveLength(1);
     expect((await send(app, 'GET', `/groups/${groupId}/recurring`, { token: bob.token })).body).toEqual([]);
   });
@@ -234,10 +236,10 @@ describe('recurring expenses', () => {
       body: rent(bob, cy, '2026-11-05'),
     });
     const id = (made.body as { id: string }).id;
-    app.runJobs();
+    await app.runJobs();
     await send(app, 'POST', `/groups/${groupId}/leave`, { token: cy.token });
     now = Date.parse('2026-12-06T00:00:00.000Z');
-    app.runJobs();
+    await app.runJobs();
     expect(await expensesOf(bob.token, groupId)).toHaveLength(1);
     expect((await send(app, 'GET', `/recurring/${id}`, { token: bob.token })).status).toBe(404);
   });

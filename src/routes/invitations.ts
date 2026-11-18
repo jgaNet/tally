@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { acceptInvitation, createInvitation, findInvitation } from '../invitations';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
@@ -15,7 +15,7 @@ const INVITATION = {
   },
 };
 
-export function registerInvitationRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerInvitationRoutes(server: FastifyInstance, db: Database): void {
   // Only a member creates an invitation; to anyone else the group does not exist.
   server.post<{ Params: { id: string } }>(
     '/groups/:id/invitations',
@@ -25,8 +25,8 @@ export function registerInvitationRoutes(server: FastifyInstance, db: DatabaseSy
       },
     },
     async (request, reply) => {
-      const caller = requireCaller(db, request);
-      const id = createInvitation(db, { groupId: request.params.id, accountId: caller.id });
+      const caller = await requireCaller(db, request);
+      const id = await createInvitation(db, { groupId: request.params.id, accountId: caller.id });
       return reply.code(201).send({ id });
     },
   );
@@ -36,16 +36,16 @@ export function registerInvitationRoutes(server: FastifyInstance, db: DatabaseSy
     '/invitations/:id',
     { schema: { response: { 200: INVITATION } } },
     async request => {
-      requireCaller(db, request);
-      const invitation = findInvitation(db, request.params.id);
+      await requireCaller(db, request);
+      const invitation = await findInvitation(db, request.params.id);
       if (!invitation) throw new Refusal(404, 'InvitationNotFound', 'No invitation has this id.');
       return invitation;
     },
   );
 
   server.post<{ Params: { id: string } }>('/invitations/:id/accept', async (request, reply) => {
-    const caller = requireCaller(db, request);
-    acceptInvitation(db, { id: request.params.id, accountId: caller.id });
+    const caller = await requireCaller(db, request);
+    await acceptInvitation(db, { id: request.params.id, accountId: caller.id });
     return reply.code(204).send();
   });
 }

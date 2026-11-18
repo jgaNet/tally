@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { requireCaller } from '../http';
 import { Refusal } from '../refusal';
 import { attachReceipt, MAX_RECEIPT_BYTES, RECEIPT_TYPES, receiptOfMember, type ReceiptsConfig } from '../receipts';
@@ -14,7 +14,7 @@ const RECEIPT = {
   },
 };
 
-export function registerReceiptRoutes(server: FastifyInstance, db: DatabaseSync, receipts: ReceiptsConfig): void {
+export function registerReceiptRoutes(server: FastifyInstance, db: Database, receipts: ReceiptsConfig): void {
   // The receipt is the file as the body, kept as bytes and read by its first bytes, never parsed. The parser is this
   // scope's alone, and a body over the limit is refused by the server before it is read whole.
   server.register(async scope => {
@@ -28,7 +28,7 @@ export function registerReceiptRoutes(server: FastifyInstance, db: DatabaseSync,
     // Only the payer or the group's owner attaches a receipt, as they edit the expense; the answer is 204, the expense
     // keeps its version.
     scope.put<{ Params: { id: string }; Body: Buffer | undefined }>('/expenses/:id/receipt', async (request, reply) => {
-      const caller = requireCaller(db, request);
+      const caller = await requireCaller(db, request);
       const bytes = request.body ?? Buffer.alloc(0);
       if (!Buffer.isBuffer(bytes)) {
         throw new Refusal(
@@ -47,8 +47,8 @@ export function registerReceiptRoutes(server: FastifyInstance, db: DatabaseSync,
     '/expenses/:id/receipt',
     { schema: { response: { 200: RECEIPT } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return receiptOfMember(db, caller.id, request.params.id);
+      const caller = await requireCaller(db, request);
+      return await receiptOfMember(db, caller.id, request.params.id);
     },
   );
 }

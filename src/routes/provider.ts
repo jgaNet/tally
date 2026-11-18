@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { isSignedBy, type ProviderConfig } from '../provider';
 import { Refusal } from '../refusal';
 import { recordProviderOutcome } from '../settlements';
@@ -14,7 +14,7 @@ function webhookOf(body: Buffer): { paymentId?: unknown; status?: unknown } {
   }
 }
 
-export function registerProviderRoutes(server: FastifyInstance, db: DatabaseSync, provider: ProviderConfig): void {
+export function registerProviderRoutes(server: FastifyInstance, db: Database, provider: ProviderConfig): void {
   // The signature is over the body exactly as sent, so the body is kept as bytes and parsed only once it is verified.
   // The parser is this scope's alone: the rest of the API keeps its own.
   server.register(async scope => {
@@ -29,7 +29,7 @@ export function registerProviderRoutes(server: FastifyInstance, db: DatabaseSync
       }
       const webhook = webhookOf(body);
       if (typeof webhook.paymentId === 'string' && typeof webhook.status === 'string') {
-        recordProviderOutcome(db, { paymentId: webhook.paymentId, status: webhook.status });
+        await recordProviderOutcome(db, { paymentId: webhook.paymentId, status: webhook.status });
       }
       return reply.code(204).send();
     });

@@ -1,6 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
-import { openDatabase } from './database';
+import { type Database, openDatabase } from './database';
 import { send, signedUpAccount, startApplication, testDirectory, type TestDirectory } from './test-helpers';
 
 /** The day `offset` days from today, in UTC, as `YYYY-MM-DD`. */
@@ -11,19 +10,19 @@ function utcDay(offset: number): string {
 describe('settling up in cash', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
 
   beforeEach(async () => {
     directory = testDirectory();
-    app = await startApplication(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
     // A second connection to the same file, to count what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -114,7 +113,7 @@ describe('settling up in cash', () => {
     await join(ann.token, groupId, cy.token);
     expect((await settle(ann.token, groupId, cy.id, 1)).body).toMatchObject({ error: 'AmountExceedsBalance' });
     expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 1500, [ben.id]: -1500, [cy.id]: 0 });
-    expect(db.prepare('SELECT COUNT(*) AS n FROM settlements').get()).toEqual({ n: 0 });
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM settlements').get()).toEqual({ n: 0 });
   });
 
   it('refuses a payer who is owed money rather than owing it, and a payer who is the payee', async () => {
@@ -180,7 +179,7 @@ describe('settling up in cash', () => {
     await join(ann.token, groupId, ben.token);
     await recordEqual(ann.token, groupId, 3000, [ann.id, ben.id]);
     // A second connection on the same file, served by a second application: two servers, one database.
-    const other = await startApplication(directory.databasePath);
+    const other = await startApplication(directory.databaseUrl);
     try {
       const [first, second] = await Promise.all([
         send(app, 'POST', `/groups/${groupId}/settlements/cash`, {
@@ -195,7 +194,7 @@ describe('settling up in cash', () => {
       const statuses = [first.status, second.status].sort();
       expect(statuses).toEqual([201, 409]);
       expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
-      expect(db.prepare('SELECT COUNT(*) AS n FROM settlements').get()).toEqual({ n: 1 });
+      expect(await db.prepare('SELECT COUNT(*) AS n FROM settlements').get()).toEqual({ n: 1 });
     } finally {
       await other.stop();
     }
@@ -278,10 +277,10 @@ describe('settling up in cash', () => {
   it('stores one settlement per recording, and nothing for a read', async () => {
     const { ann, ben, groupId } = await annAndBenOwing1500();
     await settle(ann.token, groupId, ben.id, 500);
-    const before = db.prepare('SELECT COUNT(*) AS n FROM settlements').get();
+    const before = await db.prepare('SELECT COUNT(*) AS n FROM settlements').get();
     await send(app, 'GET', `/groups/${groupId}/balances`, { token: ann.token });
     await send(app, 'GET', `/groups/${groupId}/settlements/suggested`, { token: ben.token });
-    expect(db.prepare('SELECT COUNT(*) AS n FROM settlements').get()).toEqual(before);
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM settlements').get()).toEqual(before);
     expect(before).toEqual({ n: 1 });
   });
 });

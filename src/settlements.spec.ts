@@ -1,7 +1,6 @@
-import type { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
 import type { Balance } from './balances';
-import { openDatabase } from './database';
+import { type Database, openDatabase } from './database';
 import { send, signedUpAccount, startApplication, testDirectory, type TestDirectory } from './test-helpers';
 import { suggestTransfers, type Transfer } from './settlements';
 
@@ -16,7 +15,7 @@ function applyTransfers(balances: Balance[], transfers: Transfer[]): Map<string,
 }
 
 describe('the algorithm of suggested settlements', () => {
-  it('makes the transfers of the feature’s example, in the order made', () => {
+  it('makes the transfers of the feature’s example, in the order made', async () => {
     // Ann 500, Ben 100, Cy −300, Dan −300, in the order they joined.
     const balances: Balance[] = [
       { memberId: 'ann', balance: 500 },
@@ -31,7 +30,7 @@ describe('the algorithm of suggested settlements', () => {
     ]);
   });
 
-  it('makes no transfer when every balance is already 0', () => {
+  it('makes no transfer when every balance is already 0', async () => {
     expect(
       suggestTransfers([
         { memberId: 'ann', balance: 0 },
@@ -41,7 +40,7 @@ describe('the algorithm of suggested settlements', () => {
     expect(suggestTransfers([])).toEqual([]);
   });
 
-  it('takes the member who joined first when two owe the same, and when two are owed the same', () => {
+  it('takes the member who joined first when two owe the same, and when two are owed the same', async () => {
     // Ben and Cy both owe 100, Ann and Dan are both owed 100; the earlier of each pair is taken first.
     const balances: Balance[] = [
       { memberId: 'ann', balance: 100 },
@@ -55,7 +54,7 @@ describe('the algorithm of suggested settlements', () => {
     ]);
   });
 
-  it('settles every balance to 0 with at most one transfer fewer than the members not at 0', () => {
+  it('settles every balance to 0 with at most one transfer fewer than the members not at 0', async () => {
     const balances: Balance[] = [
       { memberId: 'a', balance: 700 },
       { memberId: 'b', balance: -120 },
@@ -71,7 +70,7 @@ describe('the algorithm of suggested settlements', () => {
     expect([...settled.values()].every(balance => balance === 0)).toBe(true);
   });
 
-  it('does not change the balances it is given', () => {
+  it('does not change the balances it is given', async () => {
     const balances: Balance[] = [
       { memberId: 'ann', balance: 50 },
       { memberId: 'ben', balance: -50 },
@@ -87,19 +86,19 @@ describe('the algorithm of suggested settlements', () => {
 describe('suggested settlements of a group', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
 
   beforeEach(async () => {
     directory = testDirectory();
-    app = await startApplication(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
     // A second connection to the same file, to count what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -146,10 +145,10 @@ describe('suggested settlements of a group', () => {
   }
 
   /** How many expenses and shares the file holds, read on the second connection. */
-  function storedCounts(): { expenses: number; shares: number; memberships: number } {
-    const expenses = db.prepare('SELECT COUNT(*) AS n FROM expenses').get() as { n: number };
-    const shares = db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get() as { n: number };
-    const memberships = db.prepare('SELECT COUNT(*) AS n FROM group_members').get() as { n: number };
+  async function storedCounts(): Promise<{ expenses: number; shares: number; memberships: number }> {
+    const expenses = (await db.prepare('SELECT COUNT(*) AS n FROM expenses').get()) as { n: number };
+    const shares = (await db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get()) as { n: number };
+    const memberships = (await db.prepare('SELECT COUNT(*) AS n FROM group_members').get()) as { n: number };
     return { expenses: expenses.n, shares: shares.n, memberships: memberships.n };
   }
 
@@ -230,12 +229,12 @@ describe('suggested settlements of a group', () => {
     const groupId = await createGroup(ann.token);
     await join(ann.token, groupId, ben.token);
     await recordEqual(ann.token, groupId, 1000, [ann.id, ben.id]);
-    const before = storedCounts();
+    const before = await storedCounts();
     const balancesBefore = (await send(app, 'GET', `/groups/${groupId}/balances`, { token: ann.token })).body;
     const first = await suggestionAs(ann.token, groupId);
     const second = await suggestionAs(ben.token, groupId);
     expect(second.body).toEqual(first.body);
-    expect(storedCounts()).toEqual(before);
+    expect(await storedCounts()).toEqual(before);
     expect((await send(app, 'GET', `/groups/${groupId}/balances`, { token: ann.token })).body).toEqual(balancesBefore);
   });
 

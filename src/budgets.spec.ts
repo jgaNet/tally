@@ -1,7 +1,8 @@
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { createApplication, type Application } from './app';
 import { openDatabase } from './database';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { createLegacyFile } from './legacy-file';
+import { ensureDatabase, send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
 
 const START = Date.parse('2026-11-10T09:00:00.000Z');
 
@@ -28,8 +29,13 @@ describe('budgets', () => {
   /** The time the application's clock tells; moved by the tests. */
   let now: number;
 
-  async function startAt(): Promise<Application> {
-    const started = await createApplication({ databasePath: directory.databasePath, clock: () => new Date(now) });
+  async function startAt(databaseUrl = directory.databaseUrl, databasePath = ''): Promise<Application> {
+    await ensureDatabase(databaseUrl);
+    const started = await createApplication({
+      databaseUrl,
+      databasePath,
+      clock: () => new Date(now),
+    });
     await started.start(0);
     return started;
   }
@@ -42,7 +48,7 @@ describe('budgets', () => {
 
   afterEach(async () => {
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Bob's group, which Cy and Dee joined: Bob is its owner. */
@@ -158,7 +164,7 @@ describe('budgets', () => {
       body: { category: 'other' },
     });
 
-    app.runJobs();
+    await app.runJobs();
     const expenses = (await send(app, 'GET', `/groups/${groupId}/expenses`, { token: cy.token })).body as {
       description: string;
       date: string;
@@ -384,8 +390,8 @@ describe('budgets', () => {
     });
     expect(created.status).toBe(201);
 
-    app.runJobs();
-    app.runJobs();
+    await app.runJobs();
+    await app.runJobs();
     for (const member of members) {
       const notices = await budgetNoticesOf(member.token);
       expect(notices.map(notice => [notice.month, notice.amount, notice.budget]).sort()).toEqual([
@@ -403,7 +409,7 @@ describe('budgets', () => {
     await app.stop();
 
     app = await startAt();
-    app.runJobs();
+    await app.runJobs();
     await recordOk(cy.token, groupId, shop(members, 200, '2026-11-03', { category: 'groceries' }));
     for (const member of members) {
       expect(await budgetNoticesOf(member.token)).toMatchObject([{ month: '2026-11', amount: 1500 }]);
@@ -420,35 +426,71 @@ describe('budgets', () => {
     });
     const recurringId = (recurring.body as { id: string }).id;
     await app.stop();
-
-    const db = openDatabase(directory.databasePath);
+    await writeEarlierFile(directory.databaseUrl, directory.legacyPath);
+    const migrated = testDirectory();
+    app = await startAt(migrated.databaseUrl, directory.legacyPath);
     try {
-      writeFileBeforeCategories(db);
+      expect(await send(app, 'GET', `/expenses/${expenseId}`, { token: cy.token })).toMatchObject({
+        body: { id: expenseId, category: 'other' },
+      });
+      expect(await send(app, 'GET', `/recurring/${recurringId}`, { token: cy.token })).toMatchObject({
+        body: { id: recurringId, category: 'other' },
+      });
+      expect(await send(app, 'GET', '/notices', { token: cy.token })).toMatchObject({
+        body: [{ kind: 'expense', expenseId, amount: 300 }],
+      });
+
+      await setBudget(bob.token, groupId, 'other', 1000);
+      // The 900 recorded before the file's categories is `other` too: November's `other` spends 900 + 1 500.
+      await recordOk(bob.token, groupId, shop(members, 1500, '2026-11-03'));
+      for (const member of members) {
+        expect(await budgetNoticesOf(member.token)).toMatchObject([
+          { category: 'other', month: '2026-11', budget: 1000, amount: 2400 },
+        ]);
+      }
     } finally {
-      db.close();
-    }
-
-    app = await startAt();
-    expect(await send(app, 'GET', `/expenses/${expenseId}`, { token: cy.token })).toMatchObject({
-      body: { id: expenseId, category: 'other' },
-    });
-    expect(await send(app, 'GET', `/recurring/${recurringId}`, { token: cy.token })).toMatchObject({
-      body: { id: recurringId, category: 'other' },
-    });
-    expect(await send(app, 'GET', '/notices', { token: cy.token })).toMatchObject({
-      body: [{ kind: 'expense', expenseId, amount: 300 }],
-    });
-
-    await setBudget(bob.token, groupId, 'other', 1000);
-    // The 900 recorded before the file's categories is `other` too: November's `other` spends 900 + 1 500.
-    await recordOk(bob.token, groupId, shop(members, 1500, '2026-11-03'));
-    for (const member of members) {
-      expect(await budgetNoticesOf(member.token)).toMatchObject([
-        { category: 'other', month: '2026-11', budget: 1000, amount: 2400 },
-      ]);
+      await migrated.remove();
     }
   });
 });
+
+/**
+ * Writes the SQLite file at `path` as Tally left the database at `url` before categories and budgets: every row of the
+ * database, in the file's tables, with the tables rebuilt as `writeFileBeforeCategories` has them.
+ */
+async function writeEarlierFile(url: string, path: string): Promise<void> {
+  const db = await openDatabase({ url });
+  const tables: { name: string; rows: Record<string, unknown>[] }[] = [];
+  try {
+    const names = await db
+      .prepare(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`)
+      .all<{ table_name: string }>();
+    for (const { table_name: name } of names) {
+      const rows = await db.prepare(`SELECT * FROM "${name}"`).all<Record<string, unknown>>();
+      tables.push({ name, rows });
+    }
+  } finally {
+    await db.close();
+  }
+  createLegacyFile(path);
+  const file = new DatabaseSync(path);
+  try {
+    file.exec('PRAGMA foreign_keys = OFF');
+    for (const { name, rows } of tables) {
+      for (const row of rows) {
+        const columns = Object.keys(row).filter(column => column !== 'seq');
+        file
+          .prepare(
+            `INSERT INTO "${name}" (${columns.map(column => `"${column}"`).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+          )
+          .run(...columns.map(column => (row[column] ?? null) as string | number | null));
+      }
+    }
+    writeFileBeforeCategories(file);
+  } finally {
+    file.close();
+  }
+}
 
 /**
  * Rebuilds the tables of a file written before categories and budgets, as they were: no category on expenses and

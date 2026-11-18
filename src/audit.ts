@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Querier } from './database';
 import { Refusal } from './refusal';
 import { inReadSnapshot } from './transactions';
 
@@ -27,45 +27,49 @@ export interface AuditEntry {
   readonly amount: number;
 }
 
+interface AuditRow {
+  id: string;
+  at: string;
+  by_id: string;
+  action: AuditAction;
+  subject_id: string;
+  amount: number;
+}
+
 /**
  * Writes the entry of one change of money in the group. It is written in the caller's transaction, so the entry exists
  * exactly when the change does; nothing writes one for a change refused, or one that changes nothing.
  */
-export function recordAudit(
-  db: DatabaseSync,
+export async function recordAudit(
+  db: Querier,
   input: { groupId: string; at: string; by: string; action: AuditAction; subjectId: string; amount: number },
-): void {
-  db.prepare(
-    'INSERT INTO audit_entries (id, group_id, at, by_id, action, subject_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  ).run(randomUUID(), input.groupId, input.at, input.by, input.action, input.subjectId, input.amount);
+): Promise<void> {
+  await db
+    .prepare(
+      'INSERT INTO audit_entries (id, group_id, at, by_id, action, subject_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+    .run(randomUUID(), input.groupId, input.at, input.by, input.action, input.subjectId, input.amount);
 }
 
 /**
  * The audit of the group, the oldest first. Only a current member of the group reads it: to anyone else, and to a
- * member who has left, the group does not exist (`404`). Reading one consistent state of the file, it changes nothing.
+ * member who has left, the group does not exist (`404`). Reading one consistent state of the database, it changes nothing.
  */
-export function auditOfGroup(db: DatabaseSync, readerId: string, groupId: string): AuditEntry[] {
-  return inReadSnapshot(db, () => {
+export async function auditOfGroup(db: Database, readerId: string, groupId: string): Promise<AuditEntry[]> {
+  return inReadSnapshot(db, async snapshot => {
     // A current membership is the group's, as the other reads of a group are: anyone else is refused as if it did not exist.
-    const member = db
+    const member = await snapshot
       .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NULL')
       .get(groupId, readerId);
     if (member === undefined) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
-    const rows = db
+    const rows = await snapshot
       .prepare(
         `SELECT id, at, by_id, action, subject_id, amount FROM audit_entries
-         WHERE group_id = ? ORDER BY at ASC, rowid ASC`,
+         WHERE group_id = ? ORDER BY at ASC, seq ASC`,
       )
-      .all(groupId) as unknown as {
-      id: string;
-      at: string;
-      by_id: string;
-      action: AuditAction;
-      subject_id: string;
-      amount: number;
-    }[];
+      .all<AuditRow>(groupId);
     return rows.map(row => ({
       id: row.id,
       at: row.at,

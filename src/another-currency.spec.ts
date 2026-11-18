@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
-import { openDatabase } from './database';
+import { type Database, openDatabase } from './database';
 import { convertedAmount } from './expenses';
 import { send, signedUpAccount, startApplication, testDirectory, type TestDirectory } from './test-helpers';
 
@@ -11,24 +11,24 @@ function utcDay(offset: number): string {
 
 describe('an expense in another currency', () => {
   describe('converting the original amount', () => {
-    it('rounds 1234 at 1.0625 (1311.125) down to 1311', () => {
+    it('rounds 1234 at 1.0625 (1311.125) down to 1311', async () => {
       expect(convertedAmount(1234, '1.0625')).toBe(1311);
     });
 
-    it('rounds 1000 at 0.9545 (954.5) up to 955: a half is rounded up', () => {
+    it('rounds 1000 at 0.9545 (954.5) up to 955: a half is rounded up', async () => {
       expect(convertedAmount(1000, '0.9545')).toBe(955);
     });
 
-    it('rounds a half up whatever the rate: 1 at 0.5 is 1, and 2 at 0.25 is 1', () => {
+    it('rounds a half up whatever the rate: 1 at 0.5 is 1, and 2 at 0.25 is 1', async () => {
       expect(convertedAmount(1, '0.5')).toBe(1);
       expect(convertedAmount(2, '0.25')).toBe(1);
     });
 
-    it('is exact where a binary float is not: 1000 at 1.005 is 1005', () => {
+    it('is exact where a binary float is not: 1000 at 1.005 is 1005', async () => {
       expect(convertedAmount(1000, '1.005')).toBe(1005);
     });
 
-    it('keeps the amount at a rate of 1, and reads rates written as whole numbers or with 6 digits after the point', () => {
+    it('keeps the amount at a rate of 1, and reads rates written as whole numbers or with 6 digits after the point', async () => {
       expect(convertedAmount(777, '1')).toBe(777);
       expect(convertedAmount(2, '12.5')).toBe(25);
       expect(convertedAmount(100_000_000, '0.000001')).toBe(100);
@@ -37,19 +37,19 @@ describe('an expense in another currency', () => {
 
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
 
   beforeEach(async () => {
     directory = testDirectory();
-    app = await startApplication(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
     // A second connection to the same file, to count what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group in `currency` as `token`'s account and answers its id. */
@@ -104,8 +104,8 @@ describe('an expense in another currency', () => {
   }
 
   /** How many expenses the file holds, read on the second connection. */
-  function storedExpenses(): number {
-    return (db.prepare('SELECT COUNT(*) AS n FROM expenses').get() as { n: number }).n;
+  async function storedExpenses(): Promise<number> {
+    return ((await db.prepare('SELECT COUNT(*) AS n FROM expenses').get()) as { n: number }).n;
   }
 
   describe('recording', () => {
@@ -261,9 +261,9 @@ describe('an expense in another currency', () => {
       );
       const before = await read(ana.token, id);
       await app.stop();
-      db.close();
-      app = await startApplication(directory.databasePath);
-      db = openDatabase(directory.databasePath);
+      await db.close();
+      app = await startApplication(directory.databaseUrl);
+      db = await openDatabase({ url: directory.databaseUrl });
       expect((await read(ana.token, id)).body).toEqual(before.body);
     });
 
@@ -275,7 +275,7 @@ describe('an expense in another currency', () => {
         for (const body of bodies) {
           expect((await record(ana.token, groupId, body)).status).toBe(400);
         }
-        expect(storedExpenses()).toBe(0);
+        expect(await storedExpenses()).toBe(0);
       });
 
       it('refuses an original with a missing field or a field of the wrong type, with 400, the rate aside (it may be left out)', async () => {
@@ -291,7 +291,7 @@ describe('an expense in another currency', () => {
         for (const original of originals) {
           expect((await record(ana.token, groupId, bodyOf([ana.id], { original }))).status).toBe(400);
         }
-        expect(storedExpenses()).toBe(0);
+        expect(await storedExpenses()).toBe(0);
       });
 
       it('refuses the group’s own currency as the other one, and a currency that is not Tally’s, with 422', async () => {
@@ -311,7 +311,7 @@ describe('an expense in another currency', () => {
         );
         expect(unknown.status).toBe(422);
         expect(unknown.body).toMatchObject({ error: 'CurrencyIsUnsupported' });
-        expect(storedExpenses()).toBe(0);
+        expect(await storedExpenses()).toBe(0);
       });
 
       it('refuses an original amount that is not a whole number from 1 to 100 000 000, with 422', async () => {
@@ -326,7 +326,7 @@ describe('an expense in another currency', () => {
           expect(reply.status).toBe(422);
           expect(reply.body).toMatchObject({ error: 'OriginalAmountIsInvalid' });
         }
-        expect(storedExpenses()).toBe(0);
+        expect(await storedExpenses()).toBe(0);
       });
 
       it('refuses a rate that is not a decimal number greater than 0 with at most 6 digits after the point, with 422', async () => {
@@ -341,7 +341,7 @@ describe('an expense in another currency', () => {
           expect(reply.status).toBe(422);
           expect(reply.body).toMatchObject({ error: 'RateIsInvalid' });
         }
-        expect(storedExpenses()).toBe(0);
+        expect(await storedExpenses()).toBe(0);
       });
 
       it('refuses an amount that converts to less than 1 or more than 100 000 000 in the group’s currency, with 422', async () => {
@@ -361,7 +361,7 @@ describe('an expense in another currency', () => {
         );
         expect(tooLarge.status).toBe(422);
         expect(tooLarge.body).toMatchObject({ error: 'AmountIsInvalid' });
-        expect(storedExpenses()).toBe(0);
+        expect(await storedExpenses()).toBe(0);
       });
 
       it('accepts an original of 1 at a rate that converts it to 1, the least amount', async () => {
@@ -498,11 +498,21 @@ describe('an expense in another currency', () => {
     });
   });
 
-  it('upgrades an expense file written before expenses in another currency: its expenses are in the group’s currency', () => {
+  it('upgrades an expense file written before expenses in another currency: its expenses are in the group’s currency', async () => {
     const legacyDirectory = testDirectory();
     try {
-      const legacy = new DatabaseSync(legacyDirectory.databasePath);
+      const legacy = new DatabaseSync(legacyDirectory.legacyPath);
       legacy.exec(`
+        CREATE TABLE accounts (
+          id TEXT PRIMARY KEY, email TEXT NOT NULL, email_key TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+          password_hash TEXT NOT NULL, created_at TEXT NOT NULL
+        );
+        INSERT INTO accounts VALUES ('ana', 'ana@example.org', 'ana@example.org', 'Ana', 'x', '2026-01-01T00:00:00.000Z');
+        CREATE TABLE groups (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, currency TEXT NOT NULL, owner_id TEXT NOT NULL,
+          created_at TEXT NOT NULL, archived_at TEXT
+        );
+        INSERT INTO groups VALUES ('group', 'Flat', 'EUR', 'ana', '2026-01-01T00:00:00.000Z', NULL);
         CREATE TABLE expenses (
           id TEXT PRIMARY KEY, group_id TEXT NOT NULL, description TEXT NOT NULL, amount INTEGER NOT NULL,
           spent_on TEXT NOT NULL, paid_by TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
@@ -511,18 +521,22 @@ describe('an expense in another currency', () => {
         INSERT INTO expenses VALUES ('old', 'group', 'Groceries', 500, '2026-01-02', 'ana', 1, 'equal', '2026-01-02T00:00:00.000Z');
       `);
       legacy.close();
-      const upgraded = openDatabase(legacyDirectory.databasePath);
+      const upgradedApp = await startApplication(legacyDirectory.databaseUrl, {
+        databasePath: legacyDirectory.legacyPath,
+      });
+      await upgradedApp.stop();
+      const upgraded = await openDatabase({ url: legacyDirectory.databaseUrl });
       try {
         expect(
-          upgraded
+          await upgraded
             .prepare('SELECT amount, original_currency, original_amount, rate FROM expenses WHERE id = ?')
             .get('old'),
         ).toEqual({ amount: 500, original_currency: null, original_amount: null, rate: null });
       } finally {
-        upgraded.close();
+        await upgraded.close();
       }
     } finally {
-      legacyDirectory.remove();
+      await legacyDirectory.remove();
     }
   });
 });

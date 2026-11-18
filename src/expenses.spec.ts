@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { Application } from './app';
-import { openDatabase } from './database';
+import { type Database, openDatabase } from './database';
 import { equalShares, sharesByCount } from './expenses';
 import { send, signedUpAccount, startApplication, testDirectory, type TestDirectory } from './test-helpers';
 
@@ -19,7 +19,7 @@ function splitDefault(fields: Record<string, unknown>): Record<string, unknown> 
 
 describe('expenses', () => {
   describe('splitting equally', () => {
-    it('gives the remainder to the first member listed: 1000 between three is 334, 333 and 333', () => {
+    it('gives the remainder to the first member listed: 1000 between three is 334, 333 and 333', async () => {
       expect(equalShares(1000, ['ana', 'ben', 'cleo'])).toEqual([
         { memberId: 'ana', amount: 334 },
         { memberId: 'ben', amount: 333 },
@@ -27,7 +27,7 @@ describe('expenses', () => {
       ]);
     });
 
-    it('gives the remainder to the first member listed, whoever is named second: 1000 between cleo, ben and ana is 334 for cleo', () => {
+    it('gives the remainder to the first member listed, whoever is named second: 1000 between cleo, ben and ana is 334 for cleo', async () => {
       expect(equalShares(1000, ['cleo', 'ben', 'ana'])).toEqual([
         { memberId: 'cleo', amount: 334 },
         { memberId: 'ben', amount: 333 },
@@ -35,11 +35,11 @@ describe('expenses', () => {
       ]);
     });
 
-    it('answers the shares in the order of the split', () => {
+    it('answers the shares in the order of the split', async () => {
       expect(equalShares(1000, ['cleo', 'ben', 'ana']).map(share => share.memberId)).toEqual(['cleo', 'ben', 'ana']);
     });
 
-    it('gives every member the same share when nothing is left over', () => {
+    it('gives every member the same share when nothing is left over', async () => {
       expect(equalShares(900, ['ana', 'ben', 'cleo'])).toEqual([
         { memberId: 'ana', amount: 300 },
         { memberId: 'ben', amount: 300 },
@@ -47,11 +47,11 @@ describe('expenses', () => {
       ]);
     });
 
-    it('gives a lone member the whole amount', () => {
+    it('gives a lone member the whole amount', async () => {
       expect(equalShares(4321, ['ana'])).toEqual([{ memberId: 'ana', amount: 4321 }]);
     });
 
-    it('makes the shares add up to the amount exactly, the first member’s share being the only one over the base, whatever the amount and the number', () => {
+    it('makes the shares add up to the amount exactly, the first member’s share being the only one over the base, whatever the amount and the number', async () => {
       const amounts = [1, 2, 3, 7, 99, 100, 101, 999, 1000, 65_537, 99_999_999, 100_000_000];
       for (const amount of amounts) {
         for (let count = 1; count <= 7; count++) {
@@ -75,7 +75,7 @@ describe('expenses', () => {
   });
 
   describe('splitting by shares', () => {
-    it('divides 1001 by shares of 2 and 1, the first member listed being the one with 2, as 668 and 333', () => {
+    it('divides 1001 by shares of 2 and 1, the first member listed being the one with 2, as 668 and 333', async () => {
       expect(
         sharesByCount(1001, [
           { memberId: 'ana', shares: 2 },
@@ -87,7 +87,7 @@ describe('expenses', () => {
       ]);
     });
 
-    it('divides by one share each as the equal split does', () => {
+    it('divides by one share each as the equal split does', async () => {
       const memberIds = ['ana', 'ben', 'cleo'];
       expect(
         sharesByCount(
@@ -97,7 +97,7 @@ describe('expenses', () => {
       ).toEqual(equalShares(1000, memberIds));
     });
 
-    it('is exact however large the shares: 100 000 000 by shares of 1 and 2^53 - 1 is 1 and 99 999 999', () => {
+    it('is exact however large the shares: 100 000 000 by shares of 1 and 2^53 - 1 is 1 and 99 999 999', async () => {
       expect(
         sharesByCount(100_000_000, [
           { memberId: 'ben', shares: 1 },
@@ -109,7 +109,7 @@ describe('expenses', () => {
       ]);
     });
 
-    it('makes the shares add up to the amount exactly, the first member’s share being the only one over its floor by less than the number of members', () => {
+    it('makes the shares add up to the amount exactly, the first member’s share being the only one over its floor by less than the number of members', async () => {
       const amounts = [1, 2, 3, 7, 99, 100, 101, 999, 65_537, 99_999_999, 100_000_000];
       for (const amount of amounts) {
         for (let count = 1; count <= 5; count++) {
@@ -135,19 +135,19 @@ describe('expenses', () => {
   describe('recording and reading an expense', () => {
     let directory: TestDirectory;
     let app: Application;
-    let db: DatabaseSync;
+    let db: Database;
 
     beforeEach(async () => {
       directory = testDirectory();
-      app = await startApplication(directory.databasePath);
+      app = await startApplication(directory.databaseUrl);
       // A second connection to the same file, to count what was stored.
-      db = openDatabase(directory.databasePath);
+      db = await openDatabase({ url: directory.databaseUrl });
     });
 
     afterEach(async () => {
-      db.close();
+      await db.close();
       await app.stop();
-      directory.remove();
+      await directory.remove();
     });
 
     /** Creates a group as `token`'s account and answers its id. */
@@ -198,9 +198,9 @@ describe('expenses', () => {
     }
 
     /** How many expenses and shares the file holds, read on the second connection. */
-    function storedCounts(): { expenses: number; shares: number } {
-      const expenses = db.prepare('SELECT COUNT(*) AS n FROM expenses').get() as { n: number };
-      const shares = db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get() as { n: number };
+    async function storedCounts(): Promise<{ expenses: number; shares: number }> {
+      const expenses = (await db.prepare('SELECT COUNT(*) AS n FROM expenses').get()) as { n: number };
+      const shares = (await db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get()) as { n: number };
       return { expenses: expenses.n, shares: shares.n };
     }
 
@@ -251,8 +251,12 @@ describe('expenses', () => {
         await join(ana.token, groupId, cleo.token);
         const id = await recordOk(cleo.token, groupId, [ana.id, cleo.id, ben.id], 1000);
         // As the expense was stored before the change: the remainder on the payer's share, cleo's, is 334.
-        db.prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND member_id = ?').run(333, id, ana.id);
-        db.prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND member_id = ?').run(334, id, cleo.id);
+        await db
+          .prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND member_id = ?')
+          .run(333, id, ana.id);
+        await db
+          .prepare('UPDATE expense_shares SET amount = ? WHERE expense_id = ? AND member_id = ?')
+          .run(334, id, cleo.id);
         const expense = await send(app, 'GET', `/expenses/${id}`, { token: ana.token });
         expect(expense.body).toMatchObject({
           shares: [
@@ -400,10 +404,10 @@ describe('expenses', () => {
         const ana = await signedUpAccount(app, { email: 'ana@example.org' });
         const groupId = await createGroup(ana.token);
         await recordOk(ana.token, groupId, [ana.id]);
-        const before = storedCounts();
+        const before = await storedCounts();
         expect((await record(ana.token, groupId, { amount: 0, splitBetween: [ana.id] })).status).toBe(422);
         expect((await record(ana.token, groupId, { splitBetween: ['nobody'] })).status).toBe(422);
-        expect(storedCounts()).toEqual(before);
+        expect(await storedCounts()).toEqual(before);
       });
 
       it('answers 404 to a signed-in account that is not a member, as if the group did not exist', async () => {
@@ -415,7 +419,7 @@ describe('expenses', () => {
         expect(outsider.status).toBe(404);
         expect(outsider.body).toMatchObject({ error: 'GroupNotFound' });
         expect(outsider.body).toEqual(missing.body);
-        expect(storedCounts().expenses).toBe(0);
+        expect((await storedCounts()).expenses).toBe(0);
       });
 
       it('refuses a request with no token, or an unproven one, with 401', async () => {
@@ -426,7 +430,7 @@ describe('expenses', () => {
         const unproven = await send(app, 'POST', `/groups/${groupId}/expenses`, { token: 'not-a-real-token', body });
         expect(anonymous.status).toBe(401);
         expect(unproven.status).toBe(401);
-        expect(storedCounts().expenses).toBe(0);
+        expect((await storedCounts()).expenses).toBe(0);
       });
 
       it('refuses a body missing a field, or with a field of the wrong type, with 400', async () => {
@@ -522,7 +526,7 @@ describe('expenses', () => {
         const first = await send(app, 'GET', `/expenses/${id}`, { token: ana.token });
         const second = await send(app, 'GET', `/expenses/${id}`, { token: ana.token });
         expect(second.body).toEqual(first.body);
-        expect(storedCounts()).toEqual({ expenses: 1, shares: 1 });
+        expect(await storedCounts()).toEqual({ expenses: 1, shares: 1 });
       });
     });
 
@@ -643,7 +647,7 @@ describe('expenses', () => {
         });
         expect(reply.status).toBe(422);
         expect(reply.body).toMatchObject({ error: 'AmountsDoNotAddUp' });
-        expect(storedCounts()).toEqual({ expenses: 0, shares: 0 });
+        expect(await storedCounts()).toEqual({ expenses: 0, shares: 0 });
       });
 
       it.each<[string, number, number]>([
@@ -664,7 +668,7 @@ describe('expenses', () => {
           });
           expect(reply.status).toBe(422);
           expect(reply.body).toMatchObject({ error: 'ShareAmountIsInvalid' });
-          expect(storedCounts()).toEqual({ expenses: 0, shares: 0 });
+          expect(await storedCounts()).toEqual({ expenses: 0, shares: 0 });
         },
       );
 
@@ -685,7 +689,7 @@ describe('expenses', () => {
         });
         expect(reply.status).toBe(422);
         expect(reply.body).toMatchObject({ error: 'SharesAreInvalid' });
-        expect(storedCounts()).toEqual({ expenses: 0, shares: 0 });
+        expect(await storedCounts()).toEqual({ expenses: 0, shares: 0 });
       });
 
       it('refuses a body that names none of the three splits, or more than one, with 400, and stores nothing', async () => {
@@ -711,7 +715,7 @@ describe('expenses', () => {
           });
           expect(reply.status).toBe(400);
         }
-        expect(storedCounts()).toEqual({ expenses: 0, shares: 0 });
+        expect(await storedCounts()).toEqual({ expenses: 0, shares: 0 });
       });
 
       it.each<[string, 'splitExactly' | 'splitByShares', (ids: { ana: string; ben: string }) => unknown[], string]>([
@@ -755,7 +759,7 @@ describe('expenses', () => {
           const reply = await record(ana.token, groupId, { [field]: partsFor({ ana: ana.id, ben: ben.id }) });
           expect(reply.status).toBe(422);
           expect(reply.body).toMatchObject({ error: rule });
-          expect(storedCounts()).toEqual({ expenses: 0, shares: 0 });
+          expect(await storedCounts()).toEqual({ expenses: 0, shares: 0 });
         },
       );
     });
@@ -763,18 +767,18 @@ describe('expenses', () => {
     describe('editing and deleting', () => {
       let directory: TestDirectory;
       let app: Application;
-      let db: DatabaseSync;
+      let db: Database;
 
       beforeEach(async () => {
         directory = testDirectory();
-        app = await startApplication(directory.databasePath);
-        db = openDatabase(directory.databasePath);
+        app = await startApplication(directory.databaseUrl);
+        db = await openDatabase({ url: directory.databaseUrl });
       });
 
       afterEach(async () => {
-        db.close();
+        await db.close();
         await app.stop();
-        directory.remove();
+        await directory.remove();
       });
 
       async function createGroup(token: string): Promise<string> {
@@ -825,9 +829,9 @@ describe('expenses', () => {
         return Object.fromEntries(balances.map(balance => [balance.memberId, balance.balance]));
       }
 
-      function storedCounts(): { expenses: number; shares: number } {
-        const expenses = db.prepare('SELECT COUNT(*) AS n FROM expenses').get() as { n: number };
-        const shares = db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get() as { n: number };
+      async function storedCounts(): Promise<{ expenses: number; shares: number }> {
+        const expenses = (await db.prepare('SELECT COUNT(*) AS n FROM expenses').get()) as { n: number };
+        const shares = (await db.prepare('SELECT COUNT(*) AS n FROM expense_shares').get()) as { n: number };
         return { expenses: expenses.n, shares: shares.n };
       }
 
@@ -1009,7 +1013,7 @@ describe('expenses', () => {
               { memberId: ben.id, amount: 500 },
             ],
           });
-          expect(storedCounts()).toEqual({ expenses: 1, shares: 2 });
+          expect(await storedCounts()).toEqual({ expenses: 1, shares: 2 });
         });
 
         it('refuses an edit naming two splits with 400, and an edit whose exact amounts do not add up with 422, keeping the expense', async () => {
@@ -1082,7 +1086,7 @@ describe('expenses', () => {
           const groupId = await createGroup(ana.token);
           await join(ana.token, groupId, ben.token);
           const id = await recordOk(ana.token, groupId, [ana.id, ben.id], 1000);
-          const second = await startApplication(directory.databasePath);
+          const second = await startApplication(directory.databaseUrl);
           try {
             const body = (amount: number) => ({
               description: 'Groceries',
@@ -1100,7 +1104,7 @@ describe('expenses', () => {
             const refused = (first.status === 409 ? first : other).body;
             expect(refused).toMatchObject({ error: 'ExpenseChanged' });
             expect((await read(ana.token, id)).body).toMatchObject({ amount: kept, version: 2 });
-            expect(storedCounts()).toEqual({ expenses: 1, shares: 2 });
+            expect(await storedCounts()).toEqual({ expenses: 1, shares: 2 });
             const balances = await balancesOf(ana.token, groupId);
             expect(Object.values(balances).reduce((sum, balance) => sum + balance, 0)).toBe(0);
           } finally {
@@ -1120,7 +1124,7 @@ describe('expenses', () => {
           const reply = await send(app, 'DELETE', `/expenses/${gone}`, { token: ben.token });
           expect(reply.status).toBe(204);
           expect((await read(ana.token, gone)).status).toBe(404);
-          expect(storedCounts()).toEqual({ expenses: 1, shares: 2 });
+          expect(await storedCounts()).toEqual({ expenses: 1, shares: 2 });
           expect(await balancesOf(ana.token, groupId)).toEqual(
             expect.objectContaining({ [ana.id]: 500, [ben.id]: -500 }),
           );
@@ -1135,7 +1139,7 @@ describe('expenses', () => {
           const id = await recordOk(ben.token, groupId, [ben.id, ana.id]);
           expect((await send(app, 'DELETE', `/expenses/${id}`, { token: ana.token })).status).toBe(204);
           expect((await read(ben.token, id)).status).toBe(404);
-          expect(storedCounts()).toEqual({ expenses: 0, shares: 0 });
+          expect(await storedCounts()).toEqual({ expenses: 0, shares: 0 });
         });
 
         it('refuses a delete by another member who is neither the payer nor the owner, with 403, and keeps the expense', async () => {
@@ -1178,54 +1182,82 @@ describe('expenses', () => {
         });
       });
 
-      it('upgrades an expense file written before splits by shares or exact amounts: its expenses were split equally', () => {
+      it('upgrades an expense file written before splits by shares or exact amounts: its expenses were split equally', async () => {
         const legacyDirectory = testDirectory();
         try {
-          const legacy = new DatabaseSync(legacyDirectory.databasePath);
+          const legacy = new DatabaseSync(legacyDirectory.legacyPath);
           legacy.exec(`
-            CREATE TABLE expenses (
-              id TEXT PRIMARY KEY, group_id TEXT NOT NULL, description TEXT NOT NULL, amount INTEGER NOT NULL,
-              spent_on TEXT NOT NULL, paid_by TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
+            CREATE TABLE accounts (
+              id TEXT PRIMARY KEY, email TEXT NOT NULL, email_key TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+              password_hash TEXT NOT NULL, created_at TEXT NOT NULL
             );
-            INSERT INTO expenses VALUES ('old', 'group', 'Groceries', 500, '2026-01-02', 'ana', 3, '2026-01-02T00:00:00.000Z');
+            INSERT INTO accounts VALUES ('ana', 'ana@example.org', 'ana@example.org', 'Ana', 'x', '2026-01-01T00:00:00.000Z');
+            CREATE TABLE groups (
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, currency TEXT NOT NULL, owner_id TEXT NOT NULL,
+              created_at TEXT NOT NULL, archived_at TEXT
+            );
+            INSERT INTO groups VALUES ('group', 'Flat', 'EUR', 'ana', '2026-01-01T00:00:00.000Z', NULL);
+            CREATE TABLE expenses (
+                id TEXT PRIMARY KEY, group_id TEXT NOT NULL, description TEXT NOT NULL, amount INTEGER NOT NULL,
+                spent_on TEXT NOT NULL, paid_by TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
+              );
+              INSERT INTO expenses VALUES ('old', 'group', 'Groceries', 500, '2026-01-02', 'ana', 3, '2026-01-02T00:00:00.000Z');
           `);
           legacy.close();
-          const upgraded = openDatabase(legacyDirectory.databasePath);
+          const upgradedApp = await startApplication(legacyDirectory.databaseUrl, {
+            databasePath: legacyDirectory.legacyPath,
+          });
+          await upgradedApp.stop();
+          const upgraded = await openDatabase({ url: legacyDirectory.databaseUrl });
           try {
-            expect(upgraded.prepare('SELECT split_kind, version FROM expenses WHERE id = ?').get('old')).toEqual({
+            expect(await upgraded.prepare('SELECT split_kind, version FROM expenses WHERE id = ?').get('old')).toEqual({
               split_kind: 'equal',
               version: 3,
             });
           } finally {
-            upgraded.close();
+            await upgraded.close();
           }
         } finally {
-          legacyDirectory.remove();
+          await legacyDirectory.remove();
         }
       });
 
-      it('upgrades an expense file written before versions: its expenses are at version 1', () => {
+      it('upgrades an expense file written before versions: its expenses are at version 1', async () => {
         const legacyDirectory = testDirectory();
         try {
-          const legacy = new DatabaseSync(legacyDirectory.databasePath);
+          const legacy = new DatabaseSync(legacyDirectory.legacyPath);
           legacy.exec(`
-            CREATE TABLE expenses (
-              id TEXT PRIMARY KEY, group_id TEXT NOT NULL, description TEXT NOT NULL, amount INTEGER NOT NULL,
-              spent_on TEXT NOT NULL, paid_by TEXT NOT NULL, created_at TEXT NOT NULL
+            CREATE TABLE accounts (
+              id TEXT PRIMARY KEY, email TEXT NOT NULL, email_key TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+              password_hash TEXT NOT NULL, created_at TEXT NOT NULL
             );
-            INSERT INTO expenses VALUES ('old', 'group', 'Groceries', 500, '2026-01-02', 'ana', '2026-01-02T00:00:00.000Z');
+            INSERT INTO accounts VALUES ('ana', 'ana@example.org', 'ana@example.org', 'Ana', 'x', '2026-01-01T00:00:00.000Z');
+            CREATE TABLE groups (
+              id TEXT PRIMARY KEY, name TEXT NOT NULL, currency TEXT NOT NULL, owner_id TEXT NOT NULL,
+              created_at TEXT NOT NULL, archived_at TEXT
+            );
+            INSERT INTO groups VALUES ('group', 'Flat', 'EUR', 'ana', '2026-01-01T00:00:00.000Z', NULL);
+            CREATE TABLE expenses (
+                id TEXT PRIMARY KEY, group_id TEXT NOT NULL, description TEXT NOT NULL, amount INTEGER NOT NULL,
+                spent_on TEXT NOT NULL, paid_by TEXT NOT NULL, created_at TEXT NOT NULL
+              );
+              INSERT INTO expenses VALUES ('old', 'group', 'Groceries', 500, '2026-01-02', 'ana', '2026-01-02T00:00:00.000Z');
           `);
           legacy.close();
-          const upgraded = openDatabase(legacyDirectory.databasePath);
+          const upgradedApp = await startApplication(legacyDirectory.databaseUrl, {
+            databasePath: legacyDirectory.legacyPath,
+          });
+          await upgradedApp.stop();
+          const upgraded = await openDatabase({ url: legacyDirectory.databaseUrl });
           try {
-            expect(upgraded.prepare('SELECT version FROM expenses WHERE id = ?').get('old')).toMatchObject({
+            expect(await upgraded.prepare('SELECT version FROM expenses WHERE id = ?').get('old')).toMatchObject({
               version: 1,
             });
           } finally {
-            upgraded.close();
+            await upgraded.close();
           }
         } finally {
-          legacyDirectory.remove();
+          await legacyDirectory.remove();
         }
       });
     });
@@ -1238,10 +1270,10 @@ describe('expenses', () => {
       const id = await recordOk(ana.token, groupId, [ana.id, ben.id], 999);
       const before = await send(app, 'GET', `/expenses/${id}`, { token: ben.token });
       await app.stop();
-      db.close();
+      await db.close();
 
-      app = await startApplication(directory.databasePath);
-      db = openDatabase(directory.databasePath);
+      app = await startApplication(directory.databaseUrl);
+      db = await openDatabase({ url: directory.databaseUrl });
       const after = await send(app, 'GET', `/expenses/${id}`, { token: ben.token });
       expect(after.body).toEqual(before.body);
     });

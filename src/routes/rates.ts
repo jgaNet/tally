@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { CURRENCIES } from '../groups';
 import { requireCaller } from '../http';
 import { ratesOfferedToGroup, type RatesConfig } from '../rates';
@@ -21,15 +21,15 @@ const RATE = {
   },
 };
 
-export function registerRateRoutes(server: FastifyInstance, db: DatabaseSync, rates: RatesConfig): void {
+export function registerRateRoutes(server: FastifyInstance, db: Database, rates: RatesConfig): void {
   // Only a member of the group reads the rate offered to it; to anyone else the group does not exist. A read: the
   // rate is asked of the rates service and nothing is kept.
   server.get<{ Params: { id: string; currency: string }; Querystring: { date?: string } }>(
     '/groups/:id/rates/:currency',
     { schema: { querystring: QUERY, response: { 200: RATE } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return ratesOfferedToGroup(db, rates, {
+      const caller = await requireCaller(db, request);
+      return await ratesOfferedToGroup(db, rates, {
         accountId: caller.id,
         groupId: request.params.id,
         currency: request.params.currency,

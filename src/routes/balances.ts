@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { balancesOfGroup } from '../balances';
 import { findGroupOfMember } from '../groups';
 import { requireCaller } from '../http';
@@ -11,17 +11,17 @@ const BALANCE = {
   properties: { memberId: { type: 'string' }, balance: { type: 'integer' } },
 };
 
-export function registerBalanceRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerBalanceRoutes(server: FastifyInstance, db: Database): void {
   // Only a member of the group reads its balances; to anyone else the group does not exist.
   server.get<{ Params: { id: string } }>(
     '/groups/:id/balances',
     { schema: { response: { 200: { type: 'array', items: BALANCE } } } },
     async request => {
-      const caller = requireCaller(db, request);
-      if (!findGroupOfMember(db, caller.id, request.params.id)) {
+      const caller = await requireCaller(db, request);
+      if (!(await findGroupOfMember(db, caller.id, request.params.id))) {
         throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
       }
-      return balancesOfGroup(db, request.params.id);
+      return await balancesOfGroup(db, request.params.id);
     },
   );
 }

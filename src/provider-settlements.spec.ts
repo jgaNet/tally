@@ -3,8 +3,16 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { type Application, createApplication } from './app';
-import { openDatabase } from './database';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { type Database, openDatabase } from './database';
+import { createLegacyFile } from './legacy-file';
+import {
+  type TestDirectory,
+  ensureDatabase,
+  send,
+  signedUpAccount,
+  startApplication,
+  testDirectory,
+} from './test-helpers';
 
 const SECRET = 'shared with the provider';
 
@@ -42,7 +50,7 @@ function signed(body: string, secret = SECRET): string {
 describe('paying through the provider', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
   let provider: Server;
   let providerUrl: string;
   let calls: ProviderCall[];
@@ -96,24 +104,25 @@ describe('paying through the provider', () => {
     });
     await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
     providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+    await ensureDatabase(directory.databaseUrl);
     app = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       providerUrl,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 200,
     });
     await app.start(0);
     // A second connection to the same file, to count what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     for (const other of extra.splice(0)) await other.stop();
     await app.stop();
     await new Promise<void>(resolve => provider.close(() => resolve()));
     provider.closeAllConnections();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -236,8 +245,9 @@ describe('paying through the provider', () => {
 
   /** Starts an application on the file of this test, as Tally starts again after it was stopped. */
   async function startApplicationOnFile(): Promise<Application> {
+    await ensureDatabase(directory.databaseUrl);
     const started = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       providerUrl,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 200,
@@ -246,8 +256,8 @@ describe('paying through the provider', () => {
     return started;
   }
 
-  function settlementCount(): number {
-    return (db.prepare('SELECT COUNT(*) AS n FROM settlements').get() as { n: number }).n;
+  async function settlementCount(): Promise<number> {
+    return ((await db.prepare('SELECT COUNT(*) AS n FROM settlements').get()) as { n: number }).n;
   }
 
   it('asks the provider for a payment referenced by the settlement, in the group’s currency, and keeps it pending with its payUrl', async () => {
@@ -263,7 +273,7 @@ describe('paying through the provider', () => {
       },
     ]);
 
-    const before = settlementCount();
+    const before = await settlementCount();
     const read = await readSettlement(ben.token, id);
     expect(read.status).toBe(200);
     expect(read.body).toEqual({
@@ -280,7 +290,7 @@ describe('paying through the provider', () => {
     });
     // Ann, the payee, reads it as the group's member; a read changes nothing stored.
     expect((await readSettlement(ann.token, id)).body).toEqual(read.body);
-    expect(settlementCount()).toBe(before);
+    expect(await settlementCount()).toBe(before);
     expect(calls).toHaveLength(1);
   });
 
@@ -335,7 +345,7 @@ describe('paying through the provider', () => {
       const reply = await askToPay(ben.token, groupId, ann.id, 1500);
       expect({ name, status: reply.status }).toEqual({ name, status: 424 });
       expect(reply.body).toMatchObject({ error: 'ProviderUnavailable' });
-      expect(settlementCount()).toBe(0);
+      expect(await settlementCount()).toBe(0);
     }
     expect(await suggestionsAs(ann.token, groupId)).toEqual([{ from: ben.id, to: ann.id, amount: 1500 }]);
     expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 1500, [ben.id]: -1500 });
@@ -344,8 +354,9 @@ describe('paying through the provider', () => {
   it('refuses a payment when the provider cannot be reached at all, and keeps nothing', async () => {
     const { ann, ben, groupId } = await annAndBenOwing1500();
     // A port nothing listens on: the connection is refused.
+    await ensureDatabase(directory.databaseUrl);
     const unreachable = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       providerUrl: 'http://127.0.0.1:9',
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 200,
@@ -358,12 +369,13 @@ describe('paying through the provider', () => {
     });
     expect(reply.status).toBe(424);
     expect(reply.body).toMatchObject({ error: 'ProviderUnavailable' });
-    expect(settlementCount()).toBe(0);
+    expect(await settlementCount()).toBe(0);
   });
 
   it('refuses paying through the provider when it is not configured, before asking anyone', async () => {
     const { ann, ben, groupId } = await annAndBenOwing1500();
-    const unconfigured = await createApplication({ databasePath: directory.databasePath, providerUrl: '' });
+    await ensureDatabase(directory.databaseUrl);
+    const unconfigured = await createApplication({ databaseUrl: directory.databaseUrl, providerUrl: '' });
     extra.push(unconfigured);
     await unconfigured.start(0);
     const reply = await send(unconfigured, 'POST', `/groups/${groupId}/settlements/provider`, {
@@ -373,7 +385,7 @@ describe('paying through the provider', () => {
     expect(reply.status).toBe(424);
     expect(reply.body).toMatchObject({ error: 'ProviderNotConfigured' });
     expect(calls).toEqual([]);
-    expect(settlementCount()).toBe(0);
+    expect(await settlementCount()).toBe(0);
   });
 
   it('refuses a request the rules refuse before the provider is asked: a payee who is not a member, the payer as payee, a bad amount, and more than is owed', async () => {
@@ -410,7 +422,7 @@ describe('paying through the provider', () => {
     expect(noToken.status).toBe(401);
 
     expect(calls).toEqual([]);
-    expect(settlementCount()).toBe(0);
+    expect(await settlementCount()).toBe(0);
   });
 
   it('refuses paying a member who has no payout account, by its rule, before the provider is asked', async () => {
@@ -422,7 +434,7 @@ describe('paying through the provider', () => {
     expect(asked.status).toBe(409);
     expect(asked.body).toMatchObject({ error: 'PayoutAccountRequired' });
     expect(calls).toEqual([]);
-    expect(settlementCount()).toBe(0);
+    expect(await settlementCount()).toBe(0);
     expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: -1500, [ben.id]: 1500 });
 
     // Once Ben has a payout account, the same payment is asked, and it is made to that account.
@@ -486,8 +498,9 @@ describe('paying through the provider', () => {
   it('refuses every webhook when no webhook secret is configured', async () => {
     const { ann, ben, groupId } = await annAndBenOwing1500();
     const id = ((await askToPay(ben.token, groupId, ann.id, 1500)).body as { id: string }).id;
+    await ensureDatabase(directory.databaseUrl);
     const unsecured = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       providerUrl,
       providerWebhookSecret: '',
     });
@@ -643,9 +656,9 @@ describe('paying through the provider', () => {
     let paidTotal = 0;
     for (let round = 0; round < 5; round++) {
       const id = ((await askToPay(ben.token, groupId, ann.id, 100)).body as { id: string }).id;
-      const { provider_payment_id: paymentId } = db
+      const { provider_payment_id: paymentId } = (await db
         .prepare('SELECT provider_payment_id FROM settlements WHERE id = ?')
-        .get(id) as { provider_payment_id: string };
+        .get(id)) as { provider_payment_id: string };
       const [succeeded, failed] = await Promise.all([
         deliver(app, webhookWithId(`evt_success_${round}`, paymentId, 'succeeded')),
         deliver(second, webhookWithId(`evt_failure_${round}`, paymentId, 'failed')),
@@ -666,13 +679,15 @@ describe('paying through the provider', () => {
     const legacy = testDirectory();
     try {
       // A file as the application wrote it before payments through the provider: the settlements had no provider.
-      const old = new DatabaseSync(legacy.databasePath);
-      old.exec(`
-        CREATE TABLE accounts (id TEXT PRIMARY KEY);
-        CREATE TABLE groups (id TEXT PRIMARY KEY);
-        INSERT INTO accounts VALUES ('ann'), ('ben');
-        INSERT INTO groups VALUES ('g1');
-        CREATE TABLE settlements (
+      // The file as the earlier version wrote it, on the file createLegacyFile makes; its settlements table is the old one.
+      createLegacyFile(legacy.legacyPath);
+      const old = new DatabaseSync(legacy.legacyPath);
+      try {
+        old.exec(`
+                        INSERT INTO accounts (id, email, email_key, name, password_hash, created_at) VALUES ('ann', 'ann@example.org', 'ann@example.org', 'Ann', 'hash', '2026-11-01T00:00:00.000Z'), ('ben', 'ben@example.org', 'ben@example.org', 'Ben', 'hash', '2026-11-01T00:00:00.000Z');
+        INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g1', 'Flat', 'EUR', 'ann', '2026-11-01T00:00:00.000Z');
+        DROP TABLE settlements;
+          CREATE TABLE settlements (
           id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES groups (id),
           payer_id TEXT NOT NULL REFERENCES accounts (id), payee_id TEXT NOT NULL REFERENCES accounts (id),
           amount INTEGER NOT NULL CHECK (amount >= 1),
@@ -682,27 +697,31 @@ describe('paying through the provider', () => {
         );
         INSERT INTO settlements VALUES ('s1', 'g1', 'ben', 'ann', 700, 'cash', 'paid', '2026-11-01T10:00:00.000Z');
       `);
-      old.close();
+      } finally {
+        old.close();
+      }
+      const migrated = await startApplication(legacy.databaseUrl, { databasePath: legacy.legacyPath });
+      await migrated.stop();
 
-      const upgraded = openDatabase(legacy.databasePath);
-      expect(upgraded.prepare('SELECT id, method, status, pay_url FROM settlements').all()).toEqual([
+      const upgraded = await openDatabase({ url: legacy.databaseUrl });
+      expect(await upgraded.prepare('SELECT id, method, status, pay_url FROM settlements').all()).toEqual([
         { id: 's1', method: 'cash', status: 'paid', pay_url: null },
       ]);
       // The rebuilt table takes a payment through the provider, which the old one refused.
-      upgraded.exec(
+      await upgraded.exec(
         `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, created_at)
          VALUES ('s2', 'g1', 'ben', 'ann', 100, 'provider', 'pending', 'pay_9', 'https://pay.example.org/9', '2026-11-02T10:00:00.000Z')`,
       );
-      upgraded.close();
+      await upgraded.close();
     } finally {
-      legacy.remove();
+      await legacy.remove();
     }
   });
 
   describe('refunding through the provider', () => {
     /** The provider's id of the payment of the settlement `id`, as Tally keeps it. */
-    function paymentOf(id: string): string {
-      const row = db.prepare('SELECT provider_payment_id FROM settlements WHERE id = ?').get(id) as {
+    async function paymentOf(id: string): Promise<string> {
+      const row = (await db.prepare('SELECT provider_payment_id FROM settlements WHERE id = ?').get(id)) as {
         provider_payment_id: string;
       };
       return row.provider_payment_id;
@@ -728,14 +747,14 @@ describe('paying through the provider', () => {
     async function benPaidAnnThroughProvider() {
       const { ann, ben, groupId } = await annAndBenOwing1500();
       const id = ((await askToPay(ben.token, groupId, ann.id, 1500)).body as { id: string }).id;
-      await say(paymentOf(id), 'succeeded');
+      await say(await paymentOf(id), 'succeeded');
       expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0, [ben.id]: 0 });
       return { ann, ben, groupId, id };
     }
 
     it('asks the provider to refund the payment, with the settlement as reference, and keeps the settlement refunding, still counted as paid', async () => {
       const { ann, ben, groupId, id } = await benPaidAnnThroughProvider();
-      const paymentId = paymentOf(id);
+      const paymentId = await paymentOf(id);
 
       const reply = await refund(ann.token, id);
       expect(reply.status).toBe(204);
@@ -752,8 +771,8 @@ describe('paying through the provider', () => {
       const { ann, ben, groupId, id } = await benPaidAnnThroughProvider();
       expect((await refund(ann.token, id)).status).toBe(204);
 
-      await say(paymentOf(id), 'refunded');
-      await say(paymentOf(id), 'refunded');
+      await say(await paymentOf(id), 'refunded');
+      await say(await paymentOf(id), 'refunded');
       expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'refunded' });
       expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 1500, [ben.id]: -1500 });
       expect(await suggestionsAs(ann.token, groupId)).toEqual([{ from: ben.id, to: ann.id, amount: 1500 }]);
@@ -766,12 +785,12 @@ describe('paying through the provider', () => {
       const { ann, ben, groupId } = await annAndBenOwing1500();
       const id = ((await askToPay(ben.token, groupId, ann.id, 1000)).body as { id: string }).id;
       const failed = ((await askToPay(ben.token, groupId, ann.id, 500)).body as { id: string }).id;
-      await say(paymentOf(failed), 'failed');
+      await say(await paymentOf(failed), 'failed');
 
-      await say(paymentOf(id), 'refunded');
-      await say(paymentOf(id), 'succeeded');
-      await say(paymentOf(id), 'pending');
-      await say(paymentOf(failed), 'refunded');
+      await say(await paymentOf(id), 'refunded');
+      await say(await paymentOf(id), 'succeeded');
+      await say(await paymentOf(id), 'pending');
+      await say(await paymentOf(failed), 'refunded');
 
       expect((await readSettlement(ben.token, id)).body).toMatchObject({ status: 'refunded' });
       expect((await readSettlement(ben.token, failed)).body).toMatchObject({ status: 'failed' });
@@ -784,7 +803,7 @@ describe('paying through the provider', () => {
 
       const pending = refund(ann.token, id);
       await sleep(30);
-      await say(paymentOf(id), 'refunded');
+      await say(await paymentOf(id), 'refunded');
       expect((await pending).status).toBe(204);
 
       // The refund made after the provider's word does not turn the settlement back to refunding.
@@ -818,7 +837,8 @@ describe('paying through the provider', () => {
 
     it('refuses a refund when the provider is not configured, before asking anyone', async () => {
       const { ann, id } = await benPaidAnnThroughProvider();
-      const unconfigured = await createApplication({ databasePath: directory.databasePath, providerUrl: '' });
+      await ensureDatabase(directory.databaseUrl);
+      const unconfigured = await createApplication({ databaseUrl: directory.databaseUrl, providerUrl: '' });
       extra.push(unconfigured);
       await unconfigured.start(0);
 
@@ -853,7 +873,7 @@ describe('paying through the provider', () => {
       const waiting = ((await askToPay(ben.token, groupId, ann.id, 300)).body as { id: string }).id;
       expect(await refund(ann.token, waiting)).toMatchObject({ status: 409, body: { error: 'SettlementIsNotPaid' } });
       const failed = ((await askToPay(ben.token, groupId, ann.id, 200)).body as { id: string }).id;
-      await say(paymentOf(failed), 'failed');
+      await say(await paymentOf(failed), 'failed');
       expect(await refund(ann.token, failed)).toMatchObject({ status: 409, body: { error: 'SettlementIsNotPaid' } });
 
       expect(refundCalls()).toEqual([]);
@@ -882,7 +902,7 @@ describe('paying through the provider', () => {
       expect(await leave()).toMatchObject({ status: 409, body: { error: 'SettlementIsInProgress' } });
       expect(await memberIdsAs(ann.token, groupId)).toEqual([ann.id, ben.id]);
 
-      await say(paymentOf(id), 'refunded');
+      await say(await paymentOf(id), 'refunded');
       expect((await leave()).status).toBe(204);
       expect(await memberIdsAs(ann.token, groupId)).toEqual([ann.id]);
     });
@@ -894,7 +914,7 @@ describe('paying through the provider', () => {
       expect(await leave()).toMatchObject({ status: 409, body: { error: 'SettlementIsInProgress' } });
       expect(await memberIdsAs(ann.token, groupId)).toEqual([ann.id, ben.id]);
 
-      await say(paymentOf(id), 'succeeded');
+      await say(await paymentOf(id), 'succeeded');
       expect((await leave()).status).toBe(204);
       expect(await balancesAs(ann.token, groupId)).toEqual({ [ann.id]: 0 });
     });
@@ -913,12 +933,14 @@ describe('paying through the provider', () => {
       const legacy = testDirectory();
       try {
         // A file as the application wrote it before refunds: the provider's settlements may be pending, paid or failed.
-        const old = new DatabaseSync(legacy.databasePath);
-        old.exec(`
-          CREATE TABLE accounts (id TEXT PRIMARY KEY);
-          CREATE TABLE groups (id TEXT PRIMARY KEY);
-          INSERT INTO accounts VALUES ('ann'), ('ben');
-          INSERT INTO groups VALUES ('g1');
+        // The file as the earlier version wrote it, on the file createLegacyFile makes; its settlements table is the old one.
+        createLegacyFile(legacy.legacyPath);
+        const old = new DatabaseSync(legacy.legacyPath);
+        try {
+          old.exec(`
+                              INSERT INTO accounts (id, email, email_key, name, password_hash, created_at) VALUES ('ann', 'ann@example.org', 'ann@example.org', 'Ann', 'hash', '2026-11-01T00:00:00.000Z'), ('ben', 'ben@example.org', 'ben@example.org', 'Ben', 'hash', '2026-11-01T00:00:00.000Z');
+          INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES ('g1', 'Flat', 'EUR', 'ann', '2026-11-01T00:00:00.000Z');
+          DROP TABLE settlements;
           CREATE TABLE settlements (
             id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES groups (id),
             payer_id TEXT NOT NULL REFERENCES accounts (id), payee_id TEXT NOT NULL REFERENCES accounts (id),
@@ -932,24 +954,28 @@ describe('paying through the provider', () => {
           INSERT INTO settlements VALUES ('s1', 'g1', 'ben', 'ann', 700, 'cash', 'paid', NULL, NULL, '2026-11-01T10:00:00.000Z');
           INSERT INTO settlements VALUES ('s2', 'g1', 'ben', 'ann', 100, 'provider', 'paid', 'pay_9', 'https://pay.example.org/9', '2026-11-02T10:00:00.000Z');
         `);
-        old.close();
+        } finally {
+          old.close();
+        }
+        const migrated = await startApplication(legacy.databaseUrl, { databasePath: legacy.legacyPath });
+        await migrated.stop();
 
-        const upgraded = openDatabase(legacy.databasePath);
+        const upgraded = await openDatabase({ url: legacy.databaseUrl });
         expect(
-          upgraded.prepare('SELECT id, method, status, provider_payment_id FROM settlements ORDER BY id').all(),
+          await upgraded.prepare('SELECT id, method, status, provider_payment_id FROM settlements ORDER BY id').all(),
         ).toEqual([
           { id: 's1', method: 'cash', status: 'paid', provider_payment_id: null },
           { id: 's2', method: 'provider', status: 'paid', provider_payment_id: 'pay_9' },
         ]);
         // The rebuilt table takes the statuses refunds add, which the old one refused.
-        upgraded.exec(`UPDATE settlements SET status = 'refunding' WHERE id = 's2'`);
-        upgraded.exec(`UPDATE settlements SET status = 'refunded' WHERE id = 's2'`);
-        expect(upgraded.prepare('SELECT status FROM settlements WHERE id = ?').get('s2')).toEqual({
+        await upgraded.exec(`UPDATE settlements SET status = 'refunding' WHERE id = 's2'`);
+        await upgraded.exec(`UPDATE settlements SET status = 'refunded' WHERE id = 's2'`);
+        expect(await upgraded.prepare('SELECT status FROM settlements WHERE id = ?').get('s2')).toEqual({
           status: 'refunded',
         });
-        upgraded.close();
+        await upgraded.close();
       } finally {
-        legacy.remove();
+        await legacy.remove();
       }
     });
   });

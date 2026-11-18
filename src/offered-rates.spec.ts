@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { type Application, createApplication } from './app';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { ensureDatabase, send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
 
 /** The day `offset` days from today, in UTC, as `YYYY-MM-DD`. */
 function utcDay(offset: number): string {
@@ -48,7 +48,8 @@ describe('the rate offered by a rates service', () => {
     });
     await new Promise<void>(resolve => service.listen(0, '127.0.0.1', resolve));
     serviceUrl = `http://127.0.0.1:${(service.address() as AddressInfo).port}`;
-    app = await createApplication({ databasePath: directory.databasePath, ratesUrl: serviceUrl, ratesTimeoutMs: 200 });
+    await ensureDatabase(directory.databaseUrl);
+    app = await createApplication({ databaseUrl: directory.databaseUrl, ratesUrl: serviceUrl, ratesTimeoutMs: 200 });
     await app.start(0);
   });
 
@@ -56,7 +57,7 @@ describe('the rate offered by a rates service', () => {
     await app.stop();
     await new Promise<void>(resolve => service.close(() => resolve()));
     service.closeAllConnections();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group in `currency` as `token`'s account and answers its id. */
@@ -143,7 +144,7 @@ describe('the rate offered by a rates service', () => {
     it('answers 404 on a server started without a rates service, which asks nothing', async () => {
       const ana = await signedUpAccount(app, { email: 'ana@example.org' });
       const groupId = await createGroup(ana.token, 'EUR');
-      const unconfigured = await createApplication({ databasePath: directory.databasePath, ratesUrl: '' });
+      const unconfigured = await createApplication({ databaseUrl: directory.databaseUrl, ratesUrl: '' });
       await unconfigured.start(0);
       try {
         const reply = await send(unconfigured, 'GET', `/groups/${groupId}/rates/CHF?date=2026-03-02`, {

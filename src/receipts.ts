@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database, Querier } from './database';
 import { expenseChangeableBy, findExpenseOfMember } from './expenses';
 import { assertNotArchived, findGroupOfMember } from './groups';
 import { Refusal } from './refusal';
@@ -98,28 +98,32 @@ async function storeFile(receipts: ReceiptsConfig, type: ReceiptType, bytes: Buf
  * else. Nothing is kept when the store does not keep the file.
  */
 export async function attachReceipt(
-  db: DatabaseSync,
+  db: Database,
   receipts: ReceiptsConfig,
   input: { expenseId: string; editorId: string; bytes: Buffer },
 ): Promise<void> {
   const { expenseId, editorId, bytes } = input;
-  const expense = findExpenseOfMember(db, editorId, expenseId);
-  const group = expense && findGroupOfMember(db, editorId, expense.groupId);
+  const expense = await findExpenseOfMember(db, editorId, expenseId);
+  const group = expense && (await findGroupOfMember(db, editorId, expense.groupId));
   if (group) assertNotArchived(group);
   if (bytes.length === 0) throw new Refusal(422, 'ReceiptIsEmpty', 'A receipt is a file of at least one byte.');
   const type = receiptTypeOf(bytes);
   if (type === undefined) {
     throw new Refusal(422, 'ReceiptIsNotJpegOrPng', 'A receipt is a JPEG or a PNG: its first bytes say which.');
   }
-  expenseChangeableBy(db, editorId, expenseId);
+  await expenseChangeableBy(db, editorId, expenseId);
   const stored = await storeFile(receipts, type, bytes);
   // The rules are checked again in the transaction that keeps the receipt: the expense may have changed meanwhile.
-  inTransaction(db, () => {
-    expenseChangeableBy(db, editorId, expenseId);
-    db.prepare(
-      `INSERT OR REPLACE INTO receipts (expense_id, store_id, type, size, url, attached_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(expenseId, stored.id, type, bytes.length, stored.url, new Date().toISOString());
+  await inTransaction(db, async tx => {
+    await expenseChangeableBy(tx, editorId, expenseId);
+    await tx
+      .prepare(
+        `INSERT INTO receipts (expense_id, store_id, type, size, url, attached_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (expense_id) DO UPDATE SET store_id = excluded.store_id, type = excluded.type,
+           size = excluded.size, url = excluded.url, attached_at = excluded.attached_at`,
+      )
+      .run(expenseId, stored.id, type, bytes.length, stored.url, new Date().toISOString());
   });
 }
 
@@ -127,12 +131,13 @@ export async function attachReceipt(
  * The receipt of the expense, as a member of its group reads it. To anyone who is not a member the expense does not
  * exist (`404`); an expense with no receipt is `404` too. Reading changes nothing and asks the store nothing.
  */
-export function receiptOfMember(db: DatabaseSync, accountId: string, expenseId: string): Receipt {
-  if (!findExpenseOfMember(db, accountId, expenseId)) {
+export async function receiptOfMember(db: Querier, accountId: string, expenseId: string): Promise<Receipt> {
+  if (!(await findExpenseOfMember(db, accountId, expenseId))) {
     throw new Refusal(404, 'ExpenseNotFound', 'No expense has this id.');
   }
-  const row = db.prepare('SELECT type, size, url FROM receipts WHERE expense_id = ?').get(expenseId) as
-    { type: ReceiptType; size: number; url: string } | undefined;
+  const row = await db
+    .prepare('SELECT type, size, url FROM receipts WHERE expense_id = ?')
+    .get<{ type: ReceiptType; size: number; url: string }>(expenseId);
   if (!row) throw new Refusal(404, 'ReceiptNotFound', 'The expense has no receipt.');
-  return { type: row.type, size: row.size, url: row.url };
+  return { type: row.type, size: Number(row.size), url: row.url };
 }

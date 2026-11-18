@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
 import { accountForToken, type Account } from './accounts';
+import type { Querier } from './database';
 import { Refusal } from './refusal';
 
 const BEARER = /^Bearer\s+(\S+)$/;
@@ -9,18 +9,18 @@ const BEARER = /^Bearer\s+(\S+)$/;
  * The account the request is signed in as, or `null` when it carries no `Authorization` header.
  * A header that proves nothing is refused with `401`.
  */
-export function callerOf(db: DatabaseSync, request: FastifyRequest): Account | null {
+export async function callerOf(db: Querier, request: FastifyRequest): Promise<Account | null> {
   const header = request.headers.authorization;
   if (header === undefined) return null;
   const token = BEARER.exec(header)?.[1];
-  const account = token === undefined ? undefined : accountForToken(db, token);
+  const account = token === undefined ? undefined : await accountForToken(db, token);
   if (!account) throw new Refusal(401, 'NotSignedIn', 'The request must carry a valid Bearer token.');
   return account;
 }
 
 /** The account the request is signed in as; a request without a valid token is refused with `401`. */
-export function requireCaller(db: DatabaseSync, request: FastifyRequest): Account {
-  const account = callerOf(db, request);
+export async function requireCaller(db: Querier, request: FastifyRequest): Promise<Account> {
+  const account = await callerOf(db, request);
   if (!account) throw new Refusal(401, 'NotSignedIn', 'The request must carry a valid Bearer token.');
   return account;
 }

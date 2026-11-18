@@ -3,8 +3,16 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { type Application, createApplication } from './app';
-import { openDatabase } from './database';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { type Database, openDatabase } from './database';
+import { createLegacyFile } from './legacy-file';
+import {
+  type TestDirectory,
+  ensureDatabase,
+  send,
+  signedUpAccount,
+  startApplication,
+  testDirectory,
+} from './test-helpers';
 
 const SECRET = 'shared with the provider';
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
@@ -22,7 +30,7 @@ function signed(body: string): string {
 describe('the settlements of a group, with the history of each', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
   let provider: Server;
   let providerUrl: string;
   let nextPayment: number;
@@ -33,8 +41,9 @@ describe('the settlements of a group, with the history of each', () => {
 
   /** Starts an application on the file of this test, as Tally starts again after it was stopped. */
   async function startedOnFile(): Promise<Application> {
+    await ensureDatabase(directory.databaseUrl);
     const started = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       providerUrl,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 200,
@@ -71,15 +80,15 @@ describe('the settlements of a group, with the history of each', () => {
     providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
     app = await startedOnFile();
     // A second connection to the same file, to count what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
     await new Promise<void>(resolve => provider.close(() => resolve()));
     provider.closeAllConnections();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a group as `token`'s account and answers its id. */
@@ -140,9 +149,9 @@ describe('the settlements of a group, with the history of each', () => {
   }
 
   /** The provider's id of the payment of the settlement `id`, as Tally keeps it. */
-  function paymentOf(id: string): string {
+  async function paymentOf(id: string): Promise<string> {
     return (
-      db.prepare('SELECT provider_payment_id FROM settlements WHERE id = ?').get(id) as {
+      (await db.prepare('SELECT provider_payment_id FROM settlements WHERE id = ?').get(id)) as {
         provider_payment_id: string;
       }
     ).provider_payment_id;
@@ -185,7 +194,7 @@ describe('the settlements of a group, with the history of each', () => {
     const second = await askToPay(ben.token, groupId, ann.id, 400);
     const third = await askToPay(ben.token, groupId, ann.id, 600);
     // A webhook moves the older payment on; the order stays the order they were recorded in.
-    await say(paymentOf(second), 'succeeded');
+    await say(await paymentOf(second), 'succeeded');
 
     const listed = await listAs(ann.token, groupId);
     expect(listed.status).toBe(200);
@@ -197,7 +206,7 @@ describe('the settlements of a group, with the history of each', () => {
     const cash = await cashFromBen(ann.token, groupId, ben.id, 500);
     const failed = await askToPay(ben.token, groupId, ann.id, 400);
     const pending = await askToPay(ben.token, groupId, ann.id, 600);
-    await say(paymentOf(failed), 'failed');
+    await say(await paymentOf(failed), 'failed');
 
     const listed = (await listAs(ann.token, groupId)).body as { id: string }[];
     expect(listed.map(settlement => settlement.id)).toEqual([pending, failed, cash]);
@@ -232,8 +241,8 @@ describe('the settlements of a group, with the history of each', () => {
   it('gives a payment through the provider every status it has had, the earliest first, each with when Tally learned it', async () => {
     const { ann, ben, groupId } = await annAndBen();
     const id = await askToPay(ben.token, groupId, ann.id, 1500);
-    await say(paymentOf(id), 'succeeded');
-    expect(db.prepare('SELECT COUNT(*) AS n FROM settlement_statuses WHERE settlement_id = ?').get(id)).toEqual({
+    await say(await paymentOf(id), 'succeeded');
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM settlement_statuses WHERE settlement_id = ?').get(id)).toEqual({
       n: 2,
     });
 
@@ -249,7 +258,7 @@ describe('the settlements of a group, with the history of each', () => {
   it('gives a failed payment pending, then failed', async () => {
     const { ann, ben, groupId } = await annAndBen();
     const id = await askToPay(ben.token, groupId, ann.id, 1500);
-    await say(paymentOf(id), 'failed');
+    await say(await paymentOf(id), 'failed');
     const [settlement] = (await listAs(ann.token, groupId)).body as { history: { status: string }[] }[];
     expect(statusesOf(settlement)).toEqual(['pending', 'failed']);
   });
@@ -257,7 +266,7 @@ describe('the settlements of a group, with the history of each', () => {
   it('gives a refund every status it has had: pending, paid, refunding, then refunded', async () => {
     const { ann, ben, groupId } = await annAndBen();
     const id = await askToPay(ben.token, groupId, ann.id, 1500);
-    const paymentId = paymentOf(id);
+    const paymentId = await paymentOf(id);
     await say(paymentId, 'succeeded');
     expect((await send(app, 'POST', `/settlements/${id}/refund`, { token: ann.token })).status).toBe(204);
     await say(paymentId, 'refunded');
@@ -274,7 +283,7 @@ describe('the settlements of a group, with the history of each', () => {
   it('adds only the status a webhook moves a settlement to, when that overtakes the ones it never had', async () => {
     const { ann, ben, groupId } = await annAndBen();
     const id = await askToPay(ben.token, groupId, ann.id, 1500);
-    await say(paymentOf(id), 'refunded');
+    await say(await paymentOf(id), 'refunded');
     const [settlement] = (await listAs(ann.token, groupId)).body as { history: { status: string }[] }[];
     expect(statusesOf(settlement)).toEqual(['pending', 'refunded']);
   });
@@ -282,7 +291,7 @@ describe('the settlements of a group, with the history of each', () => {
   it('adds nothing for a webhook that changes nothing', async () => {
     const { ann, ben, groupId } = await annAndBen();
     const id = await askToPay(ben.token, groupId, ann.id, 1500);
-    const paymentId = paymentOf(id);
+    const paymentId = await paymentOf(id);
     await say(paymentId, 'succeeded');
     await say(paymentId, 'succeeded');
     await say(paymentId, 'failed');
@@ -325,20 +334,21 @@ describe('the settlements of a group, with the history of each', () => {
   it('changes nothing stored however often it is read', async () => {
     const { ann, ben, groupId } = await annAndBen();
     const id = await askToPay(ben.token, groupId, ann.id, 1500);
-    await say(paymentOf(id), 'succeeded');
-    const count = () => (db.prepare('SELECT COUNT(*) AS n FROM settlement_statuses').get() as { n: number }).n;
-    const before = count();
+    await say(await paymentOf(id), 'succeeded');
+    const count = async () =>
+      ((await db.prepare('SELECT COUNT(*) AS n FROM settlement_statuses').get()) as { n: number }).n;
+    const before = await count();
     for (let read = 0; read < 3; read++) {
       await listAs(ann.token, groupId);
       await send(app, 'GET', `/settlements/${id}`, { token: ben.token });
     }
-    expect(count()).toBe(before);
+    expect(await count()).toBe(before);
   });
 
   it('keeps every history across restarts, the same as before the restart', async () => {
     const { ann, ben, groupId } = await annAndBen();
     const id = await askToPay(ben.token, groupId, ann.id, 1500);
-    await say(paymentOf(id), 'succeeded');
+    await say(await paymentOf(id), 'succeeded');
     const before = (await listAs(ann.token, groupId)).body;
 
     await app.stop();
@@ -349,34 +359,31 @@ describe('the settlements of a group, with the history of each', () => {
   it('gives the settlements of a file written before their history was kept the statuses they had, once, at the time they were recorded', async () => {
     const legacy = testDirectory();
     try {
-      // A file as the application wrote it before the history: the settlements as they stand, and no history table.
-      const old = new DatabaseSync(legacy.databasePath);
-      old.exec(`
-        CREATE TABLE accounts (id TEXT PRIMARY KEY);
-        CREATE TABLE groups (id TEXT PRIMARY KEY);
-        INSERT INTO accounts VALUES ('ann'), ('ben');
-        INSERT INTO groups VALUES ('g1');
-        CREATE TABLE settlements (
-          id TEXT PRIMARY KEY, group_id TEXT NOT NULL REFERENCES groups (id),
-          payer_id TEXT NOT NULL REFERENCES accounts (id), payee_id TEXT NOT NULL REFERENCES accounts (id),
-          amount INTEGER NOT NULL CHECK (amount >= 1),
-          method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
-          status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
-          provider_payment_id TEXT, pay_url TEXT, created_at TEXT NOT NULL,
-          CHECK (method = 'provider' OR (status = 'paid' AND provider_payment_id IS NULL AND pay_url IS NULL)),
-          CHECK (method = 'cash' OR (provider_payment_id IS NOT NULL AND pay_url IS NOT NULL))
-        );
-        INSERT INTO settlements VALUES ('a_cash', 'g1', 'ben', 'ann', 700, 'cash', 'paid', NULL, NULL, '2026-11-01T10:00:00.000Z');
-        INSERT INTO settlements VALUES ('b_pending', 'g1', 'ben', 'ann', 100, 'provider', 'pending', 'pay_1', 'https://pay.example.org/1', '2026-11-02T10:00:00.000Z');
-        INSERT INTO settlements VALUES ('c_paid', 'g1', 'ben', 'ann', 100, 'provider', 'paid', 'pay_2', 'https://pay.example.org/2', '2026-11-03T10:00:00.000Z');
-        INSERT INTO settlements VALUES ('d_refunding', 'g1', 'ben', 'ann', 100, 'provider', 'refunding', 'pay_3', 'https://pay.example.org/3', '2026-11-04T10:00:00.000Z');
-        INSERT INTO settlements VALUES ('e_refunded', 'g1', 'ben', 'ann', 100, 'provider', 'refunded', 'pay_4', 'https://pay.example.org/4', '2026-11-05T10:00:00.000Z');
-        INSERT INTO settlements VALUES ('f_failed', 'g1', 'ben', 'ann', 100, 'provider', 'failed', 'pay_5', 'https://pay.example.org/5', '2026-11-06T10:00:00.000Z');
-      `);
-      old.close();
+      // A file as the application wrote it before the history: the settlements as they stand, and no history table
+      // (createLegacyFile makes the file's tables; the history table is dropped, so the upgrade backfills it).
+      createLegacyFile(legacy.legacyPath);
+      const old = new DatabaseSync(legacy.legacyPath);
+      try {
+        old.exec(`
+          DROP TABLE settlement_statuses;
+          INSERT INTO accounts (id, email, email_key, name, password_hash, created_at) VALUES
+            ('ann', 'ann@example.org', 'ann@example.org', 'Ann', 'hash', '2026-11-01T00:00:00.000Z'),
+            ('ben', 'ben@example.org', 'ben@example.org', 'Ben', 'hash', '2026-11-01T00:00:00.000Z');
+          INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES
+            ('g1', 'Flat', 'EUR', 'ann', '2026-11-01T00:00:00.000Z');
+          INSERT INTO settlements VALUES ('a_cash', 'g1', 'ben', 'ann', 700, 'cash', 'paid', NULL, NULL, '2026-11-01T10:00:00.000Z');
+          INSERT INTO settlements VALUES ('b_pending', 'g1', 'ben', 'ann', 100, 'provider', 'pending', 'pay_1', 'https://pay.example.org/1', '2026-11-02T10:00:00.000Z');
+          INSERT INTO settlements VALUES ('c_paid', 'g1', 'ben', 'ann', 100, 'provider', 'paid', 'pay_2', 'https://pay.example.org/2', '2026-11-03T10:00:00.000Z');
+          INSERT INTO settlements VALUES ('d_refunding', 'g1', 'ben', 'ann', 100, 'provider', 'refunding', 'pay_3', 'https://pay.example.org/3', '2026-11-04T10:00:00.000Z');
+          INSERT INTO settlements VALUES ('e_refunded', 'g1', 'ben', 'ann', 100, 'provider', 'refunded', 'pay_4', 'https://pay.example.org/4', '2026-11-05T10:00:00.000Z');
+          INSERT INTO settlements VALUES ('f_failed', 'g1', 'ben', 'ann', 100, 'provider', 'failed', 'pay_5', 'https://pay.example.org/5', '2026-11-06T10:00:00.000Z');
+        `);
+      } finally {
+        old.close();
+      }
 
-      const history = (file: DatabaseSync) =>
-        file.prepare('SELECT settlement_id, status, at FROM settlement_statuses ORDER BY settlement_id, rowid').all();
+      const history = (database: Database) =>
+        database.prepare('SELECT settlement_id, status, at FROM settlement_statuses ORDER BY settlement_id, seq').all();
       const expected = [
         { settlement_id: 'a_cash', status: 'paid', at: '2026-11-01T10:00:00.000Z' },
         { settlement_id: 'b_pending', status: 'pending', at: '2026-11-02T10:00:00.000Z' },
@@ -391,15 +398,25 @@ describe('the settlements of a group, with the history of each', () => {
         { settlement_id: 'f_failed', status: 'failed', at: '2026-11-06T10:00:00.000Z' },
       ];
 
-      const upgraded = openDatabase(legacy.databasePath);
-      expect(history(upgraded)).toEqual(expected);
-      upgraded.close();
-      // A file that has its history is not backfilled again.
-      const reopened = openDatabase(legacy.databasePath);
-      expect(history(reopened)).toEqual(expected);
-      reopened.close();
+      const first = await startApplication(legacy.databaseUrl, { databasePath: legacy.legacyPath });
+      await first.stop();
+      const upgraded = await openDatabase({ url: legacy.databaseUrl });
+      try {
+        expect(await history(upgraded)).toEqual(expected);
+      } finally {
+        await upgraded.close();
+      }
+      // A database that has its history is not backfilled again.
+      const second = await startApplication(legacy.databaseUrl, { databasePath: legacy.legacyPath });
+      await second.stop();
+      const reopened = await openDatabase({ url: legacy.databaseUrl });
+      try {
+        expect(await history(reopened)).toEqual(expected);
+      } finally {
+        await reopened.close();
+      }
     } finally {
-      legacy.remove();
+      await legacy.remove();
     }
   });
 });

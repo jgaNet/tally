@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
 import { recordAudit } from './audit';
 import { balanceOfMembership, balancesOfGroup } from './balances';
+import type { Database, Querier } from './database';
 import { inTransaction } from './transactions';
 import { Refusal } from './refusal';
 import { characters } from './text';
@@ -57,7 +57,10 @@ export function assertNotArchived(group: Group): void {
  * has 1 to 60 characters and is not only spaces (it is stored trimmed); the currency is one of
  * {@link CURRENCIES}.
  */
-export function createGroup(db: DatabaseSync, input: { ownerId: string; name: string; currency: string }): string {
+export async function createGroup(
+  db: Database,
+  input: { ownerId: string; name: string; currency: string },
+): Promise<string> {
   const { ownerId, name, currency } = input;
   const trimmedName = name.trim();
   if (characters(name) > MAX_NAME_LENGTH || trimmedName.length === 0) {
@@ -73,34 +76,32 @@ export function createGroup(db: DatabaseSync, input: { ownerId: string; name: st
 
   const id = randomUUID();
   const now = new Date().toISOString();
-  inTransaction(db, () => {
-    db.prepare('INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      id,
-      trimmedName,
-      currency,
-      ownerId,
-      now,
-    );
-    db.prepare('INSERT INTO group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)').run(id, ownerId, now);
+  await inTransaction(db, async tx => {
+    await tx
+      .prepare('INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, trimmedName, currency, ownerId, now);
+    await tx
+      .prepare('INSERT INTO group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)')
+      .run(id, ownerId, now);
   });
   return id;
 }
 
 /** The group with this id, whoever reads it; `undefined` when there is none. Reading never changes it. */
-export function findGroup(db: DatabaseSync, groupId: string): Group | undefined {
-  const row = db.prepare(`SELECT ${GROUP_COLUMNS} FROM groups g WHERE g.id = ?`).get(groupId) as GroupRow | undefined;
+export async function findGroup(db: Querier, groupId: string): Promise<Group | undefined> {
+  const row = await db.prepare(`SELECT ${GROUP_COLUMNS} FROM groups g WHERE g.id = ?`).get<GroupRow>(groupId);
   return row && groupOf(row);
 }
 
 /** The group with this id, when `accountId` is one of its current members; `undefined` otherwise, as if it did not exist. */
-export function findGroupOfMember(db: DatabaseSync, accountId: string, groupId: string): Group | undefined {
-  const row = db
+export async function findGroupOfMember(db: Querier, accountId: string, groupId: string): Promise<Group | undefined> {
+  const row = await db
     .prepare(
       `SELECT ${GROUP_COLUMNS} FROM groups g
        JOIN group_members m ON m.group_id = g.id
        WHERE g.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
-    .get(groupId, accountId) as GroupRow | undefined;
+    .get<GroupRow>(groupId, accountId);
   return row && groupOf(row);
 }
 
@@ -123,8 +124,8 @@ interface MemberRow {
  * The current members of a group, the earliest to join first; the owner, who created the group, is first.
  * A member who left is not among them.
  */
-export function membersOfGroup(db: DatabaseSync, groupId: string): Member[] {
-  const rows = db
+export async function membersOfGroup(db: Querier, groupId: string): Promise<Member[]> {
+  const rows = await db
     .prepare(
       `SELECT m.account_id AS member_id, a.name,
               CASE WHEN g.owner_id = m.account_id THEN 'owner' ELSE 'member' END AS role,
@@ -133,22 +134,22 @@ export function membersOfGroup(db: DatabaseSync, groupId: string): Member[] {
        JOIN groups g ON g.id = m.group_id
        JOIN accounts a ON a.id = m.account_id
        WHERE m.group_id = ? AND m.left_at IS NULL
-       ORDER BY m.joined_at ASC, m.rowid ASC`,
+       ORDER BY m.joined_at ASC, m.seq ASC`,
     )
-    .all(groupId) as unknown as MemberRow[];
+    .all<MemberRow>(groupId);
   return rows.map(row => ({ memberId: row.member_id, name: row.name, role: row.role, joinedAt: row.joined_at }));
 }
 
 /** The groups `accountId` is a current member of, the most recently created first. */
-export function groupsOfMember(db: DatabaseSync, accountId: string): Group[] {
-  const rows = db
+export async function groupsOfMember(db: Querier, accountId: string): Promise<Group[]> {
+  const rows = await db
     .prepare(
       `SELECT ${GROUP_COLUMNS} FROM groups g
        JOIN group_members m ON m.group_id = g.id
        WHERE m.account_id = ? AND m.left_at IS NULL
-       ORDER BY g.created_at DESC, g.rowid DESC`,
+       ORDER BY g.created_at DESC, g.seq DESC`,
     )
-    .all(accountId) as unknown as GroupRow[];
+    .all<GroupRow>(accountId);
   return rows.map(groupOf);
 }
 
@@ -156,11 +157,11 @@ export function groupsOfMember(db: DatabaseSync, accountId: string): Group[] {
  * True when `accountId` is a member of the group now or has been one: a member who left keeps the record
  * of having been one, so that the group's members can still read their statement. Reading changes nothing.
  */
-export function isOrWasMember(db: DatabaseSync, accountId: string, groupId: string): boolean {
-  return (
-    db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ?').get(groupId, accountId) !==
-    undefined
-  );
+export async function isOrWasMember(db: Querier, accountId: string, groupId: string): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ?')
+    .get(groupId, accountId);
+  return row !== undefined;
 }
 
 /**
@@ -174,16 +175,16 @@ export function isOrWasMember(db: DatabaseSync, accountId: string, groupId: stri
  * is either counted before the member leaves, or refused because they are no longer a member. An archived group
  * is refused (`409`, see {@link assertNotArchived}).
  */
-export function leaveGroup(db: DatabaseSync, input: { groupId: string; accountId: string }): void {
+export async function leaveGroup(db: Database, input: { groupId: string; accountId: string }): Promise<void> {
   const { groupId, accountId } = input;
-  inTransaction(db, () => {
-    const group = findGroupOfMember(db, accountId, groupId);
+  await inTransaction(db, async tx => {
+    const group = await findGroupOfMember(tx, accountId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     assertNotArchived(group);
     if (group.ownerId === accountId) {
       throw new Refusal(403, 'OwnerCannotLeave', 'The owner created the group and cannot leave it.');
     }
-    const waiting = db
+    const waiting = await tx
       .prepare(
         `SELECT 1 FROM settlements
          WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')
@@ -199,14 +200,19 @@ export function leaveGroup(db: DatabaseSync, input: { groupId: string; accountId
     }
     const at = new Date().toISOString();
     // What the member holds passes to the owner as it leaves: a change of money, unless the balance is 0.
-    const balance = balanceOfMembership(db, groupId, accountId);
-    db.prepare('UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?').run(
-      at,
-      groupId,
-      accountId,
-    );
+    const balance = await balanceOfMembership(tx, groupId, accountId);
+    await tx
+      .prepare('UPDATE group_members SET left_at = ? WHERE group_id = ? AND account_id = ?')
+      .run(at, groupId, accountId);
     if (balance !== 0) {
-      recordAudit(db, { groupId, at, by: accountId, action: 'balance-passed', subjectId: accountId, amount: balance });
+      await recordAudit(tx, {
+        groupId,
+        at,
+        by: accountId,
+        action: 'balance-passed',
+        subjectId: accountId,
+        amount: balance,
+      });
     }
   });
 }
@@ -220,19 +226,19 @@ export function leaveGroup(db: DatabaseSync, input: { groupId: string; accountId
  * provider has not ended. The checks and the archiving are one transaction, so a change recorded at the same moment is
  * either counted before, or refused because the group is archived.
  */
-export function archiveGroup(db: DatabaseSync, input: { groupId: string; accountId: string }): void {
+export async function archiveGroup(db: Database, input: { groupId: string; accountId: string }): Promise<void> {
   const { groupId, accountId } = input;
-  inTransaction(db, () => {
-    const group = findGroupOfMember(db, accountId, groupId);
+  await inTransaction(db, async tx => {
+    const group = await findGroupOfMember(tx, accountId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     assertNotArchived(group);
     if (group.ownerId !== accountId) {
       throw new Refusal(403, 'NotOwner', 'Only the owner of the group may archive it.');
     }
-    if (balancesOfGroup(db, groupId).some(member => member.balance !== 0)) {
+    if ((await balancesOfGroup(tx, groupId)).some(member => member.balance !== 0)) {
       throw new Refusal(409, 'BalancesAreNotZero', 'Every balance must be 0 before the group is archived.');
     }
-    const waiting = db
+    const waiting = await tx
       .prepare(
         `SELECT 1 FROM settlements
          WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')`,
@@ -241,6 +247,6 @@ export function archiveGroup(db: DatabaseSync, input: { groupId: string; account
     if (waiting !== undefined) {
       throw new Refusal(409, 'SettlementIsInProgress', 'A settlement through the provider has not ended yet.');
     }
-    db.prepare('UPDATE groups SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), groupId);
+    await tx.prepare('UPDATE groups SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), groupId);
   });
 }

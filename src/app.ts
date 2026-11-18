@@ -34,7 +34,7 @@ export interface Application {
   start(port?: number): Promise<void>;
   stop(): Promise<void>;
   /** One run of the background job, at the application's clock: what the timer does every interval. */
-  runJobs(): void;
+  runJobs(): Promise<void>;
 }
 
 /** A positive number of seconds from the environment, or `fallback` when it is not set or not one. */
@@ -44,15 +44,17 @@ function secondsFrom(value: string | undefined, fallback: number): number {
 }
 
 /**
- * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default). What the
- * application knows is kept in the SQLite file at `databasePath` (`DATABASE_PATH`, `tally.db` by default).
+ * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default). What the application knows is
+ * kept in the PostgreSQL database at `databaseUrl` (`DATABASE_URL`, required): the database must exist; its schema is
+ * created when missing. A database that holds nothing of Tally's yet, with the SQLite file `databasePath` (`DATABASE_PATH`)
+ * named, first takes every row of that file (see `openDatabase`).
  * Settlements through the payment provider need `providerUrl` (`PROVIDER_URL`), the base of the provider's API,
  * and the webhooks it sends are verified with `providerWebhookSecret` (`PROVIDER_WEBHOOK_SECRET`); without the
  * URL, paying through the provider is refused. The provider has `providerTimeoutMs` (5000 by default) to answer.
  *
  * Once started, the background job runs every `jobsIntervalSeconds` (`JOBS_INTERVAL_SECONDS`, 60 by default): it
- * records the expenses of recurring expenses that have come due, and reminds whoever has owed too much in a group for `reminderPeriodSeconds` (`REMINDER_PERIOD_SECONDS`, a week by
- * default), at the time `clock` tells.
+ * records the expenses of recurring expenses that have come due, and reminds whoever has owed too much in a group for
+ * `reminderPeriodSeconds` (`REMINDER_PERIOD_SECONDS`, a week by default), at the time `clock` tells.
  *
  * The rates an expense in another currency is recorded at are asked of the rates service at `ratesUrl` (`RATES_URL`), the
  * base of its API; without it no rate is offered, and a rate given is taken as it is. The service has `ratesTimeoutMs`
@@ -64,7 +66,8 @@ function secondsFrom(value: string | undefined, fallback: number): number {
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
   port = Number(process.env.PORT || 10000),
-  databasePath = process.env.DATABASE_PATH || 'tally.db',
+  databaseUrl = process.env.DATABASE_URL,
+  databasePath = process.env.DATABASE_PATH,
   providerUrl = process.env.PROVIDER_URL,
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET,
   providerTimeoutMs = 5000,
@@ -78,6 +81,7 @@ export async function createApplication({
 }: {
   apiPrefix?: string;
   port?: number;
+  databaseUrl?: string;
   databasePath?: string;
   providerUrl?: string;
   providerWebhookSecret?: string;
@@ -90,7 +94,9 @@ export async function createApplication({
   reminderPeriodSeconds?: number;
   clock?: () => Date;
 } = {}): Promise<Application> {
-  const db = openDatabase(databasePath);
+  // An empty value is no value: no file to move, and no database is a mistake.
+  if (!databaseUrl) throw new Error('DATABASE_URL names the PostgreSQL database Tally keeps its state in.');
+  const db = await openDatabase({ url: databaseUrl, legacyPath: databasePath || undefined });
   // An empty value is no value: the provider is not configured.
   const provider: ProviderConfig = {
     url: providerUrl || undefined,
@@ -104,14 +110,14 @@ export async function createApplication({
   // A body's values are checked by the rules, not coerced: a number where a string is due is a `400`.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
   let jobsTimer: NodeJS.Timeout | undefined;
-  const runJobs = () => {
-    recordRecurring(db, clock());
-    sweepReminders(db, clock(), reminderPeriodSeconds * 1000);
+  const runJobs = async () => {
+    await recordRecurring(db, clock());
+    await sweepReminders(db, clock(), reminderPeriodSeconds * 1000);
   };
   server.addHook('onClose', async () => {
     clearInterval(jobsTimer);
     jobsTimer = undefined;
-    db.close();
+    await db.close();
   });
   server.setErrorHandler(sendError);
   await server.register(cors);
@@ -148,12 +154,10 @@ export async function createApplication({
     async start(listenOn = port) {
       address = await server.listen({ port: listenOn, host: '127.0.0.1' });
       jobsTimer ??= setInterval(() => {
-        try {
-          runJobs();
-        } catch (error) {
-          // A run that fails (another server holding the file too long) changes nothing: the next one tries again.
+        runJobs().catch(error => {
+          // A run that fails (another server holding the database too long) changes nothing: the next one tries again.
           server.log.error(error);
-        }
+        });
       }, jobsIntervalSeconds * 1000);
       jobsTimer.unref();
     },

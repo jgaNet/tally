@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { logIn, signUp } from '../accounts';
 import { requireCaller } from '../http';
 
@@ -27,7 +27,7 @@ const LOG_IN_BODY = {
   properties: { email: { type: 'string' }, password: { type: 'string' } },
 };
 
-export function registerAccountRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerAccountRoutes(server: FastifyInstance, db: Database): void {
   server.post<{ Body: SignUpBody }>(
     '/accounts',
     {
@@ -54,7 +54,7 @@ export function registerAccountRoutes(server: FastifyInstance, db: DatabaseSync)
   );
 
   server.get('/accounts/me', async request => {
-    const { id, email, name } = requireCaller(db, request);
+    const { id, email, name } = await requireCaller(db, request);
     return { id, email, name };
   });
 }

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import type { SplitInput } from '../expenses';
 import { requireCaller } from '../http';
 import { recurringOfGroup, findRecurringOfMember, setUpRecurring, stopRecurring, type Recurring } from '../recurring';
@@ -92,7 +92,7 @@ function projection(recurring: Recurring) {
   return { ...fields, splitByShares: split.parts };
 }
 
-export function registerRecurringRoutes(server: FastifyInstance, db: DatabaseSync, clock: () => Date): void {
+export function registerRecurringRoutes(server: FastifyInstance, db: Database, clock: () => Date): void {
   server.post<{ Params: { id: string }; Body: SetUpBody }>(
     '/groups/:id/recurring',
     {
@@ -102,9 +102,9 @@ export function registerRecurringRoutes(server: FastifyInstance, db: DatabaseSyn
       },
     },
     async (request, reply) => {
-      const caller = requireCaller(db, request);
+      const caller = await requireCaller(db, request);
       const { description, amount, startsOn, category } = request.body;
-      const id = setUpRecurring(db, {
+      const id = await setUpRecurring(db, {
         groupId: request.params.id,
         payerId: caller.id,
         description,
@@ -122,8 +122,8 @@ export function registerRecurringRoutes(server: FastifyInstance, db: DatabaseSyn
     '/recurring/:id',
     { schema: { response: { 200: RECURRING } } },
     async request => {
-      const caller = requireCaller(db, request);
-      const recurring = findRecurringOfMember(db, caller.id, request.params.id);
+      const caller = await requireCaller(db, request);
+      const recurring = await findRecurringOfMember(db, caller.id, request.params.id);
       if (!recurring) throw new Refusal(404, 'RecurringNotFound', 'No recurring expense has this id.');
       return projection(recurring);
     },
@@ -133,14 +133,14 @@ export function registerRecurringRoutes(server: FastifyInstance, db: DatabaseSyn
     '/groups/:id/recurring',
     { schema: { response: { 200: { type: 'array', items: RECURRING } } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return recurringOfGroup(db, caller.id, request.params.id).map(projection);
+      const caller = await requireCaller(db, request);
+      return (await recurringOfGroup(db, caller.id, request.params.id)).map(projection);
     },
   );
 
   server.delete<{ Params: { id: string } }>('/recurring/:id', async (request, reply) => {
-    const caller = requireCaller(db, request);
-    stopRecurring(db, { recurringId: request.params.id, accountId: caller.id });
+    const caller = await requireCaller(db, request);
+    await stopRecurring(db, { recurringId: request.params.id, accountId: caller.id });
     return reply.code(204).send();
   });
 }

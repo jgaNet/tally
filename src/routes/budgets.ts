@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { budgetsOfGroup, removeBudget, setBudget } from '../budgets';
 import { CATEGORIES } from '../categories';
 import { requireCaller } from '../http';
@@ -21,14 +21,14 @@ const BUDGET = {
   },
 };
 
-export function registerBudgetRoutes(server: FastifyInstance, db: DatabaseSync, clock: () => Date): void {
+export function registerBudgetRoutes(server: FastifyInstance, db: Database, clock: () => Date): void {
   // Only the owner of the group sets a budget; setting it again replaces the amount.
   server.put<{ Params: { id: string; category: string }; Body: { amount: number } }>(
     '/groups/:id/budgets/:category',
     { schema: { body: SET_BUDGET_BODY } },
     async (request, reply) => {
-      const caller = requireCaller(db, request);
-      setBudget(db, {
+      const caller = await requireCaller(db, request);
+      await setBudget(db, {
         groupId: request.params.id,
         callerId: caller.id,
         category: request.params.category,
@@ -42,8 +42,8 @@ export function registerBudgetRoutes(server: FastifyInstance, db: DatabaseSync, 
   server.delete<{ Params: { id: string; category: string } }>(
     '/groups/:id/budgets/:category',
     async (request, reply) => {
-      const caller = requireCaller(db, request);
-      removeBudget(db, { groupId: request.params.id, callerId: caller.id, category: request.params.category });
+      const caller = await requireCaller(db, request);
+      await removeBudget(db, { groupId: request.params.id, callerId: caller.id, category: request.params.category });
       return reply.code(204).send();
     },
   );
@@ -53,8 +53,8 @@ export function registerBudgetRoutes(server: FastifyInstance, db: DatabaseSync, 
     '/groups/:id/budgets',
     { schema: { response: { 200: { type: 'array', items: BUDGET } } } },
     async request => {
-      const caller = requireCaller(db, request);
-      return budgetsOfGroup(db, caller.id, request.params.id, clock());
+      const caller = await requireCaller(db, request);
+      return await budgetsOfGroup(db, caller.id, request.params.id, clock());
     },
   );
 }

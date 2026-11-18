@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Querier } from './database';
 
 /**
  * What a member of a group is owed (positive) or owes the group (negative): what they paid for the
@@ -12,8 +12,8 @@ export interface Balance {
 
 interface BalanceRow {
   member_id: string;
-  is_current: number;
-  is_owner: number;
+  is_current: boolean;
+  is_owner: boolean;
   balance: number;
 }
 
@@ -57,13 +57,13 @@ function rawBalanceSql(counted: string): string {
  * {@link balancesOfGroup}), over every expense of the group, as {@link rawBalanceSql} counts it. It is 0 for
  * an account that has no membership of the group. Reading changes nothing.
  */
-export function rawBalanceOf(db: DatabaseSync, groupId: string, accountId: string): number {
-  const row = db
+export async function rawBalanceOf(db: Querier, groupId: string, accountId: string): Promise<number> {
+  const row = await db
     .prepare(
       `SELECT ${rawBalanceSql(countedStatuses({}))} AS balance FROM group_members m
        WHERE m.group_id = ? AND m.account_id = ?`,
     )
-    .get(groupId, accountId) as { balance: number } | undefined;
+    .get<{ balance: number }>(groupId, accountId);
   return row === undefined ? 0 : Number(row.balance);
 }
 
@@ -71,13 +71,13 @@ export function rawBalanceOf(db: DatabaseSync, groupId: string, accountId: strin
  * The balance of the membership of `accountId` in the group, current or left, as {@link balancesOfGroup} counts it: its
  * raw balance less what it has passed on. It is 0 for an account with no membership of the group. Reading changes nothing.
  */
-export function balanceOfMembership(db: DatabaseSync, groupId: string, accountId: string): number {
-  const row = db
+export async function balanceOfMembership(db: Querier, groupId: string, accountId: string): Promise<number> {
+  const row = await db
     .prepare(
       `SELECT (${rawBalanceSql(countedStatuses({}))}) - m.balance_base AS balance FROM group_members m
        WHERE m.group_id = ? AND m.account_id = ?`,
     )
-    .get(groupId, accountId) as { balance: number } | undefined;
+    .get<{ balance: number }>(groupId, accountId);
   return row === undefined ? 0 : Number(row.balance);
 }
 
@@ -97,11 +97,11 @@ export function balanceOfMembership(db: DatabaseSync, groupId: string, accountId
  * gone back yet; a `refunded`, `failed` one never counts. With `includePending`, a `pending` one counts too, as
  * if paid.
  *
- * It is one statement, so it reads one consistent state of the file: an expense recorded by another
+ * It is one statement, so it reads one consistent state of the database: an expense recorded by another
  * server is either wholly counted or not at all. Reading never changes what is stored.
  */
-export function balancesOfGroup(db: DatabaseSync, groupId: string, options: BalanceOptions = {}): Balance[] {
-  const rows = db
+export async function balancesOfGroup(db: Querier, groupId: string, options: BalanceOptions = {}): Promise<Balance[]> {
+  const rows = await db
     .prepare(
       `SELECT m.account_id AS member_id,
               m.left_at IS NULL AS is_current,
@@ -110,17 +110,15 @@ export function balancesOfGroup(db: DatabaseSync, groupId: string, options: Bala
        FROM group_members m
        JOIN groups g ON g.id = m.group_id
        WHERE m.group_id = ?
-       ORDER BY m.joined_at ASC, m.rowid ASC`,
+       ORDER BY m.joined_at ASC, m.seq ASC`,
     )
-    .all(groupId) as unknown as BalanceRow[];
+    .all<BalanceRow>(groupId);
   // What members who left still hold passes to the owner, who is always a current member.
-  const passedOn = rows
-    .filter(row => Number(row.is_current) === 0)
-    .reduce((total, row) => total + Number(row.balance), 0);
+  const passedOn = rows.filter(row => !row.is_current).reduce((total, row) => total + Number(row.balance), 0);
   return rows
-    .filter(row => Number(row.is_current) === 1)
+    .filter(row => row.is_current)
     .map(row => ({
       memberId: row.member_id,
-      balance: Number(row.balance) + (Number(row.is_owner) === 1 ? passedOn : 0),
+      balance: Number(row.balance) + (row.is_owner ? passedOn : 0),
     }));
 }

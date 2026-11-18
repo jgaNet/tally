@@ -1,13 +1,13 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { callerOf } from '../http';
 import { Refusal } from '../refusal';
 import { findOperation } from '../operations';
 
-export function registerOperationRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerOperationRoutes(server: FastifyInstance, db: Database): void {
   server.get<{ Params: { operationId: string } }>('/operations/:operationId', async request => {
-    const caller = callerOf(db, request);
-    const operation = findOperation(db, request.params.operationId);
+    const caller = await callerOf(db, request);
+    const operation = await findOperation(db, request.params.operationId);
     if (!operation) {
       throw new Refusal(404, 'OperationNotFound', 'No operation has this id.');
     }

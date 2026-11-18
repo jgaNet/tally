@@ -1,9 +1,9 @@
 import { createHmac } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { DatabaseSync } from 'node:sqlite';
 import { createApplication, type Application } from './app';
-import { send, signedUpAccount, testDirectory, type Reply, type TestDirectory } from './test-helpers';
+import { openDatabase } from './database';
+import { ensureDatabase, send, signedUpAccount, testDirectory, type Reply, type TestDirectory } from './test-helpers';
 
 const SECRET = 'shared with the provider';
 const START = Date.parse('2026-11-10T09:00:00.000Z');
@@ -50,13 +50,13 @@ function must(reply: Reply, status: number): Reply {
   return reply;
 }
 
-/** The rows of the audit table of the file at `path`, as the file holds them now. */
-function auditRowsOf(path: string): unknown[] {
-  const db = new DatabaseSync(path);
+/** The rows of the audit table of the database at `url`, as the database holds them now. */
+async function auditRowsOf(url: string): Promise<unknown[]> {
+  const db = await openDatabase({ url });
   try {
-    return db.prepare('SELECT * FROM audit_entries ORDER BY rowid').all() as unknown[];
+    return await db.prepare('SELECT * FROM audit_entries ORDER BY seq').all();
   } finally {
-    db.close();
+    await db.close();
   }
 }
 
@@ -74,8 +74,9 @@ describe('the audit of a group', () => {
 
   /** The application, started over the test's file with the fake provider. */
   async function startApp(): Promise<Application> {
+    await ensureDatabase(directory.databaseUrl);
     const started = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       providerUrl,
       providerWebhookSecret: SECRET,
       providerTimeoutMs: 1000,
@@ -115,7 +116,7 @@ describe('the audit of a group', () => {
     await app.stop();
     await new Promise<void>(resolve => providerServer.close(() => resolve()));
     providerServer.closeAllConnections();
-    directory.remove();
+    await directory.remove();
   });
 
   async function member(name: string, email: string): Promise<Member> {
@@ -230,7 +231,7 @@ describe('the audit of a group', () => {
       201,
     );
     expect(await entriesOf(ana.token, groupId)).toEqual([]);
-    app.runJobs();
+    await app.runJobs();
     const expenses = must(await send(app, 'GET', `/groups/${groupId}/expenses`, { token: ana.token }), 200).body as {
       id: string;
     }[];
@@ -563,10 +564,10 @@ describe('the audit of a group', () => {
     const ben = await member('Ben', 'ben@example.org');
     const groupId = await groupWith(ana, [ben]);
     await record(groupId, ben, [ana, ben], 3000);
-    const stored = auditRowsOf(directory.databasePath);
+    const stored = await auditRowsOf(directory.databaseUrl);
     await entriesOf(ana.token, groupId);
     await entriesOf(ben.token, groupId);
-    expect(auditRowsOf(directory.databasePath)).toEqual(stored);
+    expect(await auditRowsOf(directory.databaseUrl)).toEqual(stored);
   });
 
   it('keeps the audit of an archived group, which stays readable', async () => {

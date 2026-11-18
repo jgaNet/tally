@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Querier } from './database';
 import { requireKnownAccount, type ProviderConfig } from './provider';
 import { Refusal } from './refusal';
 
@@ -17,7 +17,7 @@ interface PayoutAccountRow {
  * and keeps nothing. An empty id is refused with `422` before anyone is asked.
  */
 export async function setPayoutAccount(
-  db: DatabaseSync,
+  db: Querier,
   provider: ProviderConfig,
   input: { ownerId: string; accountId: string },
 ): Promise<void> {
@@ -26,17 +26,20 @@ export async function setPayoutAccount(
     throw new Refusal(422, 'AccountIdIsInvalid', 'The payout account must have an id.');
   }
   await requireKnownAccount(provider, accountId);
-  db.prepare(
-    `INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES (?, ?, ?)
-     ON CONFLICT (account_id) DO UPDATE SET provider_account_id = excluded.provider_account_id, set_at = excluded.set_at`,
-  ).run(ownerId, accountId, new Date().toISOString());
+  await db
+    .prepare(
+      `INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES (?, ?, ?)
+       ON CONFLICT (account_id) DO UPDATE SET provider_account_id = excluded.provider_account_id, set_at = excluded.set_at`,
+    )
+    .run(ownerId, accountId, new Date().toISOString());
 }
 
 /**
  * The provider's id of the payout account of `ownerId`, or `undefined` when they have none. Reading never changes it.
  */
-export function payoutAccountOf(db: DatabaseSync, ownerId: string): string | undefined {
-  const row = db.prepare('SELECT provider_account_id FROM payout_accounts WHERE account_id = ?').get(ownerId) as
-    PayoutAccountRow | undefined;
+export async function payoutAccountOf(db: Querier, ownerId: string): Promise<string | undefined> {
+  const row = await db
+    .prepare('SELECT provider_account_id FROM payout_accounts WHERE account_id = ?')
+    .get<PayoutAccountRow>(ownerId);
   return row?.provider_account_id;
 }

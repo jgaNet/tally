@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
 import { rawBalanceOf } from './balances';
+import type { Database, Querier } from './database';
 import { assertNotArchived, findGroup, findGroupOfMember } from './groups';
 import { Refusal } from './refusal';
 import { inTransaction } from './transactions';
@@ -26,32 +26,29 @@ interface InvitationRow {
  * {@link assertNotArchived}); the check and the insert are one transaction. The id is the link: 32 random bytes, so it
  * cannot be guessed. It stays usable, for any number of people.
  */
-export function createInvitation(db: DatabaseSync, input: { groupId: string; accountId: string }): string {
+export async function createInvitation(db: Database, input: { groupId: string; accountId: string }): Promise<string> {
   const id = randomBytes(32).toString('base64url');
-  inTransaction(db, () => {
-    const group = findGroupOfMember(db, input.accountId, input.groupId);
+  await inTransaction(db, async tx => {
+    const group = await findGroupOfMember(tx, input.accountId, input.groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     assertNotArchived(group);
-    db.prepare('INSERT INTO invitations (id, group_id, created_by, created_at) VALUES (?, ?, ?, ?)').run(
-      id,
-      input.groupId,
-      input.accountId,
-      new Date().toISOString(),
-    );
+    await tx
+      .prepare('INSERT INTO invitations (id, group_id, created_by, created_at) VALUES (?, ?, ?, ?)')
+      .run(id, input.groupId, input.accountId, new Date().toISOString());
   });
   return id;
 }
 
 /** The invitation with this id, or `undefined`. Reading never changes it. */
-export function findInvitation(db: DatabaseSync, id: string): Invitation | undefined {
-  const row = db
+export async function findInvitation(db: Querier, id: string): Promise<Invitation | undefined> {
+  const row = await db
     .prepare(
       `SELECT i.id, i.group_id, g.name AS group_name, i.created_by AS invited_by
        FROM invitations i
        JOIN groups g ON g.id = i.group_id
        WHERE i.id = ?`,
     )
-    .get(id) as InvitationRow | undefined;
+    .get<InvitationRow>(id);
   return row && { id: row.id, groupId: row.group_id, groupName: row.group_name, invitedBy: row.invited_by };
 }
 
@@ -62,40 +59,38 @@ export function findInvitation(db: DatabaseSync, id: string): Invitation | undef
  * joins again, last in the order of the members, with a balance of 0: what it had passed to the owner when it left stays
  * with the owner.
  */
-export function acceptInvitation(db: DatabaseSync, input: { id: string; accountId: string }): void {
+export async function acceptInvitation(db: Database, input: { id: string; accountId: string }): Promise<void> {
   const { id, accountId } = input;
-  inTransaction(db, () => {
-    const invitation = findInvitation(db, id);
+  await inTransaction(db, async tx => {
+    const invitation = await findInvitation(tx, id);
     if (!invitation) throw new Refusal(404, 'InvitationNotFound', 'No invitation has this id.');
-    const group = findGroup(db, invitation.groupId);
+    const group = await findGroup(tx, invitation.groupId);
     if (group) assertNotArchived(group);
-    const alreadyMember = db
+    const alreadyMember = await tx
       .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NULL')
       .get(invitation.groupId, accountId);
     if (alreadyMember) throw new Refusal(409, 'AlreadyMember', 'The account is already a member of this group.');
     // An account that left is joined afresh: its earlier record goes, so it is last in the order of the members.
-    const earlier = db
+    const earlier = await tx
       .prepare('SELECT balance_base FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NOT NULL')
-      .get(invitation.groupId, accountId) as { balance_base: number } | undefined;
+      .get<{ balance_base: number }>(invitation.groupId, accountId);
     let base = 0;
     if (earlier !== undefined) {
       // Its balance passed to the owner when it left, and stays with the owner; the member joins at 0, so its base
       // becomes its raw balance now, and the owner takes on what the base moves by, so the balances still add up to 0.
-      base = rawBalanceOf(db, invitation.groupId, accountId);
+      base = await rawBalanceOf(tx, invitation.groupId, accountId);
       const passedOn = base - Number(earlier.balance_base);
-      db.prepare(
-        'UPDATE group_members SET balance_base = balance_base - ? WHERE group_id = ? AND account_id = (SELECT owner_id FROM groups WHERE id = ?)',
-      ).run(passedOn, invitation.groupId, invitation.groupId);
+      await tx
+        .prepare(
+          'UPDATE group_members SET balance_base = balance_base - ? WHERE group_id = ? AND account_id = (SELECT owner_id FROM groups WHERE id = ?)',
+        )
+        .run(passedOn, invitation.groupId, invitation.groupId);
     }
-    db.prepare('DELETE FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NOT NULL').run(
-      invitation.groupId,
-      accountId,
-    );
-    db.prepare('INSERT INTO group_members (group_id, account_id, joined_at, balance_base) VALUES (?, ?, ?, ?)').run(
-      invitation.groupId,
-      accountId,
-      new Date().toISOString(),
-      base,
-    );
+    await tx
+      .prepare('DELETE FROM group_members WHERE group_id = ? AND account_id = ? AND left_at IS NOT NULL')
+      .run(invitation.groupId, accountId);
+    await tx
+      .prepare('INSERT INTO group_members (group_id, account_id, joined_at, balance_base) VALUES (?, ?, ?, ?)')
+      .run(invitation.groupId, accountId, new Date().toISOString(), base);
   });
 }

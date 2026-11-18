@@ -7,12 +7,12 @@ describe('accounts', () => {
 
   beforeEach(async () => {
     directory = testDirectory();
-    app = await startApplication(directory.databasePath);
+    app = await startApplication(directory.databaseUrl);
   });
 
   afterEach(async () => {
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   describe('signing up', () => {

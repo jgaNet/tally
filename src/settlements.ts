@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
 import { recordAudit } from './audit';
 import { type Balance, balancesOfGroup } from './balances';
+import type { Database, Querier } from './database';
 import { assertNotArchived, findGroup, findGroupOfMember, membersOfGroup } from './groups';
 import { type ProviderConfig, requestPayment, requestRefund } from './provider';
 import { payoutAccountOf } from './payout-accounts';
@@ -49,16 +49,16 @@ export function suggestTransfers(balances: readonly Balance[]): Transfer[] {
 
 /**
  * The suggested settlement of a group, read by `readerId`, who must be a current member of the group (else
- * `404`, as if the group did not exist). It reads one consistent state of the file and changes nothing: a
+ * `404`, as if the group did not exist). It reads one consistent state of the database and changes nothing: a
  * suggestion records nothing, and the balances stay what the expenses and the paid settlements make them.
  * A settlement waiting at the payment provider counts as paid here, so the suggestion leaves it out.
  */
-export function suggestedSettlement(db: DatabaseSync, readerId: string, groupId: string): Transfer[] {
-  return inReadSnapshot(db, () => {
-    if (!findGroupOfMember(db, readerId, groupId)) {
+export async function suggestedSettlement(db: Database, readerId: string, groupId: string): Promise<Transfer[]> {
+  return inReadSnapshot(db, async snapshot => {
+    if (!(await findGroupOfMember(snapshot, readerId, groupId))) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
-    return suggestTransfers(balancesOfGroup(db, groupId, { includePending: true }));
+    return suggestTransfers(await balancesOfGroup(snapshot, groupId, { includePending: true }));
   });
 }
 
@@ -90,7 +90,7 @@ export interface StatusChange {
   readonly at: string;
 }
 
-/** The statuses a settlement is recorded with, as the history rows of the file hold them. */
+/** The statuses a settlement is recorded with, as the history rows of the database hold them. */
 interface StatusRow {
   settlement_id: string;
   status: Settlement['status'];
@@ -98,12 +98,15 @@ interface StatusRow {
 }
 
 /** Records that the settlement `settlementId` had `status`, learned at `at`. Written in the caller's transaction. */
-function recordStatus(db: DatabaseSync, settlementId: string, status: Settlement['status'], at: string): void {
-  db.prepare('INSERT INTO settlement_statuses (settlement_id, status, at) VALUES (?, ?, ?)').run(
-    settlementId,
-    status,
-    at,
-  );
+async function recordStatus(
+  db: Querier,
+  settlementId: string,
+  status: Settlement['status'],
+  at: string,
+): Promise<void> {
+  await db
+    .prepare('INSERT INTO settlement_statuses (settlement_id, status, at) VALUES (?, ?, ?)')
+    .run(settlementId, status, at);
 }
 
 interface SettlementRow {
@@ -138,13 +141,13 @@ function settlementOf(row: SettlementRow, history: readonly StatusChange[]): Set
 }
 
 /** The history of each settlement of the group, the earliest status first, by settlement id. */
-function historiesOf(db: DatabaseSync, groupId: string): Map<string, StatusChange[]> {
-  const rows = db
+async function historiesOf(db: Querier, groupId: string): Promise<Map<string, StatusChange[]>> {
+  const rows = await db
     .prepare(
       `SELECT settlement_id, status, at FROM settlement_statuses
-       WHERE settlement_id IN (SELECT id FROM settlements WHERE group_id = ?) ORDER BY rowid ASC`,
+       WHERE settlement_id IN (SELECT id FROM settlements WHERE group_id = ?) ORDER BY seq ASC`,
     )
-    .all(groupId) as unknown as StatusRow[];
+    .all<StatusRow>(groupId);
   const histories = new Map<string, StatusChange[]>();
   for (const row of rows) {
     const history = histories.get(row.settlement_id) ?? [];
@@ -160,10 +163,10 @@ function historiesOf(db: DatabaseSync, groupId: string): Map<string, StatusChang
  * not the payee; the payer is a member of the group; and the amount is not more than the payer still owes, nor
  * more than the payee is still owed. Refused with `422` or `409` otherwise.
  */
-function checkSettlement(
-  db: DatabaseSync,
+async function checkSettlement(
+  db: Querier,
   input: { groupId: string; payerId: string; payeeId: string; amount: number },
-): void {
+): Promise<void> {
   const { groupId, payerId, payeeId, amount } = input;
   if (!Number.isSafeInteger(amount) || amount < 1) {
     throw new Refusal(422, 'AmountIsInvalid', 'The amount must be a whole number, at least 1.');
@@ -171,10 +174,10 @@ function checkSettlement(
   if (payerId === payeeId) {
     throw new Refusal(422, 'PayerIsPayee', 'The member who paid cannot be the member who was paid.');
   }
-  if (!membersOfGroup(db, groupId).some(member => member.memberId === payerId)) {
+  if (!(await membersOfGroup(db, groupId)).some(member => member.memberId === payerId)) {
     throw new Refusal(422, 'PayerNotInGroup', 'The payer must be a member of the group.');
   }
-  const balances = balancesOfGroup(db, groupId, { includePending: true });
+  const balances = await balancesOfGroup(db, groupId, { includePending: true });
   const payerBalance = balances.find(member => member.memberId === payerId)?.balance ?? 0;
   const payeeBalance = balances.find(member => member.memberId === payeeId)?.balance ?? 0;
   const owedByPayer = Math.max(0, -payerBalance);
@@ -198,26 +201,28 @@ function checkSettlement(
  * transaction, so two settlements recorded at once are each decided on the balances the other left: when
  * both would pay more than is owed, one is refused.
  */
-export function recordCashSettlement(
-  db: DatabaseSync,
+export async function recordCashSettlement(
+  db: Database,
   input: { groupId: string; payeeId: string; payerId: string; amount: number },
-): string {
+): Promise<string> {
   const { groupId, payeeId, payerId, amount } = input;
   const id = randomUUID();
-  inTransaction(db, () => {
-    const group = findGroupOfMember(db, payeeId, groupId);
+  await inTransaction(db, async tx => {
+    const group = await findGroupOfMember(tx, payeeId, groupId);
     if (!group) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
     assertNotArchived(group);
-    checkSettlement(db, { groupId, payerId, payeeId, amount });
+    await checkSettlement(tx, { groupId, payerId, payeeId, amount });
     const at = new Date().toISOString();
-    db.prepare(
-      'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, groupId, payerId, payeeId, amount, 'cash', 'paid', at);
-    recordStatus(db, id, 'paid', at);
+    await tx
+      .prepare(
+        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, groupId, payerId, payeeId, amount, 'cash', 'paid', at);
+    await recordStatus(tx, id, 'paid', at);
     // Paid in cash, the balances start to count it at once: its payee, who records it, made the change.
-    recordAudit(db, { groupId, at, by: payeeId, action: 'settlement-paid', subjectId: id, amount });
+    await recordAudit(tx, { groupId, at, by: payeeId, action: 'settlement-paid', subjectId: id, amount });
   });
   return id;
 }
@@ -241,20 +246,20 @@ export function recordCashSettlement(
  * webhooks name a payment Tally does not know, so they change nothing.
  */
 export async function requestProviderSettlement(
-  db: DatabaseSync,
+  db: Database,
   provider: ProviderConfig,
   input: { groupId: string; payerId: string; payeeId: string; amount: number },
 ): Promise<string> {
   const { groupId, payerId, payeeId, amount } = input;
-  const decide = (): { currency: string; payee: string } => {
-    const group = findGroupOfMember(db, payerId, groupId);
+  const decide = async (querier: Querier): Promise<{ currency: string; payee: string }> => {
+    const group = await findGroupOfMember(querier, payerId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     assertNotArchived(group);
-    if (!membersOfGroup(db, groupId).some(member => member.memberId === payeeId)) {
+    if (!(await membersOfGroup(querier, groupId)).some(member => member.memberId === payeeId)) {
       throw new Refusal(422, 'PayeeNotInGroup', 'The payee must be a member of the group.');
     }
-    checkSettlement(db, { groupId, payerId, payeeId, amount });
-    const payee = payoutAccountOf(db, payeeId);
+    await checkSettlement(querier, { groupId, payerId, payeeId, amount });
+    const payee = await payoutAccountOf(querier, payeeId);
     if (payee === undefined) {
       throw new Refusal(
         409,
@@ -265,16 +270,18 @@ export async function requestProviderSettlement(
     return { currency: group.currency, payee };
   };
 
-  const { currency, payee } = inReadSnapshot(db, decide);
+  const { currency, payee } = await inReadSnapshot(db, decide);
   const id = randomUUID();
   const payment = await requestPayment(provider, { reference: id, amount, currency, payee });
-  inTransaction(db, () => {
-    decide();
+  await inTransaction(db, async tx => {
+    await decide(tx);
     const at = new Date().toISOString();
-    db.prepare(
-      'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, groupId, payerId, payeeId, amount, 'provider', 'pending', payment.id, payment.payUrl, at);
-    recordStatus(db, id, 'pending', at);
+    await tx
+      .prepare(
+        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, groupId, payerId, payeeId, amount, 'provider', 'pending', payment.id, payment.payUrl, at);
+    await recordStatus(tx, id, 'pending', at);
   });
   return id;
 }
@@ -297,49 +304,49 @@ const PROVIDER_OUTCOMES = new Map<string, { to: Settlement['status']; from: stri
  * twice counts once. `pending`, and any payment Tally does not know, change nothing. Answers nothing; the webhook
  * is acknowledged either way.
  */
-export function recordProviderOutcome(db: DatabaseSync, input: { paymentId: string; status: string }): void {
+export async function recordProviderOutcome(db: Database, input: { paymentId: string; status: string }): Promise<void> {
   const outcome = PROVIDER_OUTCOMES.get(input.status);
   if (outcome === undefined) return;
   // The statuses are constants chosen here, never values from a webhook. What is moved is found and moved in one
   // transaction, so each settlement that moves is recorded in its history, and one that does not is not.
-  inTransaction(db, () => {
-    const moved = db
+  await inTransaction(db, async tx => {
+    const moved = await tx
       .prepare(
         `SELECT id, group_id, payer_id, payee_id, amount, status FROM settlements
          WHERE method = 'provider' AND provider_payment_id = ? AND status IN (${outcome.from})
            AND group_id NOT IN (SELECT id FROM groups WHERE archived_at IS NOT NULL)`,
       )
-      .all(input.paymentId) as unknown as {
-      id: string;
-      group_id: string;
-      payer_id: string;
-      payee_id: string;
-      amount: number;
-      status: Settlement['status'];
-    }[];
+      .all<{
+        id: string;
+        group_id: string;
+        payer_id: string;
+        payee_id: string;
+        amount: number;
+        status: Settlement['status'];
+      }>(input.paymentId);
     const at = new Date().toISOString();
     for (const row of moved) {
-      db.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(outcome.to, row.id);
-      recordStatus(db, row.id, outcome.to, at);
+      await tx.prepare('UPDATE settlements SET status = ? WHERE id = ?').run(outcome.to, row.id);
+      await recordStatus(tx, row.id, outcome.to, at);
       // The balances count a settlement from its success, paid through the provider by its payer, until a refund
       // takes it back: a refund of a payment still pending never counted, so it changes no balance and has no entry.
       if (outcome.to === 'paid') {
-        recordAudit(db, {
+        await recordAudit(tx, {
           groupId: row.group_id,
           at,
           by: row.payer_id,
           action: 'settlement-paid',
           subjectId: row.id,
-          amount: row.amount,
+          amount: Number(row.amount),
         });
       } else if (outcome.to === 'refunded' && row.status !== 'pending') {
-        recordAudit(db, {
+        await recordAudit(tx, {
           groupId: row.group_id,
           at,
           by: row.payee_id,
           action: 'settlement-refunded',
           subjectId: row.id,
-          amount: row.amount,
+          amount: Number(row.amount),
         });
       }
     }
@@ -370,26 +377,26 @@ const REFUND_IN_PROGRESS = 'A refund of this settlement is already being asked o
  * that arrives before that is kept, since the settlement is then `refunded` already.
  */
 export async function refundSettlement(
-  db: DatabaseSync,
+  db: Database,
   provider: ProviderConfig,
   input: { settlementId: string; accountId: string },
 ): Promise<void> {
   const { settlementId, accountId } = input;
   // Refused as the rules say before anything is claimed, so a request that may not refund learns nothing of
   // a refund in progress.
-  inReadSnapshot(db, () => refundablePayment(db, accountId, settlementId));
+  await inReadSnapshot(db, snapshot => refundablePayment(snapshot, accountId, settlementId));
   if (refundsInFlight.has(settlementId)) throw new Refusal(409, 'RefundIsInProgress', REFUND_IN_PROGRESS);
   refundsInFlight.add(settlementId);
   try {
     // Read again under the claim: a refund that finished before this one claimed the settlement is seen as not paid.
-    const paymentId = inReadSnapshot(db, () => refundablePayment(db, accountId, settlementId));
+    const paymentId = await inReadSnapshot(db, snapshot => refundablePayment(snapshot, accountId, settlementId));
     await requestRefund(provider, { paymentId, reference: settlementId });
     // A `refunded` that arrived meanwhile stays: it is `refunded` already, and only a `paid` settlement moves on.
-    inTransaction(db, () => {
-      const { changes } = db
+    await inTransaction(db, async tx => {
+      const { changes } = await tx
         .prepare(`UPDATE settlements SET status = 'refunding' WHERE id = ? AND status = 'paid'`)
         .run(settlementId);
-      if (Number(changes) === 1) recordStatus(db, settlementId, 'refunding', new Date().toISOString());
+      if (changes === 1) await recordStatus(tx, settlementId, 'refunding', new Date().toISOString());
     });
   } finally {
     refundsInFlight.delete(settlementId);
@@ -400,25 +407,23 @@ export async function refundSettlement(
  * The provider's id of the payment of the settlement, when `accountId` may ask for its refund now; refused as
  * {@link refundSettlement} says otherwise.
  */
-function refundablePayment(db: DatabaseSync, accountId: string, settlementId: string): string {
-  const row = db
+async function refundablePayment(db: Querier, accountId: string, settlementId: string): Promise<string> {
+  const row = await db
     .prepare(
       `SELECT s.group_id, s.payer_id, s.payee_id, s.method, s.status, s.provider_payment_id FROM settlements s
        JOIN group_members m ON m.group_id = s.group_id
        WHERE s.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
-    .get(settlementId, accountId) as
-    | {
-        group_id: string;
-        payer_id: string;
-        payee_id: string;
-        method: Settlement['method'];
-        status: Settlement['status'];
-        provider_payment_id: string | null;
-      }
-    | undefined;
+    .get<{
+      group_id: string;
+      payer_id: string;
+      payee_id: string;
+      method: Settlement['method'];
+      status: Settlement['status'];
+      provider_payment_id: string | null;
+    }>(settlementId, accountId);
   if (!row) throw new Refusal(404, 'SettlementNotFound', 'No settlement has this id.');
-  const group = findGroup(db, row.group_id);
+  const group = await findGroup(db, row.group_id);
   if (group) assertNotArchived(group);
   if (row.payee_id !== accountId) {
     throw new Refusal(403, 'NotThePayee', 'Only the member who was paid can refund the settlement.');
@@ -429,7 +434,7 @@ function refundablePayment(db: DatabaseSync, accountId: string, settlementId: st
   if (row.status !== 'paid') {
     throw new Refusal(409, 'SettlementIsNotPaid', 'Only a settlement that is paid can be refunded.');
   }
-  const members = membersOfGroup(db, row.group_id).map(member => member.memberId);
+  const members = (await membersOfGroup(db, row.group_id)).map(member => member.memberId);
   if (!members.includes(row.payer_id) || !members.includes(row.payee_id)) {
     throw new Refusal(409, 'MemberHasLeft', 'Both members of the settlement must be in the group to refund it.');
   }
@@ -440,22 +445,22 @@ function refundablePayment(db: DatabaseSync, accountId: string, settlementId: st
  * The settlement with this id, when `accountId` is a current member of its group; `undefined` otherwise,
  * as if it did not exist. Reading never changes it.
  */
-export function findSettlementOfMember(
-  db: DatabaseSync,
+export async function findSettlementOfMember(
+  db: Querier,
   accountId: string,
   settlementId: string,
-): Settlement | undefined {
-  const row = db
+): Promise<Settlement | undefined> {
+  const row = await db
     .prepare(
       `SELECT ${SETTLEMENT_COLUMNS} FROM settlements s
        JOIN group_members m ON m.group_id = s.group_id
        WHERE s.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
     )
-    .get(settlementId, accountId) as SettlementRow | undefined;
+    .get<SettlementRow>(settlementId, accountId);
   if (!row) return undefined;
-  const history = db
-    .prepare('SELECT status, at FROM settlement_statuses WHERE settlement_id = ? ORDER BY rowid ASC')
-    .all(row.id) as unknown as Omit<StatusRow, 'settlement_id'>[];
+  const history = await db
+    .prepare('SELECT status, at FROM settlement_statuses WHERE settlement_id = ? ORDER BY seq ASC')
+    .all<Omit<StatusRow, 'settlement_id'>>(row.id);
   return settlementOf(
     row,
     history.map(change => ({ status: change.status, at: change.at })),
@@ -466,20 +471,20 @@ export function findSettlementOfMember(
  * Every settlement of the group, as a current member of the group reads each (see {@link findSettlementOfMember}),
  * the most recently recorded or asked for first; a settlement of a member who has left is among them. Refused with
  * `404` when `readerId` is not a current member of the group, as if it did not exist. It reads one consistent state
- * of the file and changes nothing.
+ * of the database and changes nothing.
  */
-export function settlementsOfGroup(db: DatabaseSync, readerId: string, groupId: string): Settlement[] {
-  return inReadSnapshot(db, () => {
-    if (!findGroupOfMember(db, readerId, groupId)) {
+export async function settlementsOfGroup(db: Database, readerId: string, groupId: string): Promise<Settlement[]> {
+  return inReadSnapshot(db, async snapshot => {
+    if (!(await findGroupOfMember(snapshot, readerId, groupId))) {
       throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     }
-    const rows = db
+    const rows = await snapshot
       .prepare(
         `SELECT ${SETTLEMENT_COLUMNS} FROM settlements s
-         WHERE s.group_id = ? ORDER BY s.created_at DESC, s.rowid DESC`,
+         WHERE s.group_id = ? ORDER BY s.created_at DESC, s.seq DESC`,
       )
-      .all(groupId) as unknown as SettlementRow[];
-    const histories = historiesOf(db, groupId);
+      .all<SettlementRow>(groupId);
+    const histories = await historiesOf(snapshot, groupId);
     return rows.map(row => settlementOf(row, histories.get(row.id) ?? []));
   });
 }

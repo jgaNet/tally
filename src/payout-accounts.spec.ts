@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { type Application, createApplication } from './app';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { type TestDirectory, ensureDatabase, send, signedUpAccount, testDirectory } from './test-helpers';
 
 /** The answer a fake provider gives to one request about an account. */
 interface ProviderAnswer {
@@ -59,7 +59,8 @@ describe('payout accounts', () => {
     });
     await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
     providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
-    app = await createApplication({ databasePath: directory.databasePath, providerUrl, providerTimeoutMs: 200 });
+    await ensureDatabase(directory.databaseUrl);
+    app = await createApplication({ databaseUrl: directory.databaseUrl, providerUrl, providerTimeoutMs: 200 });
     await app.start(0);
   });
 
@@ -68,7 +69,7 @@ describe('payout accounts', () => {
     await app.stop();
     await new Promise<void>(resolve => provider.close(() => resolve()));
     provider.closeAllConnections();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Sets `accountId` as the payout account of `token`'s account, as the request answers it. */
@@ -156,8 +157,9 @@ describe('payout accounts', () => {
   it('refuses an account when the provider cannot be reached at all, and keeps nothing', async () => {
     const ann = await signedUpAccount(app, { email: 'ann@example.org', name: 'Ann' });
     // A port nothing listens on: the connection is refused.
+    await ensureDatabase(directory.databaseUrl);
     const unreachable = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       providerUrl: 'http://127.0.0.1:9',
       providerTimeoutMs: 200,
     });
@@ -171,7 +173,8 @@ describe('payout accounts', () => {
 
   it('refuses setting a payout account when the provider is not configured, before anyone is asked', async () => {
     const ann = await signedUpAccount(app, { email: 'ann@example.org', name: 'Ann' });
-    const unconfigured = await createApplication({ databasePath: directory.databasePath, providerUrl: '' });
+    await ensureDatabase(directory.databaseUrl);
+    const unconfigured = await createApplication({ databaseUrl: directory.databaseUrl, providerUrl: '' });
     extra.push(unconfigured);
     await unconfigured.start(0);
     const reply = await setAs(ann.token, 'acct_ann', unconfigured);
@@ -212,7 +215,8 @@ describe('payout accounts', () => {
     expect((await setAs(ann.token, 'acct_ann')).status).toBe(204);
     await app.stop();
 
-    app = await createApplication({ databasePath: directory.databasePath, providerUrl, providerTimeoutMs: 200 });
+    await ensureDatabase(directory.databaseUrl);
+    app = await createApplication({ databaseUrl: directory.databaseUrl, providerUrl, providerTimeoutMs: 200 });
     await app.start(0);
     expect(await readAs(ann.token)).toMatchObject({ status: 200, body: { accountId: 'acct_ann' } });
   });

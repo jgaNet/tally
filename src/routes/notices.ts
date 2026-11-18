@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Database } from '../database';
 import { noticesOf } from '../notices';
 import { requireCaller } from '../http';
 import { CATEGORIES } from '../categories';
@@ -22,10 +22,10 @@ const NOTICE = {
   },
 };
 
-export function registerNoticeRoutes(server: FastifyInstance, db: DatabaseSync): void {
+export function registerNoticeRoutes(server: FastifyInstance, db: Database): void {
   // Only the caller's own notices are read: nobody else reads them, and they stay after leaving a group.
   server.get('/notices', { schema: { response: { 200: { type: 'array', items: NOTICE } } } }, async request => {
-    const caller = requireCaller(db, request);
-    return noticesOf(db, caller.id);
+    const caller = await requireCaller(db, request);
+    return await noticesOf(db, caller.id);
   });
 }

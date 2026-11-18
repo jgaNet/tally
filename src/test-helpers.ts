@@ -1,25 +1,80 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import pg from 'pg';
 import { createApplication, type Application } from './app';
 
-/** A directory of its own for a test's database file, removed by `remove`. */
+/**
+ * What one test keeps: a PostgreSQL database of its own, on the server `DATABASE_URL` names, and a directory with a path
+ * for the SQLite file a test may write (a file Tally kept before PostgreSQL, see `openDatabase`).
+ */
 export interface TestDirectory {
-  readonly databasePath: string;
-  remove(): void;
+  /** The URL of the test's database. It is created when an application first opens it. */
+  readonly databaseUrl: string;
+  /** The path of a SQLite file, which the test writes when it needs one. */
+  readonly legacyPath: string;
+  /** Drops the test's database and removes its directory. */
+  remove(): Promise<void>;
 }
 
+/** The URL of the server the tests run on: `DATABASE_URL`, whose database the tests never use. */
+function serverUrl(): URL {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL must name the PostgreSQL server the tests run on.');
+  return new URL(url);
+}
+
+/** The name of the database a URL names. */
+function databaseNameOf(databaseUrl: string): string {
+  return decodeURIComponent(new URL(databaseUrl).pathname.slice(1));
+}
+
+/** Runs `work` on a connection to the server's `postgres` database, which creates and drops the tests' databases. */
+async function onServer<T>(work: (client: pg.Client) => Promise<T>): Promise<T> {
+  const url = serverUrl();
+  url.pathname = '/postgres';
+  const client = new pg.Client({ connectionString: url.toString() });
+  await client.connect();
+  try {
+    return await work(client);
+  } finally {
+    await client.end();
+  }
+}
+
+/** A directory of its own for one test, and a database of its own on the server, both named by one random id. */
 export function testDirectory(): TestDirectory {
+  const name = `tally_test_${randomUUID().replaceAll('-', '')}`;
+  const url = serverUrl();
+  url.pathname = `/${name}`;
   const directory = mkdtempSync(join(tmpdir(), 'tally-test-'));
   return {
-    databasePath: join(directory, 'tally.db'),
-    remove: () => rmSync(directory, { recursive: true, force: true }),
+    databaseUrl: url.toString(),
+    legacyPath: join(directory, 'tally.db'),
+    async remove() {
+      await onServer(client => client.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`));
+      rmSync(directory, { recursive: true, force: true });
+    },
   };
 }
 
-/** Starts an application on a free port over the database file at `databasePath`. */
-export async function startApplication(databasePath: string): Promise<Application> {
-  const app = await createApplication({ databasePath });
+/** Creates the database `databaseUrl` names on the server, unless it exists already. */
+export async function ensureDatabase(databaseUrl: string): Promise<void> {
+  const name = databaseNameOf(databaseUrl);
+  await onServer(async client => {
+    const exists = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [name]);
+    if (exists.rowCount === 0) await client.query(`CREATE DATABASE "${name}"`);
+  });
+}
+
+/** Starts an application on a free port over the database at `databaseUrl`, creating the database first. */
+export async function startApplication(
+  databaseUrl: string,
+  options: { databasePath?: string } = {},
+): Promise<Application> {
+  await ensureDatabase(databaseUrl);
+  const app = await createApplication({ databaseUrl, databasePath: options.databasePath ?? '' });
   await app.start(0);
   return app;
 }

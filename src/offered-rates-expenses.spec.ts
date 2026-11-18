@@ -1,9 +1,8 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { DatabaseSync } from 'node:sqlite';
 import { type Application, createApplication } from './app';
-import { openDatabase } from './database';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { type Database, openDatabase } from './database';
+import { ensureDatabase, send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
 
 /** The day `offset` days from today, in UTC, as `YYYY-MM-DD`. */
 function utcDay(offset: number): string {
@@ -21,7 +20,7 @@ interface RatesAnswer {
 describe('an expense in another currency, at the rate offered', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
   let service: Server;
   let serviceUrl: string;
   /** The paths (with their queries) the fake rates service was asked. */
@@ -49,18 +48,19 @@ describe('an expense in another currency, at the rate offered', () => {
     });
     await new Promise<void>(resolve => service.listen(0, '127.0.0.1', resolve));
     serviceUrl = `http://127.0.0.1:${(service.address() as AddressInfo).port}`;
-    app = await createApplication({ databasePath: directory.databasePath, ratesUrl: serviceUrl, ratesTimeoutMs: 200 });
+    await ensureDatabase(directory.databaseUrl);
+    app = await createApplication({ databaseUrl: directory.databaseUrl, ratesUrl: serviceUrl, ratesTimeoutMs: 200 });
     await app.start(0);
     // A second connection to the same file, to count what was stored.
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
     await new Promise<void>(resolve => service.close(() => resolve()));
     service.closeAllConnections();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Creates a euro group as `token`'s account and answers its id. */
@@ -119,8 +119,8 @@ describe('an expense in another currency, at the rate offered', () => {
   }
 
   /** How many expenses the file holds, read on the second connection. */
-  function storedExpenses(): number {
-    return (db.prepare('SELECT COUNT(*) AS n FROM expenses').get() as { n: number }).n;
+  async function storedExpenses(): Promise<number> {
+    return ((await db.prepare('SELECT COUNT(*) AS n FROM expenses').get()) as { n: number }).n;
   }
 
   describe('recording', () => {
@@ -180,7 +180,7 @@ describe('an expense in another currency, at the rate offered', () => {
         expect(reply.status).toBe(422);
         expect(reply.body).toMatchObject({ error: 'RateDiffersFromOffered' });
       }
-      expect(storedExpenses()).toBe(0);
+      expect(await storedExpenses()).toBe(0);
     });
 
     it('refuses a rate left out when no rate is offered for its date, with 422 and the rule’s name, and stores nothing', async () => {
@@ -190,7 +190,7 @@ describe('an expense in another currency, at the rate offered', () => {
       const reply = await record(ana.token, groupId, bodyOf([ana.id]));
       expect(reply.status).toBe(422);
       expect(reply.body).toMatchObject({ error: 'RateIsNotOffered' });
-      expect(storedExpenses()).toBe(0);
+      expect(await storedExpenses()).toBe(0);
     });
 
     it('refuses a rate given when no rate is offered to check it against, with 422, and stores nothing', async () => {
@@ -200,7 +200,7 @@ describe('an expense in another currency, at the rate offered', () => {
       const reply = await record(ana.token, groupId, bodyOf([ana.id], { original: originalAt('0.95') }));
       expect(reply.status).toBe(422);
       expect(reply.body).toMatchObject({ error: 'RateIsNotOffered' });
-      expect(storedExpenses()).toBe(0);
+      expect(await storedExpenses()).toBe(0);
     });
 
     it('refuses both a rate left out and a rate given when the service does not answer in time, with 422', async () => {
@@ -213,13 +213,13 @@ describe('an expense in another currency, at the rate offered', () => {
       expect(left.body).toMatchObject({ error: 'RateIsNotOffered' });
       expect(given.status).toBe(422);
       expect(given.body).toMatchObject({ error: 'RateIsNotOffered' });
-      expect(storedExpenses()).toBe(0);
+      expect(await storedExpenses()).toBe(0);
     });
 
     it('takes the rate given, whatever it is, on a server with no rates service, and refuses a rate left out there', async () => {
       const ana = await signedUpAccount(app, { email: 'ana@example.org' });
       const groupId = await createGroup(ana.token);
-      const unconfigured = await createApplication({ databasePath: directory.databasePath, ratesUrl: '' });
+      const unconfigured = await createApplication({ databaseUrl: directory.databaseUrl, ratesUrl: '' });
       await unconfigured.start(0);
       try {
         const given = await send(unconfigured, 'POST', `/groups/${groupId}/expenses`, {
@@ -263,7 +263,7 @@ describe('an expense in another currency, at the rate offered', () => {
         expect(reply.status).toBe(422);
         expect(reply.body).toMatchObject({ error: 'RateIsInvalid' });
       }
-      expect(storedExpenses()).toBe(0);
+      expect(await storedExpenses()).toBe(0);
     });
   });
 

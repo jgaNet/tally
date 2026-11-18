@@ -1,7 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createApplication, type Application } from './app';
-import { openDatabase } from './database';
-import { send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
+import { type Database, openDatabase } from './database';
+import { createLegacyFile } from './legacy-file';
+import { hashPassword } from './passwords';
+import { ensureDatabase, send, signedUpAccount, testDirectory, type TestDirectory } from './test-helpers';
 
 const DAY_MS = 86_400_000;
 const WEEK_SECONDS = 604_800;
@@ -11,13 +13,14 @@ const START = Date.parse('2026-11-02T09:00:00.000Z');
 describe('reminders', () => {
   let directory: TestDirectory;
   let app: Application;
-  let db: DatabaseSync;
+  let db: Database;
   /** The time the application's clock tells; moved by the tests. */
   let now: number;
 
   async function startAt(options: Parameters<typeof createApplication>[0] = {}): Promise<Application> {
+    await ensureDatabase(directory.databaseUrl);
     const started = await createApplication({
-      databasePath: directory.databasePath,
+      databaseUrl: directory.databaseUrl,
       reminderPeriodSeconds: WEEK_SECONDS,
       clock: () => new Date(now),
       ...options,
@@ -30,13 +33,13 @@ describe('reminders', () => {
     now = START;
     directory = testDirectory();
     app = await startAt();
-    db = openDatabase(directory.databasePath);
+    db = await openDatabase({ url: directory.databaseUrl });
   });
 
   afterEach(async () => {
-    db.close();
+    await db.close();
     await app.stop();
-    directory.remove();
+    await directory.remove();
   });
 
   /** Bob's group, which Cy joined: answers both accounts and the group's id. */
@@ -78,21 +81,21 @@ describe('reminders', () => {
     return (reply.body as { kind: string; at: string; amount: number }[]).filter(notice => notice.kind === 'reminder');
   }
 
-  function storedReminders(): number {
-    return (db.prepare(`SELECT COUNT(*) AS n FROM notices WHERE kind = 'reminder'`).get() as { n: number }).n;
+  async function storedReminders(): Promise<number> {
+    return ((await db.prepare(`SELECT COUNT(*) AS n FROM notices WHERE kind = 'reminder'`).get()) as { n: number }).n;
   }
 
   it('reminds a member who has owed more than 2000 for a period, at the sweep, and again each period while it lasts', async () => {
     const { bob, cy, groupId } = await groupOfBobAndCy();
     await cyOwesBob(bob, cy, groupId, 2500);
 
-    app.runJobs(); // noted from now
+    await app.runJobs(); // noted from now
     now += WEEK_MS - 1;
-    app.runJobs();
+    await app.runJobs();
     expect(await remindersOf(cy.token)).toEqual([]);
 
     now += 1; // a week since it was noted
-    app.runJobs();
+    await app.runJobs();
     const first = await remindersOf(cy.token);
     expect(first).toEqual([
       { id: expect.any(String), kind: 'reminder', groupId, amount: 2500, at: new Date(START + WEEK_MS).toISOString() },
@@ -102,12 +105,12 @@ describe('reminders', () => {
     // Not again within the week, however many runs there are.
     for (let day = 1; day < 7; day += 1) {
       now = START + WEEK_MS + day * DAY_MS;
-      app.runJobs();
+      await app.runJobs();
     }
     expect(await remindersOf(cy.token)).toHaveLength(1);
 
     now = START + 2 * WEEK_MS;
-    app.runJobs();
+    await app.runJobs();
     const reminders = await remindersOf(cy.token);
     expect(reminders.map(reminder => reminder.at)).toEqual([
       new Date(START + 2 * WEEK_MS).toISOString(),
@@ -120,10 +123,10 @@ describe('reminders', () => {
   it('reminds of what is still owed at the run that reminds', async () => {
     const { bob, cy, groupId } = await groupOfBobAndCy();
     await cyOwesBob(bob, cy, groupId, 2500);
-    app.runJobs();
+    await app.runJobs();
     await cyOwesBob(bob, cy, groupId, 700);
     now += WEEK_MS;
-    app.runJobs();
+    await app.runJobs();
     expect(await remindersOf(cy.token)).toMatchObject([{ amount: 3200 }]);
   });
 
@@ -131,17 +134,17 @@ describe('reminders', () => {
     const { bob, cy, groupId } = await groupOfBobAndCy();
     await cyOwesBob(bob, cy, groupId, 2000);
     for (let week = 0; week < 3; week += 1) {
-      app.runJobs();
+      await app.runJobs();
       now += WEEK_MS;
     }
     expect(await remindersOf(cy.token)).toEqual([]);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM lasting_debts').get()).toEqual({ n: 0 });
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM lasting_debts').get()).toEqual({ n: 0 });
   });
 
   it('notes a debt that comes back again, from the run that sees it', async () => {
     const { bob, cy, groupId } = await groupOfBobAndCy();
     await cyOwesBob(bob, cy, groupId, 2500);
-    app.runJobs(); // noted at START
+    await app.runJobs(); // noted at START
 
     // Cy pays 1000 in cash, recorded by Bob: 1500 is still owed, and the debt is no longer noted.
     now += 3 * DAY_MS;
@@ -150,20 +153,20 @@ describe('reminders', () => {
       body: { from: cy.id, to: bob.id, amount: 1000 },
     });
     expect(paid.status).toBe(201);
-    app.runJobs();
+    await app.runJobs();
 
     // It comes back: noted again from this run, not from START.
     now += DAY_MS;
     await cyOwesBob(bob, cy, groupId, 1000);
-    app.runJobs();
+    await app.runJobs();
     const notedAgainAt = now;
 
     now = START + WEEK_MS;
-    app.runJobs();
+    await app.runJobs();
     expect(await remindersOf(cy.token)).toEqual([]);
 
     now = notedAgainAt + WEEK_MS;
-    app.runJobs();
+    await app.runJobs();
     expect(await remindersOf(cy.token)).toMatchObject([{ amount: 2500, at: new Date(now).toISOString() }]);
   });
 
@@ -173,8 +176,8 @@ describe('reminders', () => {
     now += 3 * WEEK_MS;
     expect(await remindersOf(cy.token)).toEqual([]);
     await send(app, 'GET', `/groups/${groupId}/balances`, { token: cy.token });
-    expect(storedReminders()).toBe(0);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM lasting_debts').get()).toEqual({ n: 0 });
+    expect(await storedReminders()).toBe(0);
+    expect(await db.prepare('SELECT COUNT(*) AS n FROM lasting_debts').get()).toEqual({ n: 0 });
   });
 
   it('reminds a member at most once a period for a group, however many servers run on the same file', async () => {
@@ -182,14 +185,14 @@ describe('reminders', () => {
     await cyOwesBob(bob, cy, groupId, 2500);
     const others = [await startAt(), await startAt()];
     try {
-      app.runJobs();
-      others.forEach(other => other.runJobs());
+      await app.runJobs();
+      for (const other of others) await other.runJobs();
       now += WEEK_MS;
       for (let round = 0; round < 3; round += 1) {
-        app.runJobs();
-        others.forEach(other => other.runJobs());
+        await app.runJobs();
+        for (const other of others) await other.runJobs();
       }
-      expect(storedReminders()).toBe(1);
+      expect(await storedReminders()).toBe(1);
     } finally {
       await Promise.all(others.map(other => other.stop()));
     }
@@ -202,39 +205,146 @@ describe('reminders', () => {
     await cyOwesBob(bob, cy, groupId, 2500);
 
     const deadline = Date.now() + 5000;
-    while (storedReminders() === 0 && Date.now() < deadline) {
+    while ((await storedReminders()) === 0 && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     expect(await remindersOf(cy.token)).toMatchObject([{ kind: 'reminder', groupId, amount: 2500 }]);
   });
+});
+
+describe('reminders of a file written before reminders', () => {
+  const EXPENSE_TIME = '2026-11-02T09:00:00.000Z';
+  let directory: TestDirectory;
+  let now: number;
+
+  beforeEach(() => {
+    now = START;
+    directory = testDirectory();
+  });
+
+  afterEach(async () => {
+    await directory.remove();
+  });
 
   it('keeps the notices of a file written before reminders, and reminds on it', async () => {
-    const { bob, cy, groupId } = await groupOfBobAndCy();
-    const expenseId = await cyOwesBob(bob, cy, groupId, 2500);
-    await app.stop();
-    // The notices table as request 17 wrote it.
-    db.exec('PRAGMA foreign_keys = OFF');
-    db.exec('ALTER TABLE notices RENAME TO notices_now');
-    db.exec(`CREATE TABLE notices (
-      id TEXT PRIMARY KEY, recipient_id TEXT NOT NULL REFERENCES accounts (id),
-      kind TEXT NOT NULL CHECK (kind IN ('expense')), group_id TEXT NOT NULL REFERENCES groups (id),
-      expense_id TEXT NOT NULL, amount INTEGER NOT NULL, created_at TEXT NOT NULL,
-      UNIQUE (kind, expense_id, recipient_id))`);
-    db.exec(`INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
-      SELECT id, recipient_id, kind, group_id, expense_id, amount, created_at FROM notices_now`);
-    db.exec('DROP TABLE notices_now');
-    db.exec('PRAGMA foreign_keys = ON');
+    // A file of the earlier version: Bob and Cy in a group, Bob's expense of 2500 of which Cy owes all, and its
+    // notice for Cy, in the notices table as request 17 wrote it (before reminders could be a kind of notice).
+    createLegacyFile(directory.legacyPath);
+    const passwordHash = await hashPassword('correct horse');
+    const file = new DatabaseSync(directory.legacyPath);
+    try {
+      file.exec('DROP TABLE notices');
+      file.exec(`CREATE TABLE notices (
+        id TEXT PRIMARY KEY, recipient_id TEXT NOT NULL REFERENCES accounts (id),
+        kind TEXT NOT NULL CHECK (kind IN ('expense')), group_id TEXT NOT NULL REFERENCES groups (id),
+        expense_id TEXT NOT NULL, amount INTEGER NOT NULL, created_at TEXT NOT NULL,
+        UNIQUE (kind, expense_id, recipient_id))`);
+      const insert = (sql: string, ...params: unknown[]) => file.prepare(sql).run(...(params as never[]));
+      insert(
+        'INSERT INTO accounts (id, email, email_key, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        'bob-id',
+        'bob@example.com',
+        'bob@example.com',
+        'Bob',
+        passwordHash,
+        EXPENSE_TIME,
+      );
+      insert(
+        'INSERT INTO accounts (id, email, email_key, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        'cy-id',
+        'cy@example.com',
+        'cy@example.com',
+        'Cy',
+        passwordHash,
+        EXPENSE_TIME,
+      );
+      insert(
+        'INSERT INTO groups (id, name, currency, owner_id, created_at) VALUES (?, ?, ?, ?, ?)',
+        'flat-group',
+        'Flat',
+        'EUR',
+        'bob-id',
+        EXPENSE_TIME,
+      );
+      insert(
+        'INSERT INTO group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)',
+        'flat-group',
+        'bob-id',
+        EXPENSE_TIME,
+      );
+      insert(
+        'INSERT INTO group_members (group_id, account_id, joined_at) VALUES (?, ?, ?)',
+        'flat-group',
+        'cy-id',
+        EXPENSE_TIME,
+      );
+      insert(
+        `INSERT INTO expenses (id, group_id, description, amount, spent_on, paid_by, version, split_kind, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        'rent-expense',
+        'flat-group',
+        'Rent',
+        2500,
+        '2026-11-01',
+        'bob-id',
+        1,
+        'exact',
+        EXPENSE_TIME,
+      );
+      insert(
+        'INSERT INTO expense_shares (expense_id, position, member_id, amount) VALUES (?, ?, ?, ?)',
+        'rent-expense',
+        0,
+        'bob-id',
+        0,
+      );
+      insert(
+        'INSERT INTO expense_shares (expense_id, position, member_id, amount) VALUES (?, ?, ?, ?)',
+        'rent-expense',
+        1,
+        'cy-id',
+        2500,
+      );
+      insert(
+        `INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        'expense-notice',
+        'cy-id',
+        'expense',
+        'flat-group',
+        'rent-expense',
+        2500,
+        EXPENSE_TIME,
+      );
+    } finally {
+      await file.close();
+    }
 
-    app = await startAt();
-    // The expense's notice was made at the real time: the reminder comes after it.
-    now = Date.now();
-    app.runJobs();
-    now += WEEK_MS;
-    app.runJobs();
-    const notices = await send(app, 'GET', '/notices', { token: cy.token });
-    expect(notices.body).toMatchObject([
-      { kind: 'reminder', groupId, amount: 2500 },
-      { kind: 'expense', groupId, expenseId, amount: 2500 },
-    ]);
+    await ensureDatabase(directory.databaseUrl);
+    const started = await createApplication({
+      databaseUrl: directory.databaseUrl,
+      databasePath: directory.legacyPath,
+      reminderPeriodSeconds: WEEK_SECONDS,
+      clock: () => new Date(now),
+    });
+    await started.start(0);
+    try {
+      const login = await send(started, 'POST', '/accounts/login', {
+        body: { email: 'cy@example.com', password: 'correct horse' },
+      });
+      const cyToken = (login.body as { token: string }).token;
+      // The expense's notice was made at its time: the reminder comes after it.
+      now = Date.now();
+      await started.runJobs();
+      now += WEEK_MS;
+      await started.runJobs();
+      const notices = await send(started, 'GET', '/notices', { token: cyToken });
+      expect(notices.body).toMatchObject([
+        { kind: 'reminder', groupId: 'flat-group', amount: 2500 },
+        { kind: 'expense', groupId: 'flat-group', expenseId: 'rent-expense', amount: 2500 },
+      ]);
+    } finally {
+      await started.stop();
+    }
   });
 });
