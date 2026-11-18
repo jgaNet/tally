@@ -2,9 +2,11 @@ import { Module } from '@Architecture/Application';
 import { applicationDatabase } from '@Architecture/Infrastructure/Sqlite/ApplicationDatabase';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/ExpenseIntegrationEvents';
+import { BudgetPassedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/BudgetIntegrationEvents';
 
 import { outstandingDebtQueries } from '@Contexts/Settlements/module.local';
 import { ExpenseRecordedIntegrationEventHandler } from '@Contexts/Notifications/Application/Events/ExpenseRecordedIntegrationEventHandler';
+import { BudgetPassedIntegrationEventHandler } from '@Contexts/Notifications/Application/Events/BudgetPassedIntegrationEventHandler';
 import { RemindLingeringDebtsJob } from '@Contexts/Notifications/Application/Jobs/RemindLingeringDebtsJob';
 import { GetMyNoticesQueryHandler } from '@Contexts/Notifications/Application/Queries';
 import { SqliteNoticeRepository } from '@Contexts/Notifications/Infrastructure/Repositories/SqliteNoticeRepository';
@@ -34,5 +36,6 @@ export const localNotificationsModule = new Module({
   queries: [new GetMyNoticesQueryHandler(noticeQueries)],
   integrationEvents: [
     { event: ExpenseRecordedIntegrationEvent, handlers: [new ExpenseRecordedIntegrationEventHandler(notices, clock)] },
+    { event: BudgetPassedIntegrationEvent, handlers: [new BudgetPassedIntegrationEventHandler(notices, clock)] },
   ],
 });

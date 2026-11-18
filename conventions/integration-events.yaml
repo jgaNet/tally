@@ -34,3 +34,14 @@ events:
           paidBy: string
           amount: number
           shares: array
+  BudgetPassed:
+    publisher: Ledger
+    versions:
+      - version: 1
+        payload:
+          groupId: string
+          category: string
+          month: string
+          budget: number
+          spent: number
+          memberIds: array

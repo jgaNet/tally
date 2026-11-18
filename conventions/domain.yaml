@@ -83,6 +83,10 @@ contexts:
         meaning: what one member of a split owes of an expense, whole, the shares adding up to the amount exactly.
       - term: Balance
         meaning: what a member owes, or is owed, in a group, read from the expenses' shares and payers.
+      - term: Category
+        meaning: the kind an expense is in, one of eight, `other` when none is given; a budget is set per category.
+      - term: Budget
+        meaning: the monthly amount a group's owner sets for a category; a month whose spending passes it is told to every member once.
   - id: Tracker
     purpose: >-
       What became of each command: every operation the bus dispatches is recorded with its outcome, so that a
@@ -174,7 +178,8 @@ relationships:
       A member is told when an expense concerns them. Ledger says it in its public words (ExpenseRecorded, Tally's
       first integration event), through the outbox; Notifications turns it into one notice per member and delivers
       it, which keeps the telling out of the ledger's transactions (T9).
-      Carried since request 17 (ADR 9).
+      Carried since request 17 (ADR 9). Ledger says a passed budget in the same words (BudgetPassed, request 24, ADR 15):
+      the link carries both facts, and Notifications makes one notice per member of each.
   - upstream: Settlements
     downstream: Notifications
     patterns: [customer-supplier, anti-corruption-layer]

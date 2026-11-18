@@ -1,6 +1,12 @@
 import { AggregateRoot, IResult, Id, NotAllowedException, Result } from '@Architecture/Domain';
 
 import { IExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import {
+  Category,
+  DEFAULT_CATEGORY,
+  InvalidCategoryException,
+  isCategory,
+} from '@Contexts/Ledger/Domain/Expense/Category';
 import { ExpenseAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
@@ -43,6 +49,7 @@ export class Expense extends AggregateRoot {
   readonly #shares: ExpenseShare[];
   readonly #splitKind: SplitKind;
   readonly #original: OriginalAmount | null;
+  readonly #category: Category;
 
   private constructor(
     id: Id,
@@ -54,6 +61,7 @@ export class Expense extends AggregateRoot {
     shares: ExpenseShare[],
     splitKind: SplitKind,
     original: OriginalAmount | null,
+    category: Category,
     version: number,
   ) {
     super(id, version);
@@ -65,6 +73,7 @@ export class Expense extends AggregateRoot {
     this.#shares = shares;
     this.#splitKind = splitKind;
     this.#original = original;
+    this.#category = category;
   }
 
   /**
@@ -86,6 +95,7 @@ export class Expense extends AggregateRoot {
     members,
     today,
     offer = null,
+    category = DEFAULT_CATEGORY,
     id,
   }: {
     groupId: string;
@@ -98,6 +108,8 @@ export class Expense extends AggregateRoot {
     members: string[];
     today: Date;
     offer?: RateOffer | null;
+    /** The category, one of eight; `other` when left out (request 24). */
+    category?: Category;
     /** The id of an expense whose day a recurring expense made (request 23): built on the id its fact carries; generated when left out. */
     id?: string;
   }): IResult<Expense> {
@@ -111,6 +123,7 @@ export class Expense extends AggregateRoot {
       memberIds: members,
       today,
       offer,
+      category,
     });
     if (decided.isFailure()) return Result.fail(decided.error);
 
@@ -124,6 +137,7 @@ export class Expense extends AggregateRoot {
       decided.data.shares,
       decided.data.splitKind,
       decided.data.original,
+      decided.data.category,
       0,
     );
     expense.record(
@@ -158,6 +172,7 @@ export class Expense extends AggregateRoot {
     split,
     today,
     offer = null,
+    category = DEFAULT_CATEGORY,
   }: {
     editedBy: string;
     members: GroupMember[];
@@ -169,6 +184,8 @@ export class Expense extends AggregateRoot {
     split: SplitRequest;
     today: Date;
     offer?: RateOffer | null;
+    /** The category the expense is given now, one of eight; `other` when left out (request 24). */
+    category?: Category;
   }): IResult<Expense> {
     if (!this.mayChange(editedBy, members)) return Result.fail(notAllowed());
     if (this.concernsFormerMember(members)) return Result.fail(new ExpenseOfFormerMemberException());
@@ -184,6 +201,7 @@ export class Expense extends AggregateRoot {
       memberIds: memberIdsOf(members),
       today,
       offer,
+      category,
     });
     if (decided.isFailure()) return Result.fail(decided.error);
 
@@ -197,6 +215,7 @@ export class Expense extends AggregateRoot {
       decided.data.shares,
       decided.data.splitKind,
       decided.data.original,
+      decided.data.category,
       this.version,
     );
     edited.record(
@@ -237,7 +256,8 @@ export class Expense extends AggregateRoot {
       (original !== null && (original.isFailure() || original.data.inGroupCurrency() !== snapshot.amount)) ||
       total !== snapshot.amount ||
       !snapshot.shares.some(share => share.memberId === snapshot.paidBy) ||
-      !SPLIT_KINDS.includes(snapshot.splitKind)
+      !SPLIT_KINDS.includes(snapshot.splitKind) ||
+      !isCategory(snapshot.category)
     ) {
       throw new Error(`Corrupted expense ${snapshot._id}`);
     }
@@ -251,6 +271,7 @@ export class Expense extends AggregateRoot {
       snapshot.shares.map(share => ({ ...share })),
       snapshot.splitKind,
       original?.data ?? null,
+      snapshot.category,
       snapshot.version,
     );
   }
@@ -266,6 +287,7 @@ export class Expense extends AggregateRoot {
       shares: this.#shares.map(share => ({ ...share })),
       splitKind: this.#splitKind,
       original: this.#original ? this.#original.toSnapshot() : null,
+      category: this.#category,
       version: this.version,
     };
   }
@@ -281,6 +303,11 @@ export class Expense extends AggregateRoot {
 
   get paidBy(): string {
     return this.#paidBy;
+  }
+
+  /** The category of the expense: one of eight, `other` when none was given (request 24). */
+  get category(): Category {
+    return this.#category;
   }
 
   /** The payer, and the group's owner, may change the expense; no other member may. */
@@ -308,6 +335,7 @@ export class Expense extends AggregateRoot {
     memberIds,
     today,
     offer,
+    category,
   }: {
     description: string;
     money: ExpenseMoney;
@@ -318,6 +346,7 @@ export class Expense extends AggregateRoot {
     memberIds: string[];
     today: Date;
     offer: RateOffer | null;
+    category: Category;
   }): IResult<{
     description: ExpenseDescription;
     amount: ExpenseAmount;
@@ -325,7 +354,9 @@ export class Expense extends AggregateRoot {
     date: ExpenseDate;
     shares: ExpenseShare[];
     splitKind: SplitKind;
+    category: Category;
   }> {
+    if (!isCategory(category)) return Result.fail(new InvalidCategoryException());
     const validDescription = ExpenseDescription.create(description);
     if (validDescription.isFailure()) return Result.fail(validDescription.error);
     const validDate = ExpenseDate.create(date, today);
@@ -345,6 +376,7 @@ export class Expense extends AggregateRoot {
       date: validDate.data,
       shares: shares.data,
       splitKind: split.kind,
+      category,
     });
   }
 

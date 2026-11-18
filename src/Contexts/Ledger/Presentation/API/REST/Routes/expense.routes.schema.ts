@@ -1,12 +1,14 @@
+import { CATEGORIES, Category } from '@Contexts/Ledger/Domain/Expense/Category';
+
 const RefusalSchema = {
   type: 'object',
   properties: { type: { type: 'string' }, message: { type: 'string' } },
 } as const;
 
-/** An expense as the API answers it to a member of its group (request 4's `expense` resource). */
+/** An expense as the API answers it to a member of its group (request 4's `expense` resource, gaining its category, request 24). */
 const ExpenseSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares', 'splitKind', 'version'],
+  required: ['id', 'groupId', 'description', 'amount', 'date', 'paidBy', 'shares', 'splitKind', 'category', 'version'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -15,6 +17,7 @@ const ExpenseSchema = {
     date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
     paidBy: { type: 'string' },
     splitKind: { enum: ['equal', 'exact', 'shares'] },
+    category: { enum: [...CATEGORIES] },
     version: { type: 'integer', minimum: 1 },
     // Only an expense in another currency has it (request 21): what was paid, and the rate it was paid at.
     original: {
@@ -68,6 +71,8 @@ export interface AmountBody {
 export interface CreateExpenseBody extends SplitBody, AmountBody {
   description: string;
   date: string;
+  /** The category, one of eight; `other` when left out (request 24). */
+  category?: Category;
 }
 
 export interface EditExpenseBody extends CreateExpenseBody {
@@ -116,6 +121,11 @@ const ExactlyOneAmount = {
   oneOf: [{ required: ['amount'] }, { required: ['original'] }],
 } as const;
 
+/** The category of an expense, given when it is recorded or edited: one of eight (request 24). */
+export const CategoryProperty = {
+  category: { enum: [...CATEGORIES] },
+} as const;
+
 export const CreateExpenseReqBodySchema = {
   type: 'object',
   required: ['description', 'date'],
@@ -124,6 +134,7 @@ export const CreateExpenseReqBodySchema = {
     date: { type: 'string' },
     ...AmountProperties,
     ...SplitProperties,
+    ...CategoryProperty,
   },
   allOf: [ExactlyOneSplit, ExactlyOneAmount],
 } as const;
@@ -169,6 +180,7 @@ export const EditExpenseReqBodySchema = {
     version: { type: 'integer' },
     ...AmountProperties,
     ...SplitProperties,
+    ...CategoryProperty,
   },
   allOf: [ExactlyOneSplit, ExactlyOneAmount],
 } as const;

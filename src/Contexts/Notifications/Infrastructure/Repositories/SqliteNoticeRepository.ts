@@ -7,6 +7,8 @@ import { INoticeRepository } from '@Contexts/Notifications/Domain/Notice/Ports/I
 /**
  * The table of notices: one row per notice, at most one per expense and recipient (a notice is made once from the fact). A
  * reminder has no expense (its `expense_id` is NULL, request 18): the uniqueness of a reminder is its debt watch's, not this one's.
+ * A budget's notice has no expense either, and names its category, month and budget (request 24); its uniqueness is the fact's, which
+ * Ledger publishes once a month.
  */
 export function createNoticeTables(database: SqliteDatabase): void {
   database.connection.exec(`
@@ -23,6 +25,17 @@ export function createNoticeTables(database: SqliteDatabase): void {
     );
     CREATE INDEX IF NOT EXISTS notices_by_recipient ON notices (recipient, at);
   `);
+  // The budget a notice of a passed budget names (request 24): NULL for every other notice, and for those made before it.
+  const columns = database.connection.prepare('PRAGMA table_info(notices)').all() as unknown as { name: string }[];
+  for (const [name, type] of [
+    ['category', 'TEXT'],
+    ['month', 'TEXT'],
+    ['budget_amount', 'INTEGER'],
+  ]) {
+    if (!columns.some(column => column.name === name)) {
+      database.connection.exec(`ALTER TABLE notices ADD COLUMN ${name} ${type}`);
+    }
+  }
 }
 
 /**
@@ -47,8 +60,8 @@ export class SqliteNoticeRepository implements INoticeRepository {
     if (snapshot.version !== 0) throw new Error(`Notice ${snapshot._id} is saved again: a notice does not change`);
     const inserted = this.database.connection
       .prepare(
-        `INSERT INTO notices (id, recipient, kind, group_id, expense_id, amount, at, version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1) ON CONFLICT DO NOTHING`,
+        `INSERT INTO notices (id, recipient, kind, group_id, expense_id, amount, at, version, category, month, budget_amount)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?) ON CONFLICT DO NOTHING`,
       )
       .run(
         snapshot._id,
@@ -58,6 +71,9 @@ export class SqliteNoticeRepository implements INoticeRepository {
         snapshot.expenseId,
         snapshot.amount,
         snapshot.at.toISOString(),
+        snapshot.passing?.category ?? null,
+        snapshot.passing?.month ?? null,
+        snapshot.passing?.budget ?? null,
       );
     if (inserted.changes === 0) {
       return Result.fail(

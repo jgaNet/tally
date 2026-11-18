@@ -33,7 +33,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     if (caller.isFailure()) return Result.fail(caller.error);
     const payer = caller.data.value;
 
-    const { groupId, description, money, date, split } = event.payload;
+    const { groupId, description, money, date, split, category } = event.payload;
     const members = await this.groupMembers.membersOf(groupId, payer);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
     const currency = await this.groupCurrency.currencyOf(groupId, payer);
@@ -52,6 +52,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       members: members.map(member => member.memberId),
       today,
       offer,
+      category,
     });
     if (recorded.isFailure()) return Result.fail(recorded.error);
     const expense = recorded.data;

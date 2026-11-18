@@ -14,6 +14,10 @@ import {
   EditExpenseCommandHandler,
   RecordExpenseCommandEvent,
   RecordExpenseCommandHandler,
+  SetBudgetCommandEvent,
+  SetBudgetCommandHandler,
+  RemoveBudgetCommandEvent,
+  RemoveBudgetCommandHandler,
 } from '@Contexts/Ledger/Application/Commands';
 import {
   GetExpenseQueryHandler,
@@ -23,11 +27,19 @@ import {
   GetOfferedRateQueryHandler,
   GetRecurringExpenseQueryHandler,
   GetGroupRecurringExpensesQueryHandler,
+  GetGroupBudgetsQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
+import { ExpenseRecordedBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedBudgetHandler';
+import { ExpenseEditedBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseEditedBudgetHandler';
+import { ExpenseBudgetPolicy } from '@Contexts/Ledger/Application/Events/ExpenseBudgetPolicy';
+import { BudgetPassedHandler } from '@Contexts/Ledger/Application/Events/BudgetPassedHandler';
 import { RecurringExpenseDayCameHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCameHandler';
 import { RecordRecurringExpensesJob } from '@Contexts/Ledger/Application/Jobs/RecordRecurringExpensesJob';
-import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
+import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Events/BudgetEvents';
+import { SqliteBudgetRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteBudgetRepository';
+import { SqliteBudgetQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteBudgetQueries';
 import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
 import { SqliteRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteRecurringExpenseRepository';
 import { SqliteRecurringExpenseQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteRecurringExpenseQueries';
@@ -66,6 +78,10 @@ const balanceQueries = new SqliteBalanceQueries(
 const statementQueries = new SqliteStatementQueries(database);
 const recurring = new SqliteRecurringExpenseRepository(database);
 const recurringQueries = new SqliteRecurringExpenseQueries(database);
+const budgets = new SqliteBudgetRepository(database);
+const budgetQueries = new SqliteBudgetQueries(database);
+/** The policy on an expense recorded or edited (request 24): its month, in its category, is what the budget decides. */
+const budgetPolicy = new ExpenseBudgetPolicy(expenses, budgets, budgetQueries, groupMembers);
 const clock = systemClock;
 
 /** The sweep of request 23: run by the composition root every JOBS_INTERVAL_SECONDS, recording each day that has come, once. */
@@ -94,9 +110,18 @@ export const localLedgerModule = new Module({
       event: StopRecurringExpenseCommandEvent,
       handlers: [new StopRecurringExpenseCommandHandler(groupMembers, recurring)],
     },
+    {
+      event: SetBudgetCommandEvent,
+      handlers: [new SetBudgetCommandHandler(groupMembers, budgets)],
+    },
+    {
+      event: RemoveBudgetCommandEvent,
+      handlers: [new RemoveBudgetCommandHandler(groupMembers, budgets)],
+    },
   ],
   queries: [
     new GetExpenseQueryHandler(expenseQueries, groupMembers),
+    new GetGroupBudgetsQueryHandler(budgetQueries, groupMembers, clock),
     new GetGroupBalancesQueryHandler(balanceQueries, groupMembers),
     new GetGroupExpensesQueryHandler(expenseQueries, groupMembers),
     new GetMemberStatementQueryHandler(statementQueries, groupMembers),
@@ -105,7 +130,12 @@ export const localLedgerModule = new Module({
     new GetGroupRecurringExpensesQueryHandler(recurringQueries, groupMembers),
   ],
   domainEvents: [
-    { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] },
+    {
+      event: ExpenseRecordedEvent,
+      handlers: [new ExpenseRecordedHandler(), new ExpenseRecordedBudgetHandler(budgetPolicy)],
+    },
+    { event: ExpenseEditedEvent, handlers: [new ExpenseEditedBudgetHandler(budgetPolicy)] },
+    { event: BudgetPassedEvent, handlers: [new BudgetPassedHandler()] },
     {
       event: RecurringExpenseDayCameEvent,
       handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers, clock)],

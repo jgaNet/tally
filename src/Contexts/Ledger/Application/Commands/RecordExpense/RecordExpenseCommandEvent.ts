@@ -1,5 +1,6 @@
 import { CommandEvent } from '@Architecture/Domain';
 
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { ExpenseMoney } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 
@@ -15,6 +16,8 @@ export interface RecordExpensePayload {
   date: string;
   /** How the expense is split: equally, by exact amounts, or by shares. */
   split: SplitRequest;
+  /** The category, one of eight; `other` when none is given (request 24). */
+  category?: Category;
 }
 
 export class RecordExpenseCommandEvent extends CommandEvent<RecordExpensePayload> {}

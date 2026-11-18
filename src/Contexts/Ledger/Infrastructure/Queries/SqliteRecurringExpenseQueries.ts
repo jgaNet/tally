@@ -1,5 +1,6 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import {
   IRecurringExpenseQueries,
   RecurringExpenseView,
@@ -14,6 +15,7 @@ interface RecurringRow {
   starts_on: string;
   next_on: string;
   split_kind: 'equal' | 'exact' | 'shares';
+  category: Category;
 }
 
 interface SplitRow {
@@ -51,6 +53,7 @@ export class SqliteRecurringExpenseQueries implements IRecurringExpenseQueries {
       amount: row.amount,
       startsOn: row.starts_on,
       next: row.next_on,
+      category: row.category,
     };
     if (row.split_kind === 'equal') view.splitBetween = splits.map(split => split.member_id);
     if (row.split_kind === 'exact') {

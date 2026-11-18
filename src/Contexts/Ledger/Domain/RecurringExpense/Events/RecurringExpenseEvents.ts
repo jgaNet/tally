@@ -1,5 +1,6 @@
 import { DomainEvent } from '@Architecture/Domain';
 
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** A recurring expense was set up: its id, its group, and the member who pays it every month. */
@@ -26,4 +27,6 @@ export class RecurringExpenseDayCameEvent extends DomainEvent<{
   amount: number;
   date: string;
   split: SplitRequest;
+  /** The category of the expense, which the day's expense is recorded in (request 24). */
+  category: Category;
 }> {}

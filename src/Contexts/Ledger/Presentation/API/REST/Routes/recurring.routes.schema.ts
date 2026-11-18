@@ -1,8 +1,10 @@
 import {
+  CategoryProperty,
   SplitBody,
   SplitProperties,
   ExactlyOneSplit,
 } from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes.schema';
+import { CATEGORIES, Category } from '@Contexts/Ledger/Domain/Expense/Category';
 
 const RefusalSchema = {
   type: 'object',
@@ -12,7 +14,7 @@ const RefusalSchema = {
 /** A recurring expense as the API answers it to a member of its group (request 23): its split as it was given, one of the three keys. */
 const RecurringSchema = {
   type: 'object',
-  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next'],
+  required: ['id', 'groupId', 'paidBy', 'description', 'amount', 'startsOn', 'next', 'category'],
   properties: {
     id: { type: 'string' },
     groupId: { type: 'string' },
@@ -21,6 +23,7 @@ const RecurringSchema = {
     amount: { type: 'integer' },
     startsOn: { type: 'string', pattern: '^\\d{4}-\\d{2}-(0[1-9]|1\\d|2[0-8])$' },
     next: { type: 'string', pattern: '^\\d{4}-\\d{2}-(0[1-9]|1\\d|2[0-8])$' },
+    category: { enum: [...CATEGORIES] },
     splitBetween: { type: 'array', items: { type: 'string' } },
     splitExactly: {
       type: 'array',
@@ -46,6 +49,8 @@ export interface SetUpRecurringBody extends SplitBody {
   description: string;
   amount: number;
   startsOn: string;
+  /** The category of the expenses it records, one of eight; `other` when left out (request 24). */
+  category?: Category;
 }
 
 export const SetUpRecurringReqBodySchema = {
@@ -56,6 +61,7 @@ export const SetUpRecurringReqBodySchema = {
     amount: { type: 'integer' },
     startsOn: { type: 'string' },
     ...SplitProperties,
+    ...CategoryProperty,
   },
   allOf: [ExactlyOneSplit],
 } as const;

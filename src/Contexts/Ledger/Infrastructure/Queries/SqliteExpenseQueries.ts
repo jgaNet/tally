@@ -1,6 +1,7 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { ExpenseView, IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
 import { createExpensesTables } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteExpenseRepository';
 
@@ -16,6 +17,7 @@ interface ExpenseViewRow {
   original_currency: string | null;
   original_amount: number | null;
   original_rate: string | null;
+  category: Category;
 }
 
 /** The read side of expenses over the same file: each expense as recorded, its shares in the order of the split. */
@@ -76,6 +78,7 @@ function toView(row: ExpenseViewRow, shares: ShareRecord[]): ExpenseView {
     paidBy: row.paid_by,
     shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
     splitKind: row.split_kind,
+    category: row.category,
     version: row.version,
     // An expense in the group's currency reads without `original`, as the expenses recorded before it do.
     ...(row.original_currency === null

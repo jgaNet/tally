@@ -1,6 +1,8 @@
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
+
 /**
  * What a member reads of a recurring expense: as it is now, with the split as it was given (one of the three keys) and `next`,
- * the day of the next expense it will record.
+ * the day of the next expense it will record, and the category of the expenses it records (request 24).
  */
 export interface RecurringExpenseView {
   id: string;
@@ -10,6 +12,7 @@ export interface RecurringExpenseView {
   amount: number;
   startsOn: string;
   next: string;
+  category: Category;
   splitBetween?: string[];
   splitExactly?: { memberId: string; amount: number }[];
   splitByShares?: { memberId: string; shares: number }[];

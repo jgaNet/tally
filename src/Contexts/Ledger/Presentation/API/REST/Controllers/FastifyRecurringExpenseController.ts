@@ -34,6 +34,7 @@ export class FastifyRecurringExpenseController {
         amount,
         startsOn,
         split: splitOf(req.body),
+        category: req.body.category,
       }),
     );
   }

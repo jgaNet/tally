@@ -1,5 +1,6 @@
 import { CommandEvent } from '@Architecture/Domain';
 
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /**
@@ -13,6 +14,8 @@ export interface SetUpRecurringExpensePayload {
   startsOn: string;
   /** How it is split: equally, by exact amounts, or by shares, as the expenses it records are. */
   split: SplitRequest;
+  /** The category of the expenses it records, one of eight; `other` when none is given (request 24). */
+  category?: Category;
 }
 
 export class SetUpRecurringExpenseCommandEvent extends CommandEvent<SetUpRecurringExpensePayload> {}

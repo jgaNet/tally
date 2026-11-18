@@ -29,7 +29,7 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
     if (caller.isFailure()) return Result.fail(caller.error);
     const payer = caller.data.value;
 
-    const { groupId, description, amount, startsOn, split } = event.payload;
+    const { groupId, description, amount, startsOn, split, category } = event.payload;
     const members = await this.groupMembers.membersOf(groupId, payer);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
     const currency = await this.groupCurrency.currencyOf(groupId, payer);
@@ -45,6 +45,7 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
       split,
       memberIds: members.map(member => member.memberId),
       today: this.clock(),
+      category,
     });
     if (set.isFailure()) return Result.fail(set.error);
 

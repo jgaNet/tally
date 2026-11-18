@@ -12,6 +12,12 @@ import { ExpenseAmount } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { ExpenseDescription } from '@Contexts/Ledger/Domain/Expense/ExpenseDescription';
 import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { Split, SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
+import {
+  Category,
+  DEFAULT_CATEGORY,
+  InvalidCategoryException,
+  isCategory,
+} from '@Contexts/Ledger/Domain/Expense/Category';
 
 /**
  * RecurringExpense is the aggregate root of an expense its payer pays every month (request 23): what it is for, how much, the
@@ -33,6 +39,7 @@ export class RecurringExpense extends AggregateRoot {
   readonly #startsOn: RecurringDay;
   readonly #next: RecurringDay;
   readonly #split: SplitRequest;
+  readonly #category: Category;
 
   private constructor(
     id: Id,
@@ -44,6 +51,7 @@ export class RecurringExpense extends AggregateRoot {
     startsOn: RecurringDay,
     next: RecurringDay,
     split: SplitRequest,
+    category: Category,
     version: number,
   ) {
     super(id, version);
@@ -55,6 +63,7 @@ export class RecurringExpense extends AggregateRoot {
     this.#startsOn = startsOn;
     this.#next = next;
     this.#split = split;
+    this.#category = category;
   }
 
   /**
@@ -72,6 +81,7 @@ export class RecurringExpense extends AggregateRoot {
     split,
     memberIds,
     today,
+    category = DEFAULT_CATEGORY,
   }: {
     groupId: string;
     paidBy: string;
@@ -82,7 +92,10 @@ export class RecurringExpense extends AggregateRoot {
     split: SplitRequest;
     memberIds: string[];
     today: Date;
+    /** The category each expense it records is in, one of eight; `other` when left out (request 24). */
+    category?: Category;
   }): IResult<RecurringExpense> {
+    if (!isCategory(category)) return Result.fail(new InvalidCategoryException());
     const validDescription = ExpenseDescription.create(description);
     if (validDescription.isFailure()) return Result.fail(validDescription.error);
     const validAmount = ExpenseAmount.create(amount);
@@ -103,6 +116,7 @@ export class RecurringExpense extends AggregateRoot {
       validStart.data,
       validStart.data,
       split,
+      category,
       0,
     );
     recurring.record(RecurringExpenseSetUpEvent.set({ recurringId: recurring._id.value, groupId, paidBy }));
@@ -152,6 +166,7 @@ export class RecurringExpense extends AggregateRoot {
       this.#startsOn,
       this.#next.monthAfter(),
       this.#split,
+      this.#category,
       this.version,
     );
     advanced.record(
@@ -165,6 +180,7 @@ export class RecurringExpense extends AggregateRoot {
         amount: this.#amount.value,
         date: this.#next.value,
         split: this.#split,
+        category: this.#category,
       }),
     );
     return { kind: 'recorded', recurring: advanced };
@@ -183,7 +199,8 @@ export class RecurringExpense extends AggregateRoot {
       next.isFailure() ||
       !snapshot.paidBy ||
       !snapshot.currency ||
-      !SPLIT_KINDS.includes(snapshot.split.kind)
+      !SPLIT_KINDS.includes(snapshot.split.kind) ||
+      !isCategory(snapshot.category)
     ) {
       throw new Error(`Corrupted recurring expense ${snapshot._id}`);
     }
@@ -197,6 +214,7 @@ export class RecurringExpense extends AggregateRoot {
       startsOn.data,
       next.data,
       snapshot.split,
+      snapshot.category,
       snapshot.version,
     );
   }
@@ -212,6 +230,7 @@ export class RecurringExpense extends AggregateRoot {
       startsOn: this.#startsOn.value,
       next: this.#next.value,
       split: structuredClone(this.#split),
+      category: this.#category,
       version: this.version,
     };
   }

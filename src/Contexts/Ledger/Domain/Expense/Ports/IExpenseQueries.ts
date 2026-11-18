@@ -1,3 +1,4 @@
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { ExpenseShare, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** What a member reads of an expense: as it is now, its version, and its shares in the order of the split. */
@@ -11,6 +12,8 @@ export interface ExpenseView {
   shares: ExpenseShare[];
   /** How it was split: equally, by exact amounts, or by shares. */
   splitKind: SplitKind;
+  /** The category of the expense: one of eight, `other` when none was given (request 24). */
+  category: Category;
   /** 1 when it is recorded, and one more at each edit. */
   version: number;
   /** What was paid in another currency, at its rate, when the expense is in one (request 21); absent otherwise. */

@@ -34,6 +34,7 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
       date: payload.date,
       paidBy: payload.paidBy,
       split: payload.split,
+      category: payload.category,
       members: memberIds,
       today: this.clock(),
     });

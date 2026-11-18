@@ -48,6 +48,7 @@ describe('Notice (request 17)', () => {
       groupId: 'house',
       expenseId: 'pizzas',
       amount: 333,
+      passing: null,
       at: AT,
       version: 0,
     });
@@ -68,6 +69,7 @@ describe('Notice (request 17)', () => {
       groupId: 'house',
       expenseId: 'pizzas',
       amount: 333,
+      passing: null,
       at: AT,
       version: 1,
     };

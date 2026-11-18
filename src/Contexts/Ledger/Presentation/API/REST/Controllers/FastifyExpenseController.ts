@@ -39,6 +39,7 @@ export class FastifyExpenseController {
         money: moneyOf(req.body),
         date,
         split: splitOf(req.body),
+        category: req.body.category,
       }),
     );
   }
@@ -56,6 +57,7 @@ export class FastifyExpenseController {
         date,
         version,
         split: splitOf(req.body),
+        category: req.body.category,
       }),
     );
   }

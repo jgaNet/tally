@@ -5,6 +5,7 @@ import { IRecurringExpenseSnapshot } from '@Contexts/Ledger/Domain/RecurringExpe
 import { RecurringExpense } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
 import { IRecurringExpenseRepository } from '@Contexts/Ledger/Domain/RecurringExpense/Ports/IRecurringExpenseRepository';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 
 /**
  * The tables of recurring expenses (request 23): one row per recurring expense, and one per member of its split, in the order the
@@ -35,6 +36,13 @@ export function createRecurringExpensesTables(database: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS recurring_expenses_by_next ON recurring_expenses (next_on);
     CREATE INDEX IF NOT EXISTS recurring_expenses_by_group ON recurring_expenses (group_id);
   `);
+  // A recurring expense set up before categories existed records `other` expenses, as they are (request 24).
+  const columns = database.connection.prepare('PRAGMA table_info(recurring_expenses)').all() as unknown as {
+    name: string;
+  }[];
+  if (!columns.some(column => column.name === 'category')) {
+    database.connection.exec("ALTER TABLE recurring_expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'");
+  }
 }
 
 interface RecurringRow {
@@ -47,6 +55,7 @@ interface RecurringRow {
   starts_on: string;
   next_on: string;
   split_kind: 'equal' | 'exact' | 'shares';
+  category: Category;
   version: number;
 }
 
@@ -104,7 +113,7 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
     }
     connection
       .prepare(
-        'INSERT INTO recurring_expenses (id, group_id, paid_by, currency, description, amount, starts_on, next_on, split_kind, version, set_up_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(set_up_seq), 0) + 1 FROM recurring_expenses))',
+        'INSERT INTO recurring_expenses (id, group_id, paid_by, currency, description, amount, starts_on, next_on, split_kind, category, version, set_up_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(set_up_seq), 0) + 1 FROM recurring_expenses))',
       )
       .run(
         snapshot._id,
@@ -116,6 +125,7 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
         snapshot.startsOn,
         snapshot.next,
         snapshot.split.kind,
+        snapshot.category,
         snapshot.version + 1,
       );
     splitRowsOf(snapshot.split).forEach(([memberId, quantity], position) =>
@@ -155,6 +165,7 @@ export class SqliteRecurringExpenseRepository implements IRecurringExpenseReposi
       startsOn: row.starts_on,
       next: row.next_on,
       split: splitOf(row.split_kind, rows),
+      category: row.category,
       version: row.version,
     });
   }

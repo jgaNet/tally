@@ -19,6 +19,7 @@ why, what it costs, and when to revisit it.
 | [12](0012-ledger-converts-an-expense-paid-in-another-currency.md) | Ledger converts an expense paid in another currency at the rate its payer states, its group currency asked through a port (the Groups → Ledger link, carried) |
 | [13](0013-ledger-offers-a-rate-from-a-rates-service.md) | Ledger offers the rate of a rates service, and an expense in another currency takes or corrects it, the rates service behind a port Ledger owns (the Groups → Ledger link, carried) |
 | [14](0014-ledger-records-recurring-expenses-by-a-job-once-a-day.md) | Ledger records a recurring expense’s days by a background job, each day once, and its expense from the day’s fact (the Groups → Ledger link, carried) |
+| [15](0015-ledger-passes-a-budget-once-a-month.md) | Ledger decides a passed budget once a month, and Notifications tells each member from BudgetPassed (the Ledger → Notifications link, carried) |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

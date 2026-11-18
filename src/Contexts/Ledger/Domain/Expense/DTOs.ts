@@ -1,3 +1,4 @@
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { OriginalSnapshot } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { ExpenseShare, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
@@ -16,5 +17,7 @@ export interface IExpenseSnapshot {
   splitKind: SplitKind;
   /** What was paid in another currency, at its rate; null when the expense is in the group's currency (request 21). */
   original: OriginalSnapshot | null;
+  /** The category of the expense: one of eight, `other` when none was given (request 24). */
+  category: Category;
   version: number;
 }
