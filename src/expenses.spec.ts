@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { Application } from './app';
-import { equalShares, sharesByWeight, todayUtc } from './expenses';
+import { todayUtc } from './days';
+import { equalShares, sharesByWeight } from './expenses';
 import { ada, call, startApplication, temporaryDatabase } from './test-support';
 
 const grace = { email: 'grace@example.com', password: 'compiler-1952', name: 'Grace Hopper' };
@@ -1128,7 +1129,7 @@ describe('expenses', () => {
 
     it('refuses an original that is not an object with its three fields, with 400', async () => {
       expect((await record({ amount: undefined, original: 'CHF 1234' })).status).toBe(400);
-      expect((await record({ amount: undefined, original: { currency: 'CHF', amount: 1234 } })).status).toBe(400);
+      expect((await record({ amount: undefined, original: { currency: 'CHF' } })).status).toBe(400);
     });
 
     it('keeps the expense in the group currency when an edit gives it an amount, and drops the original', async () => {

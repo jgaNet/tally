@@ -12,18 +12,25 @@ export function temporaryDatabase(): { path: string; remove(): void } {
 }
 
 /**
- * Starts an application on a random port, on the database file at `databasePath`. Without a payment provider
- * configured, as a server without `PROVIDER_URL` is; a test that needs one gives its URL and secret.
+ * Starts an application on a random port, on the database file at `databasePath`. Without a payment provider or a
+ * rates service configured, as a server without `PROVIDER_URL` or `RATES_URL` is; a test that needs one gives its URL.
  */
 export async function startApplication(
   databasePath: string,
-  provider: { providerUrl?: string; providerWebhookSecret?: string; providerTimeoutMs?: number } = {},
+  services: {
+    providerUrl?: string;
+    providerWebhookSecret?: string;
+    providerTimeoutMs?: number;
+    ratesUrl?: string;
+    ratesTimeoutMs?: number;
+  } = {},
 ): Promise<Application> {
   const app = await createApplication({
     databasePath,
     providerUrl: '',
     providerWebhookSecret: '',
-    ...provider,
+    ratesUrl: '',
+    ...services,
   });
   await app.start(0);
   return app;

@@ -2,15 +2,16 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { inTransaction } from './database';
+import { isRealDay, todayUtc } from './days';
 import { CURRENCIES, findGroupOf } from './groups';
 import { isMember } from './members';
 import { writeExpenseNotices } from './notices';
 import { Refusal } from './refusal';
+import { MILLIONTHS, offeredRate, rateMillionths, type RatesConfig } from './rates';
 import { requireCaller } from './sessions';
 
 const DESCRIPTION_MAX = 100;
 const AMOUNT_MAX = 100_000_000;
-const DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** How an expense is split: equally between its members, by exact amounts, or by a number of shares each. */
 export type SplitKind = 'equal' | 'exact' | 'shares';
@@ -58,6 +59,16 @@ export interface Original {
 }
 
 /**
+ * An amount paid in another currency as a member gives it: as `Original`, except that the rate may be left out, which takes
+ * the rate offered for its currency to the group's on the day of the expense.
+ */
+export interface GivenOriginal {
+  currency: string;
+  amount: number;
+  rate?: string;
+}
+
+/**
  * What a member records: the amount is in hundredths of the group's currency, like every amount, or `original`, what was
  * paid in another currency. Exactly one of the two is given. The split is given exactly one way: `splitBetween` for an
  * equal split, `splitExactly` for amounts, `splitByShares` for shares.
@@ -65,7 +76,7 @@ export interface Original {
 export interface NewExpense {
   description: string;
   amount?: number;
-  original?: Original;
+  original?: GivenOriginal;
   date: string;
   splitBetween?: string[];
   splitExactly?: ExactShare[];
@@ -170,19 +181,91 @@ function checkAmount(amount: number): void {
   }
 }
 
-/** A rate, as a decimal string: whole digits, and at most 6 digits after the point. */
-const RATE_SHAPE = /^(\d+)(?:\.(\d{1,6}))?$/;
-/** A rate is kept as a whole number of millionths, so that the conversion is exact. */
-const MILLIONTHS = 1_000_000n;
+/** A rate as a decimal string, with its value in millionths. */
+interface Converting {
+  rate: string;
+  millionths: bigint;
+}
 
-/** The rate as a whole number of millionths. A rate that is not a decimal greater than 0 is refused. */
-function parseRate(rate: string): bigint {
-  const match = RATE_SHAPE.exec(rate);
-  const millionths = match ? BigInt(match[1] + (match[2] ?? '').padEnd(6, '0')) : 0n;
-  if (millionths <= 0n) {
+/** A rate as a decimal string, with its value in millionths; undefined when the text is not a rate. */
+function converting(rate: string): Converting | undefined {
+  const millionths = rateMillionths(rate);
+  return millionths === undefined ? undefined : { rate, millionths };
+}
+
+/**
+ * What the rates service offers for an expense in another currency: whether the server has a rates service at all, and the
+ * rate it offers on the expense's day, if any. Without a rates service, a rate the payer gives is taken as it is.
+ */
+interface RateOffer {
+  configured: boolean;
+  rate?: string;
+}
+
+/**
+ * The rate offered for the original of an expense: the rate of its currency to the group's on the expense's day. It is asked
+ * of the rates service before anything is written, as the write itself does not wait. An expense in the group's currency, or
+ * with a day that is not one, asks nothing.
+ */
+async function offerFor(
+  rates: RatesConfig,
+  input: Pick<NewExpense, 'original' | 'date'>,
+  groupCurrency: string,
+): Promise<RateOffer> {
+  const configured = Boolean(rates.url);
+  const original = input.original;
+  if (
+    !configured ||
+    original === undefined ||
+    !(CURRENCIES as readonly string[]).includes(original.currency) ||
+    original.currency === groupCurrency ||
+    !isRealDay(input.date)
+  ) {
+    return { configured };
+  }
+  const from = original.currency;
+  return { configured, rate: await offeredRate(rates, { from, to: groupCurrency, date: input.date }) };
+}
+
+/**
+ * Whether the given rate is within 2 % of the offered one: their difference is at most a fiftieth of the offered rate.
+ * Both are in millionths, so the comparison is exact.
+ */
+function withinTwoPercent(given: bigint, offered: bigint): boolean {
+  const difference = given > offered ? given - offered : offered - given;
+  return difference * 50n <= offered;
+}
+
+/**
+ * The rate an amount in another currency is converted at. A rate left out is the rate offered. A rate given is taken when the
+ * server has no rates service; otherwise it must be within 2 % of the rate offered. A rate with no offer to take or to compare
+ * with is refused, and so is a rate that is not a decimal greater than 0 with at most 6 digits after the point. `about` says
+ * which rate this is, for the message of the refusal.
+ */
+function rateOf(given: string | undefined, offer: RateOffer, about: string): Converting {
+  const offered = offer.rate === undefined ? undefined : converting(offer.rate);
+  if (given === undefined) {
+    if (offered === undefined) {
+      refuse('NoRateOffered', `There is no rate offered for ${about}, so the rate must be given.`);
+    }
+    return offered;
+  }
+  const payers = converting(given);
+  if (payers === undefined) {
     refuse('InvalidRate', 'The rate must be a decimal number greater than 0, with at most 6 digits after the point.');
   }
-  return millionths;
+  if (offer.configured) {
+    if (offered === undefined) {
+      refuse('NoRateOffered', `There is no rate offered for ${about} to check the rate given against.`);
+    }
+    if (!withinTwoPercent(payers.millionths, offered.millionths)) {
+      refuse(
+        'RateDiffersFromOffered',
+        `The rate ${given} differs from the rate offered for ${about}, ${offered.rate}, by more than 2 %.`,
+      );
+    }
+  }
+  return payers;
 }
 
 /**
@@ -196,12 +279,13 @@ function convertedAmount(original: number, millionths: bigint): bigint {
 
 /**
  * The amount of an expense in the group's currency, and the original it was paid in when it was paid in another
- * currency. The input gives exactly one of `amount` and `original`; the request's schema refuses the others as the
- * wrong shape, and this holds the same rule for whatever else reaches it.
+ * currency, converted at the rate `rateOf` settles on. The input gives exactly one of `amount` and `original`; the request's
+ * schema refuses the others as the wrong shape, and this holds the same rule for whatever else reaches it.
  */
 function amountOf(
-  input: Pick<NewExpense, 'amount' | 'original'>,
+  input: Pick<NewExpense, 'amount' | 'original' | 'date'>,
   groupCurrency: string,
+  offer: RateOffer,
 ): { amount: number; original?: Original } {
   const { amount, original } = input;
   const wrongShape = () =>
@@ -219,28 +303,16 @@ function amountOf(
     );
   }
   checkAmount(original.amount);
-  const converted = convertedAmount(original.amount, parseRate(original.rate));
+  const about = `${original.currency} to ${groupCurrency} on ${input.date}`;
+  const { rate, millionths } = rateOf(original.rate, offer, about);
+  const converted = convertedAmount(original.amount, millionths);
   if (converted < 1n || converted > BigInt(AMOUNT_MAX)) {
     refuse('InvalidAmount', `The amount in ${groupCurrency}, as converted, must be from 1 to ${AMOUNT_MAX}.`);
   }
   return {
     amount: Number(converted),
-    original: { currency: original.currency, amount: original.amount, rate: original.rate },
+    original: { currency: original.currency, amount: original.amount, rate },
   };
-}
-
-/** Whether `date` names a day of the calendar, as `YYYY-MM-DD`. */
-function isRealDay(date: string): boolean {
-  if (!DATE_SHAPE.test(date)) return false;
-  const [year, month, day] = date.split('-').map(Number);
-  const instant = new Date(0);
-  instant.setUTCFullYear(year, month - 1, day);
-  return instant.getUTCFullYear() === year && instant.getUTCMonth() === month - 1 && instant.getUTCDate() === day;
-}
-
-/** Today's day in UTC, as `YYYY-MM-DD`. */
-export function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function checkDate(date: string): void {
@@ -327,13 +399,21 @@ function writeShares(db: DatabaseSync, expenseId: string, shares: readonly Share
 
 /**
  * Records an expense of the group, paid by the account, split as the input gives it, and returns its id.
- * The account must be a member of the group; for anyone else the group does not exist.
+ * The account must be a member of the group; for anyone else the group does not exist. An expense in another
+ * currency with no rate given takes the rate offered, which is asked of the rates service before the write.
  */
-export function createExpense(db: DatabaseSync, accountId: string, groupId: string, input: NewExpense): string {
+export async function createExpense(
+  db: DatabaseSync,
+  rates: RatesConfig,
+  accountId: string,
+  groupId: string,
+  input: NewExpense,
+): Promise<string> {
   const group = findGroupOf(db, accountId, groupId);
   if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
   const description = checkDescription(input.description);
-  const { amount, original } = amountOf(input, group.currency);
+  const offer = await offerFor(rates, input, group.currency);
+  const { amount, original } = amountOf(input, group.currency, offer);
   checkDate(input.date);
   const id = randomUUID();
   const recordedAt = new Date().toISOString();
@@ -409,24 +489,42 @@ function checkMayChange(db: DatabaseSync, accountId: string, expense: Expense): 
 }
 
 /**
+ * The expense, when the account may change it: found for the account, changeable by it, and not concerning a member who
+ * has left the group.
+ */
+function changeableExpense(db: DatabaseSync, accountId: string, expenseId: string): Expense {
+  const expense = findExpenseOf(db, accountId, expenseId);
+  if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
+  checkMayChange(db, accountId, expense);
+  checkNoFormerMember(db, expense);
+  return expense;
+}
+
+/**
  * Replaces the expense whole with the one given, from the version its author read, and gives it one more
  * version. The payer stays the one who paid, and must stay in the split. The shares are computed again.
  * An expense changed since that version is refused with `ExpenseChanged`, and nothing of the edit is kept.
- * Check, version and write are one write transaction, so two edits from the same version cannot both land.
+ * The rate offered for an edit in another currency is asked of the rates service before the write. Check,
+ * version and write are one write transaction, so two edits from the same version cannot both land.
  */
-export function editExpense(db: DatabaseSync, accountId: string, expenseId: string, edit: ExpenseEdit): void {
+export async function editExpense(
+  db: DatabaseSync,
+  rates: RatesConfig,
+  accountId: string,
+  expenseId: string,
+  edit: ExpenseEdit,
+): Promise<void> {
+  const current = changeableExpense(db, accountId, expenseId);
+  const group = findGroupOf(db, accountId, current.groupId);
+  if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  const offer = await offerFor(rates, edit, group.currency);
   inTransaction(db, () => {
-    const expense = findExpenseOf(db, accountId, expenseId);
-    if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
-    checkMayChange(db, accountId, expense);
-    checkNoFormerMember(db, expense);
+    const expense = changeableExpense(db, accountId, expenseId);
     if (edit.version !== expense.version) {
       throw new Refusal(409, 'ExpenseChanged', 'The expense changed since this version was read: read it again.');
     }
-    const group = findGroupOf(db, accountId, expense.groupId);
-    if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
     const description = checkDescription(edit.description);
-    const { amount, original } = amountOf(edit, group.currency);
+    const { amount, original } = amountOf(edit, group.currency, offer);
     checkDate(edit.date);
     const split = splitOf(edit);
     checkSplit(db, expense.groupId, expense.paidBy, membersOf(split));
@@ -530,12 +628,15 @@ const exactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 };
 
-/** The amount of an expense: in the group's currency, or `original`, what was paid in another. Exactly one of them. */
+/**
+ * The amount of an expense: in the group's currency, or `original`, what was paid in another. Exactly one of them. The
+ * rate of an original may be left out: the rate offered is taken then.
+ */
 const amountProperties = {
   amount: { type: 'integer' },
   original: {
     type: 'object',
-    required: ['currency', 'amount', 'rate'],
+    required: ['currency', 'amount'],
     properties: { currency: { type: 'string' }, amount: { type: 'integer' }, rate: { type: 'string' } },
   },
 };
@@ -544,7 +645,7 @@ const exactlyOneAmount = {
   oneOf: [{ required: ['amount'] }, { required: ['original'] }],
 };
 
-export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync): void {
+export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync, rates: RatesConfig): void {
   app.post<{ Params: { id: string }; Body: NewExpense }>(
     '/groups/:id/expenses',
     {
@@ -563,9 +664,10 @@ export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync): v
         response: { 201: idSchema },
       },
     },
-    (request, reply) => {
+    async (request, reply) => {
       const accountId = requireCaller(db, request);
-      return reply.code(201).send({ id: createExpense(db, accountId, request.params.id, request.body) });
+      const id = await createExpense(db, rates, accountId, request.params.id, request.body);
+      return reply.code(201).send({ id });
     },
   );
 
@@ -594,9 +696,9 @@ export function registerExpenseRoutes(app: FastifyInstance, db: DatabaseSync): v
         },
       },
     },
-    (request, reply) => {
+    async (request, reply) => {
       const accountId = requireCaller(db, request);
-      editExpense(db, accountId, request.params.id, request.body);
+      await editExpense(db, rates, accountId, request.params.id, request.body);
       return reply.code(204).send();
     },
   );
