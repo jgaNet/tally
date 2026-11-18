@@ -1,5 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -41,6 +41,8 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     const members = await this.groupMembers.membersOf(groupId, payer);
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
     if (await this.groupMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
+    // A suspended account records nothing, in any group (request 34).
+    if (await this.groupMembers.isSuspended(payer)) return Result.fail(new AccountSuspendedException());
     const currency = await this.groupCurrency.currencyOf(groupId, payer);
     if (!currency) return Result.fail(new NotFoundException('Ledger', 'Group not found'));
 

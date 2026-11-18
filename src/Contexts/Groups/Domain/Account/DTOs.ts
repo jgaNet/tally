@@ -4,5 +4,7 @@ export interface IAccountSnapshot {
   email: string;
   name: string;
   passwordHash: string;
+  /** When the account was suspended, as an ISO 8601 string; null while it is not suspended (request 34). */
+  suspendedAt: string | null;
   version: number;
 }

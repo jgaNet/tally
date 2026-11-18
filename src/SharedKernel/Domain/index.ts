@@ -6,3 +6,4 @@
 export * from './Email';
 export * from './Role';
 export * from './GroupArchived';
+export * from './AccountSuspended';

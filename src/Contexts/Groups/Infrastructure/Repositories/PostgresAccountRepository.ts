@@ -6,7 +6,7 @@ import { Account } from '@Contexts/Groups/Domain/Account/Account';
 import { IAccountSnapshot } from '@Contexts/Groups/Domain/Account/DTOs';
 import { IAccountRepository } from '@Contexts/Groups/Domain/Account/Ports/IAccountRepository';
 
-/** The table of accounts: one row per account, its email unique across all of them. */
+/** The table of accounts: one row per account, its email unique across all of them, its suspension when it is suspended (request 34). */
 export function createAccountsTable(database: PostgresDatabase): void {
   database.define(`
     CREATE TABLE IF NOT EXISTS accounts (
@@ -14,6 +14,7 @@ export function createAccountsTable(database: PostgresDatabase): void {
       email TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
       password_hash TEXT NOT NULL,
+      suspended_at TEXT,
       version INTEGER NOT NULL
     );
   `);
@@ -24,6 +25,7 @@ interface AccountRow {
   email: string;
   name: string;
   password_hash: string;
+  suspended_at: string | null;
   version: number;
 }
 
@@ -53,11 +55,11 @@ export class PostgresAccountRepository implements IAccountRepository {
    */
   async save(account: Account): Promise<IResult> {
     const snapshot = account.toSnapshot();
-    const { _id: id, email, name, passwordHash, version } = snapshot;
+    const { _id: id, email, name, passwordHash, suspendedAt, version } = snapshot;
 
     const updated = await this.database.run(
-      'UPDATE accounts SET email = ?, name = ?, password_hash = ?, version = ? WHERE id = ? AND version = ?',
-      [email, name, passwordHash, version + 1, id, version],
+      'UPDATE accounts SET email = ?, name = ?, password_hash = ?, suspended_at = ?, version = ? WHERE id = ? AND version = ?',
+      [email, name, passwordHash, suspendedAt, version + 1, id, version],
     );
     if (updated.changes > 0) return Result.ok();
 
@@ -66,13 +68,10 @@ export class PostgresAccountRepository implements IAccountRepository {
       return Result.fail(new ConcurrencyConflictException('Groups', 'The account changed since it was read', { id }));
     }
 
-    await this.database.run('INSERT INTO accounts (id, email, name, password_hash, version) VALUES (?, ?, ?, ?, ?)', [
-      id,
-      email,
-      name,
-      passwordHash,
-      version + 1,
-    ]);
+    await this.database.run(
+      'INSERT INTO accounts (id, email, name, password_hash, suspended_at, version) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, email, name, passwordHash, suspendedAt, version + 1],
+    );
     return Result.ok();
   }
 }
@@ -83,6 +82,7 @@ function toSnapshot(row: AccountRow): IAccountSnapshot {
     email: row.email,
     name: row.name,
     passwordHash: row.password_hash,
+    suspendedAt: row.suspended_at,
     version: row.version,
   };
 }

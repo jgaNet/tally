@@ -1,5 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -41,6 +41,8 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     const members = await this.settlementMembers.membersOf(groupId, payer);
     if (!members) return Result.fail(new NotFoundException('Settlements', 'Group not found'));
     if (await this.settlementMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
+    // A suspended payer pays nothing through the provider, in any group (request 34).
+    if (await this.settlementMembers.isSuspended(payer)) return Result.fail(new AccountSuspendedException());
     const currency = await this.settlementMembers.currencyOf(groupId, payer);
     if (!currency) return Result.fail(new NotFoundException('Settlements', 'Group not found'));
 

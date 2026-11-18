@@ -15,6 +15,7 @@ import {
   LeaveGroupResSchema,
   MergeGroupReqBodySchema,
   MergeGroupResSchema,
+  SuspensionResSchema,
 } from '@Contexts/Groups/Presentation/API/REST/Routes/group.routes.schema';
 import { CreateGroupPayload } from '@Contexts/Groups/Application/Commands';
 
@@ -74,6 +75,18 @@ export const groupRoutes = function (fastify: FastifyInstance, { module }: { mod
     '/groups/:id/members',
     { schema: { tags, response: GetGroupMembersResSchema } },
     controller.getGroupMembers.bind(controller),
+  );
+
+  fastify.put<{ Params: { id: string } }>(
+    '/admin/accounts/:id/suspension',
+    { schema: { tags, response: SuspensionResSchema } },
+    controller.suspendAccount.bind(controller),
+  );
+
+  fastify.delete<{ Params: { id: string } }>(
+    '/admin/accounts/:id/suspension',
+    { schema: { tags, response: SuspensionResSchema } },
+    controller.reinstateAccount.bind(controller),
   );
 
   done();

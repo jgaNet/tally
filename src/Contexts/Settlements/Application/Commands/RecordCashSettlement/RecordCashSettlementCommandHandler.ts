@@ -1,5 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
@@ -36,6 +36,8 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
     const members = await this.settlementMembers.membersOf(groupId, payee);
     if (!members) return Result.fail(new NotFoundException('Settlements', 'Group not found'));
     if (await this.settlementMembers.isArchived(groupId)) return Result.fail(new GroupArchivedException());
+    // A suspended payee records no cash settlement, in any group (request 34).
+    if (await this.settlementMembers.isSuspended(payee)) return Result.fail(new AccountSuspendedException());
 
     const balances = await this.balances.balancesOf(groupId);
     const book = (await this.books.findByGroupId(groupId)) ?? SettlementBook.open(groupId);

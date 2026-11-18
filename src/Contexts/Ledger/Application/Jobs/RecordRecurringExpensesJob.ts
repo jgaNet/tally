@@ -60,6 +60,8 @@ export class RecordRecurringExpensesJob {
     if (!recurring) return Result.ok('done');
     // An archived group is read only: nothing is recorded in it by the background job either (request 27).
     if (await this.groupMembers.isArchived(recurring.groupId)) return Result.ok('done');
+    // A suspended payer's expense records nothing: its day waits, and is recorded once the payer is reinstated (request 34).
+    if (await this.groupMembers.isSuspended(recurring.paidBy)) return Result.ok('done');
 
     const memberIds = await this.groupMembers.currentMemberIds(recurring.groupId);
     const decision = recurring.settleDay({ today: at, memberIds });

@@ -19,6 +19,10 @@ import {
   MergeGroupsCommandHandler,
   SignUpCommandEvent,
   SignUpCommandHandler,
+  SuspendAccountCommandEvent,
+  SuspendAccountCommandHandler,
+  ReinstateAccountCommandEvent,
+  ReinstateAccountCommandHandler,
 } from '@Contexts/Groups/Application/Commands';
 import {
   GetAdministratorsLogQueryHandler,
@@ -32,6 +36,7 @@ import {
 import { PostgresAccountRepository } from '@Contexts/Groups/Infrastructure/Repositories/PostgresAccountRepository';
 import { PostgresGroupRepository } from '@Contexts/Groups/Infrastructure/Repositories/PostgresGroupRepository';
 import { PostgresInvitationRepository } from '@Contexts/Groups/Infrastructure/Repositories/PostgresInvitationRepository';
+import { PostgresAdministratorsLog } from '@Contexts/Groups/Infrastructure/Repositories/PostgresAdministratorsLog';
 import { PostgresAccountQueries } from '@Contexts/Groups/Infrastructure/Queries/PostgresAccountQueries';
 import { PostgresGroupQueries } from '@Contexts/Groups/Infrastructure/Queries/PostgresGroupQueries';
 import { PostgresInvitationQueries } from '@Contexts/Groups/Infrastructure/Queries/PostgresInvitationQueries';
@@ -68,7 +73,8 @@ const memberBalances = new LedgerBalances(ledgerBalanceQueries);
 const waitingPayments = new SettlementsWaitingPayments(settlementReadModel);
 
 /** The administrators' decisions Settlements wrote, read through the port Groups owns, over Settlements' read model passed by the composition root (request 33). */
-const administratorDecisions = new SettlementsAdministratorDecisions(settlementReadModel);
+const administratorsLog = new PostgresAdministratorsLog(database);
+const administratorDecisions = new SettlementsAdministratorDecisions(settlementReadModel, administratorsLog);
 
 /**
  * Who is calling, from the bearer token: the transport's `authenticate`, given by the composition root. The account whose email is
@@ -99,6 +105,14 @@ export const localGroupsModule = new Module({
     {
       event: MergeGroupsCommandEvent,
       handlers: [new MergeGroupsCommandHandler(groups, waitingPayments, clock)],
+    },
+    {
+      event: SuspendAccountCommandEvent,
+      handlers: [new SuspendAccountCommandHandler(accounts, administratorsLog, clock)],
+    },
+    {
+      event: ReinstateAccountCommandEvent,
+      handlers: [new ReinstateAccountCommandHandler(accounts, administratorsLog, clock)],
     },
   ],
   domainEvents: [{ event: GroupsMergedEvent, handlers: [new GroupsMergedHandler()] }],

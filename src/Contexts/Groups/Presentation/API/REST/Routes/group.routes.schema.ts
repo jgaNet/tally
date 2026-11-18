@@ -135,6 +135,20 @@ export const MergeGroupResSchema = {
   409: RefusalSchema,
 } as const;
 
+/** Suspending and reinstating answer at once, as leaving does: the id of the account, or the refusal (request 34). */
+export const SuspensionResSchema = {
+  201: IdSchema,
+  202: {
+    type: 'object',
+    required: ['operationId'],
+    properties: { operationId: { type: 'string' } },
+  },
+  400: RefusalSchema,
+  401: RefusalSchema,
+  403: RefusalSchema,
+  404: RefusalSchema,
+} as const;
+
 /** The administrators' log, the oldest first: administrators only (request 33). */
 export const GetAdministratorsLogResSchema = {
   200: {
@@ -146,7 +160,7 @@ export const GetAdministratorsLogResSchema = {
         id: { type: 'string' },
         at: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
         by: { type: 'string' },
-        action: { enum: ['decided-paid', 'decided-annulled'] },
+        action: { enum: ['decided-paid', 'decided-annulled', 'suspended', 'reinstated'] },
         subjectId: { type: 'string' },
       },
     },

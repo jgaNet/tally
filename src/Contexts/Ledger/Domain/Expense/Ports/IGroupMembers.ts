@@ -48,4 +48,9 @@ export interface IGroupMembers {
    * the background job asks it for a recurring expense's group, never answered to a person.
    */
   isArchived(groupId: string): Promise<boolean>;
+  /**
+   * Whether the account is suspended (request 34). It names no caller: a handler asks it for the account that acts, once it has
+   * found that account a member, and the background job asks it for a recurring expense's payer, never answered to a person.
+   */
+  isSuspended(accountId: string): Promise<boolean>;
 }

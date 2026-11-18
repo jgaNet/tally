@@ -11,6 +11,8 @@ import {
   LeaveGroupCommandEvent,
   ArchiveGroupCommandEvent,
   MergeGroupsCommandEvent,
+  SuspendAccountCommandEvent,
+  ReinstateAccountCommandEvent,
 } from '@Contexts/Groups/Application/Commands';
 import {
   GetAdministratorsLogQueryHandler,
@@ -51,6 +53,19 @@ export class FastifyGroupController {
       .handle(undefined, req.executionContext);
 
     return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  suspendAccount(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommandAtOnce(req, reply, this.#module, SuspendAccountCommandEvent.set({ accountId: req.params.id }));
+  }
+
+  reinstateAccount(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommandAtOnce(
+      req,
+      reply,
+      this.#module,
+      ReinstateAccountCommandEvent.set({ accountId: req.params.id }),
+    );
   }
 
   createInvitation(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {

@@ -1,6 +1,7 @@
 import { IResult, Result } from '@Architecture/Domain';
 import { Clock, CommandHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
+import { AccountSuspendedException } from '@SharedKernel/Domain';
 
 import { IGroupBalances } from '@Contexts/Settlements/Domain/Settlement/Ports/IGroupBalances';
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
@@ -32,6 +33,8 @@ export class NetDebtsCommandHandler extends CommandHandler<NetDebtsCommandEvent>
     const caller = requireSignedIn(context, 'Settlements');
     if (caller.isFailure()) return Result.fail(caller.error);
     const by = caller.data.value;
+    // A suspended account nets nothing, with anyone (request 34).
+    if (await this.settlementMembers.isSuspended(by)) return Result.fail(new AccountSuspendedException());
     const { with: other, currency } = event.payload;
 
     const groups: NettingGroup[] = [];

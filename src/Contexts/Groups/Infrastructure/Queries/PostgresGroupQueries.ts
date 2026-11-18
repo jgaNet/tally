@@ -87,6 +87,14 @@ export class PostgresGroupQueries implements IGroupQueries {
     return row?.archived_at != null;
   }
 
+  async isSuspended(accountId: string): Promise<boolean> {
+    const row = await this.database.get<{ suspended_at: string | null }>(
+      'SELECT suspended_at FROM accounts WHERE id = ?',
+      [accountId],
+    );
+    return row?.suspended_at != null;
+  }
+
   async membersOfEveryGroup(): Promise<GroupMembership[]> {
     const rows = await this.database.all<{ group_id: string; account_id: string }>(
       'SELECT group_id, account_id FROM group_members ORDER BY group_id COLLATE "C", position',
