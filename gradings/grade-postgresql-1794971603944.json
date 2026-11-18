@@ -1,0 +1,472 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-1",
+  "ref": "edccaa6d5ecc6c98799ff9076ecabbe0b3b41a9e",
+  "commit": "edccaa6d5ecc6c98799ff9076ecabbe0b3b41a9e",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "accounts",
+      "M2": {
+        "pass": true,
+        "tests": "8 passed, 8 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/accounts.yaml is done, but Groups: typescript lacks the command expected by ../edccaa6d5ecc.storms/accounts.yaml has: SignUp (anyone, POST /accounts, Account → AccountRegistered)",
+          "../edccaa6d5ecc.storms/accounts.yaml is done, but Groups: typescript has a command expected by ../edccaa6d5ecc.storms/accounts.yaml does not: SignUp (anyone, POST /accounts, Account → AccountRegistered; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "create-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/create-a-group.yaml is done, but Groups: typescript lacks the command expected by ../edccaa6d5ecc.storms/create-a-group.yaml has: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated)",
+          "../edccaa6d5ecc.storms/create-a-group.yaml is done, but Groups: typescript has a command expected by ../edccaa6d5ecc.storms/create-a-group.yaml does not: CreateGroup (a signed-in account, POST /groups, Group → GroupCreated; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "invite-and-join",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/invite-and-join.yaml is done, but Groups: typescript lacks the command expected by ../edccaa6d5ecc.storms/invite-and-join.yaml has: AcceptInvitation (a signed-in account, POST /invitations/{param}/accept, Group → MemberJoined)",
+          "../edccaa6d5ecc.storms/invite-and-join.yaml is done, but Groups: typescript lacks the command expected by ../edccaa6d5ecc.storms/invite-and-join.yaml has: CreateInvitation (a signed-in account, POST /groups/{param}/invitations, Invitation → InvitationCreated)",
+          "../edccaa6d5ecc.storms/invite-and-join.yaml is done, but Groups: typescript has a command expected by ../edccaa6d5ecc.storms/invite-and-join.yaml does not: AcceptInvitation (a signed-in account, POST /invitations/{param}/accept, Group → MemberJoined; answered at once)",
+          "../edccaa6d5ecc.storms/invite-and-join.yaml is done, but Groups: typescript has a command expected by ../edccaa6d5ecc.storms/invite-and-join.yaml does not: CreateInvitation (a signed-in account, POST /groups/{param}/invitations, Invitation → InvitationCreated; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "record-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/record-an-expense.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/record-an-expense.yaml has: RecordExpense (a signed-in account, POST /groups/{param}/expenses, Expense → ExpenseRecorded)",
+          "../edccaa6d5ecc.storms/record-an-expense.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/record-an-expense.yaml does not: RecordExpense (a signed-in account, POST /groups/{param}/expenses, Expense → ExpenseRecorded; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "balances",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "edit-and-delete-an-expense",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/edit-and-delete-an-expense.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/edit-and-delete-an-expense.yaml has: DeleteExpense (a signed-in account, DELETE /expenses/{param}, Expense → ExpenseDeleted)",
+          "../edccaa6d5ecc.storms/edit-and-delete-an-expense.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/edit-and-delete-an-expense.yaml has: EditExpense (a signed-in account, PUT /expenses/{param}, Expense → ExpenseEdited)",
+          "../edccaa6d5ecc.storms/edit-and-delete-an-expense.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/edit-and-delete-an-expense.yaml does not: DeleteExpense (a signed-in account, DELETE /expenses/{param}, Expense → ExpenseDeleted; answered at once)",
+          "../edccaa6d5ecc.storms/edit-and-delete-an-expense.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/edit-and-delete-an-expense.yaml does not: EditExpense (a signed-in account, PUT /expenses/{param}, Expense → ExpenseEdited; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "unequal-splits",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "history-and-statement",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "leave-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/leave-a-group.yaml is done, but Groups: typescript lacks the command expected by ../edccaa6d5ecc.storms/leave-a-group.yaml has: LeaveGroup (a signed-in account, POST /groups/{param}/leave, Group → MemberLeft)",
+          "../edccaa6d5ecc.storms/leave-a-group.yaml is done, but Groups: typescript has a command expected by ../edccaa6d5ecc.storms/leave-a-group.yaml does not: LeaveGroup (a signed-in account, POST /groups/{param}/leave, Group → BalancePassed, MemberLeft; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "remainder-to-the-first",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "facf7166e52800982d9be5d5263f6f1623b744ac",
+      "mechanical": false
+    },
+    {
+      "feature": "suggested-settlements",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "settle-in-cash",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/settle-in-cash.yaml is done, but Settlements: typescript lacks the command expected by ../edccaa6d5ecc.storms/settle-in-cash.yaml has: RecordCashSettlement (a signed-in account, POST /groups/{param}/settlements/cash, SettlementBook → SettlementRecorded)",
+          "../edccaa6d5ecc.storms/settle-in-cash.yaml is done, but Settlements: typescript has a command expected by ../edccaa6d5ecc.storms/settle-in-cash.yaml does not: RecordCashSettlement (a signed-in account, POST /groups/{param}/settlements/cash, SettlementBook → SettlementRecorded; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "pay-through-the-provider",
+      "M2": {
+        "pass": true,
+        "tests": "6 passed, 6 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/pay-through-the-provider.yaml is done, but Settlements: typescript lacks the command expected by ../edccaa6d5ecc.storms/pay-through-the-provider.yaml has: PayThroughProvider (a signed-in account, POST /groups/{param}/settlements/provider, SettlementBook → PaymentRequested)",
+          "../edccaa6d5ecc.storms/pay-through-the-provider.yaml is done, but Settlements: typescript lacks the command expected by ../edccaa6d5ecc.storms/pay-through-the-provider.yaml has: ReceivePaymentWebhook (anyone, POST /provider/webhooks, SettlementBook → SettlementFailed, SettlementPaid)",
+          "../edccaa6d5ecc.storms/pay-through-the-provider.yaml is done, but Settlements: typescript has a command expected by ../edccaa6d5ecc.storms/pay-through-the-provider.yaml does not: PayThroughProvider (a signed-in account, POST /groups/{param}/settlements/provider, SettlementBook → PaymentRequested; answered at once)",
+          "../edccaa6d5ecc.storms/pay-through-the-provider.yaml is done, but Settlements: typescript has a command expected by ../edccaa6d5ecc.storms/pay-through-the-provider.yaml does not: ReceivePaymentWebhook (anyone, POST /provider/webhooks, SettlementBook → SettlementFailed, SettlementPaid, SettlementRefunded; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "webhooks-late-twice-out-of-order",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "refund-through-the-provider",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/refund-through-the-provider.yaml is done, but Settlements: typescript lacks the command expected by ../edccaa6d5ecc.storms/refund-through-the-provider.yaml has: ReceivePaymentWebhook (anyone, POST /provider/webhooks, SettlementBook → SettlementFailed, SettlementPaid, SettlementRefunded)",
+          "../edccaa6d5ecc.storms/refund-through-the-provider.yaml is done, but Settlements: typescript lacks the command expected by ../edccaa6d5ecc.storms/refund-through-the-provider.yaml has: RefundSettlement (a signed-in account, POST /settlements/{param}/refund, SettlementBook → RefundRequested)",
+          "../edccaa6d5ecc.storms/refund-through-the-provider.yaml is done, but Settlements: typescript has a command expected by ../edccaa6d5ecc.storms/refund-through-the-provider.yaml does not: ReceivePaymentWebhook (anyone, POST /provider/webhooks, SettlementBook → SettlementFailed, SettlementPaid, SettlementRefunded; answered at once)",
+          "../edccaa6d5ecc.storms/refund-through-the-provider.yaml is done, but Settlements: typescript has a command expected by ../edccaa6d5ecc.storms/refund-through-the-provider.yaml does not: RefundSettlement (a signed-in account, POST /settlements/{param}/refund, SettlementBook → RefundRequested; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "payout-accounts",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/payout-accounts.yaml is done, but Settlements: typescript lacks the command expected by ../edccaa6d5ecc.storms/payout-accounts.yaml has: SetPayoutAccount (a signed-in account, PUT /accounts/me/payout-account, PayoutAccount → PayoutAccountSet)",
+          "../edccaa6d5ecc.storms/payout-accounts.yaml is done, but Settlements: typescript has a command expected by ../edccaa6d5ecc.storms/payout-accounts.yaml does not: SetPayoutAccount (a signed-in account, PUT /accounts/me/payout-account, PayoutAccount → PayoutAccountSet; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "notices",
+      "M2": {
+        "pass": true,
+        "tests": "3 passed, 3 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "reminders",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "settlement-history",
+      "M2": {
+        "pass": true,
+        "tests": "3 passed, 3 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "leave-with-a-balance",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/leave-with-a-balance.yaml is done, but Groups: typescript lacks the command expected by ../edccaa6d5ecc.storms/leave-with-a-balance.yaml has: LeaveGroup (a signed-in account, POST /groups/{param}/leave, Group → BalancePassed, MemberLeft)",
+          "../edccaa6d5ecc.storms/leave-with-a-balance.yaml is done, but Groups: typescript has a command expected by ../edccaa6d5ecc.storms/leave-with-a-balance.yaml does not: LeaveGroup (a signed-in account, POST /groups/{param}/leave, Group → BalancePassed, MemberLeft; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "another-currency",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "offered-rates",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "recurring-expenses",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/recurring-expenses.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/recurring-expenses.yaml has: SetUpRecurringExpense (a signed-in account, POST /groups/{param}/recurring, RecurringExpense → RecurringExpenseSetUp)",
+          "../edccaa6d5ecc.storms/recurring-expenses.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/recurring-expenses.yaml has: StopRecurringExpense (a signed-in account, DELETE /recurring/{param}, RecurringExpense → RecurringExpenseStopped)",
+          "../edccaa6d5ecc.storms/recurring-expenses.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/recurring-expenses.yaml does not: SetUpRecurringExpense (a signed-in account, POST /groups/{param}/recurring, RecurringExpense → RecurringExpenseSetUp; answered at once)",
+          "../edccaa6d5ecc.storms/recurring-expenses.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/recurring-expenses.yaml does not: StopRecurringExpense (a signed-in account, DELETE /recurring/{param}, RecurringExpense → RecurringExpenseStopped, TemplateRemoved; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "budgets",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/budgets.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/budgets.yaml has: RemoveBudget (a signed-in account, DELETE /groups/{param}/budgets/{param}, Budget → BudgetRemoved)",
+          "../edccaa6d5ecc.storms/budgets.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/budgets.yaml has: SetBudget (a signed-in account, PUT /groups/{param}/budgets/{param}, Budget → BudgetSet)",
+          "../edccaa6d5ecc.storms/budgets.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/budgets.yaml does not: RemoveBudget (a signed-in account, DELETE /groups/{param}/budgets/{param}, Budget → BudgetRemoved; answered at once)",
+          "../edccaa6d5ecc.storms/budgets.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/budgets.yaml does not: SetBudget (a signed-in account, PUT /groups/{param}/budgets/{param}, Budget → BudgetSet; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "split-templates",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/split-templates.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/split-templates.yaml has: RemoveTemplate (a signed-in account, DELETE /templates/{param}, SplitTemplate → TemplateRemoved)",
+          "../edccaa6d5ecc.storms/split-templates.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/split-templates.yaml has: ReplaceTemplate (a signed-in account, PUT /templates/{param}, SplitTemplate → TemplateReplaced)",
+          "../edccaa6d5ecc.storms/split-templates.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/split-templates.yaml has: SaveTemplate (a signed-in account, POST /groups/{param}/templates, SplitTemplate → TemplateSaved)",
+          "../edccaa6d5ecc.storms/split-templates.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/split-templates.yaml does not: RemoveTemplate (a signed-in account, DELETE /templates/{param}, SplitTemplate → TemplateRemoved; answered at once)",
+          "../edccaa6d5ecc.storms/split-templates.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/split-templates.yaml does not: ReplaceTemplate (a signed-in account, PUT /templates/{param}, SplitTemplate → TemplateReplaced; answered at once)",
+          "../edccaa6d5ecc.storms/split-templates.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/split-templates.yaml does not: SaveTemplate (a signed-in account, POST /groups/{param}/templates, SplitTemplate → TemplateSaved; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "receipts",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/receipts.yaml is done, but Ledger: typescript lacks the command expected by ../edccaa6d5ecc.storms/receipts.yaml has: AttachReceipt (a signed-in account, PUT /expenses/{param}/receipt, Receipt → ReceiptAttached)",
+          "../edccaa6d5ecc.storms/receipts.yaml is done, but Ledger: typescript has a command expected by ../edccaa6d5ecc.storms/receipts.yaml does not: AttachReceipt (a signed-in account, PUT /expenses/{param}/receipt, Receipt → ReceiptAttached; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "archive-a-group",
+      "M2": {
+        "pass": true,
+        "tests": "3 passed, 3 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": false,
+        "owed": [
+          "../edccaa6d5ecc.storms/archive-a-group.yaml is done, but Groups: typescript lacks the command expected by ../edccaa6d5ecc.storms/archive-a-group.yaml has: ArchiveGroup (a signed-in account, POST /groups/{param}/archive, Group → GroupArchived)",
+          "../edccaa6d5ecc.storms/archive-a-group.yaml is done, but Groups: typescript has a command expected by ../edccaa6d5ecc.storms/archive-a-group.yaml does not: ArchiveGroup (a signed-in account, POST /groups/{param}/archive, Group → GroupArchived; answered at once)"
+        ]
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "audit",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "statement-as-csv",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    },
+    {
+      "feature": "postgresql",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "cd182a97f25368e2a37819641518f8ced2c74d55",
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 157348,
+  "workers": 2
+}
