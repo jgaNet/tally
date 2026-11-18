@@ -26,6 +26,7 @@ why, what it costs, and when to revisit it.
 | [19](0019-each-context-writes-its-own-audit-entries-in-its-transaction-and-ledger-reads-them-through-owned-ports.md) | Each context writes its own audit entries in the transaction of its change, and Ledger reads them through ports it owns |
 | [20](0020-a-members-statement-lists-the-settlements-the-balances-count-and-is-read-as-csv.md) | A member's statement lists the settlements the balances count, and is read as CSV through a query of its own |
 | [21](0021-the-application-keeps-its-state-in-postgresql-and-moves-its-sqlite-file-into-it-once.md) | The application keeps its state in PostgreSQL, and moves what its SQLite file held into it once |
+| [22](0022-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
