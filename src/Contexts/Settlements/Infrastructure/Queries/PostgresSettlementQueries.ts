@@ -1,0 +1,155 @@
+import { AuditEntry } from '@Contexts/Settlements/Domain/Settlement/AuditEntry';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+
+import {
+  createSettlementTables,
+  SettlementRow,
+} from '@Contexts/Settlements/Infrastructure/Repositories/PostgresSettlementBookRepository';
+import { SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import {
+  CountedSettlement,
+  ISettlementQueries,
+  OpenProviderPayment,
+  PaidSettlement,
+  SettlementView,
+  WaitingSettlement,
+} from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementQueries';
+
+/** A status line as the table keeps it, with the id of the settlement it belongs to. */
+interface HistoryRow {
+  settlement_id: string;
+  status: SettlementStatus;
+  at: string;
+}
+
+/** The settlements read model over the application's database: each settlement as it stands, with its history (request 19). */
+export class PostgresSettlementQueries implements ISettlementQueries {
+  constructor(private database: PostgresDatabase) {
+    createSettlementTables(database);
+  }
+
+  async findById(id: string): Promise<SettlementView | null> {
+    const row = await this.database.get<SettlementRow>('SELECT * FROM settlements WHERE id = ?', [id]);
+    if (!row) return null;
+
+    const lines = await this.database.all<HistoryRow>(
+      'SELECT settlement_id, status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq',
+      [id],
+    );
+    return viewOf(row, lines);
+  }
+
+  async listGroupSettlements(groupId: string): Promise<SettlementView[]> {
+    const rows = await this.database.all<SettlementRow>(
+      'SELECT * FROM settlements WHERE group_id = ? ORDER BY recorded_seq DESC',
+      [groupId],
+    );
+    const lines = await this.database.all<HistoryRow>(
+      `SELECT h.settlement_id, h.status, h.at FROM settlement_history h
+         JOIN settlements s ON s.id = h.settlement_id
+        WHERE s.group_id = ?
+        ORDER BY h.seq`,
+      [groupId],
+    );
+
+    const byId = new Map<string, HistoryRow[]>();
+    for (const line of lines) {
+      const list = byId.get(line.settlement_id) ?? [];
+      list.push(line);
+      byId.set(line.settlement_id, list);
+    }
+    return rows.map(row => viewOf(row, byId.get(row.id) ?? []));
+  }
+
+  async auditOf(groupId: string): Promise<AuditEntry[]> {
+    const rows = await this.database.all<{
+      id: string;
+      group_id: string;
+      at: string;
+      by_account: string;
+      action: AuditEntry['action'];
+      subject_id: string;
+      amount: number;
+    }>(
+      'SELECT id, group_id, at, by_account, action, subject_id, amount FROM settlement_audit WHERE group_id = ? ORDER BY seq',
+      [groupId],
+    );
+    return rows.map(row => ({
+      id: row.id,
+      groupId: row.group_id,
+      at: row.at,
+      by: row.by_account,
+      action: row.action,
+      subjectId: row.subject_id,
+      amount: row.amount,
+    }));
+  }
+
+  async paidIn(groupId: string): Promise<PaidSettlement[]> {
+    const rows = await this.database.all<{ payer: string; payee: string; amount: number }>(
+      "SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND status IN ('paid', 'refunding') ORDER BY recorded_seq",
+      [groupId],
+    );
+    return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
+  }
+
+  async countedIn(groupId: string): Promise<CountedSettlement[]> {
+    const rows = await this.database.all<{
+      id: string;
+      payer: string;
+      payee: string;
+      amount: number;
+      method: 'cash' | 'provider';
+      counted_at: string;
+    }>(
+      `SELECT s.id, s.payer, s.payee, s.amount, s.method,
+              COALESCE((SELECT h.at FROM settlement_history h
+                         WHERE h.settlement_id = s.id AND h.status = 'paid' ORDER BY h.seq LIMIT 1), s.at) AS counted_at
+         FROM settlements s
+        WHERE s.group_id = ? AND s.status IN ('paid', 'refunding')
+        ORDER BY s.recorded_seq`,
+      [groupId],
+    );
+    return rows.map(row => ({
+      id: row.id,
+      from: row.payer,
+      to: row.payee,
+      amount: row.amount,
+      method: row.method,
+      countedAt: row.counted_at,
+    }));
+  }
+
+  async openProviderPaymentsIn(groupId: string): Promise<OpenProviderPayment[]> {
+    const rows = await this.database.all<{ payer: string; payee: string }>(
+      "SELECT payer, payee FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding') ORDER BY recorded_seq",
+      [groupId],
+    );
+    return rows.map(row => ({ from: row.payer, to: row.payee }));
+  }
+
+  async waitingIn(groupId: string): Promise<WaitingSettlement[]> {
+    const rows = await this.database.all<{ payer: string; payee: string; amount: number }>(
+      "SELECT payer, payee, amount FROM settlements WHERE group_id = ? AND method = 'provider' AND status = 'pending' ORDER BY recorded_seq",
+      [groupId],
+    );
+    return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
+  }
+}
+
+/** A settlement row and its status lines (earliest first), as a member reads the settlement. */
+function viewOf(row: SettlementRow, lines: HistoryRow[]): SettlementView {
+  const view: SettlementView = {
+    id: row.id,
+    groupId: row.group_id,
+    from: row.payer,
+    to: row.payee,
+    amount: row.amount,
+    method: row.method,
+    status: row.status,
+    at: row.at,
+    history: lines.map(line => ({ status: line.status, at: line.at })),
+  };
+  if (row.method === 'provider' && row.pay_url) view.payUrl = row.pay_url;
+  return view;
+}

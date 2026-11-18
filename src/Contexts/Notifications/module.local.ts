@@ -1,5 +1,5 @@
 import { Module } from '@Architecture/Application';
-import { applicationDatabase } from '@Architecture/Infrastructure/Sqlite/ApplicationDatabase';
+import { applicationDatabase } from '@Architecture/Infrastructure/Postgres/ApplicationDatabase';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/ExpenseIntegrationEvents';
 import { BudgetPassedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/BudgetIntegrationEvents';
@@ -9,9 +9,9 @@ import { ExpenseRecordedIntegrationEventHandler } from '@Contexts/Notifications/
 import { BudgetPassedIntegrationEventHandler } from '@Contexts/Notifications/Application/Events/BudgetPassedIntegrationEventHandler';
 import { RemindLingeringDebtsJob } from '@Contexts/Notifications/Application/Jobs/RemindLingeringDebtsJob';
 import { GetMyNoticesQueryHandler } from '@Contexts/Notifications/Application/Queries';
-import { SqliteNoticeRepository } from '@Contexts/Notifications/Infrastructure/Repositories/SqliteNoticeRepository';
-import { SqliteNoticeQueries } from '@Contexts/Notifications/Infrastructure/Queries/SqliteNoticeQueries';
-import { SqliteDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/Repositories/SqliteDebtWatchRepository';
+import { PostgresNoticeRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresNoticeRepository';
+import { PostgresNoticeQueries } from '@Contexts/Notifications/Infrastructure/Queries/PostgresNoticeQueries';
+import { PostgresDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresDebtWatchRepository';
 import { SettlementsOutstandingDebts } from '@Contexts/Notifications/Infrastructure/Settlements/SettlementsOutstandingDebts';
 
 /**
@@ -22,9 +22,9 @@ import { SettlementsOutstandingDebts } from '@Contexts/Notifications/Infrastruct
  * root schedules (`remindLingeringDebts`), and what is still owed comes from Settlements' read model (`outstandingDebtQueries`).
  */
 const database = applicationDatabase();
-const notices = new SqliteNoticeRepository(database);
-const noticeQueries = new SqliteNoticeQueries(database);
-const debtWatches = new SqliteDebtWatchRepository(database);
+const notices = new PostgresNoticeRepository(database);
+const noticeQueries = new PostgresNoticeQueries(database);
+const debtWatches = new PostgresDebtWatchRepository(database);
 const outstandingDebts = new SettlementsOutstandingDebts(outstandingDebtQueries);
 const clock = systemClock;
 

@@ -36,6 +36,6 @@ export class SignInQueryHandler extends QueryHandler<
     if (!credentials || !matches) {
       return Result.fail(new NotAllowedException('Groups', 'Wrong email or password'));
     }
-    return Result.ok({ token: this.tokens.issue(credentials.id) });
+    return Result.ok({ token: await this.tokens.issue(credentials.id) });
   }
 }

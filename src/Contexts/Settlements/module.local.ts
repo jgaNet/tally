@@ -1,5 +1,5 @@
 import { Module } from '@Architecture/Application';
-import { applicationDatabase } from '@Architecture/Infrastructure/Sqlite/ApplicationDatabase';
+import { applicationDatabase } from '@Architecture/Infrastructure/Postgres/ApplicationDatabase';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 
 import { ledgerBalanceQueries } from '@Bootstrap/Fastify/readModels';
@@ -26,10 +26,10 @@ import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/Ledger
 import { SettlementsOutstandingDebtQueries } from '@Contexts/Settlements/Infrastructure/Queries/SettlementsOutstandingDebtQueries';
 import { GroupsSettlementMembers } from '@Contexts/Settlements/Infrastructure/Groups/GroupsSettlementMembers';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/Provider/HttpPaymentProvider';
-import { SqliteSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/Repositories/SqliteSettlementBookRepository';
-import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/Queries/SqliteSettlementQueries';
-import { SqlitePayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/Queries/SqlitePayoutAccountQueries';
-import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/Repositories/SqlitePayoutAccountRepository';
+import { PostgresSettlementBookRepository } from '@Contexts/Settlements/Infrastructure/Repositories/PostgresSettlementBookRepository';
+import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/Queries/PostgresSettlementQueries';
+import { PostgresPayoutAccountQueries } from '@Contexts/Settlements/Infrastructure/Queries/PostgresPayoutAccountQueries';
+import { PostgresPayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/Repositories/PostgresPayoutAccountRepository';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADR 6, ADR 7, ADR 8). A settlement is recorded in its group's book, which
@@ -41,16 +41,16 @@ import { SqlitePayoutAccountRepository } from '@Contexts/Settlements/Infrastruct
 const database = applicationDatabase();
 const groupBalances = new LedgerGroupBalances(ledgerBalanceQueries);
 const settlementMembers = new GroupsSettlementMembers(groupQueries);
-const books = new SqliteSettlementBookRepository(database);
-export const settlementQueries = new SqliteSettlementQueries(database);
+const books = new PostgresSettlementBookRepository(database);
+export const settlementQueries = new PostgresSettlementQueries(database);
 /** What each current member of every group still owes, for Notifications' sweep (ADR 10, request 18). */
 export const outstandingDebtQueries = new SettlementsOutstandingDebtQueries(
   groupQueries,
   groupBalances,
   settlementQueries,
 );
-const payoutAccounts = new SqlitePayoutAccountRepository(database);
-const payoutAccountQueries = new SqlitePayoutAccountQueries(database);
+const payoutAccounts = new PostgresPayoutAccountRepository(database);
+const payoutAccountQueries = new PostgresPayoutAccountQueries(database);
 /** The provider is asked where PROVIDER_URL points when a payment is asked, so an unset URL refuses it (request 13). */
 const paymentProvider = new HttpPaymentProvider(() => process.env.PROVIDER_URL);
 const clock = systemClock;

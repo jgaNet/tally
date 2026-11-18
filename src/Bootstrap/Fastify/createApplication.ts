@@ -1,8 +1,9 @@
 import { Logger, relayOutbox } from '@Architecture/Application';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
-import { applicationDatabase } from '@Architecture/Infrastructure/Sqlite/ApplicationDatabase';
-import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
-import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
+import { applicationDatabase } from '@Architecture/Infrastructure/Postgres/ApplicationDatabase';
+import { PostgresOutbox } from '@Architecture/Infrastructure/Postgres/PostgresOutbox';
+import { PostgresUnitOfWork } from '@Architecture/Infrastructure/Postgres/PostgresUnitOfWork';
+import { importSqliteFile } from '@Bootstrap/Fastify/importSqliteFile';
 
 import { localTrackerModule, trackedEventBus } from '@Contexts/Tracker/module.local';
 import { operationRoutes } from '@Contexts/Tracker/Presentation/API/REST/Routes';
@@ -53,7 +54,10 @@ export async function createApplication({
   reminderPeriodSeconds?: number;
 } = {}): Promise<FastifyApplication> {
   const database = applicationDatabase();
-  const outbox = new SqliteOutbox(database);
+  // The outbox declares its table when it is built, so it is built before the schema is made.
+  const outbox = new PostgresOutbox(database);
+  // The schema is made, and a SQLite file DATABASE_PATH names is moved into a database that holds nothing yet, before anything is served (ADR 20).
+  await database.open(importSqliteFile(logger));
 
   const app = new FastifyApplication({
     logger,
@@ -61,7 +65,7 @@ export async function createApplication({
     port,
     webOrigins,
     authenticate: authenticateAccount,
-    unitOfWork: () => new SqliteUnitOfWork(database, outbox),
+    unitOfWork: () => new PostgresUnitOfWork(database, outbox),
   })
     .setEventBus(trackedEventBus)
     .registerModule(localTrackerModule)
@@ -101,5 +105,6 @@ export async function createApplication({
   // The days of recurring expenses come at the same runs: each day that has come is recorded once, by the job, never by a read (request 23).
   app.schedule(jobsIntervalSeconds * 1000, () => recordRecurringExpenses.run(app.executionContext('job')));
 
+  app.onStop(() => database.close());
   return app;
 }

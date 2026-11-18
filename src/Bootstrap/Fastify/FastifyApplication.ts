@@ -50,6 +50,7 @@ export class FastifyApplication extends Application {
   readonly port: number;
   readonly #createUnitOfWork: () => UnitOfWork;
   readonly #jobs: NodeJS.Timeout[] = [];
+  readonly #stopping: Array<() => unknown> = [];
 
   constructor({
     logger,
@@ -175,10 +176,16 @@ export class FastifyApplication extends Application {
     this.#jobs.push(timer);
   }
 
+  /** Runs `step` once the application has stopped listening: what it holds open (its database's connections) is let go then. */
+  onStop(step: () => unknown): void {
+    this.#stopping.push(step);
+  }
+
   async stop(): Promise<void> {
     this.#jobs.forEach(clearInterval);
     this.#jobs.length = 0;
     await this.fastify.close();
+    for (const step of this.#stopping.splice(0)) await step();
   }
 
   get address(): string {

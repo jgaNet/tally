@@ -1,23 +1,20 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { EventEmitter } from 'events';
 
 import { ExecutionContext } from '@Architecture/Application';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
-import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { PostgresOutbox } from '@Architecture/Infrastructure/Postgres/PostgresOutbox';
+import { PostgresUnitOfWork } from '@Architecture/Infrastructure/Postgres/PostgresUnitOfWork';
 
 import { RemindLingeringDebtsJob } from '@Contexts/Notifications/Application/Jobs/RemindLingeringDebtsJob';
 import { OutstandingDebt } from '@Contexts/Notifications/Domain/DebtWatch/DTOs';
 import { IOutstandingDebts } from '@Contexts/Notifications/Domain/DebtWatch/Ports/IOutstandingDebts';
-import { SqliteDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/Repositories/SqliteDebtWatchRepository';
-import { SqliteNoticeRepository } from '@Contexts/Notifications/Infrastructure/Repositories/SqliteNoticeRepository';
-import { SqliteNoticeQueries } from '@Contexts/Notifications/Infrastructure/Queries/SqliteNoticeQueries';
+import { PostgresDebtWatchRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresDebtWatchRepository';
+import { PostgresNoticeRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresNoticeRepository';
+import { PostgresNoticeQueries } from '@Contexts/Notifications/Infrastructure/Queries/PostgresNoticeQueries';
 
 /**
- * The reminders sweep (request 18, ADR 10), on a real file: what each member still owes is the test's, given through the port the
+ * The reminders sweep (request 18, ADR 10), on a real database: what each member still owes is the test's, given through the port the
  * sweep asks; the watches and the notices are the application's own stores. A run is one job at one instant, as a server's run is.
  */
 class OwedNow implements IOutstandingDebts {
@@ -33,46 +30,50 @@ const T0 = Date.parse('2026-11-01T00:00:00.000Z');
 const WEEKLY = WEEK;
 
 describe('RemindLingeringDebtsJob (request 18)', () => {
-  let directory: string;
-  let file: string;
   let owed: OwedNow;
   let clockAt: number;
-  let database: SqliteDatabase;
+  let database: PostgresDatabase;
+  let watches: PostgresDebtWatchRepository;
+  let notices: PostgresNoticeRepository;
+  let noticeQueries: PostgresNoticeQueries;
+  let unitOfWork: PostgresUnitOfWork;
+
+  beforeAll(async () => {
+    // The repositories declare their tables when they are built, so they are built before the database is opened.
+    database = new PostgresDatabase(process.env.DATABASE_URL!);
+    watches = new PostgresDebtWatchRepository(database);
+    notices = new PostgresNoticeRepository(database);
+    noticeQueries = new PostgresNoticeQueries(database);
+    unitOfWork = new PostgresUnitOfWork(database, new PostgresOutbox(database));
+    await database.open();
+  });
+
+  afterAll(async () => {
+    await database.close();
+  });
 
   beforeEach(() => {
-    directory = mkdtempSync(join(tmpdir(), 'tally-reminders-'));
-    file = join(directory, 'tally.db');
-    database = new SqliteDatabase(file);
     owed = new OwedNow();
     clockAt = T0;
   });
 
-  afterEach(() => {
-    rmSync(directory, { recursive: true, force: true });
-  });
-
-  /** One run of the job at `at`, in a context of its own over the file, as the composition root's job is. */
+  /** One run of the job at `at`, in a context of its own over the database, as the composition root's job is. */
   async function sweep(at: number, { periodMs = WEEKLY } = {}): Promise<void> {
     clockAt = at;
-    const job = new RemindLingeringDebtsJob(
-      owed,
-      new SqliteDebtWatchRepository(database),
-      new SqliteNoticeRepository(database),
-      () => new Date(clockAt),
-    );
+    const job = new RemindLingeringDebtsJob(owed, watches, notices, () => new Date(clockAt));
     const bus = new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: () => new Date(clockAt) });
     const context = new ExecutionContext({
       traceId: `sweep-${at}`,
       eventBus: bus,
       auth: {},
-      unitOfWork: new SqliteUnitOfWork(database, new SqliteOutbox(database)),
+      unitOfWork,
     });
     await job.run(context, periodMs);
   }
 
   /** The reminders of the member, as they read them; an expense's notice is another kind and not counted here. */
   const remindersOf = async (memberId: string) =>
-    (await new SqliteNoticeQueries(database).ofRecipient(memberId)).filter(notice => notice.kind === 'reminder');
+    (await noticeQueries.ofRecipient(memberId)).filter(notice => notice.kind === 'reminder');
 
   it('reminds a member who owes more than 2000 once a week while it lasts, and never one who owes 2000 or less', async () => {
     owed.debts = [

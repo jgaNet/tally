@@ -16,7 +16,7 @@ export function bearerAuthentication(tokens: IAccessTokens) {
     const header = request.headers.authorization ?? '';
     if (!header.startsWith(BEARER)) return;
 
-    const subjectId = tokens.verify(header.slice(BEARER.length).trim());
+    const subjectId = await tokens.verify(header.slice(BEARER.length).trim());
     if (subjectId) request.auth = { subjectId, role: Role.USER };
   };
 }

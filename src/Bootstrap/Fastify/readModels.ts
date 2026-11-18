@@ -1,10 +1,10 @@
-import { applicationDatabase } from '@Architecture/Infrastructure/Sqlite/ApplicationDatabase';
+import { applicationDatabase } from '@Architecture/Infrastructure/Postgres/ApplicationDatabase';
 
-import { SqliteGroupQueries } from '@Contexts/Groups/Infrastructure/Queries/SqliteGroupQueries';
-import { SqliteBalanceQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteBalanceQueries';
+import { PostgresGroupQueries } from '@Contexts/Groups/Infrastructure/Queries/PostgresGroupQueries';
+import { PostgresBalanceQueries } from '@Contexts/Ledger/Infrastructure/Queries/PostgresBalanceQueries';
 import { GroupsMembership } from '@Contexts/Ledger/Infrastructure/Groups/GroupsMembership';
 import { SettlementsSettledAmounts } from '@Contexts/Ledger/Infrastructure/Settlements/SettlementsSettledAmounts';
-import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/Queries/SqliteSettlementQueries';
+import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/Queries/PostgresSettlementQueries';
 
 /**
  * Ledger's balances read model, for the Groups context (ADR 5). Groups asks it a member's balance when it decides
@@ -14,10 +14,10 @@ import { SqliteSettlementQueries } from '@Contexts/Settlements/Infrastructure/Qu
  * it counts the settlements paid as Ledger does (ADR 8), and the balances passed on when members left (ADR 11), so leaving
  * a group counts them too.
  */
-export const ledgerBalanceQueries = new SqliteBalanceQueries(
+export const ledgerBalanceQueries = new PostgresBalanceQueries(
   applicationDatabase(),
-  new SettlementsSettledAmounts(new SqliteSettlementQueries(applicationDatabase())),
-  new GroupsMembership(new SqliteGroupQueries(applicationDatabase())),
+  new SettlementsSettledAmounts(new PostgresSettlementQueries(applicationDatabase())),
+  new GroupsMembership(new PostgresGroupQueries(applicationDatabase())),
 );
 
 /**
@@ -25,4 +25,4 @@ export const ledgerBalanceQueries = new SqliteBalanceQueries(
  * have not ended, which keep a member in their group. The same stateless read over the application's file that Settlements'
  * own wiring builds; the composition root passes it, as it does the balances, so Groups' wiring need not import Settlements'.
  */
-export const settlementReadModel = new SqliteSettlementQueries(applicationDatabase());
+export const settlementReadModel = new PostgresSettlementQueries(applicationDatabase());

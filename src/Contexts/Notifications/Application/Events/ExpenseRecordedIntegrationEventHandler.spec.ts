@@ -1,23 +1,20 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { EventEmitter } from 'events';
 
 import { ExecutionContext } from '@Architecture/Application';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
-import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { PostgresOutbox } from '@Architecture/Infrastructure/Postgres/PostgresOutbox';
+import { PostgresUnitOfWork } from '@Architecture/Infrastructure/Postgres/PostgresUnitOfWork';
 import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/ExpenseIntegrationEvents';
 
 import { ExpenseRecordedIntegrationEventHandler } from '@Contexts/Notifications/Application/Events/ExpenseRecordedIntegrationEventHandler';
-import { SqliteNoticeRepository } from '@Contexts/Notifications/Infrastructure/Repositories/SqliteNoticeRepository';
-import { SqliteNoticeQueries } from '@Contexts/Notifications/Infrastructure/Queries/SqliteNoticeQueries';
+import { PostgresNoticeRepository } from '@Contexts/Notifications/Infrastructure/Repositories/PostgresNoticeRepository';
+import { PostgresNoticeQueries } from '@Contexts/Notifications/Infrastructure/Queries/PostgresNoticeQueries';
 
 /**
  * One notice per member, even when Tally is stopped at any moment and started again (request 17). A process that dies
  * after the reaction committed and before the outbox entry was marked published hands the same fact out again on the next
- * start, to a bus whose inbox is new: the notices on the file are still one per member.
+ * start, to a bus whose inbox is new: the notices in the database are still one per member.
  */
 const AT = new Date('2026-11-17T10:00:00.000Z');
 const fact = () =>
@@ -34,36 +31,41 @@ const fact = () =>
   });
 
 describe('ExpenseRecordedIntegrationEventHandler (request 17)', () => {
-  let directory: string;
-  let file: string;
+  const databases: PostgresDatabase[] = [];
 
-  beforeEach(() => {
-    directory = mkdtempSync(join(tmpdir(), 'tally-notices-'));
-    file = join(directory, 'tally.db');
+  afterAll(async () => {
+    for (const database of databases) await database.close();
   });
 
-  afterEach(() => {
-    rmSync(directory, { recursive: true, force: true });
-  });
-
-  /** One run of Tally over the file: its own bus, inbox and connection, delivering the fact under the entry id `entry-1`. */
+  /** One run of Tally over the database: its own bus, inbox and connections, delivering the fact under the entry id `entry-1`. */
   async function runDelivering(): Promise<boolean | undefined> {
-    const database = new SqliteDatabase(file);
+    const database = new PostgresDatabase(process.env.DATABASE_URL!);
+    databases.push(database);
+    const notices = new PostgresNoticeRepository(database);
+    const unitOfWork = new PostgresUnitOfWork(database, new PostgresOutbox(database));
+    await database.open();
+
     const bus = new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: () => AT });
     await bus.subscribe(
       ExpenseRecordedIntegrationEvent.name,
-      new ExpenseRecordedIntegrationEventHandler(new SqliteNoticeRepository(database), () => AT),
+      new ExpenseRecordedIntegrationEventHandler(notices, () => AT),
     );
     const context = new ExecutionContext({
       traceId: 'trace',
       eventBus: bus,
       auth: {},
-      unitOfWork: new SqliteUnitOfWork(database, new SqliteOutbox(database)),
+      unitOfWork,
     });
     return bus.publish(fact(), context, 'entry-1').delivered;
   }
 
-  const noticesOf = (recipient: string) => new SqliteNoticeQueries(new SqliteDatabase(file)).ofRecipient(recipient);
+  const noticesOf = async (recipient: string) => {
+    const database = new PostgresDatabase(process.env.DATABASE_URL!);
+    databases.push(database);
+    const queries = new PostgresNoticeQueries(database);
+    await database.open();
+    return queries.ofRecipient(recipient);
+  };
 
   it('makes one notice for each member but the payer, and none again when the fact is delivered after a restart', async () => {
     expect(await runDelivering()).toBe(true);
