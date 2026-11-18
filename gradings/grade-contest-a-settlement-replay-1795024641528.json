@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-2",
+  "ref": "ae52e6c37af31019d85216f98c3d3a06941033c0",
+  "commit": "ae52e6c37af31019d85216f98c3d3a06941033c0",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "remainder-to-the-first",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 4 passed, 5 total",
+        "failed": [
+          "the remainder goes to the first member of the split › keeps the shares of the expenses recorded before the change, on the same database"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● the remainder goes to the first member of the split › keeps the shares of the expenses recorded before the change, on the same database",
+          "Tests:       1 failed, 4 passed, 5 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "c123491dde62b3ca0d9890d6e0c71f3c738a4b56",
+      "mechanical": false
+    },
+    {
+      "feature": "contest-a-settlement",
+      "M2": {
+        "pass": false,
+        "tests": "2 failed, 1 passed, 3 total",
+        "failed": [
+          "contest a settlement › holds a contested settlement's effect on the balances until an administrator decides it was paid",
+          "contest a settlement › lets only the payee contest a paid settlement through the provider"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● contest a settlement › holds a contested settlement's effect on the balances until an administrator decides it was paid",
+          "    Expected: 404",
+          "    Received: 403",
+          "  ● contest a settlement › lets only the payee contest a paid settlement through the provider",
+          "    Expected: 404",
+          "    Received: 403",
+          "Tests:       2 failed, 1 passed, 3 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 16036,
+  "workers": 1
+}
