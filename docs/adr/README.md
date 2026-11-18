@@ -27,6 +27,7 @@ why, what it costs, and when to revisit it.
 | [20](0020-archiving-a-group.md) | Archiving a group: Groups decides, every context asks Groups through its port, and the refusal is one shared name |
 | [21](0021-the-audit-of-money-changes.md) | The audit of money changes: each context keeps its own changes, and Ledger reads them through two ports it owns |
 | [22](0022-postgresql.md) | PostgreSQL is the one store, and a first start moves the SQLite file into it |
+| [23](0023-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
