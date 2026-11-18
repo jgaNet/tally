@@ -8,7 +8,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -65,7 +65,7 @@ beforeAll(async () => {
   providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
 
   app = await createApplication({
-    databasePath: join(directory, 'tally.sqlite'),
+    databaseUrl: await freshDatabase(),
     logger: silent,
     providerUrl,
     providerWebhookSecret: SECRET,

@@ -85,3 +85,5 @@ export function apiClient(origin: string) {
       request('GET', path, options),
   };
 }
+
+export { freshDatabase } from '@Architecture/Infrastructure/Postgres/freshDatabase.spec-helper';

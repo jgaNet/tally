@@ -8,7 +8,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -35,7 +35,7 @@ const PAST_DAY = '2020-01-15';
 beforeAll(async () => {
   webhooks = 0;
   directory = mkdtempSync(join(tmpdir(), 'tally-settlement-history-'));
-  const databasePath = join(directory, 'tally.sqlite');
+  const databaseUrl = await freshDatabase();
 
   let nextPayment = 0;
   paymentsByReference = new Map();
@@ -69,7 +69,7 @@ beforeAll(async () => {
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
   const providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
 
-  app = await createApplication({ databasePath, logger: silent, providerUrl, providerWebhookSecret: SECRET });
+  app = await createApplication({ databaseUrl, logger: silent, providerUrl, providerWebhookSecret: SECRET });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;

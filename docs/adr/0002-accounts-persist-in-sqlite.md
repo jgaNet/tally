@@ -1,5 +1,7 @@
 # 2. Accounts persist in SQLite, over one file that every server shares
 
+> The file is superseded by PostgreSQL (ADR 25); the rest holds.
+
 ## Context
 
 The reference's building blocks keep everything in memory: `InMemoryDataSource`, `InMemoryUnitOfWork`, `InMemoryOutbox`.

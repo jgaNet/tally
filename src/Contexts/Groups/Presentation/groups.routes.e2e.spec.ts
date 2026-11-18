@@ -5,7 +5,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -13,14 +13,14 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
  * order of the list, each refusal's status, and what a restart finds.
  */
 let directory: string;
-let databasePath: string;
+let databaseUrl: string;
 let app: FastifyApplication;
 let http: ReturnType<typeof apiClient>;
 let api: string;
 
 const silent = { info() {}, warn() {}, error() {}, debug() {} };
-const start = async (path = databasePath) => {
-  const started = await createApplication({ databasePath: path, logger: silent });
+const start = async (path = databaseUrl) => {
+  const started = await createApplication({ databaseUrl: path, logger: silent });
   await started.start(0);
   return started;
 };
@@ -29,7 +29,7 @@ const password = 'a long enough password';
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-groups-'));
-  databasePath = join(directory, 'tally.sqlite');
+  databaseUrl = await freshDatabase();
   app = await start();
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;

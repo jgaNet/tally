@@ -1,10 +1,10 @@
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { openBook } from '@Contexts/Settlements/Application/OpenBook';
 import { IDebtRoster, OwedDebt } from '@Contexts/Settlements/Domain/Settlement/Ports/IDebtRoster';
 import { MembersFromGroups, GroupRoster } from '@Contexts/Settlements/Infrastructure/MembersFromGroups';
 import { BalanceRoster, BalancesFromLedger } from '@Contexts/Settlements/Infrastructure/BalancesFromLedger';
-import { SqliteSettlementStore } from '@Contexts/Settlements/Infrastructure/SqliteSettlementStore';
+import { PostgresSettlementStore } from '@Contexts/Settlements/Infrastructure/PostgresSettlementStore';
 
 /**
  * What every current member of every group still owes (feature 18, ADR 14): Settlements' read model of the debts, which Notifications'
@@ -15,13 +15,13 @@ import { SqliteSettlementStore } from '@Contexts/Settlements/Infrastructure/Sqli
  */
 export class OutstandingDebtRoster implements IDebtRoster {
   constructor(
-    private readonly database: SqliteDatabase,
+    private readonly database: PostgresDatabase,
     private readonly groups: GroupRoster,
     private readonly balances: BalanceRoster,
   ) {}
 
   async debtsOf(): Promise<OwedDebt[]> {
-    const store = new SqliteSettlementStore(this.database);
+    const store = new PostgresSettlementStore(this.database);
     const members = new MembersFromGroups(this.groups);
     const counted = new BalancesFromLedger(this.balances);
     const debts: OwedDebt[] = [];

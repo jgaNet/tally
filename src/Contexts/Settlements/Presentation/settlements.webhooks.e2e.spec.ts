@@ -8,7 +8,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -18,7 +18,7 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
  * counted once; and every signed webhook is acknowledged with a 2xx, so the provider stops sending it.
  */
 let directory: string;
-let databasePath: string;
+let databaseUrl: string;
 let provider: Server;
 let providerUrl: string;
 /** The provider's payments by the reference Tally gave them (the settlement's id). */
@@ -37,7 +37,7 @@ let webhooks: number;
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-webhooks-settlements-'));
-  databasePath = join(directory, 'tally.sqlite');
+  databaseUrl = await freshDatabase();
 
   nextPayment = 0;
   provider = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -65,7 +65,7 @@ beforeAll(async () => {
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
   providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
 
-  app = await createApplication({ databasePath, logger: silent, providerUrl, providerWebhookSecret: SECRET });
+  app = await createApplication({ databaseUrl, logger: silent, providerUrl, providerWebhookSecret: SECRET });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
@@ -229,7 +229,7 @@ describe('a webhook late, after Tally was stopped and started again', () => {
 
     // Tally is stopped; the provider keeps the webhook until it can deliver it.
     await app.stop();
-    app = await createApplication({ databasePath, logger: silent, providerUrl, providerWebhookSecret: SECRET });
+    app = await createApplication({ databaseUrl, logger: silent, providerUrl, providerWebhookSecret: SECRET });
     await app.start(0);
     http = apiClient(app.address);
     api = `/${app.apiPrefix}`;
@@ -246,7 +246,7 @@ describe('a webhook at the same moment on two servers', () => {
     const groupId = await threeOwing();
     const { id, payment } = await bobPaysAnn(groupId);
 
-    const other = await createApplication({ databasePath, logger: silent, providerUrl, providerWebhookSecret: SECRET });
+    const other = await createApplication({ databaseUrl, logger: silent, providerUrl, providerWebhookSecret: SECRET });
     await other.start(0);
     try {
       const body = bodyOf(payment, 'succeeded', 'wh-both');

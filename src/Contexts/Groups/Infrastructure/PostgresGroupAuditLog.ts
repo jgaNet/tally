@@ -1,4 +1,4 @@
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { IGroupAuditLog } from '@Contexts/Groups/Application/IGroupAuditLog';
 import { GroupAuditEntry } from '@Contexts/Groups/Domain/Group/GroupAudit';
@@ -21,12 +21,12 @@ export const groupAuditTablesSchema = [
   'CREATE INDEX IF NOT EXISTS group_audit_by_group ON group_audit (group_id, at, seq)',
 ];
 
-/** The audit of the balances that passed in SQLite (ADR 23): `record` writes an entry in the leave's transaction; `auditOf` reads a group's. */
-export class SqliteGroupAuditLog implements IGroupAuditLog {
-  constructor(private readonly database: SqliteDatabase) {}
+/** The audit of the balances that passed in PostgreSQL (ADR 23): `record` writes an entry in the leave's transaction; `auditOf` reads a group's. */
+export class PostgresGroupAuditLog implements IGroupAuditLog {
+  constructor(private readonly database: PostgresDatabase) {}
 
   async record(entry: GroupAuditEntry): Promise<void> {
-    this.database.writer
+    await this.database.writer
       .prepare(
         `INSERT INTO group_audit (id, group_id, at, by_account_id, action, subject_id, amount)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,

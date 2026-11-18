@@ -9,7 +9,7 @@
  * `record()` as the last step before the commit, so the mark and the reaction's writes are durable together or
  * not at all. A subscription is named by the handler's class and the event's name, which survive a restart.
  *
- * Implementations: Infrastructure/Sqlite/SqliteInbox.ts (the database's, over the same file as the outbox) and
+ * Implementations: Infrastructure/Postgres/PostgresInbox.ts (the database's, over the same file as the outbox) and
  * Infrastructure/Inbox/InMemoryInbox.ts (a store the in-memory unit of work snapshots and restores with the others).
  */
 export interface Inbox {

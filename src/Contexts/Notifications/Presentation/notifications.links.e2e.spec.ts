@@ -5,7 +5,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -26,7 +26,7 @@ beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-notification-links-'));
   // The background sweep runs often and a week is a fraction of a second, so the debts of this file are reminded or not within the test.
   app = await createApplication({
-    databasePath: join(directory, 'tally.sqlite'),
+    databaseUrl: await freshDatabase(),
     logger: silent,
     jobsIntervalSeconds: 0.05,
     reminderPeriodSeconds: 0.3,

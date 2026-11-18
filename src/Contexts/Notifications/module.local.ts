@@ -1,6 +1,6 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/ExpenseIntegrationEvents';
 import { BudgetPassedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/BudgetIntegrationEvents';
@@ -8,11 +8,14 @@ import { NoticesForBudgetHandler } from '@Contexts/Notifications/Application/Eve
 import { NoticesForExpenseHandler } from '@Contexts/Notifications/Application/Events/NoticesForExpenseHandler';
 import { getMyNotices } from '@Contexts/Notifications/Application/Notices';
 import { sweepDebts } from '@Contexts/Notifications/Application/DebtSweep';
-import { SqliteNoticeStore, notificationsTablesSchema } from '@Contexts/Notifications/Infrastructure/SqliteNoticeStore';
 import {
-  SqliteDebtWatchStore,
+  PostgresNoticeStore,
+  notificationsTablesSchema,
+} from '@Contexts/Notifications/Infrastructure/PostgresNoticeStore';
+import {
+  PostgresDebtWatchStore,
   debtWatchesTablesSchema,
-} from '@Contexts/Notifications/Infrastructure/SqliteDebtWatchStore';
+} from '@Contexts/Notifications/Infrastructure/PostgresDebtWatchStore';
 import { IOutstandingDebts } from '@Contexts/Notifications/Application/IOutstandingDebts';
 
 /**
@@ -31,12 +34,12 @@ export interface NotificationsConfig {
 }
 
 export function notificationsWiring(
-  database: SqliteDatabase,
+  database: PostgresDatabase,
   debts: IOutstandingDebts,
   config: NotificationsConfig,
 ): LiteModule {
-  const notices = new SqliteNoticeStore(database);
-  const watches = new SqliteDebtWatchStore(database);
+  const notices = new PostgresNoticeStore(database);
+  const watches = new PostgresDebtWatchStore(database);
 
   return new LiteModule({
     name: 'Notifications',

@@ -8,7 +8,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -17,6 +17,7 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
  * for what is still owed; the webhook signed over its body, and a payment counted once the provider says it succeeded; one it says
  * failed never counted and freeing what it held; refusals with nothing kept, when the provider gives no link, or none is configured.
  */
+let databaseUrl: string;
 let directory: string;
 let provider: Server;
 let providerUrl: string;
@@ -40,7 +41,7 @@ const PAST_DAY = '2020-01-15';
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-provider-settlements-'));
-  const databasePath = join(directory, 'tally.sqlite');
+  databaseUrl = await freshDatabase();
 
   nextPayment = 0;
   provider = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -75,7 +76,7 @@ beforeAll(async () => {
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
   providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
 
-  app = await createApplication({ databasePath, logger: silent, providerUrl, providerWebhookSecret: SECRET });
+  app = await createApplication({ databaseUrl, logger: silent, providerUrl, providerWebhookSecret: SECRET });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
@@ -313,7 +314,7 @@ describe('a payment through the provider', () => {
   it('is refused, and nothing kept, when no provider is configured', async () => {
     const groupId = await threeOwing();
     const unconfigured = await createApplication({
-      databasePath: join(directory, 'tally.sqlite'),
+      databaseUrl,
       logger: silent,
       providerUrl: '',
       providerWebhookSecret: SECRET,

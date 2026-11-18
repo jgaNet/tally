@@ -7,7 +7,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -76,7 +76,7 @@ beforeAll(async () => {
   ratesUrl = `http://127.0.0.1:${(rates.address() as AddressInfo).port}`;
 
   app = await createApplication({
-    databasePath: join(directory, 'with.sqlite'),
+    databaseUrl: await freshDatabase(),
     logger: silent,
     ratesUrl,
     jobsIntervalSeconds: 3600,
@@ -86,7 +86,7 @@ beforeAll(async () => {
   api = `/${app.apiPrefix}`;
 
   appWithoutService = await createApplication({
-    databasePath: join(directory, 'without.sqlite'),
+    databaseUrl: await freshDatabase(),
     logger: silent,
     jobsIntervalSeconds: 3600,
   });

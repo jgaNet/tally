@@ -1,12 +1,12 @@
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { DatabaseSync } from 'node:sqlite';
+import pg from 'pg';
 
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -16,7 +16,7 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
  * and starts again while the expense's fact is still pending.
  */
 let directory: string;
-let databasePath: string;
+let databaseUrl: string;
 let app: FastifyApplication;
 let http: ReturnType<typeof apiClient>;
 let api: string;
@@ -26,7 +26,7 @@ const password = 'a long enough password';
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-notices-'));
-  databasePath = join(directory, 'tally.sqlite');
+  databaseUrl = await freshDatabase();
   app = await start();
   ann = await person('Ann', 'ann@example.com');
   bob = await person('Bob', 'bob@example.com');
@@ -40,7 +40,7 @@ afterAll(async () => {
 
 /** The application over the database file, as a server starts on it. */
 async function start(): Promise<FastifyApplication> {
-  const started = await createApplication({ databasePath, logger: silent });
+  const started = await createApplication({ databaseUrl, logger: silent });
   await started.start(0);
   http = apiClient(started.address);
   api = `/${started.apiPrefix}`;
@@ -98,13 +98,14 @@ async function eventually<T>(read: () => Promise<T>, holds: (value: T) => boolea
 const listOf = async (token: string, groupId: string) =>
   ((await notices(token)).body as Array<Record<string, unknown>>).filter(notice => notice.groupId === groupId);
 
-/** The outbox's pending facts, read from the database file the server keeps them in: nothing is pending once every fact is published. */
-const pendingFacts = (): number => {
-  const database = new DatabaseSync(databasePath);
+/** The outbox's pending facts, read from the database the server keeps them in: nothing is pending once every fact is published. */
+const pendingFacts = async (): Promise<number> => {
+  const database = new pg.Client({ connectionString: databaseUrl });
+  await database.connect();
   try {
-    return (database.prepare('SELECT COUNT(*) AS n FROM outbox').get() as { n: number }).n;
+    return Number((await database.query('SELECT COUNT(*) AS n FROM outbox')).rows[0].n);
   } finally {
-    database.close();
+    await database.end();
   }
 };
 const settled = () =>
@@ -245,10 +246,11 @@ describe('notices', () => {
 
     // The fact is put back as pending, as a server that stopped after the notice committed and before the relay acknowledged it leaves
     // it; the next start hands it out again.
-    const pending = (id: string) => {
-      const database = new DatabaseSync(databasePath);
+    const pending = async (id: string) => {
+      const database = new pg.Client({ connectionString: databaseUrl });
+      await database.connect();
       try {
-        database.prepare('INSERT INTO outbox (id, name, payload) VALUES (?, ?, ?)').run(
+        await database.query('INSERT INTO outbox (id, name, payload) VALUES ($1, $2, $3)', [
           id,
           'ExpenseRecordedIntegrationEvent',
           JSON.stringify({
@@ -260,21 +262,21 @@ describe('notices', () => {
               { memberId: cy.id, amount: 400 },
             ],
           }),
-        );
+        ]);
       } finally {
-        database.close();
+        await database.end();
       }
     };
     const fact = '00000000-0000-4000-8000-00000000f017';
 
     await app.stop();
-    pending(fact);
+    await pending(fact);
     app = await start();
     await settled();
     expect(await listOf(cy.token, groupId)).toHaveLength(2);
 
     await app.stop();
-    pending(fact);
+    await pending(fact);
     app = await start();
     await settled();
     expect(await listOf(cy.token, groupId)).toHaveLength(2);

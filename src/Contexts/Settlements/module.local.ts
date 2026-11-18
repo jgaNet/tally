@@ -1,6 +1,6 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
 import {
@@ -14,26 +14,26 @@ import {
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { ISettlementRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
 import { IWaitingPaymentRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingPaymentRoster';
-import { SqliteWaitingPaymentRoster } from '@Contexts/Settlements/Infrastructure/SqliteWaitingPaymentRoster';
+import { PostgresWaitingPaymentRoster } from '@Contexts/Settlements/Infrastructure/PostgresWaitingPaymentRoster';
 import { BalanceRoster, BalancesFromLedger } from '@Contexts/Settlements/Infrastructure/BalancesFromLedger';
 import { GroupRoster, MembersFromGroups } from '@Contexts/Settlements/Infrastructure/MembersFromGroups';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
 import { HmacWebhookSignature } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignature';
-import { SqliteSettlementRoster } from '@Contexts/Settlements/Infrastructure/SqliteSettlementRoster';
+import { PostgresSettlementRoster } from '@Contexts/Settlements/Infrastructure/PostgresSettlementRoster';
 import { OutstandingDebtRoster } from '@Contexts/Settlements/Infrastructure/OutstandingDebtRoster';
 import { IDebtRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/IDebtRoster';
 import {
-  SqliteSettlementStore,
+  PostgresSettlementStore,
   settlementsTablesSchema,
-} from '@Contexts/Settlements/Infrastructure/SqliteSettlementStore';
+} from '@Contexts/Settlements/Infrastructure/PostgresSettlementStore';
 import {
-  SqlitePayoutAccountStore,
+  PostgresPayoutAccountStore,
   payoutAccountsTablesSchema,
-} from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccountStore';
+} from '@Contexts/Settlements/Infrastructure/PostgresPayoutAccountStore';
 import {
-  SqliteSettlementAuditLog,
+  PostgresSettlementAuditLog,
   settlementAuditTablesSchema,
-} from '@Contexts/Settlements/Infrastructure/SqliteSettlementAuditLog';
+} from '@Contexts/Settlements/Infrastructure/PostgresSettlementAuditLog';
 
 /**
  * The Settlements context (conventions/domain.yaml, ADRs 8, 9 and 10): its wiring, as data. Its tables are opened by the composition
@@ -62,16 +62,16 @@ export interface PaymentsConfig {
  * What the settlements of a group do to its members' balances, as Settlements' read model gives it to Ledger (ADR 10). It is over the
  * database alone, so the composition root can build it before Ledger's own wiring, which counts it.
  */
-export function settlementRoster(database: SqliteDatabase): ISettlementRoster {
-  return new SqliteSettlementRoster(database);
+export function settlementRoster(database: PostgresDatabase): ISettlementRoster {
+  return new PostgresSettlementRoster(database);
 }
 
 /**
  * The payments waiting at the provider, as Settlements' read model gives them to Groups (request 20, ADR 15): a member with one cannot
  * leave its group. Built over the database alone, so the composition root can give it to Groups before Groups' own wiring.
  */
-export function waitingPaymentRoster(database: SqliteDatabase): IWaitingPaymentRoster {
-  return new SqliteWaitingPaymentRoster(database);
+export function waitingPaymentRoster(database: PostgresDatabase): IWaitingPaymentRoster {
+  return new PostgresWaitingPaymentRoster(database);
 }
 
 /**
@@ -80,7 +80,7 @@ export function waitingPaymentRoster(database: SqliteDatabase): IWaitingPaymentR
  * balances, so the composition root can build it with the other read models.
  */
 export function outstandingDebtRoster(
-  database: SqliteDatabase,
+  database: PostgresDatabase,
   roster: GroupRoster,
   balances: BalanceRoster,
 ): IDebtRoster {
@@ -88,17 +88,17 @@ export function outstandingDebtRoster(
 }
 
 export function settlementsWiring(
-  database: SqliteDatabase,
+  database: PostgresDatabase,
   roster: GroupRoster,
   balances: BalanceRoster,
   payments: PaymentsConfig = {},
 ): LiteModule {
-  const store = new SqliteSettlementStore(database);
-  const payouts = new SqlitePayoutAccountStore(database);
+  const store = new PostgresSettlementStore(database);
+  const payouts = new PostgresPayoutAccountStore(database);
   const members = new MembersFromGroups(roster);
   const counted = new BalancesFromLedger(balances);
   const provider = new HttpPaymentProvider(payments.providerUrl);
-  const audit = new SqliteSettlementAuditLog(database);
+  const audit = new PostgresSettlementAuditLog(database);
 
   return new LiteModule({
     name: 'Settlements',

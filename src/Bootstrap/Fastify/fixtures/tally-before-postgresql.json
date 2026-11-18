@@ -1,0 +1,64 @@
+{
+  "password": "a long enough password",
+  "ann": {
+    "name": "Ann",
+    "email": "ann@example.com",
+    "token": "YTIzZTAxYmMtYWY2OS00ZTE5LTg2MGMtMGQxMGQ4OGJjNzhk.CXsfe6mAHOMco6OzNz8ib4SZ4Ruc4PsA46GSIKLQBOU",
+    "id": "a23e01bc-af69-4e19-860c-0d10d88bc78d"
+  },
+  "bob": {
+    "name": "Bob",
+    "email": "bob@example.com",
+    "token": "MDBjNmI0NzYtMzg3NS00YTI0LTg3YTUtNzFiYzZmMmQyNzAx.6bdToxXCk-vw6SdywRCuciXg9DNaayn2U_Viafi-h1w",
+    "id": "00c6b476-3875-4a24-87a5-71bc6f2d2701"
+  },
+  "groupId": "0f8b18cc-63b8-4126-8a04-b199365bd822",
+  "expenseId": "ebd83747-baa7-403f-8291-cb61fe930faf",
+  "cash": [
+    201,
+    {
+      "id": "06e41518-13ee-4dc0-add5-f7803b44c1b2"
+    }
+  ],
+  "settlementId": "034f06ea-4b69-496e-9f64-bf44d9d49bbe",
+  "paymentId": "pay-1",
+  "secret": "a secret Tally and the provider share",
+  "expenseStatus": 201,
+  "pendingExpense": "00000000-0000-4000-8000-0000000000e2",
+  "counts": {
+    "outbox": 1,
+    "inbox": 3,
+    "settings": 1,
+    "accounts": 2,
+    "groups": 1,
+    "group_members": 2,
+    "group_former_members": 0,
+    "group_passes": 0,
+    "group_archives": 0,
+    "invitations": 1,
+    "group_audit": 0,
+    "expenses": 1,
+    "expense_shares": 2,
+    "expense_balances": 2,
+    "expense_versions": 1,
+    "expense_splits": 1,
+    "expense_recordings": 1,
+    "expense_originals": 0,
+    "expense_categories": 1,
+    "recurring_expenses": 0,
+    "recurring_categories": 0,
+    "budgets": 0,
+    "budget_passes": 0,
+    "split_templates": 0,
+    "split_template_members": 0,
+    "receipts": 0,
+    "ledger_audit": 1,
+    "settlement_books": 1,
+    "settlements": 2,
+    "settlement_history": 2,
+    "payout_accounts": 2,
+    "settlement_audit": 1,
+    "notices": 1,
+    "debt_watches": 0
+  }
+}

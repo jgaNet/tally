@@ -4,10 +4,11 @@ import { Logger, relayOutbox } from '@Architecture/Application';
 import { InMemoryEventBus } from '@Architecture/Infrastructure/EventBus/InMemoryEventBus';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { ConsoleLogger } from '@Architecture/Infrastructure/Logging/ConsoleLogger';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
-import { SqliteOutbox } from '@Architecture/Infrastructure/Sqlite/SqliteOutbox';
-import { SqliteUnitOfWork } from '@Architecture/Infrastructure/Sqlite/SqliteUnitOfWork';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
+import { PostgresOutbox } from '@Architecture/Infrastructure/Postgres/PostgresOutbox';
+import { PostgresUnitOfWork } from '@Architecture/Infrastructure/Postgres/PostgresUnitOfWork';
 
+import { moveSqliteFile } from '@Bootstrap/Fastify/MoveSqliteFile';
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { accountRoutes } from '@Contexts/Groups/Presentation/accounts.routes';
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
@@ -67,7 +68,8 @@ export async function createApplication({
   logger = new ConsoleLogger({ debug: false }),
   apiPrefix = process.env.API_PREFIX || 'v1',
   port = Number(process.env.PORT || 10000),
-  databasePath = process.env.DATABASE_PATH || 'tally.sqlite',
+  databaseUrl = process.env.DATABASE_URL,
+  databasePath = process.env.DATABASE_PATH || undefined,
   webOrigins = String(process.env.WEB_ORIGINS || '')
     .split(',')
     .filter(Boolean),
@@ -81,7 +83,9 @@ export async function createApplication({
   logger?: Logger;
   apiPrefix?: string;
   port?: number;
-  /** The file the application keeps what it knows in (DATABASE_PATH); every server may share it (ADR 2). */
+  /** The PostgreSQL database the application keeps what it knows in (DATABASE_URL); every server may share it (ADR 2, ADR 25). */
+  databaseUrl?: string;
+  /** The SQLite file an earlier version kept it in (DATABASE_PATH): moved into an empty database once, and not read again (ADR 25). */
   databasePath?: string;
   webOrigins?: string[];
   /** The base of the payment provider's API, without a trailing slash (PROVIDER_URL); without it, paying through it is refused. */
@@ -97,12 +101,12 @@ export async function createApplication({
   /** How long a debt must last before its member is reminded, in seconds (REMINDER_PERIOD_SECONDS; a week when it is not set). */
   reminderPeriodSeconds?: number;
 } = {}): Promise<FastifyApplication> {
-  const database = SqliteDatabase.open(databasePath, [
-    ...groupsSchema,
-    ...ledgerSchema,
-    ...settlementsSchema,
-    ...notificationsSchema,
-  ]);
+  if (!databaseUrl) throw new Error('DATABASE_URL names the PostgreSQL database Tally keeps its state in');
+  const database = await PostgresDatabase.open(
+    databaseUrl,
+    [...groupsSchema, ...ledgerSchema, ...settlementsSchema, ...notificationsSchema],
+    moveSqliteFile(databasePath),
+  );
   // What the settlements moved is read by Ledger through a port it owns, over Settlements' read model (ADR 10): every balance counts a
   // settlement once it is recorded. Ledger's balance read model is over the database and that port alone (ADR 1 T3, T5).
   const settledAmounts = new SettledAmountsFromSettlements(settlementRoster(database));
@@ -158,7 +162,7 @@ export async function createApplication({
     port,
     webOrigins,
     authenticate: groups.authenticate,
-    unitOfWork: () => new SqliteUnitOfWork(database),
+    unitOfWork: () => new PostgresUnitOfWork(database),
   })
     .setEventBus(new InMemoryEventBus({ eventEmitter: new EventEmitter(), clock: systemClock }))
     .registerModule(groups.module)
@@ -197,6 +201,6 @@ export async function createApplication({
 
   await app.startModules();
   // What a previous run made durable and did not publish goes out now (ADR 24): the outbox is the database's.
-  await relayOutbox(new SqliteOutbox(database), app.getEventBus(), app.executionContext('startup'));
+  await relayOutbox(new PostgresOutbox(database), app.getEventBus(), app.executionContext('startup'));
   return app;
 }

@@ -1,5 +1,5 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { IDebtWatchStore } from '@Contexts/Notifications/Application/IDebtWatchStore';
 import { DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
@@ -31,14 +31,16 @@ interface DebtWatchRow {
 }
 
 /**
- * The watches in SQLite. `save` checks the watch is still at the version it was read at and stores the next one, in the sweep's
+ * The watches in PostgreSQL. `save` checks the watch is still at the version it was read at and stores the next one, in the sweep's
  * transaction; it refuses a watch another run moved on with a ConcurrencyConflictException (CONC-OPTIMISTIC).
  */
-export class SqliteDebtWatchStore implements IDebtWatchStore {
-  constructor(private readonly database: SqliteDatabase) {}
+export class PostgresDebtWatchStore implements IDebtWatchStore {
+  constructor(private readonly database: PostgresDatabase) {}
 
   async all(): Promise<DebtWatch[]> {
-    const rows = this.database.read(db => db.prepare('SELECT * FROM debt_watches').all()) as unknown as DebtWatchRow[];
+    const rows = (await this.database.read(db =>
+      db.prepare('SELECT * FROM debt_watches').all(),
+    )) as unknown as DebtWatchRow[];
     return rows.map(row =>
       DebtWatch.fromSnapshot({
         id: row.id,
@@ -54,31 +56,30 @@ export class SqliteDebtWatchStore implements IDebtWatchStore {
   async save(watch: DebtWatch): Promise<void> {
     const snapshot = watch.toSnapshot();
     const writer = this.database.writer;
-    const { changes } =
-      watch.version === 0
-        ? writer
-            .prepare(
-              `INSERT OR IGNORE INTO debt_watches (id, group_id, member_id, noted_at, last_reminder_at, version)
-               VALUES (?, ?, ?, ?, ?, 1)`,
-            )
-            .run(
-              snapshot.id,
-              snapshot.groupId,
-              snapshot.memberId,
-              snapshot.notedAt ?? null,
-              snapshot.lastReminderAt ?? null,
-            )
-        : writer
-            .prepare(
-              'UPDATE debt_watches SET noted_at = ?, last_reminder_at = ?, version = ? WHERE id = ? AND version = ?',
-            )
-            .run(
-              snapshot.notedAt ?? null,
-              snapshot.lastReminderAt ?? null,
-              watch.version + 1,
-              snapshot.id,
-              watch.version,
-            );
+    const { changes } = await (watch.version === 0
+      ? writer
+          .prepare(
+            `INSERT INTO debt_watches (id, group_id, member_id, noted_at, last_reminder_at, version)
+               VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT DO NOTHING`,
+          )
+          .run(
+            snapshot.id,
+            snapshot.groupId,
+            snapshot.memberId,
+            snapshot.notedAt ?? null,
+            snapshot.lastReminderAt ?? null,
+          )
+      : writer
+          .prepare(
+            'UPDATE debt_watches SET noted_at = ?, last_reminder_at = ?, version = ? WHERE id = ? AND version = ?',
+          )
+          .run(
+            snapshot.notedAt ?? null,
+            snapshot.lastReminderAt ?? null,
+            watch.version + 1,
+            snapshot.id,
+            watch.version,
+          ));
     if (changes === 0) {
       throw new ConcurrencyConflictException(
         'Notifications',

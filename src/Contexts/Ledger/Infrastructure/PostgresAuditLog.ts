@@ -1,4 +1,4 @@
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { IAuditLog } from '@Contexts/Ledger/Application/IAuditLog';
 import { AuditAction, AuditEntry } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
@@ -32,12 +32,12 @@ interface AuditRow {
   amount: number;
 }
 
-/** The audit of Ledger's changes in SQLite (ADR 23): `record` writes an entry in the transaction of its change; `entriesOf` reads the group's. */
-export class SqliteAuditLog implements IAuditLog {
-  constructor(private readonly database: SqliteDatabase) {}
+/** The audit of Ledger's changes in PostgreSQL (ADR 23): `record` writes an entry in the transaction of its change; `entriesOf` reads the group's. */
+export class PostgresAuditLog implements IAuditLog {
+  constructor(private readonly database: PostgresDatabase) {}
 
   async record(entry: AuditEntry): Promise<void> {
-    this.database.writer
+    await this.database.writer
       .prepare(
         `INSERT INTO ledger_audit (id, group_id, at, by_account_id, action, subject_id, amount)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -46,9 +46,9 @@ export class SqliteAuditLog implements IAuditLog {
   }
 
   async entriesOf(groupId: string): Promise<AuditEntry[]> {
-    const rows = this.database.read(db =>
+    const rows = (await this.database.read(db =>
       db.prepare('SELECT * FROM ledger_audit WHERE group_id = ? ORDER BY at, seq').all(groupId),
-    ) as unknown as AuditRow[];
+    )) as unknown as AuditRow[];
     return rows.map(row => ({
       id: row.id,
       groupId: row.group_id,

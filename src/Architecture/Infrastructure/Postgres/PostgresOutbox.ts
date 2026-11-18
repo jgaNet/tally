@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { Event } from '@Architecture/Domain';
 import { Outbox, OutboxEntry } from '@Architecture/Application/Outbox';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 /**
  * The outbox in the database (ADR 2, ADR 24): a row per fact, written in the transaction that made it, so a
@@ -10,22 +10,26 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
  * fact is stored by its name and payload; the relay hands the bus an `Event` of that name, which is all the
  * bus routes on. Insertion order is publication order (`seq`).
  */
-export class SqliteOutbox implements Outbox {
-  constructor(private readonly database: SqliteDatabase) {}
+export class PostgresOutbox implements Outbox {
+  constructor(private readonly database: PostgresDatabase) {}
 
   /** Inside the transaction that holds the writer: the entries are rolled back with its other writes. */
   async append(events: Event<unknown>[]): Promise<OutboxEntry[]> {
     const insert = this.database.writer.prepare('INSERT INTO outbox (id, name, payload) VALUES (?, ?, ?)');
-    return events.map(event => {
+    const entries: OutboxEntry[] = [];
+    for (const event of events) {
       const entry = { id: uuidv4(), event };
-      insert.run(entry.id, event.name, JSON.stringify(event.payload));
-      return entry;
-    });
+      await insert.run(entry.id, event.name, JSON.stringify(event.payload));
+      entries.push(entry);
+    }
+    return entries;
   }
 
   /** What is committed and not yet published, oldest first. */
   async pending(): Promise<OutboxEntry[]> {
-    const rows = this.database.read(db => db.prepare('SELECT id, name, payload FROM outbox ORDER BY seq').all()) as {
+    const rows = (await this.database.read(db =>
+      db.prepare('SELECT id, name, payload FROM outbox ORDER BY seq').all(),
+    )) as {
       id: string;
       name: string;
       payload: string;

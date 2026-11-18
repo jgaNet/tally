@@ -7,7 +7,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -72,7 +72,7 @@ beforeAll(async () => {
   storeMode = 'ok';
 
   app = await createApplication({
-    databasePath: join(directory, 'with.sqlite'),
+    databaseUrl: await freshDatabase(),
     logger: silent,
     receiptsUrl: storeUrl,
     jobsIntervalSeconds: 3600,
@@ -82,7 +82,7 @@ beforeAll(async () => {
   api = `/${app.apiPrefix}`;
 
   appWithoutStore = await createApplication({
-    databasePath: join(directory, 'without.sqlite'),
+    databaseUrl: await freshDatabase(),
     logger: silent,
     jobsIntervalSeconds: 3600,
   });

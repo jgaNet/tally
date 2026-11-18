@@ -1,5 +1,5 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { IPayoutAccountStore } from '@Contexts/Settlements/Application/IPayoutAccountStore';
 import { PayoutAccount } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccount';
@@ -25,16 +25,16 @@ interface PayoutAccountRow {
 }
 
 /**
- * The payout accounts in SQLite. `save` stores a new account (version 0) with its first row, and a changed one at its version + 1, each
+ * The payout accounts in PostgreSQL. `save` stores a new account (version 0) with its first row, and a changed one at its version + 1, each
  * only while the account is still at the version it was read at; otherwise it refuses with a ConcurrencyConflictException (CONC-OPTIMISTIC).
  */
-export class SqlitePayoutAccountStore implements IPayoutAccountStore {
-  constructor(private readonly database: SqliteDatabase) {}
+export class PostgresPayoutAccountStore implements IPayoutAccountStore {
+  constructor(private readonly database: PostgresDatabase) {}
 
   async payoutAccountOf(ownerId: string): Promise<PayoutAccount | undefined> {
-    const row = this.database.read(db =>
+    const row = (await this.database.read(db =>
       db.prepare('SELECT * FROM payout_accounts WHERE owner_id = ?').get(ownerId),
-    ) as PayoutAccountRow | undefined;
+    )) as PayoutAccountRow | undefined;
     return row
       ? PayoutAccount.fromSnapshot({
           id: row.id,
@@ -48,16 +48,15 @@ export class SqlitePayoutAccountStore implements IPayoutAccountStore {
   async save(account: PayoutAccount): Promise<void> {
     const writer = this.database.writer;
     const id = account._id.value;
-    const { changes } =
-      account.version === 0
-        ? writer
-            .prepare(
-              'INSERT OR IGNORE INTO payout_accounts (id, owner_id, provider_account_id, version) VALUES (?, ?, ?, 1)',
-            )
-            .run(id, account.ownerId, account.providerAccountId)
-        : writer
-            .prepare('UPDATE payout_accounts SET provider_account_id = ?, version = ? WHERE id = ? AND version = ?')
-            .run(account.providerAccountId, account.version + 1, id, account.version);
+    const { changes } = await (account.version === 0
+      ? writer
+          .prepare(
+            'INSERT INTO payout_accounts (id, owner_id, provider_account_id, version) VALUES (?, ?, ?, 1) ON CONFLICT DO NOTHING',
+          )
+          .run(id, account.ownerId, account.providerAccountId)
+      : writer
+          .prepare('UPDATE payout_accounts SET provider_account_id = ?, version = ? WHERE id = ? AND version = ?')
+          .run(account.providerAccountId, account.version + 1, id, account.version));
     if (changes === 0) {
       throw new ConcurrencyConflictException(
         'Settlements',

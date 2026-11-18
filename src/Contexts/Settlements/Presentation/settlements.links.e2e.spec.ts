@@ -5,7 +5,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -25,7 +25,7 @@ const PAST_DAY = '2020-01-15';
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-settlement-links-'));
   // No payment provider here: paying through one is refused for want of a link, and nothing is kept (request 13).
-  app = await createApplication({ databasePath: join(directory, 'tally.sqlite'), logger: silent, providerUrl: '' });
+  app = await createApplication({ databaseUrl: await freshDatabase(), logger: silent, providerUrl: '' });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;

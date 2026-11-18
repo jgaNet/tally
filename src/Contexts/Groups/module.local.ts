@@ -1,6 +1,6 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 import { IMemberBalances, IWaitingPayments } from '@Contexts/Groups/Application/IMemberBalances';
@@ -17,10 +17,13 @@ import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { IGroupRoster } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
 import { SignedSessionTokens } from '@Contexts/Groups/Infrastructure/SignedSessionTokens';
-import { SqliteAccountStore, accountsSchema } from '@Contexts/Groups/Infrastructure/SqliteAccountStore';
-import { SqliteGroupStore, groupsTablesSchema } from '@Contexts/Groups/Infrastructure/SqliteGroupStore';
-import { SqliteInvitationStore, invitationsTablesSchema } from '@Contexts/Groups/Infrastructure/SqliteInvitationStore';
-import { SqliteGroupAuditLog, groupAuditTablesSchema } from '@Contexts/Groups/Infrastructure/SqliteGroupAuditLog';
+import { PostgresAccountStore, accountsSchema } from '@Contexts/Groups/Infrastructure/PostgresAccountStore';
+import { PostgresGroupStore, groupsTablesSchema } from '@Contexts/Groups/Infrastructure/PostgresGroupStore';
+import {
+  PostgresInvitationStore,
+  invitationsTablesSchema,
+} from '@Contexts/Groups/Infrastructure/PostgresInvitationStore';
+import { PostgresGroupAuditLog, groupAuditTablesSchema } from '@Contexts/Groups/Infrastructure/PostgresGroupAuditLog';
 
 /**
  * The Groups context (conventions/domain.yaml, ADRs 1 and 5): its wiring, as data. Accounts live here (ADR 1): sign-up,
@@ -41,8 +44,8 @@ export const groupsSchema = [
  * the composition root can give it to the other read models (Ledger's balances, which count what passed when members left)
  * without waiting for this module (ADR 15).
  */
-export function groupRoster(database: SqliteDatabase): IGroupRoster {
-  return new SqliteGroupStore(database);
+export function groupRoster(database: PostgresDatabase): IGroupRoster {
+  return new PostgresGroupStore(database);
 }
 
 /**
@@ -52,13 +55,13 @@ export function groupRoster(database: SqliteDatabase): IGroupRoster {
  * the provider through `waiting` (ADR 15): the composition root gives both, over the other contexts' read models, so this
  * file imports no other context.
  */
-export async function groupsWiring(database: SqliteDatabase, balances: IMemberBalances, waiting: IWaitingPayments) {
-  const accounts = new SqliteAccountStore(database);
+export async function groupsWiring(database: PostgresDatabase, balances: IMemberBalances, waiting: IWaitingPayments) {
+  const accounts = new PostgresAccountStore(database);
   const passwords = new ScryptPasswordHasher();
   const tokens = await SignedSessionTokens.open(database);
-  const groups = new SqliteGroupStore(database);
-  const invitations = new SqliteInvitationStore(database);
-  const audit = new SqliteGroupAuditLog(database);
+  const groups = new PostgresGroupStore(database);
+  const invitations = new PostgresInvitationStore(database);
+  const audit = new PostgresGroupAuditLog(database);
 
   const module = new LiteModule({
     name: 'Groups',

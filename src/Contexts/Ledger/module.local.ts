@@ -1,6 +1,6 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { getGroupBalances } from '@Contexts/Ledger/Application/Balances';
 import { getGroupExpenses, getMemberStatement, getMemberStatementCsv } from '@Contexts/Ledger/Application/History';
@@ -11,12 +11,12 @@ import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domai
 import { PassBudgetHandler } from '@Contexts/Ledger/Application/Events/PassBudgetHandler';
 import { PublishBudgetPassedHandler } from '@Contexts/Ledger/Application/Events/PublishBudgetPassedHandler';
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Budget';
-import { SqliteBudgetStore, budgetsTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteBudgetStore';
+import { PostgresBudgetStore, budgetsTablesSchema } from '@Contexts/Ledger/Infrastructure/PostgresBudgetStore';
 import { getGroupBudgets, removeBudget, setBudget } from '@Contexts/Ledger/Application/Budgets';
 import {
-  SqliteSplitTemplateStore,
+  PostgresSplitTemplateStore,
   splitTemplatesTablesSchema,
-} from '@Contexts/Ledger/Infrastructure/SqliteSplitTemplateStore';
+} from '@Contexts/Ledger/Infrastructure/PostgresSplitTemplateStore';
 import {
   getGroupTemplates,
   removeTemplate,
@@ -26,21 +26,21 @@ import {
 import { ISettledAmounts } from '@Contexts/Ledger/Application/ISettledAmounts';
 import { IReceiptStore } from '@Contexts/Ledger/Application/IReceiptStore';
 import { attachReceipt, getReceipt } from '@Contexts/Ledger/Application/Receipts';
-import { SqliteReceiptBook, receiptsTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteReceiptBook';
+import { PostgresReceiptBook, receiptsTablesSchema } from '@Contexts/Ledger/Infrastructure/PostgresReceiptBook';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
 import { IOfferedRates } from '@Contexts/Ledger/Application/IOfferedRates';
 import { IBalanceRoster } from '@Contexts/Ledger/Domain/Expense/Ports/IBalanceRoster';
-import { SqliteBalanceRoster } from '@Contexts/Ledger/Infrastructure/SqliteBalanceRoster';
-import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseStore';
-import { SqliteAuditLog, auditTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteAuditLog';
+import { PostgresBalanceRoster } from '@Contexts/Ledger/Infrastructure/PostgresBalanceRoster';
+import { PostgresExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/PostgresExpenseStore';
+import { PostgresAuditLog, auditTablesSchema } from '@Contexts/Ledger/Infrastructure/PostgresAuditLog';
 import { ISettlementAudit } from '@Contexts/Ledger/Application/ISettlementAudit';
 import { IPassedBalances } from '@Contexts/Ledger/Application/IPassedBalances';
 import { getGroupAudit } from '@Contexts/Ledger/Application/Audit';
 import {
-  SqliteRecurringExpenseStore,
+  PostgresRecurringExpenseStore,
   recurringExpensesTablesSchema,
-} from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseStore';
+} from '@Contexts/Ledger/Infrastructure/PostgresRecurringExpenseStore';
 import { RecordRecurringExpenseHandler } from '@Contexts/Ledger/Application/Events/RecordRecurringExpenseHandler';
 import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
 import {
@@ -74,11 +74,11 @@ export const ledgerSchema = [
  * before Ledger's own wiring: each is built over the database alone.
  */
 export function ledgerBalanceRoster(
-  database: SqliteDatabase,
+  database: PostgresDatabase,
   settled: ISettledAmounts,
   groupMembers: IGroupMembers,
 ): IBalanceRoster {
-  return new SqliteBalanceRoster(database, settled, groupMembers);
+  return new PostgresBalanceRoster(database, settled, groupMembers);
 }
 
 /**
@@ -90,7 +90,7 @@ export function ledgerBalanceRoster(
  * root: it is built over RECEIPTS_URL, and keeps nothing when that is not set.
  */
 export function ledgerWiring(
-  database: SqliteDatabase,
+  database: PostgresDatabase,
   groupMembers: IGroupMembers,
   groupCurrency: IGroupCurrency,
   rates: IOfferedRates,
@@ -99,12 +99,12 @@ export function ledgerWiring(
   settlementAudit: ISettlementAudit,
   passedBalances: IPassedBalances,
 ): LiteModule {
-  const expenses = new SqliteExpenseStore(database);
-  const recurring = new SqliteRecurringExpenseStore(database);
-  const budgets = new SqliteBudgetStore(database);
-  const templates = new SqliteSplitTemplateStore(database);
-  const receipts = new SqliteReceiptBook(database);
-  const audit = new SqliteAuditLog(database);
+  const expenses = new PostgresExpenseStore(database);
+  const recurring = new PostgresRecurringExpenseStore(database);
+  const budgets = new PostgresBudgetStore(database);
+  const templates = new PostgresSplitTemplateStore(database);
+  const receipts = new PostgresReceiptBook(database);
+  const audit = new PostgresAuditLog(database);
 
   return new LiteModule({
     name: 'Ledger',

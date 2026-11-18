@@ -1,4 +1,4 @@
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { IInvitationStore, InvitationView } from '@Contexts/Groups/Application/IInvitationStore';
 import { Invitation } from '@Contexts/Groups/Domain/Invitation/Invitation';
@@ -17,23 +17,23 @@ export const invitationsTablesSchema = [
 ];
 
 /**
- * The invitations in SQLite. Its reads go to the committed data, and its one write to the transaction that holds the
+ * The invitations in PostgreSQL. Its reads go to the committed data, and its one write to the transaction that holds the
  * writer. An invitation is only ever added, so there is no version to check.
  */
-export class SqliteInvitationStore implements IInvitationStore {
-  constructor(private readonly database: SqliteDatabase) {}
+export class PostgresInvitationStore implements IInvitationStore {
+  constructor(private readonly database: PostgresDatabase) {}
 
   async add(invitation: Invitation): Promise<void> {
     const snapshot = invitation.toSnapshot();
-    this.database.writer
+    await this.database.writer
       .prepare('INSERT INTO invitations (id, group_id, invited_by, created_at) VALUES (?, ?, ?, ?)')
       .run(snapshot.id, snapshot.groupId, snapshot.invitedBy, snapshot.createdAt);
   }
 
   async findById(invitationId: string): Promise<Invitation | undefined> {
-    const row = this.database.read(db =>
+    const row = (await this.database.read(db =>
       db.prepare('SELECT id, group_id, invited_by, created_at FROM invitations WHERE id = ?').get(invitationId),
-    ) as InvitationRow | undefined;
+    )) as InvitationRow | undefined;
     return (
       row &&
       Invitation.fromSnapshot({
@@ -46,7 +46,7 @@ export class SqliteInvitationStore implements IInvitationStore {
   }
 
   async viewOf(invitationId: string): Promise<InvitationView | undefined> {
-    const row = this.database.read(db =>
+    const row = (await this.database.read(db =>
       db
         .prepare(
           `SELECT i.id, i.group_id, g.name AS group_name, i.invited_by FROM invitations i
@@ -54,7 +54,7 @@ export class SqliteInvitationStore implements IInvitationStore {
            WHERE i.id = ?`,
         )
         .get(invitationId),
-    ) as ViewRow | undefined;
+    )) as ViewRow | undefined;
     return (
       row && {
         id: row.id,

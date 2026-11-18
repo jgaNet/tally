@@ -3,7 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 
 import { createApplication } from './createApplication';
 
@@ -19,7 +19,7 @@ let api: string;
 let directory: string;
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-application-'));
-  app = await createApplication({ databasePath: join(directory, 'tally.sqlite') });
+  app = await createApplication({ databaseUrl: await freshDatabase() });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;

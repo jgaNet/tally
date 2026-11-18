@@ -1,17 +1,17 @@
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { IWaitingPaymentRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingPaymentRoster';
 
 /**
- * The payments waiting at the provider in SQLite (request 20, ADR 15): a settlement through the provider that is `pending` or `refunding`,
+ * The payments waiting at the provider in PostgreSQL (request 20, ADR 15): a settlement through the provider that is `pending` or `refunding`,
  * where the member is the payer or the payee. Reads the committed data, in the reader's snapshot, inside the write turn of the request that
  * asks, so a payment recorded before a leave is seen by it and one recorded after is refused for the leaver.
  */
-export class SqliteWaitingPaymentRoster implements IWaitingPaymentRoster {
-  constructor(private readonly database: SqliteDatabase) {}
+export class PostgresWaitingPaymentRoster implements IWaitingPaymentRoster {
+  constructor(private readonly database: PostgresDatabase) {}
 
   async hasWaitingPayment(groupId: string, memberId: string): Promise<boolean> {
-    const row = this.database.read(db =>
+    const row = await this.database.read(db =>
       db
         .prepare(
           `SELECT 1 AS found FROM settlements

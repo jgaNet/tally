@@ -50,7 +50,7 @@ export class FastifyApplication extends Application {
   readonly apiPrefix: string;
   readonly port: number;
   readonly #unitOfWork: () => UnitOfWork;
-  readonly #closers: (() => void)[] = [];
+  readonly #closers: (() => void | Promise<void>)[] = [];
   readonly #jobs: { intervalMs: number; run: () => Promise<void> }[] = [];
   readonly #timers: NodeJS.Timeout[] = [];
 
@@ -172,7 +172,7 @@ export class FastifyApplication extends Application {
   }
 
   /** Something to release when the application stops, such as the database its requests write to. */
-  onStop(close: () => void): this {
+  onStop(close: () => void | Promise<void>): this {
     this.#closers.push(close);
     return this;
   }
@@ -200,7 +200,7 @@ export class FastifyApplication extends Application {
   async stop(): Promise<void> {
     for (const timer of this.#timers.splice(0)) clearInterval(timer);
     await this.fastify.close();
-    for (const close of this.#closers.splice(0)) close();
+    for (const close of this.#closers.splice(0)) await close();
   }
 
   get address(): string {

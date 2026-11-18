@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { ISessionTokens } from '@Contexts/Groups/Application/ISessionTokens';
 
@@ -16,7 +16,7 @@ export class SignedSessionTokens implements ISessionTokens {
   constructor(private readonly key: string) {}
 
   /** The tokens of the database's servers: the key is made by the first server to start, and kept there. */
-  static async open(database: SqliteDatabase): Promise<SignedSessionTokens> {
+  static async open(database: PostgresDatabase): Promise<SignedSessionTokens> {
     return new SignedSessionTokens(await database.setting(KEY_SETTING, () => randomBytes(32).toString('base64url')));
   }
 

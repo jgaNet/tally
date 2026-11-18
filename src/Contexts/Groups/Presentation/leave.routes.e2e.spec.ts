@@ -8,7 +8,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -20,7 +20,7 @@ import { createApplication } from '@Bootstrap/Fastify/createApplication';
  * database, are either counted in what passes or refused.
  */
 let directory: string;
-let databasePath: string;
+let databaseUrl: string;
 let provider: Server;
 let providerUrl: string;
 /** The provider's payments by the reference Tally gave them (the settlement's id). */
@@ -37,7 +37,7 @@ const WEBHOOK_AT = '2026-03-01T10:00:00.000Z';
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-leave-'));
-  databasePath = join(directory, 'tally.sqlite');
+  databaseUrl = await freshDatabase();
   paymentsByReference = new Map();
   nextPayment = 0;
   // A fake payment provider on a local port: it keeps each payment by its reference, and knows the payout accounts `acct-…`.
@@ -66,7 +66,7 @@ beforeAll(async () => {
   providerUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
 
   app = await createApplication({
-    databasePath,
+    databaseUrl,
     logger: silent,
     providerUrl,
     providerWebhookSecret: SECRET,
@@ -460,7 +460,7 @@ describe('Settlements → Groups (WaitingPayments)', () => {
 describe('leaving at the same moment as an expense (two servers, one database)', () => {
   it('an expense naming the leaver is either counted in what passes or refused, and the members still add up to 0', async () => {
     const { groupId } = await groupWithDinner();
-    const other = await createApplication({ databasePath, logger: silent, providerUrl, providerWebhookSecret: SECRET });
+    const other = await createApplication({ databaseUrl, logger: silent, providerUrl, providerWebhookSecret: SECRET });
     await other.start(0);
     const otherHttp = apiClient(other.address);
     try {

@@ -1,5 +1,5 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase, isUniqueViolation } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { IReceiptBook, ReceiptView } from '@Contexts/Ledger/Application/IReceiptBook';
 import { Receipt, ReceiptSnapshot, ReceiptType } from '@Contexts/Ledger/Domain/Receipt/Receipt';
@@ -34,24 +34,24 @@ const CONFLICT =
   'The receipt changed since it was read, or another receipt of this expense was attached: read it again';
 
 /**
- * The receipts in SQLite. `add` and `save` write inside the command's transaction; `save` only while the receipt is still at the version it was
+ * The receipts in PostgreSQL. `add` and `save` write inside the command's transaction; `save` only while the receipt is still at the version it was
  * loaded at (the optimistic check, ADR 8). A second receipt for an expense, found only when the unique key refuses a write, is a conflict of the same
  * kind, so the command re-reads and decides again (the receipt then replaces it).
  */
-export class SqliteReceiptBook implements IReceiptBook {
-  constructor(private readonly database: SqliteDatabase) {}
+export class PostgresReceiptBook implements IReceiptBook {
+  constructor(private readonly database: PostgresDatabase) {}
 
   async findByExpense(expenseId: string): Promise<Receipt | undefined> {
-    const row = this.database.writer
+    const row = (await this.database.writer
       .prepare('SELECT id, expense_id, file_id, url, type, size, version FROM receipts WHERE expense_id = ?')
-      .get(expenseId) as unknown as ReceiptRow | undefined;
+      .get(expenseId)) as unknown as ReceiptRow | undefined;
     return row ? Receipt.fromSnapshot(this.#snapshotOf(row)) : undefined;
   }
 
   async add(receipt: Receipt): Promise<void> {
     const snapshot = receipt.toSnapshot();
     try {
-      this.database.writer
+      await this.database.writer
         .prepare(
           'INSERT INTO receipts (id, expense_id, file_id, url, type, size, version) VALUES (?, ?, ?, ?, ?, ?, ?)',
         )
@@ -72,7 +72,7 @@ export class SqliteReceiptBook implements IReceiptBook {
 
   async save(receipt: Receipt): Promise<void> {
     const snapshot = receipt.toSnapshot();
-    const { changes } = this.database.writer
+    const { changes } = await this.database.writer
       .prepare('UPDATE receipts SET file_id = ?, url = ?, type = ?, size = ?, version = ? WHERE id = ? AND version = ?')
       .run(
         snapshot.fileId,
@@ -87,9 +87,9 @@ export class SqliteReceiptBook implements IReceiptBook {
   }
 
   async viewOf(expenseId: string): Promise<ReceiptView | undefined> {
-    const row = this.database.writer
+    const row = (await this.database.writer
       .prepare('SELECT type, size, url FROM receipts WHERE expense_id = ?')
-      .get(expenseId) as unknown as { type: ReceiptType; size: number; url: string } | undefined;
+      .get(expenseId)) as unknown as { type: ReceiptType; size: number; url: string } | undefined;
     return row ? { type: row.type, size: row.size, url: row.url } : undefined;
   }
 
@@ -105,6 +105,3 @@ export class SqliteReceiptBook implements IReceiptBook {
     };
   }
 }
-
-const isUniqueViolation = (error: unknown): boolean =>
-  error instanceof Error && error.message.includes('UNIQUE constraint failed');

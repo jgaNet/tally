@@ -5,7 +5,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -25,10 +25,10 @@ const PAST_DAY = '2020-01-15';
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-settlements-'));
-  const databasePath = join(directory, 'tally.sqlite');
-  app = await createApplication({ databasePath, logger: silent });
+  const databaseUrl = await freshDatabase();
+  app = await createApplication({ databaseUrl, logger: silent });
   await app.start(0);
-  other = await createApplication({ databasePath, logger: silent });
+  other = await createApplication({ databaseUrl, logger: silent });
   await other.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;

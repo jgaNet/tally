@@ -1,4 +1,4 @@
-import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
+import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { INoticeReads, NoticeView } from '@Contexts/Notifications/Application/INoticeReads';
 import { INoticeStore } from '@Contexts/Notifications/Application/INoticeStore';
@@ -39,14 +39,14 @@ interface NoticeRow {
 }
 
 /**
- * The notices in SQLite. `add` writes inside the reaction's transaction (on the writer), and `listFor` reads what is committed.
+ * The notices in PostgreSQL. `add` writes inside the reaction's transaction (on the writer), and `listFor` reads what is committed.
  */
-export class SqliteNoticeStore implements INoticeStore, INoticeReads {
-  constructor(private readonly database: SqliteDatabase) {}
+export class PostgresNoticeStore implements INoticeStore, INoticeReads {
+  constructor(private readonly database: PostgresDatabase) {}
 
   async add(notice: Notice): Promise<void> {
     const snapshot = notice.toSnapshot();
-    this.database.writer
+    await this.database.writer
       .prepare(
         'INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, category, month, budget, amount, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
@@ -65,13 +65,13 @@ export class SqliteNoticeStore implements INoticeStore, INoticeReads {
   }
 
   async listFor(recipientId: string): Promise<NoticeView[]> {
-    const rows = this.database.read(db =>
+    const rows = (await this.database.read(db =>
       db
         .prepare(
           'SELECT id, kind, group_id, expense_id, category, month, budget, amount, at FROM notices WHERE recipient_id = ? ORDER BY at DESC, seq DESC',
         )
         .all(recipientId),
-    ) as unknown as NoticeRow[];
+    )) as unknown as NoticeRow[];
     return rows.map(row => ({
       id: row.id,
       kind: row.kind,

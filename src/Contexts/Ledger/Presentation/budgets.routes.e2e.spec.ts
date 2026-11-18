@@ -5,7 +5,7 @@ import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 
 import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
-import { apiClient } from '@Bootstrap/Fastify/api.spec-helper';
+import { apiClient, freshDatabase } from '@Bootstrap/Fastify/api.spec-helper';
 import { createApplication } from '@Bootstrap/Fastify/createApplication';
 
 /**
@@ -27,7 +27,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'tally-budgets-'));
-  app = await createApplication({ databasePath: join(directory, 'tally.sqlite'), logger: silent });
+  app = await createApplication({ databaseUrl: await freshDatabase(), logger: silent });
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
