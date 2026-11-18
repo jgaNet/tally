@@ -18,8 +18,16 @@ type OriginalBody = { readonly currency: string; readonly amount: number; readon
 /** The amount of a body (request 21): exactly one of `amount`, in the group's currency, and `original`, in another currency. */
 type AmountBody = { readonly amount: number } | { readonly original: OriginalBody };
 
-/** The body of a recording: its shape only; the payer is the caller, and the group is the URL's. */
-type RecordExpenseBody = { readonly description: string; readonly date: string } & AmountBody & SplitBody;
+/**
+ * The body of a recording: its shape only; the payer is the caller, and the group is the URL's. Its category is a string the domain
+ * checks (request 24); left out, it is `other`.
+ */
+type RecordExpenseBody = {
+  readonly description: string;
+  readonly date: string;
+  readonly category?: string;
+} & AmountBody &
+  SplitBody;
 
 /** The body of an edit: the expense given again whole, and the version its author read (request 6). */
 type EditExpenseBody = RecordExpenseBody & { readonly version: number };
@@ -98,6 +106,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
           properties: {
             description: { type: 'string' },
             date: { type: 'string' },
+            category: { type: 'string' },
             ...amountProperties,
             ...splitProperties,
           },
@@ -116,6 +125,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
           ...amountOf(req.body),
           date: req.body.date,
           split: splitOf(req.body),
+          category: req.body.category,
         },
         { created: true },
       ),
@@ -136,6 +146,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
             description: { type: 'string' },
             date: { type: 'string' },
             version: { type: 'integer' },
+            category: { type: 'string' },
             ...amountProperties,
             ...splitProperties,
           },
@@ -151,6 +162,7 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         date: req.body.date,
         split: splitOf(req.body),
         version: req.body.version,
+        category: req.body.category,
       }),
   );
 

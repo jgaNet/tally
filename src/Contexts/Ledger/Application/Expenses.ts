@@ -28,6 +28,8 @@ export interface RecordExpenseInput {
   readonly original?: OriginalDraft;
   readonly date: string;
   readonly split: SplitDraft;
+  /** What it is spent on (request 24): one of the eight, `other` when left out. */
+  readonly category?: string;
 }
 
 /**
@@ -42,6 +44,8 @@ export interface EditExpenseInput {
   readonly date: string;
   readonly split: SplitDraft;
   readonly version: number;
+  /** What it is spent on (request 24), as a recording gives it. */
+  readonly category?: string;
 }
 
 /**

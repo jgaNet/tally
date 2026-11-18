@@ -23,6 +23,7 @@ why, what it costs, and when to revisit it.
 | [16](0016-another-currency-is-an-original-amount-converted-at-the-rate-stated.md) | An expense in another currency is an original amount converted at the rate stated |
 | [17](0017-offered-rates-are-a-port-in-ledger-and-the-band-is-the-expenses.md) | Offered rates are a port Ledger owns, and the 2 % band is the expense's rule |
 | [18](0018-recurring-expenses-are-an-aggregate-swept-by-the-ledger-and-recorded-by-a-policy.md) | Recurring expenses are an aggregate, swept by the ledger, and each day is recorded by a policy |
+| [19](0019-budgets-are-an-aggregate-per-category-and-a-passed-month-is-published-once.md) | Budgets are an aggregate per category, and a passed month is published once through the existing link to Notifications |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

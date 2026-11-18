@@ -3,6 +3,8 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import { ExpenseRecordedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/ExpenseIntegrationEvents';
+import { BudgetPassedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/BudgetIntegrationEvents';
+import { NoticesForBudgetHandler } from '@Contexts/Notifications/Application/Events/NoticesForBudgetHandler';
 import { NoticesForExpenseHandler } from '@Contexts/Notifications/Application/Events/NoticesForExpenseHandler';
 import { getMyNotices } from '@Contexts/Notifications/Application/Notices';
 import { sweepDebts } from '@Contexts/Notifications/Application/DebtSweep';
@@ -43,6 +45,10 @@ export function notificationsWiring(
       {
         event: ExpenseRecordedIntegrationEvent,
         handlers: [new NoticesForExpenseHandler(notices, systemClock)],
+      },
+      {
+        event: BudgetPassedIntegrationEvent,
+        handlers: [new NoticesForBudgetHandler(notices, systemClock)],
       },
     ],
   });

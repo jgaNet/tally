@@ -16,6 +16,8 @@ type SetUpRecurringBody = {
   readonly description: string;
   readonly amount: number;
   readonly startsOn: string;
+  /** What each expense it records is spent on (request 24): a string the domain checks, `other` when left out. */
+  readonly category?: string;
 } & SplitBody;
 
 /**
@@ -38,6 +40,7 @@ export const recurringRoutes: FastifyPluginCallback<{ module: LiteModule }> = (f
             description: { type: 'string' },
             amount: { type: 'integer' },
             startsOn: { type: 'string' },
+            category: { type: 'string' },
             ...splitProperties,
           },
           allOf: [exactlyOneSplit],
@@ -55,6 +58,7 @@ export const recurringRoutes: FastifyPluginCallback<{ module: LiteModule }> = (f
           amount: req.body.amount,
           startsOn: req.body.startsOn,
           split: splitOf(req.body),
+          category: req.body.category,
         },
         { created: true },
       ),

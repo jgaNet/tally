@@ -14,9 +14,12 @@ export const notificationsTablesSchema = [
      seq INTEGER PRIMARY KEY AUTOINCREMENT,
      id TEXT NOT NULL UNIQUE,
      recipient_id TEXT NOT NULL,
-     kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder')),
+     kind TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
      group_id TEXT NOT NULL,
      expense_id TEXT,
+     category TEXT,
+     month TEXT,
+     budget INTEGER,
      amount INTEGER NOT NULL,
      at TEXT NOT NULL
    )`,
@@ -28,6 +31,9 @@ interface NoticeRow {
   kind: NoticeKind;
   group_id: string;
   expense_id: string | null;
+  category: string | null;
+  month: string | null;
+  budget: number | null;
   amount: number;
   at: string;
 }
@@ -42,7 +48,7 @@ export class SqliteNoticeStore implements INoticeStore, INoticeReads {
     const snapshot = notice.toSnapshot();
     this.database.writer
       .prepare(
-        'INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, amount, at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO notices (id, recipient_id, kind, group_id, expense_id, category, month, budget, amount, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
       .run(
         snapshot.id,
@@ -50,6 +56,9 @@ export class SqliteNoticeStore implements INoticeStore, INoticeReads {
         snapshot.kind,
         snapshot.groupId,
         snapshot.expenseId ?? null,
+        snapshot.category ?? null,
+        snapshot.month ?? null,
+        snapshot.budget ?? null,
         snapshot.amount,
         snapshot.at,
       );
@@ -59,7 +68,7 @@ export class SqliteNoticeStore implements INoticeStore, INoticeReads {
     const rows = this.database.read(db =>
       db
         .prepare(
-          'SELECT id, kind, group_id, expense_id, amount, at FROM notices WHERE recipient_id = ? ORDER BY at DESC, seq DESC',
+          'SELECT id, kind, group_id, expense_id, category, month, budget, amount, at FROM notices WHERE recipient_id = ? ORDER BY at DESC, seq DESC',
         )
         .all(recipientId),
     ) as unknown as NoticeRow[];
@@ -68,6 +77,9 @@ export class SqliteNoticeStore implements INoticeStore, INoticeReads {
       kind: row.kind,
       groupId: row.group_id,
       ...(row.expense_id !== null && { expenseId: row.expense_id }),
+      ...(row.category !== null && { category: row.category }),
+      ...(row.month !== null && { month: row.month }),
+      ...(row.budget !== null && { budget: row.budget }),
       amount: row.amount,
       at: row.at,
     }));

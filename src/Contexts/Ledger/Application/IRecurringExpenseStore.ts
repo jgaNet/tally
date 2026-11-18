@@ -1,4 +1,5 @@
 import { RecurringExpense } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 
 /**
  * The split of a recurring expense as it was given (request 23): exactly one of the three ways, under the name the request gives it.
@@ -18,6 +19,8 @@ export type RecurringExpenseView = {
   readonly amount: number;
   readonly startsOn: string;
   readonly next: string;
+  /** What each expense it records is spent on (request 24). */
+  readonly category: Category;
 } & RecurringSplitView;
 
 /**

@@ -82,6 +82,7 @@ describe('recording an expense in another currency', () => {
     expect(body).toEqual({
       id,
       groupId,
+      category: 'other',
       description: 'Train',
       amount: 1311,
       date: PAST_DAY,

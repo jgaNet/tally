@@ -7,6 +7,7 @@ import {
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 import { isAmount, isDescription } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { Split, SplitDraft, memberIdsOf } from '@Contexts/Ledger/Domain/Expense/Split';
+import { Category, categoryGiven } from '@Contexts/Ledger/Domain/Expense/Category';
 import { InvalidRecurringStartsOnException } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpenseExceptions';
 
 /** A start may be this many days before today, or after it (request 23). */
@@ -21,6 +22,8 @@ export interface RecurringExpenseDraft {
   readonly amount: number;
   readonly startsOn: string;
   readonly split: SplitDraft;
+  /** What each expense it records is spent on (request 24): one of the eight, `other` when left out. */
+  readonly category?: string;
 }
 
 /** A recurring expense as the store keeps it: its split as it was given, its next day, and the version it is at. */
@@ -35,6 +38,7 @@ export interface RecurringExpenseSnapshot {
   readonly split: SplitDraft;
   readonly setUpAt: string;
   readonly version: number;
+  readonly category: Category;
 }
 
 /** What a sweep decides for one recurring expense: it goes on, or it ended (its payer or a member of its split has left). */
@@ -56,6 +60,7 @@ export class RecurringExpense extends AggregateRoot {
   #next: string;
   readonly #split: SplitDraft;
   readonly #setUpAt: string;
+  readonly #category: Category;
 
   private constructor(
     id: Id,
@@ -68,6 +73,7 @@ export class RecurringExpense extends AggregateRoot {
     split: SplitDraft,
     setUpAt: string,
     version: number,
+    category: Category,
   ) {
     super(id, version);
     this.#groupId = groupId;
@@ -78,6 +84,7 @@ export class RecurringExpense extends AggregateRoot {
     this.#next = next;
     this.#split = split;
     this.#setUpAt = setUpAt;
+    this.#category = category;
   }
 
   /**
@@ -87,8 +94,10 @@ export class RecurringExpense extends AggregateRoot {
    * split is decided. The identity is generated here (DOMAIN-IDENTITY), and the set up records `RecurringExpenseSetUp`. Pure.
    */
   static setUp(draft: RecurringExpenseDraft, members: readonly string[], now: Date): IResult<RecurringExpense> {
-    const { groupId, payerId, description, amount, startsOn, split } = draft;
+    const { groupId, payerId, description, amount, startsOn, split, category: givenCategory } = draft;
     if (!isDescription(description)) return Result.fail(new InvalidExpenseDescriptionException());
+    const category = categoryGiven(givenCategory);
+    if (category.isFailure()) return Result.fail(category.error);
     if (!isAmount(amount)) return Result.fail(new InvalidExpenseAmountException());
     if (!isStartDay(startsOn, now)) return Result.fail(new InvalidRecurringStartsOnException());
     if (!memberIdsOf(split).every(memberId => members.includes(memberId))) {
@@ -110,6 +119,7 @@ export class RecurringExpense extends AggregateRoot {
       split,
       setUpAt,
       0,
+      category.data,
     );
     recurring.record(
       RecurringExpenseSetUpEvent.set({
@@ -138,6 +148,7 @@ export class RecurringExpense extends AggregateRoot {
       snapshot.split,
       snapshot.setUpAt,
       snapshot.version,
+      snapshot.category,
     );
   }
 
@@ -188,6 +199,7 @@ export class RecurringExpense extends AggregateRoot {
           description: this.#description,
           amount: this.#amount,
           split: this.#split,
+          category: this.#category,
           at,
         }),
       );
@@ -216,6 +228,7 @@ export class RecurringExpense extends AggregateRoot {
       split: this.#split,
       setUpAt: this.#setUpAt,
       version: this.version,
+      category: this.#category,
     };
   }
 }
@@ -260,6 +273,7 @@ export type RecurringExpenseDayCamePayload = {
   description: string;
   amount: number;
   split: SplitDraft;
+  category: Category;
   at: string;
 };
 

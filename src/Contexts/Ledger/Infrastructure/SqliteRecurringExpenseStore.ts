@@ -8,6 +8,7 @@ import {
 } from '@Contexts/Ledger/Application/IRecurringExpenseStore';
 import { RecurringExpense, RecurringExpenseSnapshot } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
 import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
+import { CATEGORIES, Category } from '@Contexts/Ledger/Domain/Expense/Category';
 
 /**
  * The recurring expenses' table (request 23, ADR 18). One row per recurring expense: its group, payer, description, amount, `startsOn`
@@ -30,9 +31,15 @@ export const recurringExpensesTablesSchema = [
    )`,
   'CREATE INDEX IF NOT EXISTS recurring_expenses_by_group ON recurring_expenses (group_id, set_up_at)',
   'CREATE INDEX IF NOT EXISTS recurring_expenses_by_next ON recurring_expenses (next)',
+  `CREATE TABLE IF NOT EXISTS recurring_categories (
+     recurring_id TEXT PRIMARY KEY REFERENCES recurring_expenses(id),
+     category TEXT NOT NULL CHECK (category IN (${CATEGORIES.map(category => `'${category}'`).join(', ')}))
+   )`,
+  `INSERT OR IGNORE INTO recurring_categories (recurring_id, category) SELECT id, 'other' FROM recurring_expenses`,
 ];
 
 interface RecurringRow {
+  category: Category;
   id: string;
   group_id: string;
   paid_by: string;
@@ -44,6 +51,9 @@ interface RecurringRow {
   set_up_at: string;
   version: number;
 }
+
+/** Every recurring expense with its category, the category kept beside it (request 24). */
+const SELECT_RECURRING = `SELECT r.*, c.category FROM recurring_expenses r JOIN recurring_categories c ON c.recurring_id = r.id`;
 
 /** A split as a read shows it: the name the request gives its way, and its entries in the order given. */
 const splitViewOf = (split: SplitDraft): RecurringSplitView => {
@@ -79,6 +89,9 @@ export class SqliteRecurringExpenseStore implements IRecurringExpenseStore {
         snapshot.setUpAt,
         snapshot.version + 1,
       );
+    this.database.writer
+      .prepare('INSERT INTO recurring_categories (recurring_id, category) VALUES (?, ?)')
+      .run(snapshot.id, snapshot.category);
   }
 
   async findById(recurringId: string): Promise<RecurringExpense | undefined> {
@@ -96,6 +109,7 @@ export class SqliteRecurringExpenseStore implements IRecurringExpenseStore {
 
   async remove(recurring: RecurringExpense): Promise<void> {
     const snapshot = recurring.toSnapshot();
+    this.database.writer.prepare('DELETE FROM recurring_categories WHERE recurring_id = ?').run(snapshot.id);
     const { changes } = this.database.writer
       .prepare('DELETE FROM recurring_expenses WHERE id = ? AND version = ?')
       .run(snapshot.id, snapshot.version);
@@ -109,20 +123,20 @@ export class SqliteRecurringExpenseStore implements IRecurringExpenseStore {
 
   async listOf(groupId: string): Promise<RecurringExpenseView[]> {
     const rows = this.database.writer
-      .prepare('SELECT * FROM recurring_expenses WHERE group_id = ? ORDER BY set_up_at, rowid')
+      .prepare(`${SELECT_RECURRING} WHERE r.group_id = ? ORDER BY r.set_up_at, r.rowid`)
       .all(groupId) as unknown as RecurringRow[];
     return rows.map(row => this.#viewFrom(row));
   }
 
   async dueBy(day: string): Promise<RecurringExpense[]> {
     const rows = this.database.writer
-      .prepare('SELECT * FROM recurring_expenses WHERE next <= ? ORDER BY set_up_at, rowid')
+      .prepare(`${SELECT_RECURRING} WHERE r.next <= ? ORDER BY r.set_up_at, r.rowid`)
       .all(day) as unknown as RecurringRow[];
     return rows.map(row => RecurringExpense.fromSnapshot(this.#snapshotOf(row)));
   }
 
   #rowOf(recurringId: string): RecurringRow | undefined {
-    return this.database.writer.prepare('SELECT * FROM recurring_expenses WHERE id = ?').get(recurringId) as
+    return this.database.writer.prepare(`${SELECT_RECURRING} WHERE r.id = ?`).get(recurringId) as
       RecurringRow | undefined;
   }
 
@@ -138,6 +152,7 @@ export class SqliteRecurringExpenseStore implements IRecurringExpenseStore {
       split: JSON.parse(row.split) as SplitDraft,
       setUpAt: row.set_up_at,
       version: row.version,
+      category: row.category,
     };
   }
 
@@ -150,6 +165,7 @@ export class SqliteRecurringExpenseStore implements IRecurringExpenseStore {
       amount: row.amount,
       startsOn: row.starts_on,
       next: row.next,
+      category: row.category,
       ...splitViewOf(JSON.parse(row.split) as SplitDraft),
     };
   }

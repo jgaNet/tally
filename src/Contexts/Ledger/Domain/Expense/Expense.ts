@@ -7,6 +7,7 @@ import {
   OriginalRecord,
 } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { Share, Split, SplitDraft, SplitKind, memberIdsOf } from '@Contexts/Ledger/Domain/Expense/Split';
+import { Category, categoryGiven } from '@Contexts/Ledger/Domain/Expense/Category';
 import {
   ExpenseChangedException,
   ExpenseConcernsFormerMemberException,
@@ -40,6 +41,8 @@ export interface ExpenseDraft extends AmountDraft {
   readonly date: string;
   readonly payerId: string;
   readonly split: SplitDraft;
+  /** What it is spent on (request 24): one of the eight categories, `other` when left out. */
+  readonly category?: string;
 }
 
 /** What a member asks to put in an expense's place: the whole of it, the payer and the group staying as they are. */
@@ -47,6 +50,8 @@ export interface EditDraft extends AmountDraft {
   readonly description: string;
   readonly date: string;
   readonly split: SplitDraft;
+  /** What it is spent on (request 24), as a recording gives it: `other` when left out. */
+  readonly category?: string;
 }
 
 /**
@@ -67,6 +72,8 @@ export interface ExpenseSnapshot {
   readonly version: number;
   /** What the expense was paid in, when it was paid in another currency (request 21), at the rate kept; absent for an expense in the group's currency. */
   readonly original?: OriginalRecord;
+  /** What the expense is spent on (request 24). */
+  readonly category: Category;
 }
 
 /**
@@ -89,6 +96,7 @@ export class Expense extends AggregateRoot {
   #split: Split;
   readonly #recordedAt: string;
   #original: OriginalAmount | undefined;
+  #category: Category;
 
   private constructor(
     id: Id,
@@ -101,6 +109,7 @@ export class Expense extends AggregateRoot {
     recordedAt: string,
     version: number,
     original: OriginalAmount | undefined,
+    category: Category,
   ) {
     super(id, version);
     this.#groupId = groupId;
@@ -111,6 +120,7 @@ export class Expense extends AggregateRoot {
     this.#split = split;
     this.#recordedAt = recordedAt;
     this.#original = original;
+    this.#category = category;
   }
 
   /**
@@ -132,15 +142,29 @@ export class Expense extends AggregateRoot {
     const { groupId, description, date, payerId, split: splitDraft } = draft;
     const checked = checkDraft({ ...draft, payerId, split: splitDraft }, members, now);
     if (checked.isFailure()) return Result.fail(checked.error);
-    const { split, amount, original } = checked.data;
+    const { split, amount, original, category } = checked.data;
 
-    const expense = new Expense(id, groupId, description, amount, date, payerId, split, now.toISOString(), 0, original);
+    const expense = new Expense(
+      id,
+      groupId,
+      description,
+      amount,
+      date,
+      payerId,
+      split,
+      now.toISOString(),
+      0,
+      original,
+      category,
+    );
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: id.value,
         groupId,
         paidBy: payerId,
         amount,
+        date,
+        category,
         splitKind: split.kind,
         shares: split.shares.map(({ memberId, amount }) => ({ memberId, amount })),
         at: now.toISOString(),
@@ -172,6 +196,7 @@ export class Expense extends AggregateRoot {
       snapshot.recordedAt,
       snapshot.version,
       original,
+      snapshot.category,
     );
   }
 
@@ -190,19 +215,22 @@ export class Expense extends AggregateRoot {
 
     const checked = checkDraft({ ...draft, payerId: this.#paidBy, split: draft.split }, members, now);
     if (checked.isFailure()) return Result.fail(checked.error);
-    const { split, amount, original } = checked.data;
+    const { split, amount, original, category } = checked.data;
 
     this.#description = draft.description;
     this.#amount = amount;
     this.#date = draft.date;
     this.#split = split;
     this.#original = original;
+    this.#category = category;
     this.record(
       ExpenseEditedEvent.set({
         expenseId: this._id.value,
         groupId: this.#groupId,
         paidBy: this.#paidBy,
         amount: this.#amount,
+        date: this.#date,
+        category,
         splitKind: this.#split.kind,
         at: now.toISOString(),
       }),
@@ -252,6 +280,7 @@ export class Expense extends AggregateRoot {
       shares: this.#split.shares,
       recordedAt: this.#recordedAt,
       version: this.version,
+      category: this.#category,
       ...(original && { original: { currency: original.currency, amount: original.amount, rate: original.rate } }),
     };
   }
@@ -272,6 +301,7 @@ interface Checked {
   readonly split: Split;
   readonly amount: number;
   readonly original: OriginalAmount | undefined;
+  readonly category: Category;
 }
 
 /**
@@ -280,11 +310,13 @@ interface Checked {
  * payer among them. Returns what was decided, the split in the way it was given.
  */
 const checkDraft = (
-  { description, date, payerId, split, ...money }: Omit<ExpenseDraft, 'groupId'>,
+  { description, date, payerId, split, category: givenCategory, ...money }: Omit<ExpenseDraft, 'groupId'>,
   members: readonly string[],
   now: Date,
 ): IResult<Checked> => {
   if (!isDescription(description)) return Result.fail(new InvalidExpenseDescriptionException());
+  const category = categoryGiven(givenCategory);
+  if (category.isFailure()) return Result.fail(category.error);
   const amount = amountOf(money);
   if (amount.isFailure()) return Result.fail(amount.error);
   if (!isSpentBy(date, now)) return Result.fail(new InvalidExpenseDateException());
@@ -293,7 +325,12 @@ const checkDraft = (
   }
   const decided = Split.decide({ amount: amount.data.amount, payerId, split });
   if (decided.isFailure()) return Result.fail(decided.error);
-  return Result.ok({ split: decided.data, amount: amount.data.amount, original: amount.data.original });
+  return Result.ok({
+    split: decided.data,
+    amount: amount.data.amount,
+    original: amount.data.original,
+    category: category.data,
+  });
 };
 
 /**
@@ -341,6 +378,9 @@ export type ExpenseRecordedPayload = {
   groupId: string;
   paidBy: string;
   amount: number;
+  /** The day the expense is spent on, and its category: what a budget's month counts (request 24). */
+  date: string;
+  category: Category;
   splitKind: SplitKind;
   shares: Share[];
   at: string;
@@ -350,6 +390,8 @@ export type ExpenseEditedPayload = {
   groupId: string;
   paidBy: string;
   amount: number;
+  date: string;
+  category: Category;
   splitKind: SplitKind;
   at: string;
 };

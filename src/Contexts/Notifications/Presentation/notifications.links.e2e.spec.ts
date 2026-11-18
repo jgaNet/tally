@@ -139,3 +139,46 @@ describe('Settlements → Notifications (OutstandingDebts)', () => {
     expect((bobsNotices as Array<Record<string, unknown>>).filter(notice => notice.kind === 'reminder')).toEqual([]);
   });
 });
+
+describe('Ledger → Notifications (BudgetPassed)', () => {
+  it('a month that passes its category budget makes one budget notice for each member, with the category, the month, the budget and what the month spends', async () => {
+    const ann = await person('Ann', 'ann@budget.links.example.com');
+    const bob = await person('Bob', 'bob@budget.links.example.com');
+    const { body: group } = await http.request('POST', `${api}/groups`, {
+      token: ann.token,
+      body: { name: 'Budget links', currency: 'EUR' },
+    });
+    const groupId = (group as { id: string }).id;
+    const invitation = await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ann.token });
+    await http.request('POST', `${api}/invitations/${(invitation.body as { id: string }).id}/accept`, {
+      token: bob.token,
+    });
+    await http.request('PUT', `${api}/groups/${groupId}/budgets/food`, { token: ann.token, body: { amount: 500 } });
+
+    const serverToday = new Date((await http.request('GET', `${api}/accounts/me`)).headers.get('date') ?? '');
+    const today = serverToday.toISOString().slice(0, 10);
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      token: ann.token,
+      body: { description: 'Lunch', amount: 800, date: today, splitBetween: [ann.id, bob.id], category: 'food' },
+    });
+
+    let found: Array<Record<string, unknown>> = [];
+    for (let poll = 0; poll < 120 && found.length === 0; poll++) {
+      const { body } = await http.request('GET', `${api}/notices`, { token: bob.token });
+      found = (body as Array<Record<string, unknown>>).filter(notice => notice.kind === 'budget');
+      if (found.length === 0) await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    expect(found).toEqual([
+      {
+        id: expect.any(String),
+        kind: 'budget',
+        groupId,
+        category: 'food',
+        month: today.slice(0, 7),
+        budget: 500,
+        amount: 800,
+        at: expect.any(String),
+      },
+    ]);
+  });
+});

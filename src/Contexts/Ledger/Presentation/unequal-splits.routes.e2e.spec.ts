@@ -96,6 +96,7 @@ describe('recording an expense by exact amounts', () => {
     expect((await read(bob.token, id)).body).toEqual({
       id,
       groupId,
+      category: 'other',
       description: 'Lobster',
       amount: 1000,
       date: PAST_DAY,

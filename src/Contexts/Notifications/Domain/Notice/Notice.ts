@@ -1,7 +1,21 @@
 import { AggregateRoot, DomainEvent, Id } from '@Architecture/Domain';
 
-/** The kinds of notice there are: one about an expense (request 17), and a reminder of a lasting debt (request 18). */
-export type NoticeKind = 'expense' | 'reminder';
+/**
+ * The kinds of notice there are: one about an expense (request 17), a reminder of a lasting debt (request 18), and one about a month that
+ * passed its category's budget (request 24).
+ */
+export type NoticeKind = 'expense' | 'reminder' | 'budget';
+
+/** What a budget's notice is made from: the member it is for, the group, the category and month, the budget and what the month spends. */
+export interface BudgetNoticeDraft {
+  readonly recipientId: string;
+  readonly groupId: string;
+  readonly category: string;
+  /** The month passed, `YYYY-MM`. */
+  readonly month: string;
+  readonly budget: number;
+  readonly spent: number;
+}
 
 /** What an expense's notice is made from: the member it is for, the group and expense it is about, and the member's share. */
 export interface ExpenseNoticeDraft {
@@ -26,6 +40,10 @@ export interface NoticeSnapshot {
   readonly groupId: string;
   /** The expense a notice of kind `expense` is about; a reminder has none. */
   readonly expenseId?: string;
+  /** What a budget's notice is about (request 24): its category, the month passed, the budget and what the month spends (as `amount`). */
+  readonly category?: string;
+  readonly month?: string;
+  readonly budget?: number;
   readonly amount: number;
   readonly at: string;
 }
@@ -40,6 +58,7 @@ export class Notice extends AggregateRoot {
   readonly #recipientId: string;
   readonly #groupId: string;
   readonly #expenseId: string | undefined;
+  readonly #budgetOf: { category: string; month: string; budget: number } | undefined;
   readonly #amount: number;
   readonly #at: string;
 
@@ -51,6 +70,7 @@ export class Notice extends AggregateRoot {
     expenseId: string | undefined,
     amount: number,
     at: string,
+    budgetOf?: { category: string; month: string; budget: number },
   ) {
     super(id, 0);
     this.#kind = kind;
@@ -59,6 +79,7 @@ export class Notice extends AggregateRoot {
     this.#expenseId = expenseId;
     this.#amount = amount;
     this.#at = at;
+    this.#budgetOf = budgetOf;
   }
 
   /** An expense's notice made now: its identity is generated here (DOMAIN-IDENTITY), and its making records NoticeIssued. Pure: the time is given. */
@@ -94,6 +115,29 @@ export class Notice extends AggregateRoot {
     return notice;
   }
 
+  /** A budget's notice made now (request 24): it names the category, the month and the budget, and what the month spends. Records NoticeIssued. */
+  static budget({ recipientId, groupId, category, month, budget, spent }: BudgetNoticeDraft, now: Date): Notice {
+    const notice = new Notice(Id.generate(), 'budget', recipientId, groupId, undefined, spent, now.toISOString(), {
+      category,
+      month,
+      budget,
+    });
+    notice.record(
+      NoticeIssuedEvent.set({
+        noticeId: notice._id.value,
+        kind: 'budget',
+        recipientId,
+        groupId,
+        category,
+        month,
+        budget,
+        amount: spent,
+        at: now.toISOString(),
+      }),
+    );
+    return notice;
+  }
+
   toSnapshot(): NoticeSnapshot {
     return {
       id: this._id.value,
@@ -101,6 +145,7 @@ export class Notice extends AggregateRoot {
       kind: this.#kind,
       groupId: this.#groupId,
       ...(this.#expenseId !== undefined && { expenseId: this.#expenseId }),
+      ...(this.#budgetOf && this.#budgetOf),
       amount: this.#amount,
       at: this.#at,
     };
@@ -113,6 +158,9 @@ export type NoticeIssuedPayload = {
   recipientId: string;
   groupId: string;
   expenseId?: string;
+  category?: string;
+  month?: string;
+  budget?: number;
   amount: number;
   at: string;
 };

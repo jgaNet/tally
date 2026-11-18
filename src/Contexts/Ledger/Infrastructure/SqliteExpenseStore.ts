@@ -9,6 +9,7 @@ import {
 } from '@Contexts/Ledger/Application/IExpenseStore';
 import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { Share, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
+import { CATEGORIES, Category } from '@Contexts/Ledger/Domain/Expense/Category';
 
 /**
  * The ledger's tables. An expense is a row of `expenses` (feature 4), and its shares are rows of `expense_shares`, in the
@@ -89,6 +90,11 @@ export const ledgerTablesSchema = [
      amount INTEGER NOT NULL,
      rate TEXT NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS expense_categories (
+     expense_id TEXT PRIMARY KEY REFERENCES expenses(id),
+     category TEXT NOT NULL CHECK (category IN (${CATEGORIES.map(category => `'${category}'`).join(', ')}))
+   )`,
+  `INSERT OR IGNORE INTO expense_categories (expense_id, category) SELECT id, 'other' FROM expenses`,
 ];
 
 /**
@@ -117,6 +123,7 @@ export class SqliteExpenseStore implements IExpenseStore {
       .prepare('INSERT INTO expense_recordings (expense_id, recorded_at) VALUES (?, ?)')
       .run(snapshot.id, snapshot.recordedAt);
     this.#writeOriginal(snapshot);
+    this.#writeCategory(snapshot);
     this.#writeShares(snapshot);
     this.#writeBalances(snapshot);
   }
@@ -138,6 +145,9 @@ export class SqliteExpenseStore implements IExpenseStore {
       .run(snapshot.id, snapshot.splitKind);
     this.database.writer.prepare('DELETE FROM expense_originals WHERE expense_id = ?').run(snapshot.id);
     this.#writeOriginal(snapshot);
+    this.database.writer
+      .prepare('INSERT OR REPLACE INTO expense_categories (expense_id, category) VALUES (?, ?)')
+      .run(snapshot.id, snapshot.category);
     this.database.writer.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(snapshot.id);
     this.#writeShares(snapshot);
     this.database.writer.prepare('DELETE FROM expense_balances WHERE expense_id = ?').run(snapshot.id);
@@ -153,6 +163,7 @@ export class SqliteExpenseStore implements IExpenseStore {
     this.database.writer.prepare('DELETE FROM expense_splits WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expense_recordings WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expense_originals WHERE expense_id = ?').run(snapshot.id);
+    this.database.writer.prepare('DELETE FROM expense_categories WHERE expense_id = ?').run(snapshot.id);
     this.database.writer.prepare('DELETE FROM expenses WHERE id = ?').run(snapshot.id);
   }
 
@@ -174,12 +185,13 @@ export class SqliteExpenseStore implements IExpenseStore {
     const rows = this.database.read(db =>
       db
         .prepare(
-          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at,
+          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at, c.category,
                   o.currency AS original_currency, o.amount AS original_amount, o.rate AS original_rate
              FROM expenses e
              JOIN expense_versions v ON v.expense_id = e.id
              JOIN expense_splits k ON k.expense_id = e.id
              JOIN expense_recordings r ON r.expense_id = e.id
+             JOIN expense_categories c ON c.expense_id = e.id
              LEFT JOIN expense_originals o ON o.expense_id = e.id
             WHERE e.group_id = ?
             ORDER BY e.spent_on DESC, r.recorded_at DESC, e.rowid DESC`,
@@ -203,6 +215,19 @@ export class SqliteExpenseStore implements IExpenseStore {
     }
 
     return rows.map(row => this.#viewFrom(row, sharesByExpense.get(row.id) ?? []));
+  }
+
+  async spentIn(groupId: string, category: Category, month: string): Promise<number> {
+    const row = this.database.read(db =>
+      db
+        .prepare(
+          `SELECT COALESCE(SUM(e.amount), 0) AS spent
+             FROM expenses e JOIN expense_categories c ON c.expense_id = e.id
+            WHERE e.group_id = ? AND c.category = ? AND substr(e.spent_on, 1, 7) = ?`,
+        )
+        .get(groupId, category, month),
+    ) as { spent: number };
+    return row.spent;
   }
 
   async statementRowsOf(groupId: string, memberId: string): Promise<StatementRowView[]> {
@@ -231,12 +256,13 @@ export class SqliteExpenseStore implements IExpenseStore {
     return this.database.read(db =>
       db
         .prepare(
-          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at,
+          `SELECT e.id, e.group_id, e.description, e.amount, e.spent_on, e.paid_by, v.version, k.kind, r.recorded_at, c.category,
                   o.currency AS original_currency, o.amount AS original_amount, o.rate AS original_rate
              FROM expenses e
              JOIN expense_versions v ON v.expense_id = e.id
              JOIN expense_splits k ON k.expense_id = e.id
              JOIN expense_recordings r ON r.expense_id = e.id
+             JOIN expense_categories c ON c.expense_id = e.id
              LEFT JOIN expense_originals o ON o.expense_id = e.id
             WHERE e.id = ?`,
         )
@@ -261,6 +287,7 @@ export class SqliteExpenseStore implements IExpenseStore {
       splitKind: row.kind,
       shares: shares.map(share => ({ memberId: share.member_id, amount: share.amount })),
       version: row.version,
+      category: row.category,
       ...(row.original_currency !== null && {
         original: {
           currency: row.original_currency,
@@ -279,6 +306,13 @@ export class SqliteExpenseStore implements IExpenseStore {
     if (changes === 0) {
       throw new ConcurrencyConflictException('Ledger', 'The expense changed since it was read: read it again');
     }
+  }
+
+  /** An expense's category is written with it, and changed by an edit. */
+  #writeCategory(snapshot: ExpenseSnapshot): void {
+    this.database.writer
+      .prepare('INSERT INTO expense_categories (expense_id, category) VALUES (?, ?)')
+      .run(snapshot.id, snapshot.category);
   }
 
   /** An expense paid in another currency keeps its currency, amount and rate as given; any other has no row. */
@@ -320,6 +354,7 @@ interface ExpenseRow {
   version: number;
   kind: SplitKind;
   recorded_at: string;
+  category: Category;
   original_currency: string | null;
   original_amount: number | null;
   original_rate: string | null;

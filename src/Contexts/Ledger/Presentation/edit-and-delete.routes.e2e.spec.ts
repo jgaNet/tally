@@ -107,6 +107,7 @@ describe('editing an expense', () => {
     expect(after.body).toEqual({
       id,
       groupId,
+      category: 'other',
       description: 'Dinner',
       amount: 900,
       date: PAST_DAY,

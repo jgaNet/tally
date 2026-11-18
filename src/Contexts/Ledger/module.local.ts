@@ -7,7 +7,12 @@ import { getGroupExpenses, getMemberStatement } from '@Contexts/Ledger/Applicati
 import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
 import { getOfferedRate } from '@Contexts/Ledger/Application/Rates';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
-import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { PassBudgetHandler } from '@Contexts/Ledger/Application/Events/PassBudgetHandler';
+import { PublishBudgetPassedHandler } from '@Contexts/Ledger/Application/Events/PublishBudgetPassedHandler';
+import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/Budget';
+import { SqliteBudgetStore, budgetsTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteBudgetStore';
+import { getGroupBudgets, removeBudget, setBudget } from '@Contexts/Ledger/Application/Budgets';
 import { ISettledAmounts } from '@Contexts/Ledger/Application/ISettledAmounts';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
@@ -36,7 +41,7 @@ import {
  * no part of Groups but the roster's type. What the settlements moved in a balance is given the same way (`settled`, ADR 10):
  * every balance Ledger reads counts the settlements recorded so far. The module lists each use case once.
  */
-export const ledgerSchema = [...ledgerTablesSchema, ...recurringExpensesTablesSchema];
+export const ledgerSchema = [...ledgerTablesSchema, ...recurringExpensesTablesSchema, ...budgetsTablesSchema];
 
 /**
  * The balances of a group's members, as Ledger's read model gives them to Groups when a member asks to leave (feature 9), and to
@@ -68,11 +73,17 @@ export function ledgerWiring(
 ): LiteModule {
   const expenses = new SqliteExpenseStore(database);
   const recurring = new SqliteRecurringExpenseStore(database);
+  const budgets = new SqliteBudgetStore(database);
 
   return new LiteModule({
     name: 'Ledger',
     domainEvents: [
-      { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] },
+      {
+        event: ExpenseRecordedEvent,
+        handlers: [new ExpenseRecordedHandler(), new PassBudgetHandler(budgets, expenses, groupMembers, systemClock)],
+      },
+      { event: ExpenseEditedEvent, handlers: [new PassBudgetHandler(budgets, expenses, groupMembers, systemClock)] },
+      { event: BudgetPassedEvent, handlers: [new PublishBudgetPassedHandler()] },
       {
         event: RecurringExpenseDayCameEvent,
         handlers: [new RecordRecurringExpenseHandler(expenses, groupMembers, groupCurrency, systemClock)],
@@ -92,6 +103,9 @@ export function ledgerWiring(
       getRecurringExpense(recurring, groupMembers),
       getGroupRecurringExpenses(recurring, groupMembers),
       sweepRecurringExpenses(recurring, groupMembers, systemClock),
+      setBudget(budgets, groupMembers, systemClock),
+      removeBudget(budgets, groupMembers, systemClock),
+      getGroupBudgets(budgets, expenses, groupMembers, systemClock),
     ],
   });
 }

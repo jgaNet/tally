@@ -90,6 +90,7 @@ describe('Groups → Ledger', () => {
     expect(read1.body).toEqual({
       id,
       groupId,
+      category: 'other',
       description: 'Groceries',
       amount: 1000,
       date: PAST_DAY,

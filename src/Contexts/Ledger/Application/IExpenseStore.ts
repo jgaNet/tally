@@ -1,5 +1,6 @@
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { OriginalRecord } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
+import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { Share, SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 
 /** What a screen shows of one expense: a read model, never the aggregate (QUERY-READ-MODELS). Its version is the one it is at. */
@@ -13,6 +14,8 @@ export interface ExpenseView {
   readonly splitKind: SplitKind;
   readonly shares: readonly Share[];
   readonly version: number;
+  /** What it is spent on (request 24). */
+  readonly category: Category;
   /** What it was paid in, when it was paid in another currency (request 21): its currency, amount and rate, as given. */
   readonly original?: OriginalRecord;
 }
@@ -58,4 +61,9 @@ export interface IExpenseStore {
   listOf(groupId: string): Promise<ExpenseView[]>;
   statementRowsOf(groupId: string, memberId: string): Promise<StatementRowView[]>;
   balancesOf(groupId: string): Promise<MemberBalanceView[]>;
+  /**
+   * What the group's expenses of a category spend in a month (`YYYY-MM`, UTC): the sum of their amounts, the expenses not deleted only, 0 when
+   * there are none (request 24). Read from the committed expenses, as a balance is.
+   */
+  spentIn(groupId: string, category: Category, month: string): Promise<number>;
 }

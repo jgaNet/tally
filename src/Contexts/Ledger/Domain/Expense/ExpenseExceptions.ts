@@ -228,3 +228,14 @@ export class OfferedRateNotFoundException extends NotFoundException {
     super(SERVICE, 'No rate is offered for this currency on this day');
   }
 }
+
+/** A category that is not one of the eight of request 24: `422`. */
+export class InvalidExpenseCategoryException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'InvalidExpenseCategory',
+      message: 'An expense category is one of groceries, rent, utilities, transport, food, travel, leisure or other',
+    });
+  }
+}

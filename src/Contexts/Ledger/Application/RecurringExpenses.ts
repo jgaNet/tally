@@ -17,6 +17,8 @@ export interface SetUpRecurringExpenseInput {
   readonly amount: number;
   readonly startsOn: string;
   readonly split: SplitDraft;
+  /** What each expense it records is spent on (request 24): one of the eight, `other` when left out. */
+  readonly category?: string;
 }
 
 /**

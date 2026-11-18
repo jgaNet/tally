@@ -17,6 +17,8 @@ describe('ExpenseRecordedHandler', () => {
         groupId: 'group-1',
         paidBy: 'bob',
         amount: 900,
+        date: '2026-05-03',
+        category: 'other',
         splitKind: 'equal',
         shares: [
           { memberId: 'bob', amount: 300 },

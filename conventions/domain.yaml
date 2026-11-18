@@ -77,6 +77,10 @@ contexts:
         meaning: what an expense was paid in another currency, at the rate its payer states, kept as given; converted to the group's currency, a half up.
       - term: RecurringExpense
         meaning: an expense a member pays every month, with its split as given, whose expense the background job records on each day of the month that has come, from its start, once.
+      - term: Category
+        meaning: what an expense is spent on, one of eight, `other` when none is given; a budget is set per category.
+      - term: Budget
+        meaning: the most a group's month may spend in one category, set by its owner; a month that passes it is told to every member, once.
   - id: Settlements
     purpose: >-
       Settling up between members: the settlements of each group decided in one book, in cash or through the payment
@@ -92,13 +96,16 @@ contexts:
         meaning: the account at the provider a person is paid on; required to be paid through the provider.
   - id: Notifications
     purpose: >-
-      Telling members what concerns them: one notice per member when an expense includes them, and a reminder, at the
-      next sweep, to a member who has owed more than a threshold for a week, once a week.
+      Telling members what concerns them: one notice per member when an expense includes them, a reminder, at the
+      next sweep, to a member who has owed more than a threshold for a week, once a week, and one per member when a
+      month's spending in a category passes its budget, once for that month.
     language:
       - term: Notice
         meaning: one message owed to one member about one fact, made once from the fact.
       - term: Reminder
         meaning: a notice the sweep makes for a lasting debt, at most once a week per member and group.
+      - term: BudgetNotice
+        meaning: a notice made for a member when a group's month passes a category's budget, once per category and month.
 relationships:
   - upstream: Groups
     downstream: Ledger
@@ -152,9 +159,10 @@ relationships:
     patterns: [published-language, anti-corruption-layer]
     mechanism: integration-event
     why: >-
-      A member is told when an expense concerns them. Ledger says it in its public words (ExpenseRecorded, Tally's
-      first integration event), through the outbox; Notifications turns it into one notice per member and delivers
-      it, which keeps the telling out of the ledger's transactions (T9).
+      A member is told when an expense concerns them, and when a month passes a budget (request 24). Ledger says it in
+      its public words (ExpenseRecorded, Tally's first integration event, and BudgetPassed), through the outbox;
+      Notifications turns each into one notice per member and delivers it, which keeps the telling out of the ledger's
+      transactions (T9, ADR 19).
   - upstream: Settlements
     downstream: Notifications
     patterns: [customer-supplier, anti-corruption-layer]
