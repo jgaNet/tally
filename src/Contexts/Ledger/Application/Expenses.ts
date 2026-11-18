@@ -6,8 +6,9 @@ import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { IExpenseStore, ExpenseView } from '@Contexts/Ledger/Application/IExpenseStore';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
 import { GroupMemberRole, IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
+import { IOfferedRates } from '@Contexts/Ledger/Application/IOfferedRates';
 import { Expense } from '@Contexts/Ledger/Domain/Expense/Expense';
-import { OriginalDraft } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
+import { OfferedRate, OriginalDraft } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import {
   ExpenseNotFoundException,
   GroupNotFoundException,
@@ -18,7 +19,7 @@ import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
 /**
  * An expense as the request carries it: the group it is in, and the rest of the draft; the payer is the caller. Its amount is
  * either `amount`, in the group's currency, or `original`, in another currency at its rate (request 21): the transport gives
- * exactly one of them.
+ * exactly one of them. The rate of an original may be left out, and is then the one offered (request 22).
  */
 export interface RecordExpenseInput {
   readonly groupId: string;
@@ -46,21 +47,30 @@ export interface EditExpenseInput {
 /**
  * Records an expense the signed-in person paid, split between the members the request names. The group is read through the
  * owned port: a caller who is not one of its members gets the group's `404`, since the group is not there for them. The group's
- * currency is read through its own port, the one an expense in another currency is converted to (request 21). The expense is saved
- * with its shares, and what it recorded (ExpenseRecorded) goes out with the commit, through the outbox. Answers the new expense's id.
+ * currency is read through its own port, the one an expense in another currency is converted to (request 21). An expense in
+ * another currency is decided with the rate the rates service offers for its currency on its day (request 22, asked before the
+ * expense decides). The expense is saved with its shares, and what it recorded (ExpenseRecorded) goes out with the commit, through
+ * the outbox. Answers the new expense's id.
  */
 export const recordExpense = command(
   'RecordExpense',
-  (expenses: IExpenseStore, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+  (
+    expenses: IExpenseStore,
+    groupMembers: IGroupMembers,
+    groupCurrency: IGroupCurrency,
+    rates: IOfferedRates,
+    clock: Clock,
+  ) =>
     async ({ groupId, ...draft }: RecordExpenseInput, context): Promise<IResult<string>> => {
       const payerId = callerOf(context);
       const members = await groupMembers.membersOf(groupId);
       if (!members || !isMember(members, payerId)) return Result.fail(new GroupNotFoundException());
       const currency = await groupCurrency.currencyOf(groupId);
       if (currency === undefined) return Result.fail(new GroupNotFoundException());
+      const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
 
       const recorded = Expense.register(
-        { groupId, payerId, groupCurrency: currency, ...draft },
+        { groupId, payerId, groupCurrency: currency, offered, ...draft },
         members.map(member => member.memberId),
         clock(),
       );
@@ -77,18 +87,26 @@ export const recordExpense = command(
  * (`403` to any other member); to someone outside the group the expense does not exist (`404`). The payer stays the one who
  * paid. An edit from another version is refused with `ExpenseChanged` (`409`), and the author reads it again and decides. The
  * expense is saved at the version it was read at, so of two edits from one version, one is kept, and the other is refused by
- * that same rule once it has read the expense again. What it recorded (ExpenseEdited) goes out with the commit.
+ * that same rule once it has read the expense again. An edit in another currency is decided with the rate offered on its day
+ * (request 22), as a recording is. What it recorded (ExpenseEdited) goes out with the commit.
  */
 export const editExpense = command(
   'EditExpense',
-  (expenses: IExpenseStore, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+  (
+    expenses: IExpenseStore,
+    groupMembers: IGroupMembers,
+    groupCurrency: IGroupCurrency,
+    rates: IOfferedRates,
+    clock: Clock,
+  ) =>
     async ({ expenseId, version, ...draft }: EditExpenseInput, context): Promise<IResult<void>> => {
       const found = await changeable(expenses, groupMembers, groupCurrency, expenseId, context);
       if (found.isFailure()) return Result.fail(found.error);
       const { expense, members, currency } = found.data;
+      const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
 
       const edited = expense.edit(
-        { groupCurrency: currency, ...draft },
+        { groupCurrency: currency, offered, ...draft },
         members.map(member => member.memberId),
         version,
         clock(),
@@ -169,6 +187,19 @@ async function changeable(
 
   return Result.ok({ expense, members, currency });
 }
+
+/**
+ * The rate the rates service offers for an original's currency to the group's on the expense's day (request 22), asked when the
+ * expense has an original, whether or not its rate is left out: a stated rate is checked against it. Nothing is asked for an
+ * expense in the group's currency.
+ */
+const offeredRateFor = async (
+  rates: IOfferedRates,
+  original: OriginalDraft | undefined,
+  groupCurrency: string,
+  date: string,
+): Promise<OfferedRate | undefined> =>
+  original === undefined ? undefined : rates.rateOf(original.currency, groupCurrency, date);
 
 const isMember = (members: readonly GroupMemberRole[], memberId: string): boolean =>
   members.some(member => member.memberId === memberId);

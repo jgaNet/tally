@@ -20,6 +20,8 @@ why, what it costs, and when to revisit it.
 | [13](0013-notices-are-made-from-an-integration-event-and-a-notice-is-an-aggregate.md) | Notices are made from ExpenseRecorded, and a notice is an aggregate that records NoticeIssued |
 | [14](0014-reminders-are-a-sweep-over-settlements-debts-and-a-watch-per-debt.md) | Reminders are a sweep in Notifications over Settlements' debts, and a watch per member and group |
 | [15](0015-leaving-passes-the-balance-to-the-owner-and-waits-for-the-provider.md) | Leaving passes the balance to the owner, and a payment waiting at the provider keeps a member in |
+| [16](0016-another-currency-is-an-original-amount-converted-at-the-rate-stated.md) | An expense in another currency is an original amount converted at the rate stated |
+| [17](0017-offered-rates-are-a-port-in-ledger-and-the-band-is-the-expenses.md) | Offered rates are a port Ledger owns, and the 2 % band is the expense's rule |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

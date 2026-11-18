@@ -1,6 +1,11 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
 
-import { OriginalAmount, OriginalDraft } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
+import {
+  OfferedRate,
+  OriginalAmount,
+  OriginalDraft,
+  OriginalRecord,
+} from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { Share, Split, SplitDraft, SplitKind, memberIdsOf } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
   ExpenseChangedException,
@@ -20,6 +25,12 @@ export interface AmountDraft {
   readonly amount?: number;
   readonly original?: OriginalDraft;
   readonly groupCurrency: string;
+  /**
+   * What the rates service offers for the original's currency to the group's on the expense's day (request 22), asked by the use case
+   * when there is an original and read here. Absent for an expense in the group's currency; with an original and none given, no rate
+   * is offered.
+   */
+  readonly offered?: OfferedRate;
 }
 
 /** What a member asks to record: the expense as the request carries it, its payer being the caller. */
@@ -54,8 +65,8 @@ export interface ExpenseSnapshot {
   readonly shares: readonly Share[];
   readonly recordedAt: string;
   readonly version: number;
-  /** What the expense was paid in, when it was paid in another currency (request 21); absent for an expense in the group's currency. */
-  readonly original?: OriginalDraft;
+  /** What the expense was paid in, when it was paid in another currency (request 21), at the rate kept; absent for an expense in the group's currency. */
+  readonly original?: OriginalRecord;
 }
 
 /**
@@ -241,7 +252,7 @@ export class Expense extends AggregateRoot {
 }
 
 /** The original amount an expense keeps, or none for an expense in the group's currency; throws when it does not match the amount. */
-const keptOriginal = (original: OriginalDraft | undefined, amount: number): OriginalAmount | undefined => {
+const keptOriginal = (original: OriginalRecord | undefined, amount: number): OriginalAmount | undefined => {
   if (original === undefined) return undefined;
   const kept = OriginalAmount.kept(original);
   if (kept.toGroupAmount() !== BigInt(amount)) {
@@ -287,6 +298,7 @@ const amountOf = ({
   amount,
   original,
   groupCurrency,
+  offered,
 }: AmountDraft): IResult<{ amount: number; original: OriginalAmount | undefined }> => {
   if (original === undefined) {
     if (amount === undefined || !isAmount(amount)) return Result.fail(new InvalidExpenseAmountException());
@@ -294,7 +306,7 @@ const amountOf = ({
   }
   if (amount !== undefined) return Result.fail(new InvalidExpenseAmountException());
 
-  const decided = OriginalAmount.decide(original, groupCurrency);
+  const decided = OriginalAmount.decide(original, groupCurrency, offered ?? { kind: 'none' });
   if (decided.isFailure()) return Result.fail(decided.error);
   const converted = decided.data.toGroupAmount();
   if (converted < 1n || converted > BigInt(Expense.MAX_AMOUNT)) return Result.fail(new InvalidExpenseAmountException());

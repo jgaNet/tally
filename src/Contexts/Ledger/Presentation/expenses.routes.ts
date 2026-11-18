@@ -13,7 +13,7 @@ type SplitBody =
   | { readonly splitByShares: { memberId: string; shares: number }[] };
 
 /** An expense paid in another currency, as a body gives it (request 21): its shape only. */
-type OriginalBody = { readonly currency: string; readonly amount: number; readonly rate: string };
+type OriginalBody = { readonly currency: string; readonly amount: number; readonly rate?: string };
 
 /** The amount of a body (request 21): exactly one of `amount`, in the group's currency, and `original`, in another currency. */
 type AmountBody = { readonly amount: number } | { readonly original: OriginalBody };
@@ -29,7 +29,7 @@ const amountProperties = {
   amount: { type: 'integer' },
   original: {
     type: 'object',
-    required: ['currency', 'amount', 'rate'],
+    required: ['currency', 'amount'],
     properties: { currency: { type: 'string' }, amount: { type: 'integer' }, rate: { type: 'string' } },
   },
 };
@@ -84,7 +84,8 @@ const splitOf = (body: SplitBody): SplitDraft => {
  * or both of `amount` and `original`, or not exactly one of the three splits is `400` before any use case runs; whether the
  * description fits, the amount is in range, the currency is Tally's and not the group's, the rate is a positive decimal with at most
  * six digits after the point, the date is a real day, the split is the group's members, the amounts add up and the shares are at
- * least 1 is the domain's to say (`422`).
+ * least 1 is the domain's to say (`422`). The rate of an original may be left out (request 22): it is then the one offered on the day,
+ * and a rate given is checked against that offer by the domain.
  */
 export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fastify, { module }, done) => {
   fastify.post<{ Params: { id: string }; Body: RecordExpenseBody }>(

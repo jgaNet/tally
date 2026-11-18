@@ -5,11 +5,13 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 import { getGroupBalances } from '@Contexts/Ledger/Application/Balances';
 import { getGroupExpenses, getMemberStatement } from '@Contexts/Ledger/Application/History';
 import { deleteExpense, editExpense, getExpense, recordExpense } from '@Contexts/Ledger/Application/Expenses';
+import { getOfferedRate } from '@Contexts/Ledger/Application/Rates';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { ISettledAmounts } from '@Contexts/Ledger/Application/ISettledAmounts';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
+import { IOfferedRates } from '@Contexts/Ledger/Application/IOfferedRates';
 import { IBalanceRoster } from '@Contexts/Ledger/Domain/Expense/Ports/IBalanceRoster';
 import { SqliteBalanceRoster } from '@Contexts/Ledger/Infrastructure/SqliteBalanceRoster';
 import { SqliteExpenseStore, ledgerTablesSchema } from '@Contexts/Ledger/Infrastructure/SqliteExpenseStore';
@@ -39,13 +41,16 @@ export function ledgerBalanceRoster(
 
 /**
  * The Ledger module, over the database, Groups' members (`groupMembers`, built over Groups' roster), the group's currency
- * (`groupCurrency`, the same roster: an expense in another currency is converted to it, request 21) and what the settlements moved.
- * The composition root builds `groupMembers` once, so the balance read model and this module share it.
+ * (`groupCurrency`, the same roster: an expense in another currency is converted to it, request 21), the rates a rates service
+ * offers (`rates`, request 22: an expense in another currency takes the rate offered when its own is left out, and is checked
+ * against it) and what the settlements moved. The composition root builds `groupMembers` once, so the balance read model and this
+ * module share it.
  */
 export function ledgerWiring(
   database: SqliteDatabase,
   groupMembers: IGroupMembers,
   groupCurrency: IGroupCurrency,
+  rates: IOfferedRates,
   settled: ISettledAmounts,
 ): LiteModule {
   const expenses = new SqliteExpenseStore(database);
@@ -54,10 +59,11 @@ export function ledgerWiring(
     name: 'Ledger',
     domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
     useCases: [
-      recordExpense(expenses, groupMembers, groupCurrency, systemClock),
-      editExpense(expenses, groupMembers, groupCurrency, systemClock),
+      recordExpense(expenses, groupMembers, groupCurrency, rates, systemClock),
+      editExpense(expenses, groupMembers, groupCurrency, rates, systemClock),
       deleteExpense(expenses, groupMembers, groupCurrency, systemClock),
       getExpense(expenses, groupMembers),
+      getOfferedRate(groupMembers, groupCurrency, rates, systemClock),
       getGroupBalances(expenses, groupMembers, settled),
       getGroupExpenses(expenses, groupMembers),
       getMemberStatement(expenses, groupMembers),

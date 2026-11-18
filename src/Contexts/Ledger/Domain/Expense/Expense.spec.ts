@@ -206,11 +206,13 @@ describe('Expense in another currency (request 21)', () => {
     amount: 900,
     date: '2026-11-16',
     split: { kind: 'equal', memberIds: ['ann', 'bob'] },
+    offered: { kind: 'no-service' },
   };
   const inChf = (overrides: Partial<ExpenseDraft> = {}): ExpenseDraft =>
     draft({
       amount: undefined,
       original: { currency: 'CHF', amount: 1234, rate: '1.0625' },
+      offered: { kind: 'no-service' },
       ...overrides,
     });
 
@@ -291,5 +293,54 @@ describe('Expense in another currency (request 21)', () => {
     const snapshot = { ...Expense.register(inChf(), members, now).data!.toSnapshot(), version: 1 };
     expect(() => Expense.fromSnapshot({ ...snapshot, amount: 1312 })).toThrow();
     expect(Expense.fromSnapshot(snapshot).toSnapshot()).toMatchObject({ amount: 1311, original: snapshot.original });
+  });
+});
+
+describe('Expense in another currency at the rate offered (request 22)', () => {
+  const usd = (overrides: Partial<ExpenseDraft> = {}): ExpenseDraft =>
+    draft({
+      amount: undefined,
+      original: { currency: 'USD', amount: 1000 },
+      offered: { kind: 'rate', rate: '0.95' },
+      ...overrides,
+    });
+
+  it('is recorded at the offered rate when its rate is left out, and keeps that rate', () => {
+    const expense = Expense.register(usd(), members, now);
+    expect(expense.isFailure()).toBe(false);
+    expect(expense.data!.toSnapshot()).toMatchObject({
+      amount: 950,
+      original: { currency: 'USD', amount: 1000, rate: '0.95' },
+    });
+  });
+
+  it('is refused by name when its rate is left out and none is offered', () => {
+    expect(Expense.register(usd({ offered: { kind: 'none' } }), members, now).error?.type).toBe('NoRateOffered');
+  });
+
+  it('keeps a stated rate within 2 % of the offer, and refuses one beyond it by name', () => {
+    expect(
+      Expense.register(usd({ original: { currency: 'USD', amount: 1000, rate: '0.969' } }), members, now).isFailure(),
+    ).toBe(false);
+    expect(
+      Expense.register(usd({ original: { currency: 'USD', amount: 1000, rate: '0.97' } }), members, now).error?.type,
+    ).toBe('RateOutsideBand');
+  });
+
+  it('is checked against the offer when the edit states another rate, and refused beyond the band', () => {
+    const recorded = Expense.register(usd(), members, now).data!;
+    const loaded = Expense.fromSnapshot({ ...recorded.toSnapshot(), version: 1 });
+    const edit: EditDraft = {
+      groupCurrency: 'EUR',
+      description: 'Dinner',
+      date: '2026-11-16',
+      split: { kind: 'equal', memberIds: ['ann', 'bob'] },
+      original: { currency: 'USD', amount: 2000, rate: '0.93' },
+      offered: { kind: 'rate', rate: '0.95' },
+    };
+    expect(loaded.edit(edit, members, 1, now).error?.type).toBe('RateOutsideBand');
+    expect(loaded.edit({ ...edit, original: { currency: 'USD', amount: 2000 } }, members, 1, now).isFailure()).toBe(
+      false,
+    );
   });
 });

@@ -17,9 +17,11 @@ import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/
 import { groupRoster, groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
+import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/balances.routes';
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { historyRoutes } from '@Contexts/Ledger/Presentation/history.routes';
+import { ratesRoutes } from '@Contexts/Ledger/Presentation/rates.routes';
 import { SettledAmountsFromSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsFromSettlements';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
@@ -62,6 +64,7 @@ export async function createApplication({
     .filter(Boolean),
   providerUrl = process.env.PROVIDER_URL || undefined,
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || undefined,
+  ratesUrl = process.env.RATES_URL || undefined,
   jobsIntervalSeconds = Number(process.env.JOBS_INTERVAL_SECONDS || 60),
   reminderPeriodSeconds = Number(process.env.REMINDER_PERIOD_SECONDS || 604800),
 }: {
@@ -75,6 +78,8 @@ export async function createApplication({
   providerUrl?: string;
   /** The secret the provider signs its webhooks with, shared with Tally (PROVIDER_WEBHOOK_SECRET). */
   providerWebhookSecret?: string;
+  /** The base of the rates service's API, without a trailing slash (RATES_URL); without it, no rate is offered (request 22). */
+  ratesUrl?: string;
   /** How often the background jobs run, in seconds (JOBS_INTERVAL_SECONDS; 60 when it is not set): the debt sweep of request 18. */
   jobsIntervalSeconds?: number;
   /** How long a debt must last before its member is reminded, in seconds (REMINDER_PERIOD_SECONDS; a week when it is not set). */
@@ -101,7 +106,10 @@ export async function createApplication({
     new MemberBalancesFromLedger(balances),
     new WaitingPaymentsFromSettlements(waitingPaymentRoster(database)),
   );
-  const ledger = ledgerWiring(database, groupMembers, groupCurrency, settledAmounts);
+  // The rates a rates service offers (request 22) are asked of RATES_URL, through a port Ledger owns: an expense in another currency takes
+  // the rate offered when its own is left out, and is checked against it.
+  const rates = new HttpOfferedRates(ratesUrl);
+  const ledger = ledgerWiring(database, groupMembers, groupCurrency, rates, settledAmounts);
   // The suggested settlements read the members of a group from Groups' roster and its balances from Ledger's read model (ADR 9).
   // Paying through the provider (request 13) is asked of PROVIDER_URL, and its webhooks are checked with PROVIDER_WEBHOOK_SECRET.
   const settlements = settlementsWiring(database, groups.roster, balances, {
@@ -136,6 +144,7 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { module: ledger })
     .registerRoutes('/', balanceRoutes, { module: ledger })
     .registerRoutes('/', historyRoutes, { module: ledger })
+    .registerRoutes('/', ratesRoutes, { module: ledger })
     .registerRoutes('/', settlementRoutes, { module: settlements })
     .registerRoutes('/', noticeRoutes, { module: notifications })
     .onStop(() => database.close());

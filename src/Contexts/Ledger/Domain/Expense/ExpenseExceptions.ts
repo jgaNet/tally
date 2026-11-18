@@ -195,3 +195,36 @@ export class InvalidOriginalRateException extends Exception {
     });
   }
 }
+
+/**
+ * No rate is offered for the expense's currency on its day, so its rate cannot be taken or checked: `422` (request 22). It is said
+ * for a rate left out and for a rate stated, whichever the rates service's answer was.
+ */
+export class NoRateOfferedException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'NoRateOffered',
+      message:
+        'No rate is offered for this currency on this day, so the rate of the expense cannot be taken or checked',
+    });
+  }
+}
+
+/** The rate stated differs from the one offered for its currency and day by more than 2 % of the offered one: `422` (request 22). */
+export class RateOutsideBandException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'RateOutsideBand',
+      message: 'The rate differs from the one offered for this currency and day by more than 2 %',
+    });
+  }
+}
+
+/** No rate is offered for the currency to the group's on the day: the same `404` as a currency that is not Tally's (request 22). */
+export class OfferedRateNotFoundException extends NotFoundException {
+  constructor() {
+    super(SERVICE, 'No rate is offered for this currency on this day');
+  }
+}
