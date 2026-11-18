@@ -42,6 +42,20 @@ export function createGroupsTables(database: SqliteDatabase): void {
       PRIMARY KEY (group_id, seq)
     );
   `);
+  // The audit (request 28): one entry per balance passed on, written in the transaction of the leave and never changed.
+  database.connection.exec(`
+    CREATE TABLE IF NOT EXISTS group_audit (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      at TEXT NOT NULL,
+      by_account TEXT NOT NULL,
+      action TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      amount INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS group_audit_by_group ON group_audit (group_id);
+  `);
   // A group created before archiving existed is not archived: the column is NULL until its owner archives it (request 27).
   const columns = database.connection.prepare('PRAGMA table_info(groups)').all() as unknown as { name: string }[];
   if (!columns.some(column => column.name === 'archived_at')) {
@@ -140,6 +154,12 @@ export class SqliteGroupRepository implements IGroupRepository {
       'INSERT INTO balance_passings (group_id, seq, from_account, to_account, amount) VALUES (?, ?, ?, ?, ?)',
     );
     snapshot.passings.forEach((passing, seq) => addPassing.run(id, seq, passing.from, passing.to, passing.amount));
+    const addEntry = this.database.connection.prepare(
+      'INSERT INTO group_audit (id, group_id, at, by_account, action, subject_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const entry of group.newAuditEntries) {
+      addEntry.run(entry.id, entry.groupId, entry.at, entry.by, entry.action, entry.subjectId, entry.amount);
+    }
     return Result.ok();
   }
 }

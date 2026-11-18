@@ -23,6 +23,7 @@ import { GroupMember } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers
 import { ExpenseMoney, OriginalAmount } from '@Contexts/Ledger/Domain/Expense/OriginalAmount';
 import { RateOffer } from '@Contexts/Ledger/Domain/Expense/RateOffer';
 import { ExpenseShare, Split, SplitKind, SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
+import { recordAudit, AuditEntry } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
 
 /**
  * Expense is the aggregate root of one expense: what a member paid for some members of a group, split equally, by exact
@@ -50,6 +51,8 @@ export class Expense extends AggregateRoot {
   readonly #splitKind: SplitKind;
   readonly #original: OriginalAmount | null;
   readonly #category: Category;
+  /** The audit entries of the changes this aggregate made since it was read (request 28): written with the change by its store. */
+  readonly #audit: AuditEntry[] = [];
 
   private constructor(
     id: Id,
@@ -140,6 +143,16 @@ export class Expense extends AggregateRoot {
       decided.data.category,
       0,
     );
+    expense.#audit.push(
+      recordAudit({
+        groupId,
+        at: today,
+        by: paidBy,
+        action: 'expense-recorded',
+        subjectId: expense._id.value,
+        amount: expense.#amount.value,
+      }),
+    );
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: expense._id.value,
@@ -218,6 +231,16 @@ export class Expense extends AggregateRoot {
       decided.data.category,
       this.version,
     );
+    edited.#audit.push(
+      recordAudit({
+        groupId: this.#groupId,
+        at: today,
+        by: editedBy,
+        action: 'expense-edited',
+        subjectId: this._id.value,
+        amount: edited.#amount.value,
+      }),
+    );
     edited.record(
       ExpenseEditedEvent.set({
         expenseId: this._id.value,
@@ -233,12 +256,28 @@ export class Expense extends AggregateRoot {
    * Deletes the expense, as `deletedBy` asks: only the payer and the group's owner may. A deleted expense no longer
    * exists; the store removes it in the transaction that records ExpenseDeleted.
    */
-  delete({ deletedBy, members }: { deletedBy: string; members: GroupMember[] }): IResult {
+  delete({ deletedBy, members, at }: { deletedBy: string; members: GroupMember[]; at: Date }): IResult {
     if (!this.mayChange(deletedBy, members)) return Result.fail(notAllowed());
     if (this.concernsFormerMember(members)) return Result.fail(new ExpenseOfFormerMemberException());
 
+    this.#audit.push(
+      recordAudit({
+        groupId: this.#groupId,
+        at,
+        by: deletedBy,
+        action: 'expense-deleted',
+        subjectId: this._id.value,
+        amount: this.#amount.value,
+      }),
+    );
+
     this.record(ExpenseDeletedEvent.set({ expenseId: this._id.value, groupId: this.#groupId }));
     return Result.ok();
+  }
+
+  /** The audit entries of the changes made since the aggregate was read, in the order they were made (request 28). */
+  get newAuditEntries(): readonly AuditEntry[] {
+    return this.#audit;
   }
 
   /** Rebuilds an expense from what was persisted. Nothing is recorded: nothing new happened. */

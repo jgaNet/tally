@@ -1,3 +1,4 @@
+import { recordAudit, AuditEntry } from '@Contexts/Settlements/Domain/Settlement/AuditEntry';
 import { AggregateRoot, IResult, Id, NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
 
 import {
@@ -110,6 +111,8 @@ export class SettlementBook extends AggregateRoot {
   readonly #changed = new Set<string>();
   /** The statuses the book gave settlements since it was read, in the order it gave them (request 19: each status is a line). */
   readonly #history: ISettlementStatusLine[] = [];
+  /** The audit entries of the changes of money decided since the book was read (request 28). */
+  readonly #audit: AuditEntry[] = [];
 
   private constructor(id: Id, groupId: string, version: number, settlements: ISettlementSnapshot[]) {
     super(id, version);
@@ -156,6 +159,16 @@ export class SettlementBook extends AggregateRoot {
       providerPaymentId: null,
       payUrl: null,
     });
+    this.#audit.push(
+      recordAudit({
+        groupId: this.#groupId,
+        at: request.at,
+        by: request.payee,
+        action: 'settlement-paid',
+        subjectId: settlement._id,
+        amount: settlement.amount,
+      }),
+    );
     this.record(
       SettlementRecordedEvent.set({
         settlementId: settlement._id,
@@ -229,15 +242,43 @@ export class SettlementBook extends AggregateRoot {
     const facts = this.#factsOf(settlement);
     if (status === 'succeeded' && settlement.status === 'pending') {
       this.#moveStatus(settlement, 'paid', at);
+      this.#audit.push(
+        recordAudit({
+          groupId: this.#groupId,
+          at,
+          by: settlement.from,
+          action: 'settlement-paid',
+          subjectId: settlement._id,
+          amount: settlement.amount,
+        }),
+      );
       this.record(SettlementPaidEvent.set(facts));
     } else if (status === 'failed' && settlement.status === 'pending') {
       this.#moveStatus(settlement, 'failed', at);
       this.record(SettlementFailedEvent.set(facts));
     } else if (status === 'refunded' && ['pending', 'paid', 'refunding'].includes(settlement.status)) {
+      // Only a settlement the balances counted stops counting: a pending payment was never counted (request 28).
+      if (settlement.status !== 'pending') {
+        this.#audit.push(
+          recordAudit({
+            groupId: this.#groupId,
+            at,
+            by: settlement.to,
+            action: 'settlement-refunded',
+            subjectId: settlement._id,
+            amount: settlement.amount,
+          }),
+        );
+      }
       this.#moveStatus(settlement, 'refunded', at);
       this.record(SettlementRefundedEvent.set(facts));
     }
     return Result.ok();
+  }
+
+  /** The audit entries of the changes of money the book made since it was read, in the order it made them (request 28). */
+  get newAuditEntries(): readonly AuditEntry[] {
+    return this.#audit;
   }
 
   /** The group the book is of: a settlement's group is the book's. */

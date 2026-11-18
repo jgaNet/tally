@@ -175,8 +175,8 @@ describe('Expense.edit and Expense.delete', () => {
 
   it('lets the owner delete an expense of a member, and records ExpenseDeleted; a member who is neither is refused', () => {
     const expense = recorded();
-    const refused = expense.delete({ deletedBy: 'cara', members });
-    const deleted = expense.delete({ deletedBy: 'ana', members });
+    const refused = expense.delete({ deletedBy: 'cara', members, at: today });
+    const deleted = expense.delete({ deletedBy: 'ana', members, at: today });
 
     expect(refused.isFailure() && refused.error.type).toBe('NotAllowed');
     expect(deleted.isSuccess()).toBe(true);
@@ -410,7 +410,7 @@ describe('Expense of a former member', () => {
       split: { kind: 'equal', memberIds: ['ben', 'ana'] },
       today,
     });
-    const deletedByOwner = recorded().delete({ deletedBy: 'ana', members: withoutBen });
+    const deletedByOwner = recorded().delete({ deletedBy: 'ana', members: withoutBen, at: today });
     const editedByPayer = recorded().edit({
       editedBy: 'ben',
       members: withoutAna,
@@ -435,6 +435,6 @@ describe('Expense of a former member', () => {
       { memberId: 'cara', role: 'member' as const },
     ];
 
-    expect(recorded().delete({ deletedBy: 'ana', members: rejoined }).isSuccess()).toBe(true);
+    expect(recorded().delete({ deletedBy: 'ana', members: rejoined, at: today }).isSuccess()).toBe(true);
   });
 });

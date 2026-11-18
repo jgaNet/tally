@@ -6,6 +6,7 @@ import { IExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { SplitKind } from '@Contexts/Ledger/Domain/Expense/Split';
 import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
+import { AuditEntry } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
 
 /**
  * The tables of expenses: one row per expense, one per share in the order of the split, and the balance read model's
@@ -43,6 +44,17 @@ export function createExpensesTables(database: SqliteDatabase): void {
       amount INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS balance_entries_by_group ON balance_entries (group_id);
+    CREATE TABLE IF NOT EXISTS audit_entries (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      at TEXT NOT NULL,
+      by_account TEXT NOT NULL,
+      action TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      amount INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS audit_entries_by_group ON audit_entries (group_id);
   `);
   // An expense recorded before the split kinds existed was split equally, which the default says.
   const columns = connection.prepare('PRAGMA table_info(expenses)').all() as unknown as { name: string }[];
@@ -138,7 +150,9 @@ export class SqliteExpenseRepository implements IExpenseRepository {
    */
   async save(expense: Expense): Promise<IResult> {
     const snapshot: IExpenseSnapshot = expense.toSnapshot();
-    return snapshot.version === 0 ? this.insert(snapshot) : this.update(snapshot);
+    const saved = snapshot.version === 0 ? this.insert(snapshot) : this.update(snapshot);
+    if (saved.isSuccess()) this.writeAudit(expense.newAuditEntries);
+    return saved;
   }
 
   /** The expense is deleted at the version it was read at; its shares and its balance entries go with it. */
@@ -152,7 +166,18 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     }
     connection.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(id);
     connection.prepare('DELETE FROM balance_entries WHERE expense_id = ?').run(id);
+    this.writeAudit(expense.newAuditEntries);
     return Result.ok();
+  }
+
+  /** The entries of the changes made, written in the transaction of the change; an entry is never changed (request 28). */
+  private writeAudit(entries: readonly AuditEntry[]): void {
+    const add = this.database.connection.prepare(
+      'INSERT INTO audit_entries (id, group_id, at, by_account, action, subject_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const entry of entries) {
+      add.run(entry.id, entry.groupId, entry.at, entry.by, entry.action, entry.subjectId, entry.amount);
+    }
   }
 
   private insert(snapshot: IExpenseSnapshot): IResult {

@@ -1,6 +1,6 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { GroupArchivedException } from '@SharedKernel/Domain';
-import { CommandHandler, ExecutionContext } from '@Architecture/Application';
+import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
@@ -16,6 +16,7 @@ export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCom
   constructor(
     private groupMembers: IGroupMembers,
     private expenses: IExpenseRepository,
+    private clock: Clock,
   ) {
     super();
   }
@@ -32,7 +33,7 @@ export class DeleteExpenseCommandHandler extends CommandHandler<DeleteExpenseCom
     if (!members) return Result.fail(new NotFoundException('Ledger', 'Expense not found'));
     if (await this.groupMembers.isArchived(expense.groupId)) return Result.fail(new GroupArchivedException());
 
-    const deleted = expense.delete({ deletedBy: deleter, members });
+    const deleted = expense.delete({ deletedBy: deleter, members, at: this.clock() });
     if (deleted.isFailure()) return Result.fail(deleted.error);
 
     const removed = await this.expenses.remove(expense);

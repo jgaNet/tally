@@ -74,7 +74,7 @@ export const localGroupsModule = new Module({
     },
     {
       event: LeaveGroupCommandEvent,
-      handlers: [new LeaveGroupCommandHandler(groups, memberBalances, waitingPayments)],
+      handlers: [new LeaveGroupCommandHandler(groups, memberBalances, waitingPayments, clock)],
     },
     {
       event: ArchiveGroupCommandEvent,

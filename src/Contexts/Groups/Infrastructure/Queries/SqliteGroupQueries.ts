@@ -1,3 +1,4 @@
+import { AuditEntry } from '@Contexts/Groups/Domain/Group/AuditEntry';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import {
@@ -95,6 +96,31 @@ export class SqliteGroupQueries implements IGroupQueries {
         .prepare('SELECT group_id, account_id FROM group_members ORDER BY group_id, position')
         .all() as { group_id: string; account_id: string }[];
       return rows.map(row => ({ groupId: row.group_id, memberId: row.account_id }));
+    });
+  }
+
+  auditOf(groupId: string): Promise<AuditEntry[]> {
+    return this.database.exclusive(connection => {
+      const rows = connection
+        .prepare('SELECT * FROM group_audit WHERE group_id = ? ORDER BY seq')
+        .all(groupId) as unknown as {
+        id: string;
+        group_id: string;
+        at: string;
+        by_account: string;
+        action: AuditEntry['action'];
+        subject_id: string;
+        amount: number;
+      }[];
+      return rows.map(row => ({
+        id: row.id,
+        groupId: row.group_id,
+        at: row.at,
+        by: row.by_account,
+        action: row.action,
+        subjectId: row.subject_id,
+        amount: row.amount,
+      }));
     });
   }
 

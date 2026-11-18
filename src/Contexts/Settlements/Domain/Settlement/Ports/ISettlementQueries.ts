@@ -1,3 +1,4 @@
+import { AuditEntry } from '@Contexts/Settlements/Domain/Settlement/AuditEntry';
 import { SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 
 /** A settlement as a member reads it: the fields the API answers. `payUrl` is the link of a settlement through the provider only. */
@@ -45,6 +46,8 @@ export interface ISettlementQueries {
   findById(id: string): Promise<SettlementView | null>;
   /** Every settlement of the group, the most recently recorded first, each with its history (request 19). */
   listGroupSettlements(groupId: string): Promise<SettlementView[]>;
+  /** The audit entries of the group's settlements, in the order they were written (request 28). */
+  auditOf(groupId: string): Promise<AuditEntry[]>;
   /** Every settlement of the group the balances count, in the order they were recorded: paid, or refunding (the money has not gone back yet). */
   paidIn(groupId: string): Promise<PaidSettlement[]>;
   /** Every payment of the group that waits at the provider, in the order they were requested. */

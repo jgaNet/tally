@@ -41,6 +41,17 @@ export function createSettlementTables(database: SqliteDatabase): void {
       at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS settlement_history_by_settlement ON settlement_history (settlement_id);
+    CREATE TABLE IF NOT EXISTS settlement_audit (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      at TEXT NOT NULL,
+      by_account TEXT NOT NULL,
+      action TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      amount INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS settlement_audit_by_group ON settlement_audit (group_id);
     INSERT INTO settlement_history (settlement_id, status, at)
       SELECT s.id, s.status, s.at FROM settlements s
        WHERE NOT EXISTS (SELECT 1 FROM settlement_history h WHERE h.settlement_id = s.id)
@@ -146,6 +157,13 @@ export class SqliteSettlementBookRepository implements ISettlementBookRepository
       connection
         .prepare('INSERT INTO settlement_history (settlement_id, status, at) VALUES (?, ?, ?)')
         .run(line.settlementId, line.status, line.at);
+    }
+    // The entries of the changes made, in the transaction of the book's version: an entry is never changed (request 28).
+    const addEntry = connection.prepare(
+      'INSERT INTO settlement_audit (id, group_id, at, by_account, action, subject_id, amount) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const entry of book.newAuditEntries) {
+      addEntry.run(entry.id, entry.groupId, entry.at, entry.by, entry.action, entry.subjectId, entry.amount);
     }
     return Result.ok();
   }

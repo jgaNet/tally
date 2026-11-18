@@ -1,5 +1,5 @@
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { CommandHandler, ExecutionContext } from '@Architecture/Application';
+import { Clock, CommandHandler, ExecutionContext } from '@Architecture/Application';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
@@ -20,6 +20,7 @@ export class LeaveGroupCommandHandler extends CommandHandler<LeaveGroupCommandEv
     private groups: IGroupRepository,
     private balances: IMemberBalances,
     private payments: IWaitingPayments,
+    private clock: Clock,
   ) {
     super();
   }
@@ -34,7 +35,7 @@ export class LeaveGroupCommandHandler extends CommandHandler<LeaveGroupCommandEv
 
     const balance = await this.balances.balanceOf(group._id.value, leaver);
     const paymentWaiting = await this.payments.hasWaitingPaymentOf(group._id.value, leaver);
-    const left = group.leave({ accountId: leaver, balance, paymentWaiting });
+    const left = group.leave({ accountId: leaver, balance, paymentWaiting, at: this.clock() });
     if (left.isFailure()) return Result.fail(left.error);
 
     const saved = await this.groups.save(group);

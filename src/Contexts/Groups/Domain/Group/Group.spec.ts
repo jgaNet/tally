@@ -129,7 +129,7 @@ describe('Group.leave', () => {
   it('lets a member with a balance of 0 leave, and records BalancePassed of 0 then MemberLeft', () => {
     const group = withBen();
 
-    expect(group.leave({ accountId: 'ben', balance: 0, paymentWaiting: false }).isSuccess()).toBe(true);
+    expect(group.leave({ accountId: 'ben', balance: 0, paymentWaiting: false, at: AT }).isSuccess()).toBe(true);
 
     expect(group.members.map(member => member.accountId)).toEqual(['ana']);
     expect(group.isMember('ben')).toBe(false);
@@ -144,7 +144,7 @@ describe('Group.leave', () => {
   it('lets a member leave whatever their balance, and passes it to the owner in the same step', () => {
     const group = withBen();
 
-    expect(group.leave({ accountId: 'ben', balance: -300, paymentWaiting: false }).isSuccess()).toBe(true);
+    expect(group.leave({ accountId: 'ben', balance: -300, paymentWaiting: false, at: AT }).isSuccess()).toBe(true);
 
     expect(group.isMember('ben')).toBe(false);
     expect(group.passings).toEqual([{ from: 'ben', to: 'ana', amount: -300 }]);
@@ -155,7 +155,7 @@ describe('Group.leave', () => {
 
   it('keeps the passings through a snapshot, in the order they were passed', () => {
     const group = withBen();
-    group.leave({ accountId: 'ben', balance: 300, paymentWaiting: false });
+    group.leave({ accountId: 'ben', balance: 300, paymentWaiting: false, at: AT });
 
     expect(Group.fromSnapshot(group.toSnapshot()).passings).toEqual([{ from: 'ben', to: 'ana', amount: 300 }]);
   });
@@ -163,7 +163,7 @@ describe('Group.leave', () => {
   it('refuses the owner, always, and keeps the group as it was', () => {
     const group = withBen();
 
-    const refused = group.leave({ accountId: 'ana', balance: 0, paymentWaiting: false });
+    const refused = group.leave({ accountId: 'ana', balance: 0, paymentWaiting: false, at: AT });
 
     expect(refused.isFailure() && refused.error.type).toBe('OwnerCannotLeave');
     expect(group.isMember('ana')).toBe(true);
@@ -173,7 +173,7 @@ describe('Group.leave', () => {
   it('refuses a member with a payment waiting at the provider, as PaymentWaiting, and keeps them in the group', () => {
     const group = withBen();
 
-    const refused = group.leave({ accountId: 'ben', balance: 0, paymentWaiting: true });
+    const refused = group.leave({ accountId: 'ben', balance: 0, paymentWaiting: true, at: AT });
 
     expect(refused.isFailure() && refused.error.type).toBe('PaymentWaiting');
     expect(group.isMember('ben')).toBe(true);
@@ -182,14 +182,14 @@ describe('Group.leave', () => {
   });
 
   it('refuses an account that is not a member as a group that does not exist', () => {
-    const refused = withBen().leave({ accountId: 'zoe', balance: 0, paymentWaiting: false });
+    const refused = withBen().leave({ accountId: 'zoe', balance: 0, paymentWaiting: false, at: AT });
 
     expect(refused.isFailure() && refused.error.type).toBe('NotFound');
   });
 
   it('keeps the former member in the snapshot, and a member who joins again is last, from that moment', () => {
     const group = withBen();
-    group.leave({ accountId: 'ben', balance: 0, paymentWaiting: false });
+    group.leave({ accountId: 'ben', balance: 0, paymentWaiting: false, at: AT });
     const rebuilt = Group.fromSnapshot(group.toSnapshot());
 
     expect(rebuilt.toSnapshot().formerMembers).toEqual([{ accountId: 'ben', joinedAt: JOINED.toISOString() }]);
@@ -232,7 +232,7 @@ describe('archiving a group (request 27)', () => {
     expect(again.isFailure() && again.error.type).toBe('GroupArchived');
     const joined = group.join({ accountId: 'cleo', joinedAt: AT });
     expect(joined.isFailure() && joined.error.type).toBe('GroupArchived');
-    const left = group.leave({ accountId: 'ben', balance: 0, paymentWaiting: false });
+    const left = group.leave({ accountId: 'ben', balance: 0, paymentWaiting: false, at: AT });
     expect(left.isFailure() && left.error.type).toBe('GroupArchived');
     expect(group.members.map(member => member.accountId)).toEqual(['ana', 'ben']);
   });

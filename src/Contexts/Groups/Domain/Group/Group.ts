@@ -1,3 +1,4 @@
+import { recordAudit, AuditEntry } from '@Contexts/Groups/Domain/Group/AuditEntry';
 import { AggregateRoot, IResult, Id, NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
 import { GroupArchivedException } from '@SharedKernel/Domain';
 
@@ -154,10 +155,12 @@ export class Group extends AggregateRoot {
     accountId,
     balance,
     paymentWaiting,
+    at,
   }: {
     accountId: string;
     balance: number;
     paymentWaiting: boolean;
+    at: Date;
   }): IResult<void> {
     const index = this.#members.findIndex(member => member.accountId === accountId);
     if (index < 0) return Result.fail(new NotFoundException('Groups', 'Group not found'));
@@ -168,6 +171,19 @@ export class Group extends AggregateRoot {
     const [left] = this.#members.splice(index, 1);
     this.#formerMembers.push(left);
     this.#passings.push({ from: accountId, to: this.#ownerId, amount: balance });
+    // A balance of 0 passes nothing, so it is no change of money and has no entry (request 28).
+    if (balance !== 0) {
+      this.#audit.push(
+        recordAudit({
+          groupId: this._id.value,
+          at,
+          by: accountId,
+          action: 'balance-passed',
+          subjectId: accountId,
+          amount: balance,
+        }),
+      );
+    }
     this.record(
       BalancePassedEvent.set({ groupId: this._id.value, from: accountId, to: this.#ownerId, amount: balance }),
     );
@@ -293,6 +309,14 @@ export class Group extends AggregateRoot {
   /** The accounts that were members and left, in the order they left. */
   get formerMembers(): readonly GroupMember[] {
     return this.#formerMembers;
+  }
+
+  /** The audit entries of the changes of money made since the group was read (request 28). */
+  readonly #audit: AuditEntry[] = [];
+
+  /** The audit entries of the balances passed on since the group was read, in the order they were passed (request 28). */
+  get newAuditEntries(): readonly AuditEntry[] {
+    return this.#audit;
   }
 
   /** The balances passed on when members left, in the order they were passed (request 20). */

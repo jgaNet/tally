@@ -15,6 +15,7 @@ import { invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes';
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/balance.routes';
 import { statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/statement.routes';
+import { auditRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/audit.routes';
 import { rateRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/rate.routes';
 import { localLedgerModule, recordRecurringExpenses } from '@Contexts/Ledger/module.local';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/recurring.routes';
@@ -75,6 +76,7 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { module: localLedgerModule })
     .registerRoutes('/', statementRoutes, { module: localLedgerModule })
+    .registerRoutes('/', auditRoutes, { module: localLedgerModule })
     .registerRoutes('/', rateRoutes, { module: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
     .registerRoutes('/', budgetRoutes, { module: localLedgerModule })

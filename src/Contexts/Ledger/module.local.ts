@@ -38,6 +38,7 @@ import {
   GetGroupBudgetsQueryHandler,
   GetGroupTemplatesQueryHandler,
   GetReceiptQueryHandler,
+  GetGroupAuditQueryHandler,
 } from '@Contexts/Ledger/Application/Queries';
 import { ExpenseRecordedHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedHandler';
 import { ExpenseRecordedBudgetHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedBudgetHandler';
@@ -67,6 +68,9 @@ import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/Receipts/HttpR
 import { SqliteReceiptRepository } from '@Contexts/Ledger/Infrastructure/Repositories/SqliteReceiptRepository';
 import { SqliteReceiptQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteReceiptQueries';
 import { settlementQueries } from '@Contexts/Settlements/module.local';
+import { SqliteAuditQueries } from '@Contexts/Ledger/Infrastructure/Queries/SqliteAuditQueries';
+import { SettlementsSettlementAudit } from '@Contexts/Ledger/Infrastructure/Settlements/SettlementsSettlementAudit';
+import { GroupsPassedBalances } from '@Contexts/Ledger/Infrastructure/Groups/GroupsPassedBalances';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3): the expenses of each group, kept in the application's
@@ -103,6 +107,10 @@ const receipts = new SqliteReceiptRepository(database);
 const receiptQueries = new SqliteReceiptQueries(database);
 /** The policy on an expense recorded or edited (request 24): its month, in its category, is what the budget decides. */
 const budgetPolicy = new ExpenseBudgetPolicy(expenses, budgets, budgetQueries, groupMembers);
+/** The audit (request 28): Ledger's own entries, and the settlements' and the passed balances', read through its two ports (ADR 19). */
+const auditQueries = new SqliteAuditQueries(database);
+const settlementAudit = new SettlementsSettlementAudit(settlementQueries);
+const passedBalances = new GroupsPassedBalances(groupQueries);
 const clock = systemClock;
 
 /** The sweep of request 23: run by the composition root every JOBS_INTERVAL_SECONDS, recording each day that has come, once. */
@@ -123,7 +131,7 @@ export const localLedgerModule = new Module({
     },
     {
       event: DeleteExpenseCommandEvent,
-      handlers: [new DeleteExpenseCommandHandler(groupMembers, expenses)],
+      handlers: [new DeleteExpenseCommandHandler(groupMembers, expenses, clock)],
     },
     {
       event: SetUpRecurringExpenseCommandEvent,
@@ -164,6 +172,7 @@ export const localLedgerModule = new Module({
     new GetReceiptQueryHandler(receiptQueries, expenseQueries, groupMembers),
     new GetGroupTemplatesQueryHandler(templateQueries, groupMembers),
     new GetGroupBalancesQueryHandler(balanceQueries, groupMembers),
+    new GetGroupAuditQueryHandler(auditQueries, settlementAudit, passedBalances, groupMembers),
     new GetGroupExpensesQueryHandler(expenseQueries, groupMembers),
     new GetMemberStatementQueryHandler(statementQueries, groupMembers),
     new GetOfferedRateQueryHandler(offeredRates, groupCurrency, clock),

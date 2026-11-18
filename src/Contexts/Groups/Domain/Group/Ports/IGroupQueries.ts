@@ -1,3 +1,4 @@
+import { AuditEntry } from '@Contexts/Groups/Domain/Group/AuditEntry';
 /** What a member reads of a group: the group as the screens show it, and when it was archived, if it is (request 27). */
 export interface GroupView {
   id: string;
@@ -51,6 +52,8 @@ export interface IGroupQueries {
    * every balance is answered to a member only, by the handler that asks for it.
    */
   passingsOf(groupId: string): Promise<BalancePassingView[]>;
+  /** The audit entries of the group's balances passed on, in the order they were passed (request 28). It names no caller: Ledger reads it, as it reads the passings. */
+  auditOf(groupId: string): Promise<AuditEntry[]>;
 }
 
 /** A balance passed on when a member left: the amount, from the member who left to the one who took it over. */
