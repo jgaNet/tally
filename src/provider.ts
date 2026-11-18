@@ -12,10 +12,14 @@ export interface ProviderConfig {
   readonly timeoutMs: number;
 }
 
-/** What the provider answers to a payment request: its id for the payment, and the link where the payer pays. */
+/**
+ * What the provider answers to a payment request: its id for the payment, the link where the payer pays, and the fee
+ * it keeps out of what it pays the payee, in hundredths of the payment's currency.
+ */
 export interface ProviderPayment {
   readonly id: string;
   readonly payUrl: string;
+  readonly fee: number;
 }
 
 /** What the provider answers to a refund request: its id for the refund. */
@@ -73,8 +77,9 @@ async function createdAt(url: string, timeoutMs: number, path: string, body: unk
 /**
  * Asks the provider for a payment of `amount` in `currency` to `payee` (the provider's id of the payee's payout
  * account), identified by `reference` (the settlement's id). Answers the provider's payment when it answers
- * `201 { id, payUrl }` within the time limit. Any other answer, an answer that is not that shape, no answer in
- * time, or no provider configured is refused with `424`.
+ * `201 { id, payUrl, fee }` within the time limit, where `fee` is a whole number, 0 or more, and less than `amount`: the
+ * fee the provider keeps out of the payment. Any other answer, an answer that is not that shape, a fee that is missing or
+ * not less than `amount`, no answer in time, or no provider configured is refused with `424`, and nothing is kept.
  */
 export async function requestPayment(
   provider: ProviderConfig,
@@ -84,7 +89,9 @@ export async function requestPayment(
     throw new Refusal(424, 'ProviderNotConfigured', 'Paying through the provider is not configured.');
   }
   const body = await createdAt(provider.url, provider.timeoutMs, '/payments', input);
-  if (isPayment(body)) return { id: body.id, payUrl: body.payUrl };
+  if (isPayment(body) && body.fee < input.amount) {
+    return { id: body.id, payUrl: body.payUrl, fee: body.fee };
+  }
   // Every other answer refuses the same way, nothing kept.
   throw new Refusal(424, 'ProviderUnavailable', UNAVAILABLE);
 }
@@ -144,8 +151,16 @@ function isRefund(value: unknown): value is ProviderRefund {
 
 function isPayment(value: unknown): value is ProviderPayment {
   if (typeof value !== 'object' || value === null) return false;
-  const { id, payUrl } = value as Record<string, unknown>;
-  return typeof id === 'string' && id.length > 0 && typeof payUrl === 'string' && payUrl.length > 0;
+  const { id, payUrl, fee } = value as Record<string, unknown>;
+  return (
+    typeof id === 'string' &&
+    id.length > 0 &&
+    typeof payUrl === 'string' &&
+    payUrl.length > 0 &&
+    typeof fee === 'number' &&
+    Number.isSafeInteger(fee) &&
+    fee >= 0
+  );
 }
 
 /**

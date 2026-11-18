@@ -62,10 +62,10 @@ describe('paying through the provider', () => {
   /** The provider's id of Ann's payout account, which the fixture sets; the fake provider knows every account. */
   const ANN_PAYOUT = 'acct_ann';
 
-  /** A payment the fake provider answers as created: `201 { id, payUrl }`, unless a test says otherwise. */
+  /** A payment the fake provider answers as created: `201 { id, payUrl, fee }` with no fee, unless a test says otherwise. */
   function createdPayment(): ProviderAnswer {
     const n = nextPayment++;
-    return { status: 201, body: { id: `pay_${n}`, payUrl: `https://pay.example.org/${n}` } };
+    return { status: 201, body: { id: `pay_${n}`, payUrl: `https://pay.example.org/${n}`, fee: 0 } };
   }
 
   /** A refund the fake provider answers as made: `201 { id }`. */
@@ -286,6 +286,7 @@ describe('paying through the provider', () => {
       status: 'pending',
       at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/),
       payUrl: 'https://pay.example.org/1',
+      fee: { amount: 0, borneBy: 'payee' },
       history: [{ status: 'pending', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/) }],
     });
     // Ann, the payee, reads it as the group's member; a read changes nothing stored.
@@ -337,7 +338,7 @@ describe('paying through the provider', () => {
       ['answers 201 with a body that is not JSON', { status: 201, text: 'not json' }],
       [
         'answers after the time limit',
-        { status: 201, body: { id: 'pay_x', payUrl: 'https://pay.example.org/x' }, delayMs: 600 },
+        { status: 201, body: { id: 'pay_x', payUrl: 'https://pay.example.org/x', fee: 0 }, delayMs: 600 },
       ],
     ];
     for (const [name, answer] of refusals) {

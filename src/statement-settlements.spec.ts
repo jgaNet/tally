@@ -49,7 +49,7 @@ describe('a statement with the settlements the balances count', () => {
           body = { id: 're_1' };
         } else {
           const n = nextPayment++;
-          body = { id: `pay_${n}`, payUrl: `https://pay.example.org/${n}` };
+          body = { id: `pay_${n}`, payUrl: `https://pay.example.org/${n}`, fee: 0 };
         }
         response.writeHead(status, { 'content-type': 'application/json' });
         response.end(JSON.stringify(body));

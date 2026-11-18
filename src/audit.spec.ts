@@ -103,7 +103,7 @@ describe('the audit of a group', () => {
           answer(response, 201, { id: 're_1' });
         } else {
           const n = nextPayment++;
-          answer(response, 201, { id: `pay_${n}`, payUrl: `https://pay.example.org/${n}` });
+          answer(response, 201, { id: `pay_${n}`, payUrl: `https://pay.example.org/${n}`, fee: 0 });
         }
       });
     });

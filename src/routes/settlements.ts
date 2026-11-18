@@ -53,6 +53,12 @@ export const SETTLEMENT = {
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string' },
     payUrl: { type: 'string' },
+    // Only a settlement through the provider asked for from request 38 on has it.
+    fee: {
+      type: 'object',
+      required: ['amount', 'borneBy'],
+      properties: { amount: { type: 'integer', minimum: 0 }, borneBy: { enum: ['payer', 'payee', 'shared'] } },
+    },
     history: {
       type: 'array',
       minItems: 1,

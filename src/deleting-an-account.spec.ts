@@ -54,6 +54,7 @@ describe('deleting an account', () => {
           JSON.stringify({
             id: path.endsWith('/refunds') ? 're_1' : `pay_${body?.reference ?? n}`,
             payUrl: `https://pay.example.org/${n}`,
+            fee: 0,
           }),
         );
       });

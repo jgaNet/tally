@@ -6,6 +6,8 @@ import type { Database, Querier } from './database';
 import { assertNotArchived, findGroup, findGroupOfMember, membersOfGroup } from './groups';
 import { type ProviderConfig, requestPayment, requestRefund } from './provider';
 import { payoutAccountOf } from './payout-accounts';
+import { feeBearerOfGroup } from './fee-policy';
+import { type Fee, type FeeBearer, feeOfRow, settledOfRow } from './fees';
 import { assertNotDeleted } from './accounts';
 import { assertNotSuspended } from './suspensions';
 import { Refusal } from './refusal';
@@ -85,6 +87,12 @@ export interface Settlement {
   readonly at: string;
   /** The link where the payer pays, through the provider; a settlement in cash has none. */
   readonly payUrl?: string;
+  /**
+   * The provider's fee on a settlement through the provider asked for from request 38 on: the fee the provider said, and who
+   * bore it, as the payment was asked for. Absent otherwise. What the settlement settles is its amount less the payer's part
+   * of the fee (see `fees.ts`); its `amount` stays the one asked for.
+   */
+  readonly fee?: Fee;
   /** Every status the settlement has had, the earliest first: at least one, the status it has now or had last. */
   readonly history: readonly StatusChange[];
 }
@@ -124,11 +132,16 @@ interface SettlementRow {
   status: Settlement['status'];
   provider_payment_id: string | null;
   pay_url: string | null;
+  fee_amount: number | null;
+  fee_borne_by: FeeBearer | null;
   created_at: string;
 }
 
 const SETTLEMENT_COLUMNS =
-  's.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.pay_url, s.created_at';
+  's.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.pay_url, s.fee_amount, s.fee_borne_by, s.created_at';
+
+/** The columns of a settlement that say what it settles: its amount, and the fee it keeps, if any (see `fees.ts`). */
+const FEE_COLUMNS = 'amount, fee_amount, fee_borne_by';
 
 function settlementOf(row: SettlementRow, history: readonly StatusChange[]): Settlement {
   const settlement = {
@@ -142,7 +155,9 @@ function settlementOf(row: SettlementRow, history: readonly StatusChange[]): Set
     at: row.created_at,
     history,
   };
-  return row.pay_url === null ? settlement : { ...settlement, payUrl: row.pay_url };
+  const withPayUrl = row.pay_url === null ? settlement : { ...settlement, payUrl: row.pay_url };
+  const fee = feeOfRow(row);
+  return fee === undefined ? withPayUrl : { ...withPayUrl, fee };
 }
 
 /** The history of each settlement of the group, the earliest status first, by settlement id. */
@@ -236,16 +251,17 @@ export async function recordCashSettlement(
 
 /**
  * Asks the payment provider for a payment of `amount` from `payerId` (the caller) to `payeeId` in the group,
- * and keeps the settlement `pending` with the provider's payment id and `payUrl`; answers the settlement's id.
- * The id is the payment's reference at the provider.
+ * and keeps the settlement `pending` with the provider's payment id, its `payUrl` and the fee the provider said, with who
+ * bears that fee as the group's policy stands now (see `fee-policy.ts`); answers the settlement's id. The id is the
+ * payment's reference at the provider.
  *
  * The rules of {@link checkSettlement} are checked first, so a refused request never reaches the provider.
  * Refused with `404` when the payer is not a member of the group, with `422` when the payee is not a member of
  * the group, and as {@link checkSettlement} says otherwise. A payee with no payout account (see
  * `payout-accounts.ts`) is refused with `409` as `PayoutAccountRequired`, before the provider is asked: the
  * payment is made to the payee's payout account, as it is at this moment. Refused with `424` when paying through
- * the provider is not configured, or when the provider does not answer a payment in time (see
- * {@link requestPayment}); then nothing is kept. Refused with `403` as `AccountIsSuspended` when the payer is suspended,
+ * the provider is not configured, or when the provider does not answer a payment in time, or without a fee it keeps that is
+ * a whole number from 0 and less than the amount (see {@link requestPayment}); then nothing is kept. Refused with `403` as `AccountIsSuspended` when the payer is suspended,
  * before the provider is asked.
  *
  * The provider is asked outside any transaction, so that no write is held while it answers; the rules are
@@ -259,7 +275,7 @@ export async function requestProviderSettlement(
   input: { groupId: string; payerId: string; payeeId: string; amount: number },
 ): Promise<string> {
   const { groupId, payerId, payeeId, amount } = input;
-  const decide = async (querier: Querier): Promise<{ currency: string; payee: string }> => {
+  const decide = async (querier: Querier): Promise<{ currency: string; payee: string; borneBy: FeeBearer }> => {
     const group = await findGroupOfMember(querier, payerId, groupId);
     if (!group) throw new Refusal(404, 'GroupNotFound', 'No group has this id.');
     assertNotArchived(group);
@@ -277,10 +293,11 @@ export async function requestProviderSettlement(
         'The member who is paid must have a payout account to be paid through the provider.',
       );
     }
-    return { currency: group.currency, payee };
+    return { currency: group.currency, payee, borneBy: await feeBearerOfGroup(querier, groupId) };
   };
 
-  const { currency, payee } = await inReadSnapshot(db, decide);
+  // Who bears the fee is the group's policy as the payment is asked for; the settlement keeps it from then on.
+  const { currency, payee, borneBy } = await inReadSnapshot(db, decide);
   const id = randomUUID();
   const payment = await requestPayment(provider, { reference: id, amount, currency, payee });
   await inTransaction(db, async tx => {
@@ -288,9 +305,22 @@ export async function requestProviderSettlement(
     const at = new Date().toISOString();
     await tx
       .prepare(
-        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, provider_payment_id, pay_url, fee_amount, fee_borne_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(id, groupId, payerId, payeeId, amount, 'provider', 'pending', payment.id, payment.payUrl, at);
+      .run(
+        id,
+        groupId,
+        payerId,
+        payeeId,
+        amount,
+        'provider',
+        'pending',
+        payment.id,
+        payment.payUrl,
+        payment.fee,
+        borneBy,
+        at,
+      );
     await recordStatus(tx, id, 'pending', at);
   });
   return id;
@@ -322,7 +352,7 @@ export async function recordProviderOutcome(db: Database, input: { paymentId: st
   await inTransaction(db, async tx => {
     const moved = await tx
       .prepare(
-        `SELECT id, group_id, payer_id, payee_id, amount, status FROM settlements
+        `SELECT id, group_id, payer_id, payee_id, ${FEE_COLUMNS}, status FROM settlements
          WHERE method = 'provider' AND provider_payment_id = ? AND status IN (${outcome.from})
            AND group_id NOT IN (SELECT id FROM groups WHERE archived_at IS NOT NULL)`,
       )
@@ -332,6 +362,8 @@ export async function recordProviderOutcome(db: Database, input: { paymentId: st
         payer_id: string;
         payee_id: string;
         amount: number;
+        fee_amount: number | null;
+        fee_borne_by: FeeBearer | null;
         status: Settlement['status'];
       }>(input.paymentId);
     const at = new Date().toISOString();
@@ -347,7 +379,7 @@ export async function recordProviderOutcome(db: Database, input: { paymentId: st
           by: row.payer_id,
           action: 'settlement-paid',
           subjectId: row.id,
-          amount: Number(row.amount),
+          amount: settledOfRow(row),
         });
       } else if (outcome.to === 'refunded' && row.status !== 'pending') {
         await recordAudit(tx, {
@@ -356,7 +388,7 @@ export async function recordProviderOutcome(db: Database, input: { paymentId: st
           by: row.payee_id,
           action: 'settlement-refunded',
           subjectId: row.id,
-          amount: Number(row.amount),
+          amount: settledOfRow(row),
         });
       }
     }
@@ -529,7 +561,7 @@ export async function contestSettlement(
   await inTransaction(db, async tx => {
     const row = await tx
       .prepare(
-        `SELECT s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status FROM settlements s
+        `SELECT s.group_id, s.payer_id, s.payee_id, s.amount, s.fee_amount, s.fee_borne_by, s.method, s.status FROM settlements s
          JOIN group_members m ON m.group_id = s.group_id
          WHERE s.id = ? AND m.account_id = ? AND m.left_at IS NULL`,
       )
@@ -538,6 +570,8 @@ export async function contestSettlement(
         payer_id: string;
         payee_id: string;
         amount: number;
+        fee_amount: number | null;
+        fee_borne_by: FeeBearer | null;
         method: Settlement['method'];
         status: Settlement['status'];
       }>(settlementId, accountId);
@@ -573,7 +607,7 @@ export async function contestSettlement(
       by: accountId,
       action: 'settlement-contested',
       subjectId: settlementId,
-      amount: Number(row.amount),
+      amount: settledOfRow(row),
     });
   });
 }
@@ -593,9 +627,13 @@ export async function decideContest(
 ): Promise<void> {
   const { settlementId, administratorId, paid } = input;
   await inTransaction(db, async tx => {
-    const row = await tx
-      .prepare('SELECT group_id, amount, status FROM settlements WHERE id = ?')
-      .get<{ group_id: string; amount: number; status: Settlement['status'] }>(settlementId);
+    const row = await tx.prepare(`SELECT group_id, ${FEE_COLUMNS}, status FROM settlements WHERE id = ?`).get<{
+      group_id: string;
+      amount: number;
+      fee_amount: number | null;
+      fee_borne_by: FeeBearer | null;
+      status: Settlement['status'];
+    }>(settlementId);
     if (!row) throw new Refusal(404, 'SettlementNotFound', 'No settlement has this id.');
     if (row.status !== 'contested') {
       throw new Refusal(409, 'SettlementIsNotContested', 'Only a contested settlement is decided.');
@@ -611,7 +649,7 @@ export async function decideContest(
         by: administratorId,
         action: 'settlement-paid',
         subjectId: settlementId,
-        amount: Number(row.amount),
+        amount: settledOfRow(row),
       });
     }
     await recordAdminLog(tx, {

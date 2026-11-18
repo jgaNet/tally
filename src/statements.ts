@@ -1,4 +1,5 @@
 import type { Database } from './database';
+import { type FeeBearer, settledOfRow } from './fees';
 import { findGroupOfMember, isOrWasMember } from './groups';
 import { Refusal } from './refusal';
 import { inReadSnapshot } from './transactions';
@@ -60,6 +61,8 @@ interface SettlementRow {
   payer_id: string;
   payee_id: string;
   amount: number;
+  fee_amount: number | null;
+  fee_borne_by: FeeBearer | null;
   method: 'cash' | 'provider' | 'net';
   counted_at: string;
 }
@@ -126,7 +129,7 @@ export async function statementOfMember(
     // Counted as the balances count them: paid, or refunding (not yet given back), and not refunded.
     const settlementRows = await snapshot
       .prepare(
-        `SELECT st.id, st.payer_id, st.payee_id, st.amount, st.method,
+        `SELECT st.id, st.payer_id, st.payee_id, st.amount, st.fee_amount, st.fee_borne_by, st.method,
                 COALESCE((SELECT MIN(h.at) FROM settlement_statuses h
                           WHERE h.settlement_id = st.id AND h.status = 'paid'), st.created_at) AS counted_at
          FROM settlements st
@@ -148,12 +151,12 @@ export async function statementOfMember(
       ...settlementRows.map((row): CountedEntry => ({
         kind: 'settlement',
         id: row.id,
-        // The instant is in UTC, so its day is the UTC day.
+        // The instant is in UTC, so its day is the UTC day. What it moves is what it settles (see `fees.ts`).
         date: row.counted_at.slice(0, 10),
         at: row.counted_at,
         description: SETTLEMENT_DESCRIPTIONS[row.method],
-        paid: row.payer_id === memberId ? Number(row.amount) : 0,
-        share: row.payee_id === memberId ? Number(row.amount) : 0,
+        paid: row.payer_id === memberId ? settledOfRow(row) : 0,
+        share: row.payee_id === memberId ? settledOfRow(row) : 0,
       })),
     ];
     // A stable sort: an expense and a settlement counted at the same instant keep the expense first.

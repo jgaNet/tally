@@ -353,6 +353,26 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS settlement_statuses_by_settlement ON settlement_statuses (settlement_id);
   CREATE INDEX IF NOT EXISTS settlements_by_payment ON settlements (provider_payment_id);
+  /*
+   * Who bears the provider's fee of the group's payments, as its owner decides; the payee, until then. Read by the payments
+   * asked for, which keep the policy they were asked with (see fee-policy.ts).
+   */
+  ALTER TABLE groups ADD COLUMN IF NOT EXISTS fee_borne_by TEXT NOT NULL DEFAULT 'payee'
+    CHECK (fee_borne_by IN ('payer', 'payee', 'shared'));
+  /*
+   * The fee of a settlement through the provider: the fee the provider said and who bore it when the payment was asked for
+   * (requested from request 38 on). A settlement asked for before has neither, and settles its amount. A settlement settles
+   * its amount less the payer's part of its fee (see fees.ts).
+   */
+  ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_amount BIGINT CHECK (fee_amount IS NULL OR fee_amount >= 0);
+  ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_borne_by TEXT CHECK (fee_borne_by IN ('payer', 'payee', 'shared'));
+  DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'settlements_fee' AND conrelid = 'settlements'::regclass) THEN
+      ALTER TABLE settlements ADD CONSTRAINT settlements_fee CHECK ((fee_amount IS NULL) = (fee_borne_by IS NULL)
+        AND (fee_amount IS NULL OR (method = 'provider' AND fee_amount < amount)));
+    END IF;
+  END $$;
   CREATE INDEX IF NOT EXISTS audit_entries_by_group ON audit_entries (group_id, at);
   /*
    * A database created before contested settlements kept the CHECKs of the statuses and actions named above without them:

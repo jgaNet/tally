@@ -1,4 +1,5 @@
 import type { Querier } from './database';
+import { settledSql } from './fees';
 
 /**
  * What a member of a group is owed (positive) or owes the group (negative): what they paid for the
@@ -45,10 +46,10 @@ function rawBalanceSql(counted: string): string {
           - COALESCE((SELECT SUM(s.amount) FROM expense_shares s
                       JOIN expenses e ON e.id = s.expense_id
                       WHERE e.group_id = m.group_id AND s.member_id = m.account_id), 0)
-          + COALESCE((SELECT SUM(st.amount) FROM settlements st
+          + COALESCE((SELECT SUM(${settledSql('st')}) FROM settlements st
                       WHERE st.group_id = m.group_id AND st.payer_id = m.account_id
                         AND st.status IN (${counted})), 0)
-          - COALESCE((SELECT SUM(st.amount) FROM settlements st
+          - COALESCE((SELECT SUM(${settledSql('st')}) FROM settlements st
                       WHERE st.group_id = m.group_id AND st.payee_id = m.account_id
                         AND st.status IN (${counted})), 0)`;
 }
@@ -95,9 +96,10 @@ export async function balanceOfMembership(db: Querier, groupId: string, accountI
  * starts at 0, and what it had passed on stays with the owner (see `acceptInvitation`).
  *
  * A settlement counts once it is `paid`, and goes on counting while it is `refunding`, since the money has not
- * gone back yet; a `refunded`, `failed` one never counts. With `includePending`, a `pending` one counts too, as
- * if paid. A `contested` one does not count, as it is as it was before it was paid; with `includePending`, it counts
- * too, as it waits for an administrator to decide.
+ * gone back yet; a `refunded`, `failed` one never counts. A settlement through the provider counts what it settles, its
+ * amount less the payer's part of its fee (see `fees.ts`), for the payer and the payee alike. With `includePending`, a
+ * `pending` one counts too, as if paid. A `contested` one does not count, as it is as it was before it was paid; with
+ * `includePending`, it counts too, as it waits for an administrator to decide.
  *
  * It is one statement, so it reads one consistent state of the database: an expense recorded by another
  * server is either wholly counted or not at all. Reading never changes what is stored.

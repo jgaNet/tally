@@ -11,6 +11,7 @@ import { DEFAULT_REMINDER_PERIOD_SECONDS, sweepReminders } from './reminders';
 import { registerAccountRoutes } from './routes/accounts';
 import { registerBalanceRoutes } from './routes/balances';
 import { registerBudgetRoutes } from './routes/budgets';
+import { registerFeePolicyRoutes } from './routes/fee-policy';
 import { registerInsightRoutes } from './routes/insights';
 import { registerExpenseRoutes } from './routes/expenses';
 import { registerGroupRoutes } from './routes/groups';
@@ -143,6 +144,7 @@ export async function createApplication({
       registerRateRoutes(api, db, rates);
       registerRecurringRoutes(api, db, clock);
       registerBudgetRoutes(api, db, clock);
+      registerFeePolicyRoutes(api, db);
       registerBalanceRoutes(api, db);
       registerStatementRoutes(api, db);
       registerSettlementRoutes(api, db, provider);

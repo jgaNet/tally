@@ -85,7 +85,7 @@ describe('merging two groups', () => {
           answer(response, 200, { id: decodeURIComponent(path.slice('/accounts/'.length)) });
         } else {
           const n = nextPayment++;
-          answer(response, 201, { id: `pay_${n}`, payUrl: `https://pay.example.org/${n}` });
+          answer(response, 201, { id: `pay_${n}`, payUrl: `https://pay.example.org/${n}`, fee: 0 });
         }
       });
     });

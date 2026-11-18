@@ -34,7 +34,11 @@ describe('suspending an account', () => {
         } else if (path === '/payments') {
           response.writeHead(201, { 'content-type': 'application/json' });
           response.end(
-            JSON.stringify({ id: `pay_${body.reference}`, payUrl: `https://pay.example.org/${body.reference}` }),
+            JSON.stringify({
+              id: `pay_${body.reference}`,
+              payUrl: `https://pay.example.org/${body.reference}`,
+              fee: 0,
+            }),
           );
         } else {
           response.writeHead(404);

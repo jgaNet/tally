@@ -33,7 +33,7 @@ describe('netting what two people owe each other across their groups', () => {
         }
         payments += 1;
         response.writeHead(201, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ id: `pay_${payments}`, payUrl: `https://pay.example.org/${payments}` }));
+        response.end(JSON.stringify({ id: `pay_${payments}`, payUrl: `https://pay.example.org/${payments}`, fee: 0 }));
       });
     });
     await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
