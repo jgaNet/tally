@@ -1,4 +1,6 @@
 import { mkdtempSync } from 'fs';
+import { createServer, IncomingMessage, Server, ServerResponse } from 'http';
+import { AddressInfo } from 'net';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -15,14 +17,35 @@ let app: FastifyApplication;
 let http: ReturnType<typeof apiClient>;
 let api: string;
 
+/**
+ * A fake rates service (request 22): it offers one rate, from EUR to GBP, and none for any other pair, so a rate is answered only when
+ * Ledger asks for the pair of the group's currency as Groups has it.
+ */
+let rates: Server;
+let ratesOrigin: string;
+
 beforeAll(async () => {
+  rates = createServer((request: IncomingMessage, response: ServerResponse) => {
+    if (request.url?.startsWith('/rates/EUR/GBP?')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ rate: '1.1' }));
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  await new Promise<void>(resolve => rates.listen(0, '127.0.0.1', () => resolve()));
+  ratesOrigin = `http://127.0.0.1:${(rates.address() as AddressInfo).port}`;
+  // `RATES_URL` is unset for the other tests of this file: a server without a rates service takes the payer's rate (request 21).
   process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), 'tally-groups-to-ledger-')), 'tally.sqlite');
   app = await createApplication();
   await app.start(0);
   http = apiClient(app.address);
   api = `/${app.apiPrefix}`;
 });
-afterAll(() => app.stop());
+afterAll(async () => {
+  await app.stop();
+  await new Promise(resolve => rates.close(resolve));
+});
 
 let accountCount = 0;
 async function signedInPerson(name: string): Promise<{ token: string; id: string }> {
@@ -37,6 +60,32 @@ async function signedInPerson(name: string): Promise<{ token: string; id: string
 }
 
 describe('Groups → Ledger', () => {
+  it('reads, by the id Groups answered, the currency of the group made in Groups: the rate offered is to that currency, and no other', async () => {
+    const ada = await signedInPerson('Ada');
+    const created = await http.request('POST', `${api}/groups`, {
+      body: { name: 'Londres', currency: 'GBP' },
+      token: ada.token,
+    });
+    expect(created.status).toBe(201);
+    const { id: groupId } = created.body as { id: string };
+
+    process.env.RATES_URL = ratesOrigin;
+    try {
+      // The rate from EUR is offered to GBP, the group's currency, and only the service's pair answers.
+      const offered = await http.request('GET', `${api}/groups/${groupId}/rates/EUR?date=2026-11-16`, {
+        token: ada.token,
+      });
+      expect(offered.status).toBe(200);
+      expect(offered.body).toEqual({ currency: 'EUR', date: '2026-11-16', rate: '1.1' });
+      const sameAsGroup = await http.request('GET', `${api}/groups/${groupId}/rates/GBP?date=2026-11-16`, {
+        token: ada.token,
+      });
+      expect(sameAsGroup.status).toBe(404);
+    } finally {
+      delete process.env.RATES_URL;
+    }
+  });
+
   it('finds, by the id Groups answered, the group an expense is recorded in, and a member who has just joined can be in its split', async () => {
     const ada = await signedInPerson('Ada');
     const grace = await signedInPerson('Grace');

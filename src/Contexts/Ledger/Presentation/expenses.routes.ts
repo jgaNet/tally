@@ -10,6 +10,7 @@ import {
   getGroupBalances,
   getGroupExpenses,
   getMemberStatement,
+  getOfferedRate,
   recordExpense,
   RecordExpenseInput,
 } from '@Contexts/Ledger/Application/Expenses';
@@ -17,7 +18,7 @@ import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 
 const SHAPE_REFUSAL =
-  'The body must have description (a string), date (a string), exactly one of amount (a whole number) or original ({ currency, amount (a whole number), rate (a string) }), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares })';
+  'The body must have description (a string), date (a string), exactly one of amount (a whole number) or original ({ currency, amount (a whole number), rate (a string, when given) }), and exactly one split: splitBetween (a list of strings), splitExactly (a list of { memberId, amount }) or splitByShares (a list of { memberId, shares })';
 const EDIT_SHAPE_REFUSAL = `${SHAPE_REFUSAL}, and version (a whole number)`;
 
 /** The three fields a body may split an expense by (request 7): exactly one of them is given. */
@@ -52,8 +53,9 @@ const splitOf = (body: Record<string, unknown>): SplitRequest => {
 };
 
 /**
- * The amount a body gives, by shape (request 21): exactly one of `amount`, a whole number in the group's currency, or `original`, an
- * object of a currency (a string), an amount (a whole number) and a rate (a string). Whether the values are allowed is the domain's.
+ * The amount a body gives, by shape (request 21, request 22): exactly one of `amount`, a whole number in the group's currency, or `original`,
+ * an object of a currency (a string), an amount (a whole number) and a rate (a string, which may be left out: the rate offered is taken).
+ * Whether the values are allowed is the domain's.
  */
 const hasAmountShape = (body: Record<string, unknown>): boolean => {
   const hasAmount = body.amount !== undefined;
@@ -65,15 +67,15 @@ const hasAmountShape = (body: Record<string, unknown>): boolean => {
     isObject(original) &&
     typeof original.currency === 'string' &&
     Number.isInteger(original.amount) &&
-    typeof original.rate === 'string'
+    (original.rate === undefined || typeof original.rate === 'string')
   );
 };
 
 /** The amount a body gives, as the domain takes it. Only called on a body `hasAmountShape` has accepted. */
 const amountOf = (body: Record<string, unknown>): GivenAmount => {
   if (body.original !== undefined) {
-    const { currency, amount, rate } = body.original as { currency: string; amount: number; rate: string };
-    return { original: { currency, amount, rate } };
+    const { currency, amount, rate } = body.original as { currency: string; amount: number; rate?: string };
+    return rate === undefined ? { original: { currency, amount } } : { original: { currency, amount, rate } };
   }
   return { amount: body.amount as number };
 };
@@ -168,6 +170,25 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.get('/groups/:id/balances', { schema: { tags: ['balances'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getGroupBalances), { id: (req.params as { id: string }).id }),
+  );
+
+  fastify.get(
+    '/groups/:id/rates/:currency',
+    {
+      schema: { tags: ['rates'] },
+      preValidation: async (request, reply) => {
+        const { date } = request.query as { date?: unknown };
+        if (date !== undefined && typeof date !== 'string') {
+          return reply.code(400).send({ message: 'The date, when given, must be a string written YYYY-MM-DD' });
+        }
+        return undefined;
+      },
+    },
+    (req, reply) => {
+      const { id, currency } = req.params as { id: string; currency: string };
+      const { date } = req.query as { date?: string };
+      return answerAtOnce(req, reply, module.useCase(getOfferedRate), { id, currency, date });
+    },
   );
 
   done();

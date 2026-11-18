@@ -2,10 +2,13 @@ import { NotFoundException, Result } from '@Architecture/Domain';
 import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
+import { isCurrencyCode } from '@SharedKernel/Domain';
 import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 import { IBalanceQueries } from '@Contexts/Ledger/Domain/IBalanceQueries';
+import { InvalidRateDateException } from '@Contexts/Ledger/Domain/Expense/RateExceptions';
+import { NOT_ASKED, RateOffer } from '@Contexts/Ledger/Domain/Expense/Rate';
 import {
   decideRecordExpense,
   decideEditExpense,
@@ -14,6 +17,7 @@ import {
 
 import { IGroupCurrency } from './IGroupCurrency';
 import { IGroupMembers, MemberOfGroup } from './IGroupMembers';
+import { IOfferedRates, OfferedRateView } from './IOfferedRates';
 import { BalanceView, ExpenseView, IExpenseQueries, StatementView } from './IExpenseQueries';
 import { IExpenseRepository } from './IExpenseRepository';
 
@@ -48,7 +52,13 @@ export type EditExpenseInput = {
  */
 export const recordExpense = command(
   'RecordExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+  (
+    expenses: IExpenseRepository,
+    groupMembers: IGroupMembers,
+    groupCurrency: IGroupCurrency,
+    offeredRates: IOfferedRates,
+    clock: Clock,
+  ) =>
     async ({ groupId, description, date, split, ...given }: RecordExpenseInput, context) => {
       return expenses.inTransaction(async () => {
         const payer = callerOf(context);
@@ -56,9 +66,10 @@ export const recordExpense = command(
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
         const currency = await groupCurrency.currencyOf(groupId, payer);
         if (currency === undefined) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
+        const offered = await offerFor(offeredRates, given as GivenAmount, date, currency);
 
         const decision = decideRecordExpense(
-          { memberIds: memberIdsOf(members), groupCurrency: currency },
+          { memberIds: memberIdsOf(members), groupCurrency: currency, offered },
           { description, date, split, payer, ...(given as GivenAmount) },
           clock(),
         );
@@ -80,7 +91,13 @@ export const recordExpense = command(
  */
 export const editExpense = command(
   'EditExpense',
-  (expenses: IExpenseRepository, groupMembers: IGroupMembers, groupCurrency: IGroupCurrency, clock: Clock) =>
+  (
+    expenses: IExpenseRepository,
+    groupMembers: IGroupMembers,
+    groupCurrency: IGroupCurrency,
+    offeredRates: IOfferedRates,
+    clock: Clock,
+  ) =>
     async ({ id, description, date, split, version, ...given }: EditExpenseInput, context) => {
       return expenses.inTransaction(async () => {
         const by = callerOf(context);
@@ -91,6 +108,7 @@ export const editExpense = command(
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
         const currency = await groupCurrency.currencyOf(stored.groupId, by);
         if (currency === undefined) return Result.fail(new NotFoundException('Ledger', 'No expense is found'));
+        const offered = await offerFor(offeredRates, given as GivenAmount, date, currency);
 
         const decision = decideEditExpense(
           {
@@ -98,6 +116,7 @@ export const editExpense = command(
             memberIds: memberIdsOf(members),
             ownerId: ownerIdOf(members),
             groupCurrency: currency,
+            offered,
           },
           { by, description, date, split, version, ...(given as GivenAmount) },
           clock(),
@@ -214,6 +233,54 @@ export const getMemberStatement = query(
       return Result.ok(answer);
     },
 );
+
+/**
+ * The rate offered for an amount paid in another currency (request 22), asked before the decision, for the expense's currency to the
+ * group's on its day. Nothing is asked for an amount in the group's own currency, nor for a currency that is not Tally's, nor for a day
+ * that is not written as one: the decision refuses those before it reads an offer.
+ */
+const offerFor = async (
+  offeredRates: IOfferedRates,
+  given: GivenAmount,
+  date: string,
+  groupCurrency: string,
+): Promise<RateOffer> => {
+  const original = given.original;
+  if (original === undefined || !isCurrencyCode(original.currency) || original.currency === groupCurrency)
+    return NOT_ASKED;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NOT_ASKED;
+  return offeredRates.rateFor({ from: original.currency, to: groupCurrency, date });
+};
+
+/**
+ * A member of a group reads the rate Tally offers from a currency to the group's on a day (request 22): the day given, or today (UTC) when
+ * none is. It is the rate the rates service gives, as it gives it. Anyone who is not a member gets the answer for a group that does not
+ * exist; a currency that is the group's or not one of Tally's, and a day with no rate offered, both answer as a rate that is not there.
+ */
+export const getOfferedRate = query(
+  'GetOfferedRate',
+  (groupCurrency: IGroupCurrency, groupMembers: IGroupMembers, offeredRates: IOfferedRates, clock: Clock) =>
+    async ({ id, currency, date }: { id: string; currency: string; date?: string }, context) => {
+      const by = callerOf(context);
+      if (!(await groupMembers.membersOf(id, by)))
+        return Result.fail(new NotFoundException('Ledger', 'No group is found'));
+      const groupCode = await groupCurrency.currencyOf(id, by);
+      if (groupCode === undefined) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
+
+      const day = date ?? clock().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !isRealDay(day)) return Result.fail(new InvalidRateDateException());
+      if (!isCurrencyCode(currency) || currency === groupCode) {
+        return Result.fail(new NotFoundException('Ledger', 'No rate is offered'));
+      }
+      const offer = await offeredRates.rateFor({ from: currency, to: groupCode, date: day });
+      if (offer.kind !== 'rate') return Result.fail(new NotFoundException('Ledger', 'No rate is offered'));
+      const answer: OfferedRateView = { currency, date: day, rate: offer.rate };
+      return Result.ok(answer);
+    },
+);
+
+/** Whether `day` (already written YYYY-MM-DD) is a day of the calendar: 2026-02-30 is not, and reads back as another day. */
+const isRealDay = (day: string): boolean => new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day;
 
 const memberIdsOf = (members: MemberOfGroup[]): string[] => members.map(member => member.memberId);
 

@@ -1,10 +1,11 @@
+import { NO_SERVICE } from './Rate';
 import { decideRecordExpense, RecordExpenseCommand } from './Expense.decision';
 import { Split } from './Split';
 
 const ada = 'ada';
 const grace = 'grace';
 const linus = 'linus';
-const members = { memberIds: [ada, grace, linus], groupCurrency: 'EUR' };
+const members = { memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE };
 const now = new Date('2026-11-17T10:00:00Z');
 
 const command = (overrides: Partial<RecordExpenseCommand> = {}): RecordExpenseCommand =>

@@ -1,3 +1,4 @@
+import { NO_SERVICE } from './Rate';
 import { Expense } from './Expense';
 import { decideEditExpense, decideRecordExpense, EditExpenseCommand, RecordExpenseCommand } from './Expense.decision';
 import { OriginalAmount } from './OriginalAmount';
@@ -6,7 +7,7 @@ const ada = 'ada';
 const grace = 'grace';
 const linus = 'linus';
 const now = new Date('2026-11-17T10:00:00Z');
-const facts = { memberIds: [ada, grace, linus], groupCurrency: 'EUR' };
+const facts = { memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE };
 
 const record = (overrides: Partial<RecordExpenseCommand> = {}): RecordExpenseCommand =>
   ({
@@ -23,7 +24,7 @@ describe('recording an expense paid in another currency (request 21)', () => {
     const decision = decideRecordExpense(facts, record(), now);
     expect(decision.data?.state.amount.value).toBe(1311);
     expect(decision.data?.state.original).toEqual(
-      OriginalAmount.create({ currency: 'CHF', amount: 1234, rate: '1.0625' }, 'EUR').data,
+      OriginalAmount.create({ currency: 'CHF', amount: 1234, rate: '1.0625' }, 'EUR', NO_SERVICE).data,
     );
     expect(decision.data?.state.split.shares.reduce((sum, share) => sum + share.amount, 0)).toBe(1311);
   });
@@ -79,7 +80,13 @@ describe('editing an expense paid in another currency (request 21)', () => {
       ],
       version: 1,
     };
-    const access = { expense: snapshot, memberIds: facts.memberIds, ownerId: grace, groupCurrency: 'EUR' };
+    const access = {
+      expense: snapshot,
+      memberIds: facts.memberIds,
+      ownerId: grace,
+      groupCurrency: 'EUR',
+      offered: NO_SERVICE,
+    };
     const edit = (overrides: Partial<EditExpenseCommand>): EditExpenseCommand =>
       ({
         by: ada,

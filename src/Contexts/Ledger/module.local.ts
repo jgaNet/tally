@@ -8,6 +8,7 @@ import {
   getGroupBalances,
   getGroupExpenses,
   getMemberStatement,
+  getOfferedRate,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/ExpenseEvents';
@@ -16,6 +17,7 @@ import { BalancesCountingSettlements } from '@Contexts/Ledger/Infrastructure/Bal
 import { GroupCurrencyOfGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyOfGroups';
 import { GroupMembersOfGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersOfGroups';
 import { LedgerDatabase } from '@Contexts/Ledger/Infrastructure/LedgerDatabase';
+import { OfferedRatesOverHttp } from '@Contexts/Ledger/Infrastructure/OfferedRatesOverHttp';
 import { SettledAmountsOfSettlements } from '@Contexts/Ledger/Infrastructure/SettledAmountsOfSettlements';
 import { SqliteExpenses } from '@Contexts/Ledger/Infrastructure/SqliteExpenses';
 import { settlementsReadModel } from '@Contexts/Settlements/module.local';
@@ -33,6 +35,11 @@ const expenses = new SqliteExpenses(database);
 const groupMembers = new GroupMembersOfGroups(() => groupsMembersReadModel);
 /** The currency of a group, which an expense paid in another currency is counted against (request 21, ADR 18), read at a request too. */
 const groupCurrency = new GroupCurrencyOfGroups(() => groupsMembersReadModel);
+/**
+ * The rate a rates service offers for a currency on a day (request 22, ADR 19), read at `RATES_URL` when a request needs it. Unset, the
+ * server has no rates service: an expense then takes the payer's rate, and one that leaves its rate out is refused.
+ */
+const offeredRates = new OfferedRatesOverHttp(() => process.env.RATES_URL);
 /** What the group's settlements paid, read from Settlements' read model at a request, never when the modules are built (ADR 7, ADR 11). */
 const settledAmounts = new SettledAmountsOfSettlements(() => settlementsReadModel);
 /** The balances as every reader sees them: the expenses', plus the settlements (request 12). */
@@ -50,12 +57,13 @@ export const localLedgerModule = new LiteModule({
   name: 'Ledger',
   domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedHandler()] }],
   useCases: [
-    recordExpense(expenses, groupMembers, groupCurrency, systemClock),
+    recordExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
     getExpense(expenses, groupMembers),
     getGroupBalances(balancesCountingSettlements, groupMembers),
     getGroupExpenses(expenses, groupMembers),
     getMemberStatement(expenses, groupMembers),
-    editExpense(expenses, groupMembers, groupCurrency, systemClock),
+    editExpense(expenses, groupMembers, groupCurrency, offeredRates, systemClock),
     deleteExpense(expenses, groupMembers, systemClock),
+    getOfferedRate(groupCurrency, groupMembers, offeredRates, systemClock),
   ],
 });

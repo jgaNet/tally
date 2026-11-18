@@ -10,14 +10,16 @@ import {
   SplitMemberNotInGroupException,
 } from './ExpenseExceptions';
 import { ExpenseSnapshot } from './Expense';
-import { OriginalAmount, OriginalSnapshot } from './OriginalAmount';
+import { OriginalAmount, OriginalGiven } from './OriginalAmount';
 import { memberIdsOfSplit, Split, SplitRequest } from './Split';
+import { RateOffer } from './Rate';
 
 /**
  * How an expense's amount is given (request 21): in the group's currency (`amount`), or paid in another currency, at the rate its
- * payer states (`original`). Exactly one of them; the transport refuses a body with neither or both, by shape.
+ * payer states or, when it leaves none out, the one offered (`original`, request 22). Exactly one of them; the transport refuses a
+ * body with neither or both, by shape.
  */
-export type GivenAmount = { amount: number; original?: undefined } | { amount?: undefined; original: OriginalSnapshot };
+export type GivenAmount = { amount: number; original?: undefined } | { amount?: undefined; original: OriginalGiven };
 
 /**
  * What a recording says: the expense as typed, how it is split (one of the three ways, request 7), the payer (the caller), and its
@@ -56,10 +58,15 @@ export interface NewExpenseValues {
   split: Split;
 }
 
-/** The facts about the group a recording or an edit is decided against: its members (in the order they joined) and its currency (request 21). */
+/**
+ * The facts about the group a recording or an edit is decided against: its members (in the order they joined), its currency (request 21),
+ * and the rate the rates service offers for the expense's currency on its day (request 22), which the use case asks for before it decides,
+ * and which is read only for an amount paid in another currency.
+ */
 export interface GroupFacts {
   memberIds: readonly string[];
   groupCurrency: string;
+  offered: RateOffer;
 }
 
 /**
@@ -72,7 +79,7 @@ export interface StoredExpenseAccess extends GroupFacts {
 }
 
 /** What a deletion is decided against: the same as an edit's, but the group's currency, which a deletion does not count in. */
-export type DeleteAccess = Omit<StoredExpenseAccess, 'groupCurrency'>;
+export type DeleteAccess = Omit<StoredExpenseAccess, 'groupCurrency' | 'offered'>;
 
 /** The message of a refusal to change an expense by someone who is neither its payer nor the group's owner. */
 const MAY_NOT_CHANGE = "Only the expense's payer or the group's owner may change it";
@@ -97,7 +104,7 @@ export const decideRecordExpense: Decision<NewExpenseValues, RecordExpenseComman
  * gives the answer to `Expense.revise`, which keeps the payer and records `ExpenseEdited`.
  */
 export const decideEditExpense: Decision<NewExpenseValues, EditExpenseCommand, never, StoredExpenseAccess> = (
-  { expense, memberIds, ownerId, groupCurrency },
+  { expense, memberIds, ownerId, groupCurrency, offered },
   command,
   now,
 ) => {
@@ -113,7 +120,7 @@ export const decideEditExpense: Decision<NewExpenseValues, EditExpenseCommand, n
       split: command.split,
       payer: expense.paidBy,
     },
-    { memberIds, groupCurrency },
+    { memberIds, groupCurrency, offered },
     now,
   );
 };
@@ -145,16 +152,17 @@ const givenAmountOf = (command: GivenAmount): GivenAmount =>
 
 /**
  * The amount an expense is counted in, given as it was (request 21). An amount in the group's currency is checked as any amount is;
- * one paid in another is checked as an original amount (its currency, its amount, its rate), and its amount in the group's currency
- * is the original amount times the rate, rounded, checked the same way. The original is kept with the expense only when it was given.
+ * one paid in another is checked as an original amount (its currency, its amount, its rate, given or offered, request 22), and its amount
+ * in the group's currency is the original amount times the rate, rounded, checked the same way. The original is kept with the expense
+ * only when it was given in another currency.
  */
-function moneyOf(given: GivenAmount, groupCurrency: string): IResult<Money> {
+function moneyOf(given: GivenAmount, groupCurrency: string, offered: RateOffer): IResult<Money> {
   if (given.original === undefined) {
     const amount = ExpenseAmount.create(given.amount);
     if (amount.isFailure()) return amount;
     return Result.ok({ amount: amount.data, original: undefined });
   }
-  const original = OriginalAmount.create(given.original, groupCurrency);
+  const original = OriginalAmount.create(given.original, groupCurrency, offered);
   if (original.isFailure()) return original;
   const amount = original.data.groupExpenseAmount();
   if (amount.isFailure()) return amount;
@@ -176,15 +184,16 @@ function newValues(
     payer,
     ...given
   }: { description: string; date: string; split: SplitRequest; payer: string } & GivenAmount,
-  { memberIds, groupCurrency }: GroupFacts,
+  { memberIds, groupCurrency, offered }: GroupFacts,
   now: Date,
 ) {
   const description = ExpenseDescription.create(rawDescription);
   if (description.isFailure()) return description;
-  const money = moneyOf(given as GivenAmount, groupCurrency);
-  if (money.isFailure()) return money;
+  // The day is checked before the amount: a rate is asked for that day, and a day that is not one is refused as one.
   const date = ExpenseDate.create(rawDate, now.toISOString().slice(0, 10));
   if (date.isFailure()) return date;
+  const money = moneyOf(given as GivenAmount, groupCurrency, offered);
+  if (money.isFailure()) return money;
   if (memberIdsOfSplit(request).some(member => !memberIds.includes(member))) {
     return Result.fail(new SplitMemberNotInGroupException());
   }

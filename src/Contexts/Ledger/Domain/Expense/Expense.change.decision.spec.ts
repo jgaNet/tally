@@ -1,3 +1,4 @@
+import { NO_SERVICE } from './Rate';
 import { Expense, ExpenseSnapshot } from './Expense';
 import { decideDeleteExpense, decideEditExpense, EditExpenseCommand } from './Expense.decision';
 
@@ -22,7 +23,13 @@ const stored: ExpenseSnapshot = {
   ],
   version: 1,
 };
-const access = { expense: stored, memberIds: [payer, owner, other], ownerId: owner, groupCurrency: 'EUR' };
+const access = {
+  expense: stored,
+  memberIds: [payer, owner, other],
+  ownerId: owner,
+  groupCurrency: 'EUR',
+  offered: NO_SERVICE,
+};
 
 const edit = (overrides: Partial<EditExpenseCommand> = {}): EditExpenseCommand =>
   ({

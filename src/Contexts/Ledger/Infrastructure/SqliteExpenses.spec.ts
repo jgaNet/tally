@@ -1,3 +1,4 @@
+import { NO_SERVICE } from '@Contexts/Ledger/Domain/Expense/Rate';
 import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -21,7 +22,7 @@ const newDatabasePath = () => join(mkdtempSync(join(tmpdir(), 'tally-ledger-stor
 /** A recorded expense of 1000 paid by Ada, split between the three, as Ledger stores it. */
 function recorded(): Expense {
   const decision = decideRecordExpense(
-    { memberIds: [ada, grace, linus], groupCurrency: 'EUR' },
+    { memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE },
     {
       description: 'Groceries',
       amount: 1000,
@@ -64,6 +65,7 @@ describe('saving an expense over a newer version of it (CONC-OPTIMISTIC, feature
           memberIds: [ada, grace, linus],
           ownerId: ada,
           groupCurrency: 'EUR',
+          offered: NO_SERVICE,
         },
         {
           by: ada,
@@ -100,7 +102,13 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
     await store.insert(expense);
     const edited = (await store.get(expense._id.value))!;
     const decision = decideEditExpense(
-      { expense: edited.toSnapshot(), memberIds: [ada, grace, linus], ownerId: ada, groupCurrency: 'EUR' },
+      {
+        expense: edited.toSnapshot(),
+        memberIds: [ada, grace, linus],
+        ownerId: ada,
+        groupCurrency: 'EUR',
+        offered: NO_SERVICE,
+      },
       {
         by: ada,
         description: 'Groceries',
@@ -140,7 +148,13 @@ describe('moving the balances with an expense (feature 5, feature 6)', () => {
 
     readForEdit.revise(
       decideEditExpense(
-        { expense: readForEdit.toSnapshot(), memberIds: [ada, grace, linus], ownerId: ada, groupCurrency: 'EUR' },
+        {
+          expense: readForEdit.toSnapshot(),
+          memberIds: [ada, grace, linus],
+          ownerId: ada,
+          groupCurrency: 'EUR',
+          offered: NO_SERVICE,
+        },
         {
           by: ada,
           description: 'Groceries',
