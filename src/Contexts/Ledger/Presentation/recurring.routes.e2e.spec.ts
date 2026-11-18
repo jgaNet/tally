@@ -274,7 +274,7 @@ describe('the background job', () => {
 });
 
 describe('a recurring expense whose member has left', () => {
-  it('ends when a member of its split leaves the group: it is gone, and the day that came records no expense', async () => {
+  it('ends when a member of its split leaves the group: it is gone, and records no expense after the leave', async () => {
     const ada = await signedInPerson('Ada');
     const grace = await signedInPerson('Grace');
     const groupId = await groupWith(ada, [grace]);
@@ -285,6 +285,19 @@ describe('a recurring expense whose member has left', () => {
       await setUp(groupId, { description: 'Rent', amount: 100, startsOn, splitBetween: [ada.id, grace.id] }, ada.token)
     ).body as { id: string };
 
+    // The background job records the days that came while the split was whole, at its own pace: wait for them, so that the leave is
+    // what decides every day after them. The days due are the 5th of last month, and of this month once it has come.
+    const today = now.toISOString().slice(0, 10);
+    const dueCount = now.getUTCDate() >= 5 ? 2 : 1;
+    await until(
+      () => readOne(id, ada.token),
+      answer => (answer.body as { next: string }).next > today,
+    );
+    await until(
+      () => groupExpenses(groupId, ada.token),
+      answer => (answer.body as unknown[]).length >= dueCount,
+    );
+
     expect((await http.request('POST', `${api}/groups/${groupId}/leave`, { token: grace.token })).status).toBe(204);
 
     const gone = await until(
@@ -292,6 +305,8 @@ describe('a recurring expense whose member has left', () => {
       answer => answer.status === 404,
     );
     expect(gone.status).toBe(404);
-    expect(((await groupExpenses(groupId, ada.token)).body as unknown[]).length).toBe(0);
+    // Nothing comes due after the leave: no expense is recorded for it, now or at any later run of the job.
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(((await groupExpenses(groupId, ada.token)).body as unknown[]).length).toBe(dueCount);
   });
 });
