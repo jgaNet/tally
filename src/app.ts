@@ -7,9 +7,10 @@ import { registerExpenseRoutes } from './expenses/routes';
 import { registerGroupRoutes } from './groups/routes';
 import { registerInvitationRoutes } from './invitations/routes';
 import { registerNoticeRoutes } from './notices/routes';
-import { Refusal } from './refusal';
 import { registerOperationRoutes } from './operations/routes';
 import { registerPayoutAccountRoutes } from './payouts/routes';
+import { registerRateRoutes } from './rates/routes';
+import { Refusal } from './refusal';
 import { sweepDebts } from './reminders/reminders';
 import { registerSettlementRoutes } from './settlements/routes';
 import { registerStatementRoutes } from './statements/routes';
@@ -35,7 +36,9 @@ export interface Application {
  * Builds the application. Every route is served under `/<apiPrefix>` (`/v1` by default), and what
  * it knows is kept in the SQLite file at `databasePath` (`DATABASE_PATH`, else `tally.db`). Payment
  * through the provider is at `providerUrl` (`PROVIDER_URL`) and is refused without it; its webhooks are
- * signed with `providerWebhookSecret` (`PROVIDER_WEBHOOK_SECRET`). The background job runs every
+ * signed with `providerWebhookSecret` (`PROVIDER_WEBHOOK_SECRET`). The rates offered are asked of the rates
+ * service at `ratesUrl` (`RATES_URL`), which is given up after `ratesTimeoutMs` (5 seconds); without it no
+ * rate is offered, and a rate an expense states is taken whatever it is. The background job runs every
  * `jobsIntervalSeconds` (`JOBS_INTERVAL_SECONDS`, 60), and a week of debt is `reminderPeriodSeconds`
  * (`REMINDER_PERIOD_SECONDS`, 604800).
  */
@@ -46,6 +49,8 @@ export async function createApplication({
   providerUrl = process.env.PROVIDER_URL || '',
   providerWebhookSecret = process.env.PROVIDER_WEBHOOK_SECRET || '',
   providerTimeoutMs = 5000,
+  ratesUrl = process.env.RATES_URL || '',
+  ratesTimeoutMs = 5000,
   jobsIntervalSeconds = Number(process.env.JOBS_INTERVAL_SECONDS || 60),
   reminderPeriodSeconds = Number(process.env.REMINDER_PERIOD_SECONDS || 604800),
 }: {
@@ -55,6 +60,8 @@ export async function createApplication({
   providerUrl?: string;
   providerWebhookSecret?: string;
   providerTimeoutMs?: number;
+  ratesUrl?: string;
+  ratesTimeoutMs?: number;
   jobsIntervalSeconds?: number;
   reminderPeriodSeconds?: number;
 } = {}): Promise<Application> {
@@ -65,6 +72,10 @@ export async function createApplication({
     url: providerUrl.replace(/\/+$/, ''),
     webhookSecret: providerWebhookSecret,
     timeoutMs: providerTimeoutMs,
+  };
+  const rates = {
+    url: ratesUrl.replace(/\/+$/, ''),
+    timeoutMs: ratesTimeoutMs,
   };
   server.addHook('onClose', async () => {
     db.close();
@@ -90,7 +101,8 @@ export async function createApplication({
       registerAccountRoutes(routes, db);
       registerGroupRoutes(routes, db);
       registerInvitationRoutes(routes, db);
-      registerExpenseRoutes(routes, db);
+      registerExpenseRoutes(routes, db, rates);
+      registerRateRoutes(routes, db, rates);
       registerBalanceRoutes(routes, db);
       registerNoticeRoutes(routes, db);
       registerStatementRoutes(routes, db);

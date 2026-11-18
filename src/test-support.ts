@@ -213,3 +213,76 @@ export async function setPayoutAccount(app: Application, token: string, accountI
     throw new Error(`setting the payout account failed: ${response.statusCode} ${response.body}`);
   }
 }
+
+/** How the fake rates service answers a request for a rate: `answer` (what it knows, else a `404`), or as its mode says. */
+export type RatesMode = 'answer' | 'refuse' | 'malformed' | 'hang';
+
+export interface FakeRatesService {
+  /** The base URL, as `RATES_URL` gives it: no trailing slash. */
+  url: string;
+  /** Every request for a rate, in the order received: the currency asked from, to, and the day. */
+  requests: { from: string; to: string; date: string }[];
+  /** The rates it knows, by `ratesKey`: a rate that is not there is answered with a `404`. */
+  rates: Map<string, string>;
+  /** How it answers: `answer` (`200 { rate }` for a rate it knows), `refuse` (a `500`), `malformed` (`200` with a rate that is not text) or `hang`. */
+  mode: RatesMode;
+  /** Makes it know `rate` for `from` in `to` on `date`. */
+  offer(from: string, to: string, date: string, rate: string): void;
+  close(): Promise<void>;
+}
+
+/** The key of a rate in `FakeRatesService.rates`. */
+export const ratesKey = (from: string, to: string, date: string): string => `${from}/${to}/${date}`;
+
+const RATE_PATH = /^\/rates\/([A-Z]{3})\/([A-Z]{3})$/;
+
+/** A rates service on the loopback interface, answering `GET /rates/{from}/{to}?date=` as `mode` says. */
+export async function startFakeRatesService(): Promise<FakeRatesService> {
+  const requests: { from: string; to: string; date: string }[] = [];
+  const rates = new Map<string, string>();
+  const service = {
+    requests,
+    rates,
+    mode: 'answer',
+    offer(from: string, to: string, date: string, rate: string) {
+      rates.set(ratesKey(from, to, date), rate);
+    },
+  } as FakeRatesService;
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    const path = RATE_PATH.exec(url.pathname);
+    if (request.method !== 'GET' || path === null) {
+      response.writeHead(404).end();
+      return;
+    }
+    const [from, to] = [path[1], path[2]];
+    const date = url.searchParams.get('date') ?? '';
+    requests.push({ from, to, date });
+    if (service.mode === 'hang') {
+      return;
+    }
+    if (service.mode === 'refuse') {
+      response.writeHead(500).end('{}');
+      return;
+    }
+    if (service.mode === 'malformed') {
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ rate: 1.0625 }));
+      return;
+    }
+    const rate = rates.get(ratesKey(from, to, date));
+    if (rate === undefined) {
+      response.writeHead(404, { 'content-type': 'application/json' }).end('{}');
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ rate }));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as { port: number };
+  service.url = `http://127.0.0.1:${port}`;
+  service.close = () =>
+    new Promise<void>(resolve => {
+      server.closeAllConnections();
+      server.close(() => resolve());
+    });
+  return service;
+}

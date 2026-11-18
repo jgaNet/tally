@@ -176,9 +176,10 @@ describe('an expense in another currency', () => {
       expect(neither.json().type).toBe('InvalidBody');
     });
 
-    it('is of the wrong shape with 400 when the original lacks its currency, amount or rate', async () => {
+    it('is of the wrong shape with 400 when the original lacks its currency or its amount', async () => {
       const { ada, grace, groupId } = await twoMembers();
-      for (const field of ['currency', 'amount', 'rate']) {
+      // Its rate may be left out: it is then the offered one (see offered-rates.spec.ts).
+      for (const field of ['currency', 'amount']) {
         const original: Record<string, unknown> = { currency: 'CHF', amount: 1234, rate: '1.0625' };
         delete original[field];
         const response = await record(ada.token, groupId, inOther({}, ada, grace, { original }));

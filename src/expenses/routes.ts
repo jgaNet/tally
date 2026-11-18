@@ -3,6 +3,7 @@ import { requireAccount } from '../auth';
 import type { Database } from '../database';
 import { requireMembership } from '../groups/groups';
 import { CURRENCIES } from '../groups/validation';
+import type { RatesConfig } from '../rates/rates';
 import { createExpense, deleteExpense, expensesOfGroup, requireExpense, updateExpense } from './expenses';
 import type { MoneyInput, SplitInput } from './validation';
 
@@ -43,10 +44,13 @@ const exactlyOneSplit = {
   oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
 };
 
-/** An expense in another currency: what was paid in it, at the rate its payer states. */
+/**
+ * An expense in another currency: what was paid in it, and at the rate its payer states. The rate may be left
+ * out: the expense is then recorded at the rate offered for its currency on its date.
+ */
 const originalBodySchema = {
   type: 'object',
-  required: ['currency', 'amount', 'rate'],
+  required: ['currency', 'amount'],
   properties: {
     currency: { type: 'string' },
     amount: { type: 'number' },
@@ -70,14 +74,14 @@ interface SplitBody {
 
 interface AmountBody {
   amount?: number;
-  original?: { currency: string; amount: number; rate: string };
+  original?: { currency: string; amount: number; rate?: string };
 }
 
 /** The amount a body gives; the schema has already let through exactly one of the two. */
 function moneyOf(body: AmountBody): MoneyInput {
   if (body.original !== undefined) {
     const { currency, amount, rate } = body.original;
-    return { kind: 'other', currency, amount, rate };
+    return rate === undefined ? { kind: 'other', currency, amount } : { kind: 'other', currency, amount, rate };
   }
   return { kind: 'group', amount: body.amount ?? 0 };
 }
@@ -133,7 +137,7 @@ const editBodySchema = {
   ...exactlyOneSplitAndAmount,
 };
 
-export function registerExpenseRoutes(app: FastifyInstance, db: Database): void {
+export function registerExpenseRoutes(app: FastifyInstance, db: Database, rates: RatesConfig): void {
   app.post<{
     Params: { id: string };
     Body: { description: string; date: string } & AmountBody & SplitBody;
@@ -160,7 +164,7 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database): void 
     async (request, reply) => {
       const account = requireAccount(db, request);
       const { description, date } = request.body;
-      const id = createExpense(db, request.params.id, account.id, {
+      const id = await createExpense(db, rates, request.params.id, account.id, {
         description,
         money: moneyOf(request.body),
         date,
@@ -215,7 +219,7 @@ export function registerExpenseRoutes(app: FastifyInstance, db: Database): void 
       const account = requireAccount(db, request);
       const { version, description, date } = request.body;
       const input = { description, money: moneyOf(request.body), date, split: splitOf(request.body) };
-      updateExpense(db, request.params.id, account.id, input, version);
+      await updateExpense(db, rates, request.params.id, account.id, input, version);
       return reply.code(204).send();
     },
   );

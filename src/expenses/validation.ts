@@ -1,4 +1,5 @@
 import { CURRENCIES, type Currency } from '../groups/validation';
+import { millionthsOf } from '../rates/rates';
 import { Refusal } from '../refusal';
 import { charLength } from '../text';
 
@@ -27,11 +28,11 @@ export type SplitInput =
     };
 
 /**
- * The amount as a request gives it: in the group's currency, or in another currency at a rate. The rate
- * is a decimal string, kept as given.
+ * The amount as a request gives it: in the group's currency, or in another currency at a rate. The rate is a
+ * decimal string, kept as given; a request may leave it out, and the offered rate is then taken.
  */
 export type MoneyInput =
-  { kind: 'group'; amount: number } | { kind: 'other'; currency: string; amount: number; rate: string };
+  { kind: 'group'; amount: number } | { kind: 'other'; currency: string; amount: number; rate?: string };
 
 /** An expense's amount in another currency, and the rate it was paid at: what one of that currency is worth. */
 export interface Original {
@@ -40,6 +41,13 @@ export interface Original {
   amount: number;
   rate: string;
 }
+
+/**
+ * The rate a rates service offers for an expense's currency on its day, as resolved before the expense is
+ * checked. `configured` is false when the server has no rates service: it offers no rate and checks no rate
+ * the payer states. `offered` is the rate offered, when there is one.
+ */
+export type RateOffer = { configured: false } | { configured: true; offered: string | undefined };
 
 export interface ExpenseInput {
   description: string;
@@ -75,16 +83,77 @@ function isRealDay(text: string): boolean {
 /** Today's date in UTC, as `YYYY-MM-DD`. */
 export const todayInUtc = (): string => new Date().toISOString().slice(0, 10);
 
-/** A rate: a decimal number, at most 6 digits after the point. */
-const RATE_SHAPE = /^\d+(\.\d{1,6})?$/;
-const RATE_DIGITS = 6;
+/** Whether `text` is a day of the calendar that is not after today (UTC): the day of an expense or a rate. */
+export function isAcceptableDate(text: string): boolean {
+  return isRealDay(text) && text <= todayInUtc();
+}
+
+/** Whether `currency` is one of Tally's currencies, and not the group's: the currency of an expense in another currency. */
+export function isOtherCurrency(currency: string, groupCurrency: Currency): boolean {
+  return (CURRENCIES as readonly string[]).includes(currency) && currency !== groupCurrency;
+}
+
+/**
+ * The rate an expense in another currency is recorded at, with its millionths: the rate it states, checked
+ * against the offer, or else the offered rate. A stated rate must be a decimal of up to 6 digits after the
+ * point, above 0. When the server has a rates service, a stated rate must be within 2 % of the offered rate,
+ * and a rate is refused when there is none to take or to check it by. A server without a rates service
+ * takes the stated rate whatever it is.
+ */
+function rateOf(stated: string | undefined, offer: RateOffer): { rate: string; millionths: bigint } {
+  const noRate = () =>
+    new Refusal(
+      409,
+      'NoRateOffered',
+      'No rate is offered for that currency on that day, so the expense cannot be recorded at a rate.',
+    );
+
+  if (stated === undefined) {
+    const offered = offer.configured ? offer.offered : undefined;
+    const millionths = offered === undefined ? undefined : millionthsOf(offered);
+    if (offered === undefined || millionths === undefined) {
+      throw noRate();
+    }
+    return { rate: offered, millionths };
+  }
+
+  const millionths = millionthsOf(stated);
+  if (millionths === undefined) {
+    throw new Refusal(
+      422,
+      'InvalidRate',
+      'The rate must be a decimal number with at most 6 digits after the point, above 0, such as "0.9542".',
+    );
+  }
+  if (!offer.configured) {
+    return { rate: stated, millionths };
+  }
+  const offered = offer.offered === undefined ? undefined : millionthsOf(offer.offered);
+  if (offer.offered === undefined || offered === undefined) {
+    throw noRate();
+  }
+  // More than 2 % of the offered rate: a fiftieth of it, compared without rounding.
+  const difference = millionths > offered ? millionths - offered : offered - millionths;
+  if (difference * 50n > offered) {
+    throw new Refusal(
+      422,
+      'RateDiffersFromOffered',
+      `The rate differs by more than 2 % from the rate offered for that currency on that day, which is ${offer.offered}.`,
+    );
+  }
+  return { rate: stated, millionths };
+}
 
 /**
  * The amount in the group's currency, and for one in another currency, the original with its currency and
  * rate. That amount is the original times the rate, rounded to the nearest whole number, a half rounded up.
  * It is worked in integers of any size, in millionths of the rate, so no product overflows or rounds early.
  */
-function validateMoney(money: MoneyInput, groupCurrency: Currency): { amount: number; original?: Original } {
+function validateMoney(
+  money: MoneyInput,
+  groupCurrency: Currency,
+  offer: RateOffer,
+): { amount: number; original?: Original } {
   if (money.kind === 'group') {
     if (!Number.isInteger(money.amount) || money.amount < 1 || money.amount > MAX_AMOUNT) {
       throw new Refusal(422, 'InvalidAmount', `The amount must be a whole number from 1 to ${MAX_AMOUNT}.`);
@@ -92,8 +161,8 @@ function validateMoney(money: MoneyInput, groupCurrency: Currency): { amount: nu
     return { amount: money.amount };
   }
 
-  const others = CURRENCIES.filter(currency => currency !== groupCurrency);
-  if (!(others as readonly string[]).includes(money.currency)) {
+  if (!isOtherCurrency(money.currency, groupCurrency)) {
+    const others = CURRENCIES.filter(currency => currency !== groupCurrency);
     throw new Refusal(
       422,
       'InvalidOriginalCurrency',
@@ -107,19 +176,8 @@ function validateMoney(money: MoneyInput, groupCurrency: Currency): { amount: nu
       `The amount in that currency must be a whole number from 1 to ${MAX_AMOUNT}.`,
     );
   }
-  if (!RATE_SHAPE.test(money.rate)) {
-    throw new Refusal(
-      422,
-      'InvalidRate',
-      'The rate must be a decimal number with at most 6 digits after the point, such as "0.9542".',
-    );
-  }
-  const [whole, fraction = ''] = money.rate.split('.');
-  const millionths = BigInt(whole + fraction.padEnd(RATE_DIGITS, '0'));
-  if (millionths === 0n) {
-    throw new Refusal(422, 'InvalidRate', 'The rate must be greater than 0.');
-  }
 
+  const { rate, millionths } = rateOf(money.rate, offer);
   const converted = (BigInt(money.amount) * millionths + 500_000n) / 1_000_000n;
   if (converted < 1n || converted > BigInt(MAX_AMOUNT)) {
     throw new Refusal(
@@ -130,20 +188,22 @@ function validateMoney(money: MoneyInput, groupCurrency: Currency): { amount: nu
   }
   return {
     amount: Number(converted),
-    original: { currency: money.currency as Currency, amount: money.amount, rate: money.rate },
+    original: { currency: money.currency as Currency, amount: money.amount, rate },
   };
 }
 
 /**
  * Checks a new expense of a group in `groupCurrency`. `groupMembers` are the account ids of the group's
- * members and `payerId` is the member who records it. Refusals are `422`: the body had the right shape, a
- * value is not allowed.
+ * members and `payerId` is the member who records it. `offer` is the rate offered for an expense in another
+ * currency, when the server has a rates service (see `RateOffer`). Refusals are `422`: the body had the right
+ * shape, a value is not allowed; `409` when no rate is offered to record the expense at.
  */
 export function validateExpense(
   input: ExpenseInput,
   groupMembers: ReadonlySet<string>,
   payerId: string,
   groupCurrency: Currency,
+  offer: RateOffer = { configured: false },
 ): ValidExpense {
   const description = input.description.trim();
   if (charLength(description) < 1 || charLength(description) > 100) {
@@ -154,15 +214,15 @@ export function validateExpense(
     );
   }
 
-  const { amount, original } = validateMoney(input.money, groupCurrency);
-
-  if (!isRealDay(input.date) || input.date > todayInUtc()) {
+  if (!isAcceptableDate(input.date)) {
     throw new Refusal(
       422,
       'InvalidDate',
       'The date must be a day of the calendar, written YYYY-MM-DD, and not after today (UTC).',
     );
   }
+
+  const { amount, original } = validateMoney(input.money, groupCurrency, offer);
 
   const split = validateSplit(input.split, amount, groupMembers, payerId);
   return { description, amount, original, date: input.date, split };

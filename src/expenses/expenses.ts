@@ -3,8 +3,19 @@ import { type Database, inTransaction } from '../database';
 import { currencyOfGroup, leftMembersAmong, requireMembership } from '../groups/groups';
 import type { Currency } from '../groups/validation';
 import { recordExpenseNotices } from '../notices/notices';
+import { type RatesConfig, offeredRate } from '../rates/rates';
 import { Refusal } from '../refusal';
-import { type ExpenseInput, type Original, type SplitInput, type SplitKind, validateExpense } from './validation';
+import {
+  type ExpenseInput,
+  type MoneyInput,
+  type Original,
+  type RateOffer,
+  type SplitInput,
+  type SplitKind,
+  isAcceptableDate,
+  isOtherCurrency,
+  validateExpense,
+} from './validation';
 
 export interface Share {
   memberId: string;
@@ -73,14 +84,44 @@ export function sharesOf(split: SplitInput, amount: number): Share[] {
 }
 
 /**
- * Records an expense of `groupId` that `payerId` paid, split as its input says. `payerId` must be a member of
- * the group, or the group is refused as not there. The expense and its shares are written together,
- * or not at all.
+ * The rate offer an expense's money is checked against. Only an expense in another currency, on a day that
+ * may be recorded, asks the rates service; the rest need no rate. The rates service is asked outside any
+ * transaction, since it is slow: the offer is then checked and written in one. An expense whose currency or
+ * day is not allowed gets no offer, and is refused for that by `validateExpense`, before any rate.
  */
-export function createExpense(db: Database, groupId: string, payerId: string, input: ExpenseInput): string {
+export async function rateOfferFor(
+  rates: RatesConfig,
+  groupCurrency: Currency,
+  money: MoneyInput,
+  date: string,
+): Promise<RateOffer> {
+  if (money.kind !== 'other' || !isOtherCurrency(money.currency, groupCurrency) || !isAcceptableDate(date)) {
+    return { configured: false };
+  }
+  if (rates.url === '') {
+    return { configured: false };
+  }
+  return { configured: true, offered: await offeredRate(rates, money.currency, groupCurrency, date) };
+}
+
+/**
+ * Records an expense of `groupId` that `payerId` paid, split as its input says. `payerId` must be a member of
+ * the group, or the group is refused as not there. An expense in another currency that states no rate is
+ * recorded at the rate offered for its currency on its date (see `rateOfferFor`). The expense and its shares
+ * are written together, or not at all.
+ */
+export async function createExpense(
+  db: Database,
+  rates: RatesConfig,
+  groupId: string,
+  payerId: string,
+  input: ExpenseInput,
+): Promise<string> {
+  const { currency } = requireMembership(db, groupId, payerId);
+  const offer = await rateOfferFor(rates, currency, input.money, input.date);
   return inTransaction(db, () => {
     const group = requireMembership(db, groupId, payerId);
-    const expense = validateExpense(input, memberIdsOf(db, groupId), payerId, group.currency);
+    const expense = validateExpense(input, memberIdsOf(db, groupId), payerId, group.currency, offer);
     const id = randomUUID();
     const at = new Date().toISOString();
     db.prepare(
@@ -266,15 +307,23 @@ function requireEditor(db: Database, expenseId: string, accountId: string): Expe
  * Replaces the expense `expenseId` with `input`, made from `version`: the version the author read.
  * The payer stays the one who paid, and the shares are computed again from the new split. When the
  * expense has changed since `version`, the edit is refused with `409` and nothing of it is kept.
- * Two edits from the same version: the first is kept, the second is refused.
+ * Two edits from the same version: the first is kept, the second is refused. An edit in another currency
+ * that states no rate takes the rate offered for its currency on its date (see `rateOfferFor`).
  */
-export function updateExpense(
+export async function updateExpense(
   db: Database,
+  rates: RatesConfig,
   expenseId: string,
   accountId: string,
   input: ExpenseInput,
   version: number,
-): void {
+): Promise<void> {
+  // Who may edit, and the version, are settled before the rates service is asked: a refused edit asks nothing.
+  const before = requireEditor(db, expenseId, accountId);
+  if (before.version !== version) {
+    throw staleVersion();
+  }
+  const offer = await rateOfferFor(rates, currencyOfGroup(db, before.groupId), input.money, input.date);
   inTransaction(db, () => {
     const current = requireEditor(db, expenseId, accountId);
     if (current.version !== version) {
@@ -285,6 +334,7 @@ export function updateExpense(
       memberIdsOf(db, current.groupId),
       current.paidBy,
       currencyOfGroup(db, current.groupId),
+      offer,
     );
     // The version is checked again in the write itself: it is the same check, made atomically.
     const written = db
