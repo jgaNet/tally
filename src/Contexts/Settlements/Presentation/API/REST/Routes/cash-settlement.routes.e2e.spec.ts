@@ -83,9 +83,9 @@ describe('a cash settlement', () => {
       history: [{ status: 'paid', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) }],
     });
 
-    // A member's statement is the expenses' alone: Bob's statement still says he owes 30.
+    // A member's statement counts the settlement too (request 29): Bob's statement, which listed the expense he owes 30 on, now ends at 0.
     const statement = await http.get(`/v1/groups/${groupId}/members/${bob.id}/statement`, { token: bob.token });
-    expect((statement.body as { balance: number }).balance).toBe(-30);
+    expect((statement.body as { balance: number }).balance).toBe(0);
   });
 
   it('is refused when it is more than the payer owes, and nothing changes', async () => {

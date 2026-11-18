@@ -23,6 +23,19 @@ export interface PaidSettlement {
   amount: number;
 }
 
+/**
+ * A settlement the balances count, as Ledger's statement lists it (request 29): who paid whom, how much, how it was paid, and when
+ * the balances started to count it, which is when it was recorded in cash, or when the provider said it succeeded.
+ */
+export interface CountedSettlement {
+  id: string;
+  from: string;
+  to: string;
+  amount: number;
+  method: 'cash' | 'provider';
+  countedAt: string;
+}
+
 /** A payment through the provider waiting for the provider to say how it ended: what is still owed counts it as paid. */
 export interface WaitingSettlement {
   from: string;
@@ -50,6 +63,11 @@ export interface ISettlementQueries {
   auditOf(groupId: string): Promise<AuditEntry[]>;
   /** Every settlement of the group the balances count, in the order they were recorded: paid, or refunding (the money has not gone back yet). */
   paidIn(groupId: string): Promise<PaidSettlement[]>;
+  /**
+   * Every settlement of the group the balances count (paid, or refunding), in the order they were recorded, each with when the
+   * balances started to count it (request 29). The time is the one of its line of history that made it paid.
+   */
+  countedIn(groupId: string): Promise<CountedSettlement[]>;
   /** Every payment of the group that waits at the provider, in the order they were requested. */
   waitingIn(groupId: string): Promise<WaitingSettlement[]>;
   /** Every payment through the provider of the group that has not ended yet (pending, or refunding), in the order they were recorded (request 20). */

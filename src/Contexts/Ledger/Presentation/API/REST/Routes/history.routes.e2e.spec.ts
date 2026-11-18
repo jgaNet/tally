@@ -152,16 +152,56 @@ describe('a group’s expenses, and a member’s statement', () => {
       memberId: ben.id,
       balance: -400,
       entries: [
-        { expenseId: train.body.id, date: '2020-01-02', description: 'Train', paid: 600, share: 300, balance: 300 },
-        { expenseId: hotel.body.id, date: '2020-01-05', description: 'Hotel', paid: 0, share: 300, balance: 0 },
-        { expenseId: dinner.body.id, date: '2020-01-05', description: 'Dinner', paid: 0, share: 400, balance: -400 },
+        {
+          kind: 'expense',
+          expenseId: train.body.id,
+          date: '2020-01-02',
+          description: 'Train',
+          paid: 600,
+          share: 300,
+          balance: 300,
+        },
+        {
+          kind: 'expense',
+          expenseId: hotel.body.id,
+          date: '2020-01-05',
+          description: 'Hotel',
+          paid: 0,
+          share: 300,
+          balance: 0,
+        },
+        {
+          kind: 'expense',
+          expenseId: dinner.body.id,
+          date: '2020-01-05',
+          description: 'Dinner',
+          paid: 0,
+          share: 400,
+          balance: -400,
+        },
       ],
     });
 
     const anas = (await statementOf(groupId, ana.id, ben.token)).body as { balance: number; entries: unknown[] };
     expect(anas.entries).toEqual([
-      { expenseId: hotel.body.id, date: '2020-01-05', description: 'Hotel', paid: 900, share: 300, balance: 600 },
-      { expenseId: dinner.body.id, date: '2020-01-05', description: 'Dinner', paid: 500, share: 100, balance: 1000 },
+      {
+        kind: 'expense',
+        expenseId: hotel.body.id,
+        date: '2020-01-05',
+        description: 'Hotel',
+        paid: 900,
+        share: 300,
+        balance: 600,
+      },
+      {
+        kind: 'expense',
+        expenseId: dinner.body.id,
+        date: '2020-01-05',
+        description: 'Dinner',
+        paid: 500,
+        share: 100,
+        balance: 1000,
+      },
     ]);
     expect(anas.balance).toBe(1000);
 

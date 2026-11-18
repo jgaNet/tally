@@ -3,6 +3,7 @@ export * from '@Contexts/Ledger/Application/Queries/GetGroupAudit/GetGroupAuditQ
 export * from '@Contexts/Ledger/Application/Queries/GetGroupBalances/GetGroupBalancesQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetGroupExpenses/GetGroupExpensesQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetMemberStatement/GetMemberStatementQueryHandler';
+export * from '@Contexts/Ledger/Application/Queries/GetMemberStatementCsv/GetMemberStatementCsvQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetOfferedRate/GetOfferedRateQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetRecurringExpense/GetRecurringExpenseQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetGroupRecurringExpenses/GetGroupRecurringExpensesQueryHandler';

@@ -32,6 +32,7 @@ import {
   GetGroupBalancesQueryHandler,
   GetGroupExpensesQueryHandler,
   GetMemberStatementQueryHandler,
+  GetMemberStatementCsvQueryHandler,
   GetOfferedRateQueryHandler,
   GetRecurringExpenseQueryHandler,
   GetGroupRecurringExpensesQueryHandler,
@@ -89,11 +90,9 @@ const groupMembers = new GroupsMembership(groupQueries);
 const groupCurrency = new GroupsCurrency(groupQueries);
 /** The rates service is asked where RATES_URL points when a rate is asked, so an unset URL offers none (request 22). */
 const offeredRates = new HttpOfferedRates(() => process.env.RATES_URL);
-const balanceQueries = new SqliteBalanceQueries(
-  database,
-  new SettlementsSettledAmounts(settlementQueries),
-  groupMembers,
-);
+/** Settlements, as Ledger counts them: the balances and the statements read them through this one port (request 29). */
+const settledAmounts = new SettlementsSettledAmounts(settlementQueries);
+const balanceQueries = new SqliteBalanceQueries(database, settledAmounts, groupMembers);
 const statementQueries = new SqliteStatementQueries(database);
 const recurring = new SqliteRecurringExpenseRepository(database);
 const recurringQueries = new SqliteRecurringExpenseQueries(database);
@@ -174,7 +173,8 @@ export const localLedgerModule = new Module({
     new GetGroupBalancesQueryHandler(balanceQueries, groupMembers),
     new GetGroupAuditQueryHandler(auditQueries, settlementAudit, passedBalances, groupMembers),
     new GetGroupExpensesQueryHandler(expenseQueries, groupMembers),
-    new GetMemberStatementQueryHandler(statementQueries, groupMembers),
+    new GetMemberStatementQueryHandler(statementQueries, groupMembers, settledAmounts),
+    new GetMemberStatementCsvQueryHandler(statementQueries, groupMembers, settledAmounts),
     new GetOfferedRateQueryHandler(offeredRates, groupCurrency, clock),
     new GetRecurringExpenseQueryHandler(recurringQueries, groupMembers),
     new GetGroupRecurringExpensesQueryHandler(recurringQueries, groupMembers),

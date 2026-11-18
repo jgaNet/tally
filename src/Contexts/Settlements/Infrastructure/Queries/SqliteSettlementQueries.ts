@@ -7,6 +7,7 @@ import {
 } from '@Contexts/Settlements/Infrastructure/Repositories/SqliteSettlementBookRepository';
 import { SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
+  CountedSettlement,
   ISettlementQueries,
   OpenProviderPayment,
   PaidSettlement,
@@ -96,6 +97,36 @@ export class SqliteSettlementQueries implements ISettlementQueries {
         )
         .all(groupId) as unknown as { payer: string; payee: string; amount: number }[];
       return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
+    });
+  }
+
+  countedIn(groupId: string): Promise<CountedSettlement[]> {
+    return this.database.exclusive(connection => {
+      const rows = connection
+        .prepare(
+          `SELECT s.id, s.payer, s.payee, s.amount, s.method,
+                  COALESCE((SELECT h.at FROM settlement_history h
+                             WHERE h.settlement_id = s.id AND h.status = 'paid' ORDER BY h.seq LIMIT 1), s.at) AS counted_at
+             FROM settlements s
+            WHERE s.group_id = ? AND s.status IN ('paid', 'refunding')
+            ORDER BY s.recorded_seq`,
+        )
+        .all(groupId) as unknown as {
+        id: string;
+        payer: string;
+        payee: string;
+        amount: number;
+        method: 'cash' | 'provider';
+        counted_at: string;
+      }[];
+      return rows.map(row => ({
+        id: row.id,
+        from: row.payer,
+        to: row.payee,
+        amount: row.amount,
+        method: row.method,
+        countedAt: row.counted_at,
+      }));
     });
   }
 
