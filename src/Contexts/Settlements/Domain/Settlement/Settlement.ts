@@ -7,9 +7,10 @@ export type SettlementMethod = 'cash' | 'provider' | 'net';
 /**
  * Where a settlement stands: a provider's payment is `pending` until the provider says it ended: `paid` or `failed`, and a paid one
  * may be refunded: `refunding` once Tally has asked the provider, `refunded` once the provider says so (request 15). A cash
- * settlement is `paid` from the moment it is recorded. A payment moves forward only, and ends at `failed` or `refunded`.
+ * settlement is `paid` from the moment it is recorded. A payment moves forward only, and ends at `failed` or `refunded`. A paid payment
+ * may be `contested` by its payee (request 33): it waits, and is then `paid` again, or `annulled` when an administrator decides so.
  */
-export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
 
 /** The provider's payment a settlement through the provider is: the id the provider answered, and the link the payer pays at. */
 export interface ProviderPayment {
@@ -37,4 +38,9 @@ export interface Settlement {
   readonly at: string;
   /** Present on a settlement through the provider only. */
   readonly payment?: ProviderPayment;
+  /**
+   * When it was contested (request 33), set once: a settlement is contested at most once, so its presence says it was contested before, even
+   * when an administrator has since decided it was paid.
+   */
+  readonly contestedAt?: string;
 }

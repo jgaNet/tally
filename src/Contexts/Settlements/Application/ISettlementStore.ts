@@ -33,6 +33,7 @@ export interface SettlementView {
  * as the domain keeps it (with the provider's payment), for a refund. `learnedAt` is when Tally learned the settlement's status (request 19):
  * `save` writes it as the settlement's newest history line, in the same transaction as the status, so a settlement's history is the
  * statuses it has had, each with its time. `viewsOfGroup` reads the settlements of a group, the most recently decided first.
+ * `viewsContested` reads the settlements contested now, the earliest contested first (request 33).
  */
 export interface ISettlementStore {
   versionOf(groupId: string): Promise<number>;
@@ -40,6 +41,8 @@ export interface ISettlementStore {
   save(book: SettlementBook, settlement: Settlement, learnedAt: string): Promise<void>;
   viewOf(settlementId: string): Promise<SettlementView | undefined>;
   viewsOfGroup(groupId: string): Promise<SettlementView[]>;
+  /** The settlements contested now, the earliest contested first (request 33). */
+  viewsContested(): Promise<SettlementView[]>;
   settlementOfPayment(paymentId: string): Promise<Settlement | undefined>;
   /** The settlement as the domain keeps it, with its provider's payment, or `undefined` when there is none (request 15). */
   settlementOf(settlementId: string): Promise<Settlement | undefined>;

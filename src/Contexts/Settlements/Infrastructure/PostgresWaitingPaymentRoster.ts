@@ -3,7 +3,7 @@ import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/Postgres
 import { IWaitingPaymentRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingPaymentRoster';
 
 /**
- * The payments waiting at the provider in PostgreSQL (request 20, ADR 15): a settlement through the provider that is `pending` or `refunding`,
+ * The payments waiting at the provider in PostgreSQL (request 20, ADR 15): a settlement through the provider that is `pending`, `refunding` or `contested` (request 33),
  * where the member is the payer or the payee. Reads the committed data, in the reader's snapshot, inside the write turn of the request that
  * asks, so a payment recorded before a leave is seen by it and one recorded after is refused for the leaver.
  */
@@ -15,7 +15,7 @@ export class PostgresWaitingPaymentRoster implements IWaitingPaymentRoster {
       db
         .prepare(
           `SELECT 1 AS found FROM settlements
-            WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding')
+            WHERE group_id = ? AND method = 'provider' AND status IN ('pending', 'refunding', 'contested')
               AND (payer_id = ? OR payee_id = ?)
             LIMIT 1`,
         )

@@ -35,3 +35,4 @@ it from this table and from wherever the rule is stated.
 | [25](0025-the-state-is-in-postgresql-and-the-sqlite-file-is-moved-in-once.md) | The state is in PostgreSQL, and the SQLite file is moved into it once, in the Bootstrap, under one lock (supersedes ADR 2's file) |
 | [26](0026-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
 | [27](0027-a-netting-is-a-domain-service-over-the-books-it-spans-and-an-aggregate-of-its-own.md) | A netting is a domain service over the books it spans, and an aggregate of its own |
+| [28](0028-a-contested-settlement-is-held-by-its-book-and-decided-by-an-administrator.md) | A contested settlement is held by its book, decided by an administrator, and logged by the context that decided it |

@@ -56,7 +56,10 @@ describe('signUp', () => {
 describe('signIn', () => {
   it('answers a token that proves the account, for the right password', async () => {
     const { data: id } = await signedUp();
-    const answer = await signIn(store, passwords, tokens).run({ email: ann.email, password: ann.password }, context());
+    const answer = await signIn(store, passwords, tokens, []).run(
+      { email: ann.email, password: ann.password },
+      context(),
+    );
 
     expect(answer.isSuccess()).toBe(true);
     expect(tokens.accountOf(answer.data!.token)).toBe(id);
@@ -64,11 +67,11 @@ describe('signIn', () => {
 
   it('refuses a wrong password and an unknown email with the same answer', async () => {
     await signedUp();
-    const wrong = await signIn(store, passwords, tokens).run(
+    const wrong = await signIn(store, passwords, tokens, []).run(
       { email: ann.email, password: 'not it at all' },
       context(),
     );
-    const unknown = await signIn(store, passwords, tokens).run(
+    const unknown = await signIn(store, passwords, tokens, []).run(
       { email: 'nobody@example.com', password: ann.password },
       context(),
     );

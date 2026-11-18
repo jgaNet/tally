@@ -48,11 +48,12 @@ export const signUp = command(
 /**
  * Signs someone in: checks the password against the account's hash and answers a token. Nothing changes and nothing is
  * recorded. A wrong password and an email no account has get the same answer, and cost the same work to refuse, so
- * nobody learns which emails have accounts.
+ * nobody learns which emails have accounts. The token carries the role the account has now (request 33): an administrator's
+ * when its email is one of `administrators`, whatever its case, and nobody takes that role through the API.
  */
 export const signIn = query(
   'SignIn',
-  (accounts: IAccountStore, passwords: IPasswordHasher, tokens: ISessionTokens) =>
+  (accounts: IAccountStore, passwords: IPasswordHasher, tokens: ISessionTokens, administrators: readonly string[]) =>
     async ({ email, password }: SignInInput): Promise<IResult<{ token: string }>> => {
       const credentials = await accounts.credentialsOf(email);
       if (!credentials) {
@@ -63,7 +64,7 @@ export const signIn = query(
       if (!(await passwords.matches(password, credentials.passwordHash))) {
         return Result.fail(new InvalidCredentialsException());
       }
-      return Result.ok({ token: tokens.issue(credentials.id) });
+      return Result.ok({ token: tokens.issue(credentials.id, Account.roleFor(email, administrators)) });
     },
   { caller: 'anyone' },
 );

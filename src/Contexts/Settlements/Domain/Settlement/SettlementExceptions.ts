@@ -135,3 +135,63 @@ export class RefundUnavailableException extends Exception {
     });
   }
 }
+
+/** Only the payee of a settlement may contest it: `403` to a signed-in member who is not the payee (request 33). */
+export class ContestNotPayeeException extends NotAllowedException {
+  constructor() {
+    super(SERVICE, 'Only the payee of a settlement may contest it');
+  }
+}
+
+/**
+ * The settlement cannot be contested as it stands: it is not a payment through the provider that is `paid`, or it was contested before
+ * (a settlement is contested at most once): `422`, nothing changes (request 33).
+ */
+export class SettlementNotContestableException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'SettlementNotContestable',
+      message: 'Only a settlement paid through the provider, and not contested before, can be contested',
+    });
+  }
+}
+
+/**
+ * The payer or the payee of the settlement is no longer a member of the group: `422`, nothing changes, so that a settlement the balances do
+ * not count never leaves a former member's balance (request 33, as a refund: request 15).
+ */
+export class ContestPartyLeftException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'ContestPartyLeft',
+      message: 'A settlement whose payer or payee has left the group cannot be contested',
+    });
+  }
+}
+
+/** Only an administrator decides a contested settlement: `403` to a signed-in caller who is not one (request 33). */
+export class NotAnAdministratorException extends NotAllowedException {
+  constructor() {
+    super(SERVICE, 'Only an administrator may decide a contested settlement');
+  }
+}
+
+/** The contested settlements are not there for the caller: `404` to anyone who is not an administrator (request 33). */
+export class ContestsNotFoundException extends NotFoundException {
+  constructor() {
+    super(SERVICE, 'No contested settlements are there for you');
+  }
+}
+
+/** Only a contested settlement is decided, and only once: `422`, nothing changes (request 33). */
+export class SettlementNotContestedException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'SettlementNotContested',
+      message: 'Only a contested settlement can be decided, once',
+    });
+  }
+}

@@ -1,5 +1,5 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
-import { Email } from '@SharedKernel/Domain';
+import { Email, Role } from '@SharedKernel/Domain';
 
 import { EmailAlreadyRegisteredException } from '@Contexts/Groups/Domain/Account/AccountExceptions';
 import { AccountName } from '@Contexts/Groups/Domain/Account/AccountName';
@@ -46,6 +46,15 @@ export class Account extends AggregateRoot {
     const account = new Account(id, normal.data.value, displayName.data.value, passwordHash, 0);
     account.record(AccountRegisteredEvent.set({ accountId: id.value, at: now.toISOString() }));
     return Result.ok(account);
+  }
+
+  /**
+   * The role an account has when it signs in (request 33): an administrator is an account whose email is one of the administrators'
+   * emails, whatever its case, and every other account is a user. Pure: the list is the one the server was started with (ADMIN_EMAILS).
+   */
+  static roleFor(email: string, administrators: readonly string[]): Role {
+    const normal = email.trim().toLowerCase();
+    return administrators.some(administrator => administrator.trim().toLowerCase() === normal) ? Role.ADMIN : Role.USER;
   }
 
   /** The account as the store keeps it. Records nothing. */

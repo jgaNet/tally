@@ -16,6 +16,8 @@ import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.rout
 import { MemberBalancesFromLedger } from '@Contexts/Groups/Infrastructure/MemberBalancesFromLedger';
 import { WaitingPaymentsFromSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsFromSettlements';
 import { groupRoster, groupsSchema, groupsWiring } from '@Contexts/Groups/module.local';
+import { adminRoutes } from '@Contexts/Groups/Presentation/admin.routes';
+import { AdministratorDecisionsFromSettlements } from '@Contexts/Groups/Infrastructure/AdministratorDecisionsFromSettlements';
 import { GroupMembersFromGroups } from '@Contexts/Ledger/Infrastructure/GroupMembersFromGroups';
 import { GroupCurrencyFromGroups } from '@Contexts/Ledger/Infrastructure/GroupCurrencyFromGroups';
 import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
@@ -35,7 +37,9 @@ import { PassedBalancesFromGroups } from '@Contexts/Ledger/Infrastructure/Passed
 import { auditRoutes } from '@Contexts/Ledger/Presentation/audit.routes';
 import { ledgerBalanceRoster, ledgerSchema, ledgerWiring } from '@Contexts/Ledger/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
+import { contestRoutes } from '@Contexts/Settlements/Presentation/contests.routes';
 import {
+  administratorLogRoster,
   outstandingDebtRoster,
   settlementRoster,
   settlementsSchema,
@@ -79,6 +83,10 @@ export async function createApplication({
   receiptsUrl = process.env.RECEIPTS_URL || undefined,
   jobsIntervalSeconds = Number(process.env.JOBS_INTERVAL_SECONDS || 60),
   reminderPeriodSeconds = Number(process.env.REMINDER_PERIOD_SECONDS || 604800),
+  administratorEmails = String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map(email => email.trim())
+    .filter(Boolean),
 }: {
   logger?: Logger;
   apiPrefix?: string;
@@ -100,6 +108,8 @@ export async function createApplication({
   jobsIntervalSeconds?: number;
   /** How long a debt must last before its member is reminded, in seconds (REMINDER_PERIOD_SECONDS; a week when it is not set). */
   reminderPeriodSeconds?: number;
+  /** The emails of the platform's administrators, whatever their case (ADMIN_EMAILS, a list separated by commas) (request 33). */
+  administratorEmails?: string[];
 } = {}): Promise<FastifyApplication> {
   if (!databaseUrl) throw new Error('DATABASE_URL names the PostgreSQL database Tally keeps its state in');
   const database = await PostgresDatabase.open(
@@ -117,10 +127,14 @@ export async function createApplication({
   const groupMembers = new GroupMembersFromGroups(groupRoster(database));
   const groupCurrency = new GroupCurrencyFromGroups(groupRoster(database));
   const balances = ledgerBalanceRoster(database, settledAmounts, groupMembers);
+  // The administrators' log (request 33, ADR 28) is written by Settlements in the transaction of each decision, and read by Groups through a
+  // port it owns, over Settlements' read model. Each account's administrator role is given at sign-in, from ADMIN_EMAILS.
   const groups = await groupsWiring(
     database,
     new MemberBalancesFromLedger(balances),
     new WaitingPaymentsFromSettlements(waitingPaymentRoster(database)),
+    new AdministratorDecisionsFromSettlements(administratorLogRoster(database)),
+    administratorEmails,
   );
   // The rates a rates service offers (request 22) are asked of RATES_URL, through a port Ledger owns: an expense in another currency takes
   // the rate offered when its own is left out, and is checked against it.
@@ -172,6 +186,7 @@ export async function createApplication({
     .registerRoutes('/', accountRoutes, { module: groups.module })
     .registerRoutes('/', groupRoutes, { module: groups.module })
     .registerRoutes('/', invitationRoutes, { module: groups.module })
+    .registerRoutes('/', adminRoutes, { module: groups.module })
     .registerRoutes('/', expenseRoutes, { module: ledger })
     .registerRoutes('/', balanceRoutes, { module: ledger })
     .registerRoutes('/', historyRoutes, { module: ledger })
@@ -182,6 +197,7 @@ export async function createApplication({
     .registerRoutes('/', receiptRoutes, { module: ledger })
     .registerRoutes('/', auditRoutes, { module: ledger })
     .registerRoutes('/', settlementRoutes, { module: settlements })
+    .registerRoutes('/', contestRoutes, { module: settlements })
     .registerRoutes('/', noticeRoutes, { module: notifications })
     .onStop(() => database.close());
 

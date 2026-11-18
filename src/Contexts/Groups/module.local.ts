@@ -3,6 +3,8 @@ import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import { getAdministratorsLog } from '@Contexts/Groups/Application/AdministratorLog';
+import { IAdministratorDecisions } from '@Contexts/Groups/Application/IAdministratorDecisions';
 import { IMemberBalances, IWaitingPayments } from '@Contexts/Groups/Application/IMemberBalances';
 import {
   archiveGroup,
@@ -56,9 +58,16 @@ export function groupRoster(database: PostgresDatabase): IGroupRoster {
  * groups other contexts read (`roster`, the read-model port of ADR 6, for Ledger's split). Leaving (feature 9, request 20)
  * asks a member's balance through `balances`, the port Groups owns (ADR 1 T5), and whether a payment of theirs waits at
  * the provider through `waiting` (ADR 15): the composition root gives both, over the other contexts' read models, so this
- * file imports no other context.
+ * file imports no other context. The administrators' log (request 33) is read through `decisions`, the port Groups owns, and the token of a
+ * sign-in carries the administrator's role when its email is one of `administrators` (ADMIN_EMAILS).
  */
-export async function groupsWiring(database: PostgresDatabase, balances: IMemberBalances, waiting: IWaitingPayments) {
+export async function groupsWiring(
+  database: PostgresDatabase,
+  balances: IMemberBalances,
+  waiting: IWaitingPayments,
+  decisions: IAdministratorDecisions,
+  administrators: readonly string[] = [],
+) {
   const accounts = new PostgresAccountStore(database);
   const passwords = new ScryptPasswordHasher();
   const tokens = await SignedSessionTokens.open(database);
@@ -71,7 +80,7 @@ export async function groupsWiring(database: PostgresDatabase, balances: IMember
     domainEvents: [{ event: GroupsMergedEvent, handlers: [new PublishGroupsMergedHandler()] }],
     useCases: [
       signUp(accounts, passwords, systemClock),
-      signIn(accounts, passwords, tokens),
+      signIn(accounts, passwords, tokens, administrators),
       getMyAccount(accounts),
       createGroup(groups, systemClock),
       getGroup(groups),
@@ -83,6 +92,7 @@ export async function groupsWiring(database: PostgresDatabase, balances: IMember
       leaveGroup(groups, balances, waiting, audit, systemClock),
       archiveGroup(groups, balances, waiting, systemClock),
       mergeGroups(groups, waiting, systemClock),
+      getAdministratorsLog(decisions),
     ],
   });
   return { module, authenticate: authenticateWith(tokens), roster: groups };

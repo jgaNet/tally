@@ -5,6 +5,8 @@ import { GroupArchivedException } from '@SharedKernel/Domain';
 import { PayoutAccount } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccount';
 import { PayeeHasNoPayoutAccountException } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccountExceptions';
 import {
+  ContestNotPayeeException,
+  ContestPartyLeftException,
   GroupNotFoundException,
   InvalidSettlementAmountException,
   MoreThanPayeeIsOwedException,
@@ -15,6 +17,8 @@ import {
   RefundNotPayeeException,
   RefundPartyLeftException,
   RefundUnavailableException,
+  SettlementNotContestableException,
+  SettlementNotContestedException,
   SettlementNotRefundableException,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 import { ProviderPayment, Settlement } from '@Contexts/Settlements/Domain/Settlement/Settlement';
@@ -88,6 +92,12 @@ export class RefundRequestedEvent extends DomainEvent<PaymentEndedPayload> {}
 
 /** The provider said a payment is refunded: from now on the balances no longer count it, as if it had never been paid (request 15). */
 export class SettlementRefundedEvent extends DomainEvent<PaymentEndedPayload> {}
+
+/** The payee contested a paid settlement through the provider: the balances stop counting it, and it waits until an administrator decides (request 33). */
+export class SettlementContestedEvent extends DomainEvent<SettlementRecordedPayload> {}
+
+/** An administrator decided a contested settlement was not paid: it is annulled, and what was owed is owed again (request 33). */
+export class SettlementAnnulledEvent extends DomainEvent<PaymentEndedPayload> {}
 
 /** What a group's book is opened with: the group, the version it was read at, its members in join order, and their balances. */
 export interface SettlementBookSnapshot {
@@ -331,6 +341,60 @@ export class SettlementBook extends AggregateRoot {
     else if (next === 'paid') this.record(SettlementPaidEvent.set(ended));
     else this.record(SettlementFailedEvent.set(ended));
     return Result.ok({ ...settlement, status: next });
+  }
+
+  /**
+   * The payee of a settlement paid through the provider contests it (request 33): it is `contested`, held, and counted by what is still owed
+   * as a payment waiting at the provider is, but not by the balances, until an administrator decides it. Only its payee contests it (`403`
+   * to any other member), once for a settlement, and only while it is `paid` and both its payer and its payee are members of the group
+   * (`422`, nothing changes); an archived group changes nothing. Records SettlementContested; the time is `now`, when it is contested.
+   */
+  contest(settlement: Settlement, payeeId: string, archived: boolean, now: Date): IResult<Settlement> {
+    if (archived) return Result.fail(new GroupArchivedException());
+    if (settlement.to !== payeeId) return Result.fail(new ContestNotPayeeException());
+    if (settlement.method !== 'provider' || settlement.status !== 'paid' || settlement.contestedAt !== undefined) {
+      return Result.fail(new SettlementNotContestableException());
+    }
+    if (!this.hasMember(settlement.from) || !this.hasMember(settlement.to)) {
+      return Result.fail(new ContestPartyLeftException());
+    }
+
+    const at = now.toISOString();
+    this.record(
+      SettlementContestedEvent.set({
+        settlementId: settlement.id,
+        groupId: settlement.groupId,
+        from: settlement.from,
+        to: settlement.to,
+        amount: settlement.amount,
+        at,
+      }),
+    );
+    return Result.ok({ ...settlement, status: 'contested', contestedAt: at });
+  }
+
+  /**
+   * An administrator's decision on a contested settlement (request 33): `paid` makes it `paid` again, and the balances count it as they did
+   * before it was contested (SettlementPaid); `not paid` annuls it, and what was owed is owed again (SettlementAnnulled). Only a contested
+   * settlement is decided, and only once: any other is refused, and nothing changes (`422`). The book is the one it was read from, and the
+   * store refuses the save if another writer moved it since.
+   */
+  decideContest(settlement: Settlement, paid: boolean): IResult<Settlement> {
+    if (settlement.status !== 'contested') return Result.fail(new SettlementNotContestedException());
+
+    const ended: PaymentEndedPayload = {
+      settlementId: settlement.id,
+      groupId: settlement.groupId,
+      from: settlement.from,
+      to: settlement.to,
+      amount: settlement.amount,
+    };
+    if (paid) {
+      this.record(SettlementPaidEvent.set(ended));
+      return Result.ok({ ...settlement, status: 'paid' });
+    }
+    this.record(SettlementAnnulledEvent.set(ended));
+    return Result.ok({ ...settlement, status: 'annulled' });
   }
 
   /**

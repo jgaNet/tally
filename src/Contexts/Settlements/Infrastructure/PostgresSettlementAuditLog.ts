@@ -14,7 +14,7 @@ export const settlementAuditTablesSchema = [
      group_id TEXT NOT NULL REFERENCES groups(id),
      at TEXT NOT NULL,
      by_account_id TEXT NOT NULL,
-     action TEXT NOT NULL CHECK (action IN ('settlement-paid', 'settlement-refunded')),
+     action TEXT NOT NULL CHECK (action IN ('settlement-paid', 'settlement-refunded', 'settlement-contested')),
      subject_id TEXT NOT NULL,
      amount INTEGER NOT NULL
    )`,

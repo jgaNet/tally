@@ -15,6 +15,12 @@ import {
 } from '@Contexts/Settlements/Application/Settlements';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { getNetting, netDebts } from '@Contexts/Settlements/Application/Nettings';
+import { contestSettlement, decideContest, getContests } from '@Contexts/Settlements/Application/Contests';
+import {
+  PostgresAdministratorLog,
+  administratorLogTablesSchema,
+} from '@Contexts/Settlements/Infrastructure/PostgresAdministratorLog';
+import { IAdministratorLogRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/IAdministratorLogRoster';
 import { PostgresNettingStore, nettingTablesSchema } from '@Contexts/Settlements/Infrastructure/PostgresNettingStore';
 import { ISettlementRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementRoster';
 import { IWaitingPaymentRoster } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingPaymentRoster';
@@ -53,6 +59,7 @@ export const settlementsSchema = [
   ...nettingTablesSchema,
   ...payoutAccountsTablesSchema,
   ...settlementAuditTablesSchema,
+  ...administratorLogTablesSchema,
 ];
 
 /** What the payment provider needs of the environment: its API's base URL, and the secret its webhooks are signed with. */
@@ -77,6 +84,14 @@ export function settlementRoster(database: PostgresDatabase): ISettlementRoster 
  */
 export function waitingPaymentRoster(database: PostgresDatabase): IWaitingPaymentRoster {
   return new PostgresWaitingPaymentRoster(database);
+}
+
+/**
+ * The administrators' log, as Settlements' read model gives it to Groups (request 33, ADR 28): the decisions administrators made about contested
+ * settlements, the oldest first. Built over the database alone, so the composition root can give it to Groups before Groups' own wiring.
+ */
+export function administratorLogRoster(database: PostgresDatabase): IAdministratorLogRoster {
+  return new PostgresAdministratorLog(database);
 }
 
 /**
@@ -105,6 +120,7 @@ export function settlementsWiring(
   const provider = new HttpPaymentProvider(payments.providerUrl);
   const audit = new PostgresSettlementAuditLog(database);
   const nettings = new PostgresNettingStore(database);
+  const administratorLog = new PostgresAdministratorLog(database);
 
   return new LiteModule({
     name: 'Settlements',
@@ -133,6 +149,9 @@ export function settlementsWiring(
       getPayoutAccount(payouts),
       netDebts(store, nettings, members, counted, audit, systemClock),
       getNetting(nettings),
+      contestSettlement(store, members, counted, audit, systemClock),
+      decideContest(store, members, counted, administratorLog, audit, systemClock),
+      getContests(store),
     ],
   });
 }

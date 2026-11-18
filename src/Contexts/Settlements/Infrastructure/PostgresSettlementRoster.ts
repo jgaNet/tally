@@ -38,6 +38,7 @@ export class PostgresSettlementRoster implements ISettlementRoster {
           `SELECT s.id AS settlement_id, s.payer_id, s.payee_id, s.amount, s.method, a.at AS counted_from
              FROM settlements s
              JOIN settlement_audit a ON a.subject_id = s.id AND a.action = 'settlement-paid'
+              AND a.seq = (SELECT MAX(l.seq) FROM settlement_audit l WHERE l.subject_id = s.id AND l.action = 'settlement-paid')
             WHERE s.group_id = ? AND s.status IN ('paid', 'refunding') AND (s.payer_id = ? OR s.payee_id = ?)
             ORDER BY a.at, a.seq`,
         )
