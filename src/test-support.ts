@@ -17,7 +17,7 @@ export async function temporaryDatabaseUrl(): Promise<string> {
   if (!serverUrl) {
     throw new Error('DATABASE_URL must name the PostgreSQL server the tests use.');
   }
-  const name = `tally_test_${randomUUID().replaceAll('-', '')}`;
+  const name = `tally_test_${process.env.TALLY_TEST_RUN ?? 'local'}_${randomUUID().replaceAll('-', '')}`;
   const admin = new Client({ connectionString: serverUrl });
   await admin.connect();
   try {

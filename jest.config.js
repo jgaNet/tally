@@ -14,4 +14,6 @@ export default {
   testTimeout: 20000,
   modulePathIgnorePatterns: ['<rootDir>/dist/'],
   setupFiles: ['<rootDir>/src/test-setup.ts'],
+  globalSetup: '<rootDir>/src/test-global-setup.ts',
+  globalTeardown: '<rootDir>/src/test-global-teardown.ts',
 };
