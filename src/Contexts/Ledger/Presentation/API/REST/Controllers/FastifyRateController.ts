@@ -1,0 +1,40 @@
+import { FastifyReply, FastifyRequest } from 'fastify';
+
+import { Exception, NotAllowedException, NotFoundException } from '@Architecture/Domain';
+import { ExecutionContext, Module } from '@Architecture/Application';
+import { notAllowedStatus } from '@Architecture/Presentation/AcceptCommand';
+
+import { GetOfferedRateQueryHandler } from '@Contexts/Ledger/Application/Queries';
+
+/** The route of offered rates: a member reads the rate Tally offers from a currency to their group's, on a day (request 22). */
+export class FastifyRateController {
+  #module: Module;
+
+  constructor({ module }: { module: Module }) {
+    this.#module = module;
+  }
+
+  async getOfferedRate(
+    req: FastifyRequest<{ Params: { id: string; currency: string }; Querystring: { date?: string } }>,
+    reply: FastifyReply,
+  ) {
+    const result = await this.#module.getQuery(GetOfferedRateQueryHandler).handle(
+      {
+        groupId: req.params.id,
+        currency: req.params.currency,
+        date: req.query.date,
+      },
+      req.executionContext,
+    );
+
+    return result.isFailure() ? this.refuse(reply, result.error, req.executionContext) : result.data;
+  }
+
+  private refuse(reply: FastifyReply, error: Exception, context: ExecutionContext) {
+    if (error instanceof NotAllowedException) reply.code(notAllowedStatus(context));
+    else if (error instanceof NotFoundException) reply.code(404);
+    else reply.code(400);
+
+    return { type: error.type, message: error.message };
+  }
+}

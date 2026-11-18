@@ -15,6 +15,7 @@ import { invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes/
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/expense.routes';
 import { balanceRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/balance.routes';
 import { statementRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/statement.routes';
+import { rateRoutes } from '@Contexts/Ledger/Presentation/API/REST/Routes/rate.routes';
 import { localLedgerModule } from '@Contexts/Ledger/module.local';
 import { localSettlementsModule } from '@Contexts/Settlements/module.local';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes';
@@ -70,6 +71,7 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { module: localLedgerModule })
     .registerRoutes('/', statementRoutes, { module: localLedgerModule })
+    .registerRoutes('/', rateRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, {
       module: localSettlementsModule,
       providerWebhookSecret: process.env.PROVIDER_WEBHOOK_SECRET ?? '',

@@ -143,6 +143,28 @@ export class InvalidOriginalAmountException extends Exception {
   }
 }
 
+/** No rate is offered for the currency and the day of the expense, so its rate cannot be left out, nor checked (request 22). */
+export class NoRateOfferedException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'NoRateOffered',
+      message: 'No rate is offered for the currency and the day of the expense',
+    });
+  }
+}
+
+/** The rate differs by more than 2 % from the rate offered for the expense’s currency and day (request 22). */
+export class RateOutsideBandException extends Exception {
+  constructor() {
+    super({
+      service: 'Ledger',
+      type: 'RateOutsideBand',
+      message: 'The rate differs by more than 2 % from the rate offered for its currency and day',
+    });
+  }
+}
+
 /** The rate is not a decimal string greater than 0, with at most 6 digits after the point. */
 export class InvalidRateException extends Exception {
   constructor() {

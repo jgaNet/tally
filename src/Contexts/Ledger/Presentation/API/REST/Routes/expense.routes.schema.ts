@@ -55,7 +55,8 @@ export interface SplitBody {
 export interface OriginalBody {
   currency: string;
   amount: number;
-  rate: string;
+  /** Left out, the rate offered for the currency and the day is taken (request 22). */
+  rate?: string;
 }
 
 /** The amount, as the body gives it: in the group's currency, or what was paid in another currency (exactly one). */
@@ -103,7 +104,7 @@ const AmountProperties = {
   amount: { type: 'integer' },
   original: {
     type: 'object',
-    required: ['currency', 'amount', 'rate'],
+    required: ['currency', 'amount'],
     properties: {
       currency: { type: 'string' },
       amount: { type: 'integer' },
