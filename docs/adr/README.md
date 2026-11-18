@@ -33,3 +33,4 @@ The decisions behind the building blocks themselves are recorded in the referenc
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
 it from this table and from wherever the rule is stated.
 | [25](0025-the-state-is-in-postgresql-and-the-sqlite-file-is-moved-in-once.md) | The state is in PostgreSQL, and the SQLite file is moved into it once, in the Bootstrap, under one lock (supersedes ADR 2's file) |
+| [26](0026-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
