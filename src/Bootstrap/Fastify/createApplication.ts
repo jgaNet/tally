@@ -19,6 +19,7 @@ import {
   groupBalanceSumsInCommand,
   ledgerModuleWith,
   memberBalanceSumsInCommand,
+  recordRecurringExpensesWith,
 } from '@Contexts/Ledger/module.local';
 import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
 import {
@@ -36,6 +37,7 @@ import {
   balanceRoutes,
   expenseRoutes,
   rateRoutes,
+  recurringRoutes,
   statementRoutes,
 } from '@Contexts/Ledger/Presentation/API/REST/Routes';
 
@@ -81,7 +83,7 @@ export async function createApplication({
   );
   // The rates service (request 22, ADR 15): its API is RATES_URL; without it, no rate is offered, and an expense in another
   // currency is recorded at the rate its payer states, as request 21 has it.
-  const localLedgerModule = ledgerModuleWith(new HttpOfferedRates(process.env.RATES_URL));
+  const localLedgerModule = ledgerModuleWith(new HttpOfferedRates(process.env.RATES_URL), clock);
   const app = new FastifyApplication({
     logger,
     apiPrefix,
@@ -103,6 +105,7 @@ export async function createApplication({
     .registerRoutes('/', balanceRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', statementRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', rateRoutes, { ledgerModule: localLedgerModule })
+    .registerRoutes('/', recurringRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', settlementRoutes, {
       settlementsModule: localSettlementsModule,
       // The secret the provider signs its webhooks with (ADR 8), read here, at the transport that checks them.
@@ -123,6 +126,15 @@ export async function createApplication({
     name: 'sweep the debts',
     every: seconds('JOBS_INTERVAL_SECONDS', 60) * 1000,
     run: () => sweep.run(app.executionContext(randomUUID())),
+  });
+
+  // The background job that records the recurring expenses (request 23, ADR 16): every JOBS_INTERVAL_SECONDS, the expense of
+  // each day that has come is recorded, once, whatever the number of servers. It is a job of the application, not a request.
+  const recordRecurring = recordRecurringExpensesWith(clock);
+  app.registerJob({
+    name: 'record the recurring expenses',
+    every: seconds('JOBS_INTERVAL_SECONDS', 60) * 1000,
+    run: () => recordRecurring.run(app.executionContext(randomUUID())),
   });
 
   await app.startModules();

@@ -57,6 +57,7 @@ export class Expense extends AggregateRoot {
    * one of `groupMembers`: the members of the group as they are now. Records ExpenseRecorded.
    */
   static create({
+    id = Id.generate(),
     groupId,
     description,
     amount,
@@ -66,6 +67,8 @@ export class Expense extends AggregateRoot {
     groupMembers,
     at,
   }: {
+    /** The identity the expense is given, when a recurring expense's day already gave one (request 23, ADR 16); generated otherwise. */
+    id?: Id;
     groupId: Id;
     description: Description;
     amount: Amount;
@@ -78,7 +81,7 @@ export class Expense extends AggregateRoot {
     const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
     if (outsider) return Result.fail(new NotAGroupMember());
 
-    const expense = new Expense(Id.generate(), 0, groupId, description, amount, original, date, split, at);
+    const expense = new Expense(id, 0, groupId, description, amount, original, date, split, at);
     expense.record(
       ExpenseRecordedEvent.set({
         expenseId: expense._id.value,

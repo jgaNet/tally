@@ -1,5 +1,4 @@
-import { Module } from '@Architecture/Application';
-import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
+import { Clock, Module } from '@Architecture/Application';
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 import {
   groupCurrencyForQueries,
@@ -37,6 +36,23 @@ import { IGroupBalanceSums } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupB
 import { ExpenseRecordedEventHandler } from '@Contexts/Ledger/Application/Events/ExpenseRecordedEventHandler';
 import { ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Events/ExpenseEvents';
 import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
+import {
+  SetUpRecurringExpenseCommandEvent,
+  SetUpRecurringExpenseCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/SetUpRecurringExpense';
+import {
+  StopRecurringExpenseCommandEvent,
+  StopRecurringExpenseCommandHandler,
+} from '@Contexts/Ledger/Application/Commands/StopRecurringExpense';
+import {
+  GetGroupRecurringExpensesQueryHandler,
+  GetRecurringExpenseQueryHandler,
+} from '@Contexts/Ledger/Application/Queries';
+import { RecurringExpenseDayCameEventHandler } from '@Contexts/Ledger/Application/Events/RecurringExpenseDayCameEventHandler';
+import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringExpense/Events/RecurringExpenseEvents';
+import { RecordRecurringExpensesJob } from '@Contexts/Ledger/Application/Jobs/RecordRecurringExpensesJob';
+import { SqliteRecurringExpenseRepository } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseRepository';
+import { SqliteRecurringExpenseQueries } from '@Contexts/Ledger/Infrastructure/SqliteRecurringExpenseQueries';
 
 /**
  * The Ledger context (conventions/domain.yaml, ADR 1, ADR 3, ADR 7): the expenses of each group, recorded with their equal
@@ -85,7 +101,19 @@ export const groupBalanceSumsInCommand: IGroupBalanceSums = new SqliteGroupBalan
   membersInCommand,
 );
 
-export function ledgerModuleWith(rates: IOfferedRates): Module {
+/**
+ * The background job that records the recurring expenses (request 23, ADR 16), built by the composition root with the clock it
+ * is given. It runs as a job of the application, never as a request; its members are asked inside its transactions.
+ */
+export function recordRecurringExpensesWith(clock: Clock): RecordRecurringExpensesJob {
+  return new RecordRecurringExpensesJob(
+    new SqliteRecurringExpenseRepository(database),
+    new GroupsMembers(groupMembershipInCommand),
+    clock,
+  );
+}
+
+export function ledgerModuleWith(rates: IOfferedRates, clock: Clock): Module {
   return new Module({
     name: 'Ledger',
     commands: [
@@ -97,7 +125,7 @@ export function ledgerModuleWith(rates: IOfferedRates): Module {
             new GroupsMembers(groupMembershipInCommand),
             new GroupsGroupCurrency(groupCurrencyInCommand),
             rates,
-            systemClock,
+            clock,
           ),
         ],
       },
@@ -109,7 +137,27 @@ export function ledgerModuleWith(rates: IOfferedRates): Module {
             new GroupsMembers(groupMembershipInCommand),
             new GroupsGroupCurrency(groupCurrencyInCommand),
             rates,
-            systemClock,
+            clock,
+          ),
+        ],
+      },
+      {
+        event: SetUpRecurringExpenseCommandEvent,
+        handlers: [
+          new SetUpRecurringExpenseCommandHandler(
+            new SqliteRecurringExpenseRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
+          ),
+        ],
+      },
+      {
+        event: StopRecurringExpenseCommandEvent,
+        handlers: [
+          new StopRecurringExpenseCommandHandler(
+            new SqliteRecurringExpenseRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
           ),
         ],
       },
@@ -119,12 +167,24 @@ export function ledgerModuleWith(rates: IOfferedRates): Module {
           new DeleteExpenseCommandHandler(
             new SqliteExpenseRepository(database),
             new GroupsMembers(groupMembershipInCommand),
-            systemClock,
+            clock,
           ),
         ],
       },
     ],
-    domainEvents: [{ event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedEventHandler()] }],
+    domainEvents: [
+      { event: ExpenseRecordedEvent, handlers: [new ExpenseRecordedEventHandler()] },
+      {
+        event: RecurringExpenseDayCameEvent,
+        handlers: [
+          new RecurringExpenseDayCameEventHandler(
+            new SqliteExpenseRepository(database),
+            new GroupsMembers(groupMembershipInCommand),
+            clock,
+          ),
+        ],
+      },
+    ],
     queries: [
       new GetExpenseQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
       new GetGroupBalancesQueryHandler(
@@ -133,11 +193,19 @@ export function ledgerModuleWith(rates: IOfferedRates): Module {
       ),
       new GetGroupExpensesQueryHandler(new SqliteExpenseQueries(database), new GroupsMembers(groupMembership)),
       new GetMemberStatementQueryHandler(new SqliteStatementQueries(database), new GroupsMembers(groupMembership)),
+      new GetRecurringExpenseQueryHandler(
+        new SqliteRecurringExpenseQueries(database),
+        new GroupsMembers(groupMembership),
+      ),
+      new GetGroupRecurringExpensesQueryHandler(
+        new SqliteRecurringExpenseQueries(database),
+        new GroupsMembers(groupMembership),
+      ),
       new GetOfferedRateQueryHandler(
         rates,
         new GroupsGroupCurrency(groupCurrencyForQueries),
         new GroupsMembers(groupMembership),
-        systemClock,
+        clock,
       ),
     ],
   });

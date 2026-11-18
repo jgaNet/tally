@@ -6,3 +6,5 @@ export * from './statement.routes';
 export * from './statement.routes.schema';
 export * from './rate.routes';
 export * from './rate.routes.schema';
+export * from './recurring.routes';
+export * from './recurring.routes.schema';

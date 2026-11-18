@@ -5,7 +5,7 @@ feature: recurring-expenses
 intent: >-
   A member sets up an expense they pay every month; the background job records its expense on its day of every month, at its first run on or after the day, once whatever the servers, never at a read; its payer or the owner stops it, and it ends when its payer or a member of its split has left.
 
-done: false
+done: true
 
 hotSpots:
   - question: What is a recurring expense?
