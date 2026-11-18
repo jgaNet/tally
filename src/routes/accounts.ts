@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../database';
-import { logIn, signUp } from '../accounts';
+import { deleteAccount, logIn, signUp } from '../accounts';
 import { requireCaller } from '../http';
 
 interface SignUpBody {
@@ -56,5 +56,12 @@ export function registerAccountRoutes(server: FastifyInstance, db: Database): vo
   server.get('/accounts/me', async request => {
     const { id, email, name } = await requireCaller(db, request);
     return { id, email, name };
+  });
+
+  // The caller deletes their own account: its name and email are erased, and its balances kept (see `accounts.ts`).
+  server.delete('/accounts/me', async (request, reply) => {
+    const caller = await requireCaller(db, request);
+    await deleteAccount(db, { accountId: caller.id });
+    return reply.code(204).send();
   });
 }

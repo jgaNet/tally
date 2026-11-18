@@ -1,5 +1,6 @@
 import type { Database, Querier } from './database';
 import { CATEGORIES, isCategory, type Category } from './categories';
+import { deletedAmong } from './accounts';
 import { assertNotArchived, findGroupOfMember, membersOfGroup, type Group } from './groups';
 import { noticeBudget } from './notices';
 import { Refusal } from './refusal';
@@ -169,7 +170,12 @@ export async function noticeBudgetPassed(
   await db
     .prepare('INSERT INTO budget_months_passed (group_id, category, month, passed_at) VALUES (?, ?, ?, ?)')
     .run(groupId, category, month, at);
-  for (const member of await membersOfGroup(db, groupId)) {
+  // A deleted account is told nothing: the notices go to the members who are not deleted.
+  const members = await membersOfGroup(db, groupId);
+  const memberIds = members.map(member => member.memberId);
+  const deleted = await deletedAmong(db, memberIds);
+  for (const member of members) {
+    if (deleted.has(member.memberId)) continue;
     await noticeBudget(db, {
       recipientId: member.memberId,
       groupId,

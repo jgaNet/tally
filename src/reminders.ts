@@ -1,4 +1,5 @@
 import type { Database } from './database';
+import { deletedAmong } from './accounts';
 import { balancesOfGroup } from './balances';
 import { noticeReminder } from './notices';
 import { inTransaction } from './transactions';
@@ -19,7 +20,8 @@ interface LastingDebtRow {
  * One run of the reminders, at `now`, over every group: what each current member still owes (counting a
  * settlement waiting at the provider as paid, as request 13 counts what is still owed) is looked at.
  *
- * - A member owing more than {@link REMINDER_THRESHOLD} who was not noted is noted from `now`.
+ * - A member owing more than {@link REMINDER_THRESHOLD} who was not noted is noted from `now`. A deleted account is
+ *   never noted: it is told nothing.
  * - A member owing that much or less, or no longer a member, is no longer noted: a debt that comes back is noted
  *   again from the run that sees it.
  * - A member noted for `periodMs` or more, and not reminded in the last `periodMs`, is reminded at `now`.
@@ -44,8 +46,11 @@ export async function sweepReminders(db: Database, now: Date, periodMs: number):
     );
     for (const group of groups) {
       const owing = new Map<string, number>();
-      for (const { memberId, balance } of await balancesOfGroup(tx, group.id, { includePending: true })) {
-        if (-balance > REMINDER_THRESHOLD) owing.set(memberId, -balance);
+      const balances = await balancesOfGroup(tx, group.id, { includePending: true });
+      const balanceIds = balances.map(balance => balance.memberId);
+      const deleted = await deletedAmong(tx, balanceIds);
+      for (const { memberId, balance } of balances) {
+        if (-balance > REMINDER_THRESHOLD && !deleted.has(memberId)) owing.set(memberId, -balance);
       }
       const watched = new Map((await watchedOf.all<LastingDebtRow>(group.id)).map(row => [row.account_id, row]));
       for (const accountId of watched.keys()) {

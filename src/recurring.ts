@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { checkExpenseFields, insertExpense, type SplitInput } from './expenses';
 import { isCalendarDay } from './days';
 import type { Database, Querier } from './database';
+import { deletedAmong } from './accounts';
 import { assertNotArchived, findGroupOfMember, membersOfGroup } from './groups';
 import { assertNotSuspended, isSuspended } from './suspensions';
 import type { Category } from './categories';
@@ -229,7 +230,8 @@ export async function stopRecurring(db: Database, input: { recurringId: string; 
  * passed) and has no expense yet has its expense recorded, in order, and the next day moves on, all in one write
  * transaction, so each day has one expense whatever servers share the database. On a day when its payer or a member of
  * its split is no longer a member of the group, nothing is recorded and the recurring expense ends. A recurring expense
- * of an archived group records nothing, and is left as it is. A recurring expense whose payer is suspended records nothing
+ * of an archived group records nothing, and is left as it is. On a day when its payer or a member of its split was deleted
+ * (see `accounts.ts`), it ends the same way. A recurring expense whose payer is suspended records nothing
  * and is left as it is, its days waiting until the payer is reinstated: the run after that records every day that has come.
  * Answers how many expenses it recorded.
  */
@@ -246,14 +248,16 @@ export async function recordRecurring(db: Database, now: Date): Promise<number> 
       )
       .all<RecurringRow>(today);
     for (const row of rows) {
-      if (await isSuspended(tx, row.paid_by)) continue;
       const split = splitOf(row.split_kind, await partsOf(tx, row.id));
       const members = new Set((await membersOfGroup(tx, row.group_id)).map(member => member.memberId));
       const splitMembers = split.kind === 'equal' ? split.memberIds : split.parts.map(part => part.memberId);
-      if (!members.has(row.paid_by) || splitMembers.some(memberId => !members.has(memberId))) {
+      // A deleted account is in no recurring expense: it ends on its day, as a member who has left does.
+      const deleted = await deletedAmong(tx, [row.paid_by, ...splitMembers]);
+      if (deleted.size > 0 || !members.has(row.paid_by) || splitMembers.some(memberId => !members.has(memberId))) {
         await removeRecurring(tx, row.id);
         continue;
       }
+      if (await isSuspended(tx, row.paid_by)) continue;
       const group = await tx.prepare('SELECT currency FROM groups WHERE id = ?').get<{
         currency: Parameters<typeof checkExpenseFields>[2];
       }>(row.group_id);

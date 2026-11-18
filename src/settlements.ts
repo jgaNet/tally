@@ -6,6 +6,7 @@ import type { Database, Querier } from './database';
 import { assertNotArchived, findGroup, findGroupOfMember, membersOfGroup } from './groups';
 import { type ProviderConfig, requestPayment, requestRefund } from './provider';
 import { payoutAccountOf } from './payout-accounts';
+import { assertNotDeleted } from './accounts';
 import { assertNotSuspended } from './suspensions';
 import { Refusal } from './refusal';
 import { inReadSnapshot, inTransaction } from './transactions';
@@ -266,6 +267,7 @@ export async function requestProviderSettlement(
     if (!(await membersOfGroup(querier, groupId)).some(member => member.memberId === payeeId)) {
       throw new Refusal(422, 'PayeeNotInGroup', 'The payee must be a member of the group.');
     }
+    await assertNotDeleted(querier, payeeId);
     await checkSettlement(querier, { groupId, payerId, payeeId, amount });
     const payee = await payoutAccountOf(querier, payeeId);
     if (payee === undefined) {

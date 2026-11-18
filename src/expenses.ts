@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { deletedAmong } from './accounts';
 import type { Database, Querier } from './database';
 import { recordAudit } from './audit';
 import { noticeBudgetPassed } from './budgets';
@@ -374,7 +375,9 @@ export async function checkExpenseFields(
     throw new Refusal(422, 'SplitRepeatsAMember', 'Each member may be listed once in the split.');
   }
   const groupMembers = new Set((await membersOfGroup(db, groupId)).map(member => member.memberId));
-  if (members.some(memberId => !groupMembers.has(memberId))) {
+  // A deleted account is still a member of its groups, but it is in no new split.
+  const deleted = await deletedAmong(db, members);
+  if (members.some(memberId => !groupMembers.has(memberId) || deleted.has(memberId))) {
     throw new Refusal(422, 'MemberNotInGroup', 'Every member of the split must be a member of the group.');
   }
   if (!members.includes(payerId)) {
@@ -616,8 +619,9 @@ export async function expensesOfGroup(db: Database, accountId: string, groupId: 
 /**
  * The expense `editorId` may change, with its group: they must be a member of its group (else `404`, as if it did not
  * exist), and its payer or the group's owner (else `403`). An expense whose payer or a member of whose
- * split has left the group cannot be changed (`409`): an expense of a member who left stays as it was. Answers the expense
- * as it is now.
+ * split has left the group cannot be changed (`409`): an expense of a member who left stays as it was. The same goes
+ * for an expense whose payer or a member of whose split was deleted (`409` as `AccountIsDeleted`), so that the balance of
+ * a deleted account is kept as it was. Answers the expense as it is now.
  */
 export async function expenseChangeableBy(
   db: Querier,
@@ -640,6 +644,14 @@ export async function expenseChangeableBy(
       409,
       'MemberHasLeft',
       'The expense concerns a member who has left the group, so it cannot be changed or deleted.',
+    );
+  }
+  const deleted = await deletedAmong(db, [expense.paidBy, ...expense.shares.map(share => share.memberId)]);
+  if (deleted.size > 0) {
+    throw new Refusal(
+      409,
+      'AccountIsDeleted',
+      'The expense concerns an account that was deleted, so it cannot be changed or deleted.',
     );
   }
   return { expense, group };

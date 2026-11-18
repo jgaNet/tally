@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SplitInput } from './expenses';
 import type { Database, Querier } from './database';
+import { deletedAmong } from './accounts';
 import { assertNotArchived, findGroupOfMember, membersOfGroup } from './groups';
 import { Refusal } from './refusal';
 import { characters } from './text';
@@ -83,7 +84,9 @@ async function checkTemplate(db: Querier, groupId: string, name: string, split: 
     throw new Refusal(422, 'SplitRepeatsAMember', 'Each member may be listed once in the split.');
   }
   const groupMembers = new Set((await membersOfGroup(db, groupId)).map(member => member.memberId));
-  if (members.some(memberId => !groupMembers.has(memberId))) {
+  // A deleted account is still a member of its groups, but it is in no new split.
+  const deleted = await deletedAmong(db, members);
+  if (members.some(memberId => !groupMembers.has(memberId) || deleted.has(memberId))) {
     throw new Refusal(422, 'MemberNotInGroup', 'Every member of the split must be a member of the group.');
   }
   if (split.kind === 'shares' && !split.parts.every(part => Number.isSafeInteger(part.shares) && part.shares >= 1)) {

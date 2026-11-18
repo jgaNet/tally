@@ -59,6 +59,12 @@ const SCHEMA = `
     password_hash TEXT NOT NULL,
     created_at    TEXT NOT NULL
   );
+  /*
+   * An account deleted by its person keeps its id, which the groups, expenses, settlements and logs refer to: its name is
+   * then \`Deleted account\`, its email is erased (its email_key is its id, so the email is free), and \`deleted_at\` says when.
+   * A deleted account signs in and is found by nothing, as if no account had its email.
+   */
+  ALTER TABLE accounts ADD COLUMN IF NOT EXISTS deleted_at TEXT;
   CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts (id),

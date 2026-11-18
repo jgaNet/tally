@@ -478,7 +478,10 @@ async function writeEarlierFile(url: string, path: string): Promise<void> {
     file.exec('PRAGMA foreign_keys = OFF');
     for (const { name, rows } of tables) {
       for (const row of rows) {
-        const columns = Object.keys(row).filter(column => column !== 'seq');
+        // A file written before account deletion has no `deleted_at` on its accounts either.
+        const columns = Object.keys(row).filter(
+          column => column !== 'seq' && !(name === 'accounts' && column === 'deleted_at'),
+        );
         file
           .prepare(
             `INSERT INTO "${name}" (${columns.map(column => `"${column}"`).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,

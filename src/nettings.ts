@@ -5,6 +5,7 @@ import type { Database, Querier } from './database';
 import { CURRENCIES } from './groups';
 import { Refusal } from './refusal';
 import { recordStatus } from './settlements';
+import { assertNotDeleted } from './accounts';
 import { assertNotSuspended } from './suspensions';
 import { inReadSnapshot, inTransaction } from './transactions';
 
@@ -91,6 +92,7 @@ export async function netBetween(db: Database, input: { by: string; with: string
   const id = randomUUID();
   await inTransaction(db, async tx => {
     await assertNotSuspended(tx, by);
+    await assertNotDeleted(tx, other);
     const byPays: { groupId: string; payable: number }[] = [];
     const otherPays: { groupId: string; payable: number }[] = [];
     for (const groupId of await sharedGroupsOf(tx, by, other, currency)) {
