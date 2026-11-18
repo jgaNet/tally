@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-3",
+  "ref": "cea7fb2587b8e6ecbd153c46c28d872edb9a81fc",
+  "commit": "cea7fb2587b8e6ecbd153c46c28d872edb9a81fc",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "merge-groups",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 2 passed, 3 total",
+        "failed": [
+          "merge two groups › merges a group into another of the same currency: its members, expenses, settlements and balances, the zero sum kept"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● merge two groups › merges a group into another of the same currency: its members, expenses, settlements and balances, the zero sum kept",
+          "    Expected: ArrayContaining [\"expense-recorded:a3c80980-bee1-4a8f-9ded-e99b4ff2538f:0\", \"expense-recorded:b7f16bdf-7479-4bb1-8bf8-c9c82a590868:0\", \"balance-passed:d82a9361-4277-4594-8795-45eb01585bb2:0\", \"settlement-paid:1\"]",
+          "    Received: [\"expense-recorded:2e70cce7-bc4a-485a-a3cf-aa47b1123693:0\", \"expense-recorded:a3c80980-bee1-4a8f-9ded-e99b4ff2538f:0\", \"expense-recorded:b7f16bdf-7479-4bb1-8bf8-c9c82a590868:0\", \"balance-passed:96eb9224-8db0-4a57-aec2-0a312ce40f0c:0\", \"settlement-paid:1\"]",
+          "Tests:       1 failed, 2 passed, 3 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 8811,
+  "workers": 1
+}
