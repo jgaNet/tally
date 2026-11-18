@@ -1,6 +1,7 @@
 import { IResult, Result } from '@Architecture/Domain';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
+import { AccountDeletedException } from '@SharedKernel/Domain';
 
 import { IGroupBalances } from '@Contexts/Settlements/Application/IGroupBalances';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/IPaymentProvider';
@@ -103,6 +104,8 @@ export const payThroughProvider = command(
 
       const archived = await members.isArchived(groupId);
       const payerSuspended = await members.isSuspended(payerId);
+      // A deleted payee is paid through no provider (feature 35, request 35): refused by name, before the book is asked.
+      if (await members.isDeleted(to)) return Result.fail(new AccountDeletedException());
       const proposed = book.proposePayment(
         { from: payerId, to, amount },
         await payouts.payoutAccountOf(to),

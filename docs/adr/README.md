@@ -36,3 +36,5 @@ it from this table and from wherever the rule is stated.
 | [26](0026-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
 | [27](0027-a-netting-is-a-domain-service-over-the-books-it-spans-and-an-aggregate-of-its-own.md) | A netting is a domain service over the books it spans, and an aggregate of its own |
 | [28](0028-a-contested-settlement-is-held-by-its-book-and-decided-by-an-administrator.md) | A contested settlement is held by its book, decided by an administrator, and logged by the context that decided it |
+| [29](0029-a-suspended-account-is-refused-by-one-rule-and-its-log-is-written-by-groups.md) | A suspended account starts nothing: Groups decides the suspension, the shared kernel names its one rule, and the administrators' log is written by Groups |
+| [30](0030-a-deleted-account-is-erased-and-kept-as-a-member.md) | A deleted account is erased and kept as a member: Groups decides the deletion, and the others ask Groups whether an account is deleted |

@@ -23,6 +23,12 @@ export interface IGroupRoster {
    * is not there answers `false`.
    */
   isSuspended(accountId: string): Promise<boolean>;
+  /**
+   * Whether the account is deleted (feature 35, request 35): a deleted account is in no new split, paid through no provider, netted with no
+   * one, and its recurring expenses end on their day, each context refusing it by the shared kernel's AccountDeleted. An account that is not
+   * there answers `false`.
+   */
+  isDeleted(accountId: string): Promise<boolean>;
   /** The ids of every group there is, the earliest made first: what a sweep over all the groups reads (feature 18). */
   groupIds(): Promise<string[]>;
   /**

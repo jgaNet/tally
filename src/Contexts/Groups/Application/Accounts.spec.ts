@@ -33,8 +33,9 @@ describe('signUp', () => {
     expect(result.isSuccess()).toBe(true);
     const [kept] = [...store.accounts.values()];
     expect(kept).toMatchObject({ id: result.data, email: 'ann@example.com', name: 'Ann' });
-    expect(kept.passwordHash).not.toContain(ann.password);
-    expect(await passwords.matches(ann.password, kept.passwordHash)).toBe(true);
+    const hash = kept.passwordHash ?? '';
+    expect(hash).not.toContain(ann.password);
+    expect(await passwords.matches(ann.password, hash)).toBe(true);
   });
 
   it('refuses an email already used, whatever its case, and keeps only the first account', async () => {

@@ -4,6 +4,7 @@ import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/Postgres
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 import { getAdministratorsLog } from '@Contexts/Groups/Application/AdministratorLog';
+import { deleteAccount } from '@Contexts/Groups/Application/AccountDeletions';
 import { reinstateAccount, suspendAccount } from '@Contexts/Groups/Application/AccountSuspensions';
 import { IAdministratorDecisions } from '@Contexts/Groups/Application/IAdministratorDecisions';
 import { IMemberBalances, IWaitingPayments } from '@Contexts/Groups/Application/IMemberBalances';
@@ -97,6 +98,7 @@ export async function groupsWiring(
       getInvitation(invitations),
       acceptInvitation(groups, invitations, systemClock),
       getGroupMembers(groups, accounts),
+      deleteAccount(accounts, groups, waiting, systemClock),
       leaveGroup(groups, balances, waiting, audit, systemClock),
       archiveGroup(groups, balances, waiting, systemClock),
       mergeGroups(groups, waiting, systemClock),
@@ -105,5 +107,5 @@ export async function groupsWiring(
       getAdministratorsLog(decisions, actions),
     ],
   });
-  return { module, authenticate: authenticateWith(tokens), roster: groups };
+  return { module, authenticate: authenticateWith(tokens, accounts), roster: groups };
 }

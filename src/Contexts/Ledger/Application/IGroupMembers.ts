@@ -36,6 +36,11 @@ export interface IGroupMembers {
    * the recording is refused by the shared kernel's AccountSuspended. Answered over the same roster; an account that is not there answers `false`.
    */
   isSuspended(accountId: string): Promise<boolean>;
+  /**
+   * Whether the account is deleted (feature 35, request 35): a deleted account is in no new split, and its recurring expenses end on their day.
+   * Answered over the same roster; an account that is not there answers `false`.
+   */
+  isDeleted(accountId: string): Promise<boolean>;
 }
 
 /** A balance that passed from a member who left a group to its owner, in the group's currency's hundredths (request 20). */

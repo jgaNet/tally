@@ -15,4 +15,9 @@ export interface IMemberBalances {
  */
 export interface IWaitingPayments {
   hasWaitingPayment(groupId: string, memberId: string): Promise<boolean>;
+  /**
+   * Whether an account pays or receives a payment through the provider that waits, in any group (feature 35, request 35): pending, refunding
+   * or contested. A deletion is refused while one does. The adapter is the same read model, over every group.
+   */
+  hasPaymentWaitingOf(accountId: string): Promise<boolean>;
 }

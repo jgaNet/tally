@@ -23,4 +23,19 @@ export class PostgresWaitingPaymentRoster implements IWaitingPaymentRoster {
     );
     return row !== undefined;
   }
+
+  /** Whether the account pays or receives a payment through the provider that waits, in any group (feature 35, request 35). */
+  async hasPaymentWaitingOf(accountId: string): Promise<boolean> {
+    const row = await this.database.read(db =>
+      db
+        .prepare(
+          `SELECT 1 AS found FROM settlements
+            WHERE method = 'provider' AND status IN ('pending', 'refunding', 'contested')
+              AND (payer_id = ? OR payee_id = ?)
+            LIMIT 1`,
+        )
+        .get(accountId, accountId),
+    );
+    return row !== undefined;
+  }
 }

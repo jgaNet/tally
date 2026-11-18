@@ -218,6 +218,29 @@ export class PostgresGroupStore implements IGroupStore, IGroupRoster {
     return row?.currency;
   }
 
+  /** Whether the account is deleted (feature 35): read from the account's own row, which the person's deletion writes. */
+  async isDeleted(accountId: string): Promise<boolean> {
+    const row = (await this.database.read(db =>
+      db.prepare('SELECT deleted_at FROM accounts WHERE id = ?').get(accountId),
+    )) as { deleted_at: string | null } | undefined;
+    return row?.deleted_at != null;
+  }
+
+  /** Whether the account owns a group that has another member now (feature 35): read from the groups and their members as they are stored. */
+  async ownsGroupWithOthers(accountId: string): Promise<boolean> {
+    const row = await this.database.read(db =>
+      db
+        .prepare(
+          `SELECT 1 AS found FROM groups g
+            WHERE g.owner_id = ? AND g.id NOT IN (SELECT group_id FROM group_merges)
+              AND (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) > 1
+            LIMIT 1`,
+        )
+        .get(accountId),
+    );
+    return row !== undefined;
+  }
+
   /** Whether the account is suspended (feature 34): read from the account's own row, which an administrator's change writes. */
   async isSuspended(accountId: string): Promise<boolean> {
     const row = (await this.database.read(db =>

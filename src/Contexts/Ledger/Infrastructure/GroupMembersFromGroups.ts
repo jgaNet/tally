@@ -31,4 +31,8 @@ export class GroupMembersFromGroups implements IGroupMembers {
   isSuspended(accountId: string): Promise<boolean> {
     return this.roster.isSuspended(accountId);
   }
+
+  isDeleted(accountId: string): Promise<boolean> {
+    return this.roster.isDeleted(accountId);
+  }
 }

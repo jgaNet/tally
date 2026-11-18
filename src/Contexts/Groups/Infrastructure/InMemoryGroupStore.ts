@@ -43,6 +43,10 @@ export class InMemoryGroupStore implements IGroupStore {
       .reverse()
       .map(toView);
   }
+
+  async ownsGroupWithOthers(accountId: string): Promise<boolean> {
+    return [...this.groups.values()].some(group => group.ownerId === accountId && group.members.length > 1);
+  }
 }
 
 const isMember = (group: GroupSnapshot, memberId: string): boolean =>

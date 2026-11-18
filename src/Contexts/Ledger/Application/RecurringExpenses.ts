@@ -2,12 +2,13 @@ import { IResult, Result } from '@Architecture/Domain';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountDeletedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { IRecurringExpenseStore, RecurringExpenseView } from '@Contexts/Ledger/Application/IRecurringExpenseStore';
 import { GroupMemberRole, IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
+import { anyDeleted, liveMembersOf } from '@Contexts/Ledger/Application/LiveMembers';
 import { GroupNotFoundException, NotThePayerOrOwnerException } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
-import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
+import { SplitDraft, memberIdsOf } from '@Contexts/Ledger/Domain/Expense/Split';
 import { RecurringExpense, dayOf } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
 import { RecurringExpenseNotFoundException } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpenseExceptions';
 
@@ -38,6 +39,8 @@ export const setUpRecurringExpense = command(
       const archived = await groupMembers.isArchived(groupId);
       if (archived) return Result.fail(new GroupArchivedException());
       const suspended = await groupMembers.isSuspended(payerId);
+      // A deleted account is in no new split (feature 35, request 35): refused by name, before anything is set up.
+      if (await anyDeleted(groupMembers, memberIdsOf(draft.split))) return Result.fail(new AccountDeletedException());
 
       const set = RecurringExpense.setUp(
         { groupId, payerId, ...draft },
@@ -123,7 +126,8 @@ export const sweepRecurringExpenses = command(
     async (_: void, context): Promise<IResult<void>> => {
       const now = clock();
       for (const item of await recurring.dueBy(dayOf(now))) {
-        const members = await groupMembers.membersOf(item.groupId);
+        // The sweep reads the members who are not deleted: a recurring expense with a deleted account ends on its day (feature 35).
+        const members = await liveMembersOf(groupMembers, item.groupId);
         const archived = await groupMembers.isArchived(item.groupId);
         const payerSuspended = await groupMembers.isSuspended(item.toSnapshot().paidBy);
         const outcome = item.sweep(

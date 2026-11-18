@@ -44,6 +44,24 @@ export class AccountNotFoundException extends NotFoundException {
   }
 }
 
+/** The account owns a group that has another member: it cannot be deleted until it is theirs alone (feature 35): `409`. */
+export class OwnedGroupHasMembersException extends ConflictException {
+  constructor() {
+    super(SERVICE, 'OwnedGroupHasMembers', 'A group you own has another member: the account cannot be deleted');
+  }
+}
+
+/** A payment through the provider the account pays or receives is pending, refunding or contested (feature 35): `409`. */
+export class PaymentWaitingException extends ConflictException {
+  constructor() {
+    super(
+      SERVICE,
+      'PaymentWaiting',
+      'A payment through the provider you pay or receive is waiting: the account cannot be deleted',
+    );
+  }
+}
+
 /** The account an administrator names is not there: `404` (request 34). */
 export class NoSuchAccountException extends NotFoundException {
   constructor() {

@@ -2,9 +2,10 @@ import { IResult, Result } from '@Architecture/Domain';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountDeletedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { IAuditLog } from '@Contexts/Ledger/Application/IAuditLog';
+import { anyDeleted } from '@Contexts/Ledger/Application/LiveMembers';
 import { IExpenseStore, ExpenseView } from '@Contexts/Ledger/Application/IExpenseStore';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
 import { expenseAuditId } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
@@ -18,7 +19,7 @@ import {
   GroupNotFoundException,
   NotThePayerOrOwnerException,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
-import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
+import { SplitDraft, memberIdsOf } from '@Contexts/Ledger/Domain/Expense/Split';
 import { TemplateNotFoundException } from '@Contexts/Ledger/Domain/SplitTemplate/SplitTemplateExceptions';
 
 /**
@@ -94,6 +95,9 @@ export const recordExpense = command(
       if (split.isFailure()) return Result.fail(split.error);
       const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
 
+      // A deleted account is in no new split (feature 35, request 35): refused by name, before anything is recorded.
+      if (await anyDeleted(groupMembers, memberIdsOf(split.data))) return Result.fail(new AccountDeletedException());
+
       const now = clock();
       const suspended = await groupMembers.isSuspended(payerId);
       const recorded = Expense.register(
@@ -147,6 +151,16 @@ export const editExpense = command(
       const split = await splitOf(templates, expense.toSnapshot().groupId, draft.split);
       if (split.isFailure()) return Result.fail(split.error);
       const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
+      // An edit that puts a deleted account into the split is refused as a new split would be (feature 35); the ones already in it stay.
+      const previous = new Set(expense.toSnapshot().shares.map(share => share.memberId));
+      if (
+        await anyDeleted(
+          groupMembers,
+          memberIdsOf(split.data).filter(memberId => !previous.has(memberId)),
+        )
+      ) {
+        return Result.fail(new AccountDeletedException());
+      }
 
       const now = clock();
       const edited = expense.edit(

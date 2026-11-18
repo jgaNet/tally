@@ -30,4 +30,9 @@ export interface IGroupStore {
   merge(kept: Group, merged: Group, at: string): Promise<void>;
   viewFor(groupId: string, memberId: string): Promise<GroupView | undefined>;
   listFor(memberId: string): Promise<GroupView[]>;
+  /**
+   * Whether the account owns a group that has another member now (feature 35, request 35): a group it owns and shares with nobody is no
+   * reason to refuse its deletion. Answered over the groups as they are stored, in the caller's transaction.
+   */
+  ownsGroupWithOthers(accountId: string): Promise<boolean>;
 }

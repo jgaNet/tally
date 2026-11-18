@@ -19,6 +19,11 @@ export interface ISettlementMembers {
    */
   isSuspended(accountId: string): Promise<boolean>;
   /**
+   * Whether the account is deleted (feature 35, request 35): a deleted account is paid through no provider and netted with no one, each
+   * refused by the shared kernel's AccountDeleted; a cash settlement it receives is still recorded. An account that is not there answers `false`.
+   */
+  isDeleted(accountId: string): Promise<boolean>;
+  /**
    * The groups two accounts are both members of now (feature 32, request 32), the earliest made first, each with its currency and
    * whether it is archived: what a netting reads to net what the two owe each other. A member who has left is not a member now.
    */

@@ -5,6 +5,7 @@ import { CONFLICT_ATTEMPTS } from '@Architecture/Application/Lite/UseCase';
 import { IBudgetStore } from '@Contexts/Ledger/Application/IBudgetStore';
 import { IExpenseStore } from '@Contexts/Ledger/Application/IExpenseStore';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
+import { liveMembersOf } from '@Contexts/Ledger/Application/LiveMembers';
 import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/Expense';
 import { monthOfDay } from '@Contexts/Ledger/Domain/Expense/Category';
 
@@ -33,7 +34,8 @@ export class PassBudgetHandler extends EventHandler<ExpenseRecordedEvent | Expen
       if (!budget || budget.amount === undefined) return Result.ok(undefined);
 
       const spent = await this.expenses.spentIn(groupId, category, month);
-      const members = await this.groupMembers.membersOf(groupId);
+      // A month's notice reaches the members who are not deleted (feature 35, request 35): a deleted account is told nothing.
+      const members = await liveMembersOf(this.groupMembers, groupId);
       if (!members) return Result.ok(undefined);
 
       const passed = budget.judge(

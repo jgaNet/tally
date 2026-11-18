@@ -1,33 +1,43 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
 import { Email, Role } from '@SharedKernel/Domain';
 
-import { EmailAlreadyRegisteredException } from '@Contexts/Groups/Domain/Account/AccountExceptions';
+import {
+  AccountNotFoundException,
+  EmailAlreadyRegisteredException,
+  OwnedGroupHasMembersException,
+  PaymentWaitingException,
+} from '@Contexts/Groups/Domain/Account/AccountExceptions';
 import { AccountName } from '@Contexts/Groups/Domain/Account/AccountName';
 import { Password } from '@Contexts/Groups/Domain/Account/Password';
 
 /**
  * An account, as the domain keeps it: one signed-in person, known by an email, with one name in every group
  * (conventions/domain.yaml). Its password is kept as the hash the password port made, never as typed (ADR 3).
+ * A deleted account (feature 35, request 35) keeps its id and nothing else of the person: its email, its name and its
+ * password are erased, and it is no longer signed in to.
  */
 export class Account extends AggregateRoot {
-  readonly #email: string;
-  readonly #name: string;
-  readonly #passwordHash: string;
+  #email: string | undefined;
+  #name: string | undefined;
+  #passwordHash: string | undefined;
   #suspendedAt: string | undefined;
+  #deletedAt: string | undefined;
 
   private constructor(
     id: Id,
-    email: string,
-    name: string,
-    passwordHash: string,
+    email: string | undefined,
+    name: string | undefined,
+    passwordHash: string | undefined,
     version: number,
     suspendedAt: string | undefined,
+    deletedAt: string | undefined,
   ) {
     super(id, version);
     this.#email = email;
     this.#name = name;
     this.#passwordHash = passwordHash;
     this.#suspendedAt = suspendedAt;
+    this.#deletedAt = deletedAt;
   }
 
   /**
@@ -52,7 +62,7 @@ export class Account extends AggregateRoot {
     if (emailTaken) return Result.fail(new EmailAlreadyRegisteredException());
 
     const id = Id.generate();
-    const account = new Account(id, normal.data.value, displayName.data.value, passwordHash, 0, undefined);
+    const account = new Account(id, normal.data.value, displayName.data.value, passwordHash, 0, undefined, undefined);
     account.record(AccountRegisteredEvent.set({ accountId: id.value, at: now.toISOString() }));
     return Result.ok(account);
   }
@@ -94,11 +104,47 @@ export class Account extends AggregateRoot {
     return this.#suspendedAt !== undefined;
   }
 
+  /**
+   * A deletion by the person it is (feature 35, request 35, the storm's `DeleteAccount`). It is refused, and nothing changes, while the
+   * account owns a group that has another member (`OwnedGroupHasMembers`), and while a payment through the provider it pays or receives
+   * is pending, refunding or contested (`PaymentWaiting`). Otherwise its email, its name and its password are erased, and it records
+   * AccountDeleted with the time: the account keeps its id, which the groups, the expenses and the audit still name. Pure: the facts are
+   * read by the use case in the same transaction, and the time is `now`.
+   */
+  delete(reading: DeletionReading, now: Date): IResult<void> {
+    if (this.#deletedAt !== undefined) return Result.fail(new AccountNotFoundException());
+    if (reading.ownsGroupWithOthers) return Result.fail(new OwnedGroupHasMembersException());
+    if (reading.paymentWaiting) return Result.fail(new PaymentWaitingException());
+
+    this.#email = undefined;
+    this.#name = undefined;
+    this.#passwordHash = undefined;
+    this.#deletedAt = now.toISOString();
+    this.record(AccountDeletedEvent.set({ accountId: this._id.value, at: this.#deletedAt }));
+    return Result.ok(undefined);
+  }
+
+  /** Whether the account is deleted (feature 35): it is no longer signed in to, and no other context names it by its person. */
+  isDeleted(): boolean {
+    return this.#deletedAt !== undefined;
+  }
+
   /** The account as the store keeps it. Records nothing. */
   static fromSnapshot(snapshot: AccountSnapshot): Account {
-    const email = Email.create(snapshot.email);
-    const name = AccountName.create(snapshot.name);
-    if (email.isFailure() || name.isFailure()) {
+    if (snapshot.deletedAt !== undefined) {
+      return new Account(
+        new Id(snapshot.id),
+        undefined,
+        undefined,
+        undefined,
+        snapshot.version,
+        undefined,
+        snapshot.deletedAt,
+      );
+    }
+    const email = Email.create(snapshot.email ?? '');
+    const name = AccountName.create(snapshot.name ?? '');
+    if (email.isFailure() || name.isFailure() || snapshot.passwordHash === undefined) {
       throw new Error(`The account ${snapshot.id} is corrupted: it does not hold a valid email or name`);
     }
     return new Account(
@@ -108,17 +154,19 @@ export class Account extends AggregateRoot {
       snapshot.passwordHash,
       snapshot.version,
       snapshot.suspendedAt,
+      undefined,
     );
   }
 
   toSnapshot(): AccountSnapshot {
     return {
       id: this._id.value,
-      email: this.#email,
-      name: this.#name,
-      passwordHash: this.#passwordHash,
+      ...(this.#email === undefined ? {} : { email: this.#email }),
+      ...(this.#name === undefined ? {} : { name: this.#name }),
+      ...(this.#passwordHash === undefined ? {} : { passwordHash: this.#passwordHash }),
       version: this.version,
       ...(this.#suspendedAt === undefined ? {} : { suspendedAt: this.#suspendedAt }),
+      ...(this.#deletedAt === undefined ? {} : { deletedAt: this.#deletedAt }),
     };
   }
 }
@@ -136,15 +184,28 @@ export interface RegistrationFacts {
   readonly emailTaken: boolean;
 }
 
-/** An account as the store keeps it, its version included. */
+/** What the store and the other contexts say about the account's deletion (feature 35): the facts the deletion is decided by. */
+export interface DeletionReading {
+  /** The account owns a group that has another member (Groups' own fact). */
+  readonly ownsGroupWithOthers: boolean;
+  /** A payment through the provider the account pays or receives is pending, refunding or contested (Settlements' fact). */
+  readonly paymentWaiting: boolean;
+}
+
+/**
+ * An account as the store keeps it, its version included. A deleted account has no email, name or password (feature 35): its
+ * `deletedAt` says so, and those keys are absent.
+ */
 export interface AccountSnapshot {
   readonly id: string;
-  readonly email: string;
-  readonly name: string;
-  readonly passwordHash: string;
+  readonly email?: string;
+  readonly name?: string;
+  readonly passwordHash?: string;
   readonly version: number;
   /** When the account was suspended (feature 34): present while it is suspended, and only then. */
   readonly suspendedAt?: string;
+  /** When the account was deleted (feature 35): present once it is, and only then. */
+  readonly deletedAt?: string;
 }
 
 export type AccountRegisteredPayload = { accountId: string; at: string };
@@ -166,3 +227,11 @@ export class AccountSuspendedEvent extends DomainEvent<AccountSuspendedPayload> 
 
 /** The fact of a reinstatement by an administrator (feature 34, request 34), recorded with the time it was made. */
 export class AccountReinstatedEvent extends DomainEvent<AccountReinstatedPayload> {}
+
+export type AccountDeletedPayload = { accountId: string; at: string };
+
+/**
+ * The fact of a deletion by its person (feature 35, request 35), recorded with the time it was made. It is made durable with the account
+ * and published after the commit; nothing reacts to it: each context asks Groups whether the account is deleted, through its own port.
+ */
+export class AccountDeletedEvent extends DomainEvent<AccountDeletedPayload> {}

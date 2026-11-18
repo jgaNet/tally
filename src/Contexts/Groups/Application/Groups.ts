@@ -69,11 +69,13 @@ export const getGroupMembers = query(
 
       const members: MemberView[] = [];
       for (const member of group.members()) {
-        const account = await accounts.view(member.accountId);
-        if (!account) throw new Error(`The member ${member.accountId} of the group ${groupId} has no account`);
+        // A deleted member is still a member, at their place, and is named `Deleted account` (feature 35, request 35).
+        const name = await accounts.memberName(member.accountId);
+        if (name === undefined)
+          throw new Error(`The member ${member.accountId} of the group ${groupId} has no account`);
         members.push({
           memberId: member.accountId,
-          name: account.name,
+          name,
           role: member.accountId === group.ownerId ? 'owner' : 'member',
           joinedAt: member.joinedAt,
         });

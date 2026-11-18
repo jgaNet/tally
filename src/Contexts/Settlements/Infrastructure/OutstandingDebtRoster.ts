@@ -29,6 +29,8 @@ export class OutstandingDebtRoster implements IDebtRoster {
       const book = await openBook(store, members, counted, groupId);
       if (!book) continue;
       for (const { memberId, balance } of book.stillOwed()) {
+        // A deleted account is owed no reminder: Tally tells it nothing any more (feature 35, request 35).
+        if (await members.isDeleted(memberId)) continue;
         debts.push({ groupId, memberId, owes: Math.max(0, -balance) });
       }
     }

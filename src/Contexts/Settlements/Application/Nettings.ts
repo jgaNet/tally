@@ -1,6 +1,7 @@
 import { IResult, Result } from '@Architecture/Domain';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
+import { AccountDeletedException } from '@SharedKernel/Domain';
 
 import { IGroupBalances } from '@Contexts/Settlements/Application/IGroupBalances';
 import { INettingStore, NettingView } from '@Contexts/Settlements/Application/INettingStore';
@@ -47,6 +48,8 @@ export const netDebts = command(
     async ({ with: otherId, currency }: NetDebtsInput, context): Promise<IResult<string>> => {
       const by = callerOf(context);
       if (otherId === by) return Result.fail(new NettingWithOneselfException());
+      // A deleted account is netted with by no one (feature 35, request 35): refused by name, before any book is opened.
+      if (await members.isDeleted(otherId)) return Result.fail(new AccountDeletedException());
 
       const groups: NettingGroup[] = [];
       for (const shared of await members.groupsShared(by, otherId)) {
