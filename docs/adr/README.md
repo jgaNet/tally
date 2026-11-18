@@ -32,6 +32,7 @@ why, what it costs, and when to revisit it.
 | [25](0025-a-receipt-is-an-aggregate-of-ledger-kept-in-an-outside-store-behind-a-port.md) | A receipt is an aggregate of Ledger, kept in an outside store behind a port of Ledger |
 | [26](0026-a-group-is-archived-once-and-every-change-in-it-is-refused-by-one-rule.md) | A group is archived once every balance is 0, and every change in it is refused by one rule |
 | [27](0027-every-change-of-money-is-an-entry-of-its-groups-audit-written-with-it.md) | Every change of money is an entry of its group's audit, written with the change, and Ledger reads the audit through ports |
+| [28](0028-a-member-statement-counts-the-settlements-that-count-and-is-read-as-csv.md) | A member's statement lists the settlements that count, in the order of the moments, and is read as CSV |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

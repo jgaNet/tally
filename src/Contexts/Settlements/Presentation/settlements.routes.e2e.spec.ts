@@ -305,7 +305,7 @@ describe('a settlement in cash', () => {
     ]);
   });
 
-  it('is counted by the suggestions, and not by the statement, which lists expenses only; settled, Bob leaves even', async () => {
+  it('is counted by the suggestions and by the statement, which lists it beside the expense (request 29); settled, Bob leaves even', async () => {
     const { ann, bob, groupId } = await settledUpFrom();
     expect((await suggest(groupId, ann.token)).body).toEqual([{ from: bob.id, to: ann.id, amount: 30 }]);
 
@@ -316,7 +316,20 @@ describe('a settlement in cash', () => {
     const statement = await http.request('GET', `${api}/groups/${groupId}/members/${bob.id}/statement`, {
       token: ann.token,
     });
-    expect((statement.body as { balance: number }).balance).toBe(-30);
+    // The statement's last line is the settlement that counted: Bob's balance is 0, as his balance in the group was when he left (request 9).
+    expect(statement.body).toMatchObject({
+      balance: 0,
+      entries: [
+        { kind: 'expense', balance: -30 },
+        {
+          kind: 'settlement',
+          settlementId: expect.any(String),
+          description: 'Settlement in cash',
+          paid: 30,
+          balance: 0,
+        },
+      ],
+    });
   });
 });
 

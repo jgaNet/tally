@@ -75,18 +75,32 @@ export interface BalanceView {
   balance: number;
 }
 
-/**
- * A line of a member's statement (request 8, docs/adr/0008): an expense the member paid or is in the split of, what they paid
- * for it (0 unless they are its payer), their share of it (0 unless they are in its split), and their balance once it is counted.
- */
-export interface StatementEntryView {
-  expenseId: string;
+/** What every line of a member's statement says (request 8, request 29): the day, what it is, what the member paid and their share, and their balance. */
+interface StatementLineView {
   date: string;
   description: string;
+  /** What the member paid for it: the expense's amount when they are its payer, a settlement's when they are its payer, else 0. */
   paid: number;
+  /** What the member's share of it is: their share of an expense, a settlement's amount when they are its payee, else 0. */
   share: number;
+  /** The member's balance once this line is counted (request 5). */
   balance: number;
 }
+
+/** A line of a member's statement for an expense the member paid or is in the split of (request 8, docs/adr/0008). */
+export interface StatementExpenseEntryView extends StatementLineView {
+  kind: 'expense';
+  expenseId: string;
+}
+
+/** A line of a member's statement for a settlement they paid or received that the balances count (request 29, docs/adr/0028). */
+export interface StatementSettlementEntryView extends StatementLineView {
+  kind: 'settlement';
+  settlementId: string;
+}
+
+/** A line of a member's statement: an expense's or a settlement's. */
+export type StatementEntryView = StatementExpenseEntryView | StatementSettlementEntryView;
 
 /** A member's statement in a group: its entries in the order of a bank statement, and the balance the group's balances give. */
 export interface StatementView {

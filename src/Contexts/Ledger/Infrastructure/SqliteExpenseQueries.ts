@@ -8,6 +8,7 @@ import {
   StatementEntryView,
 } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { IExpenseQueries } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseQueries';
+import { memberStatementEntries, StatementExpense } from '@Contexts/Ledger/Domain/Expense/Statement';
 import { IGroupMembers, PassedBalances } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { ISettledAmounts } from '@Contexts/Ledger/Domain/Expense/Ports/ISettledAmounts';
 import {
@@ -25,9 +26,9 @@ type StatementRow = {
   expense_id: string;
   date: string;
   description: string;
+  recorded_at: string;
   paid: number;
   share: number;
-  balance: number;
 };
 
 /** The read side of the expenses over SQLite: reads of the file, taken alone, outside any transaction (docs/adr/0004). */
@@ -111,33 +112,33 @@ export class SqliteExpenseQueries implements IExpenseQueries {
   }
 
   async statementOf(groupId: string, memberId: string): Promise<StatementEntryView[]> {
-    // One statement, so one snapshot: the member's entries and their running balance, in a bank statement's order (docs/adr/0008).
-    // The running balance is a window sum over what the member paid less their share; the rowid breaks a tie in the date.
-    return this.database.exclusive(() => {
-      const rows = this.database.connection
-        .prepare(
-          `SELECT expense_id, date, description, paid, share,
-               SUM(paid - share) OVER (ORDER BY date, rid) AS balance
-             FROM (
-               SELECT e.rowid AS rid, e.id AS expense_id, e.date AS date, e.description AS description,
-                 CASE WHEN e.paid_by = ? THEN e.amount ELSE 0 END AS paid,
-                 COALESCE((SELECT s.amount FROM expense_shares s WHERE s.expense_id = e.id AND s.member_id = ?), 0) AS share
-               FROM expenses e
-               WHERE e.group_id = ?
-                 AND (e.paid_by = ? OR EXISTS (SELECT 1 FROM expense_shares s WHERE s.expense_id = e.id AND s.member_id = ?))
-             )
-             ORDER BY date, rid`,
-        )
-        .all(memberId, memberId, groupId, memberId, memberId) as StatementRow[];
-      return rows.map((row): StatementEntryView => ({
+    // The settlements that count are read first, outside the file's turn, as balancesOf reads them: they are Settlements' rows, read on
+    // their own connection. Then the member's expenses in one statement, in the order they fall in the statement: the date, then the
+    // moment recorded, then the rowid. The lines are merged and their running balance computed in the domain (docs/adr/0028).
+    const counted = await this.settled.countedOf(groupId);
+    const expenses = await this.database.exclusive(() =>
+      (
+        this.database.connection
+          .prepare(
+            `SELECT e.id AS expense_id, e.date, e.description, e.recorded_at,
+               CASE WHEN e.paid_by = ? THEN e.amount ELSE 0 END AS paid,
+               COALESCE((SELECT s.amount FROM expense_shares s WHERE s.expense_id = e.id AND s.member_id = ?), 0) AS share
+             FROM expenses e
+             WHERE e.group_id = ?
+               AND (e.paid_by = ? OR EXISTS (SELECT 1 FROM expense_shares s WHERE s.expense_id = e.id AND s.member_id = ?))
+             ORDER BY e.date, e.recorded_at, e.rowid`,
+          )
+          .all(memberId, memberId, groupId, memberId, memberId) as StatementRow[]
+      ).map((row): StatementExpense => ({
         expenseId: String(row.expense_id),
         date: String(row.date),
         description: String(row.description),
+        recordedAt: String(row.recorded_at),
         paid: Number(row.paid),
         share: Number(row.share),
-        balance: Number(row.balance),
-      }));
-    });
+      })),
+    );
+    return memberStatementEntries(memberId, expenses, counted);
   }
 }
 

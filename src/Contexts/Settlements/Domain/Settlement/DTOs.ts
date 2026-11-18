@@ -46,6 +46,20 @@ export interface SettledMember {
 }
 
 /**
+ * A settlement that counts in the balances, with the moment the balances started to count it (request 29): a cash one from when it
+ * is recorded, one through the provider from when it is paid. A refunded one is not listed.
+ */
+export interface CountedSettlement {
+  settlementId: string;
+  payerId: string;
+  payeeId: string;
+  amount: number;
+  method: SettlementMethod;
+  /** An instant, ISO 8601 in UTC: the moment the settlement was paid. */
+  countedFrom: string;
+}
+
+/**
  * What one member is waiting to pay and to receive in the pending settlements of a group (request 13): not yet in the balances,
  * but counted as if they were, by what a member still owes and what it is still owed.
  */

@@ -1,6 +1,7 @@
 import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDatabase';
 
 import {
+  CountedSettlement,
   SettledMember,
   SettlementAuditEntry,
   SettlementStatus,
@@ -108,6 +109,36 @@ export class SqliteSettlementQueries implements ISettlementQueries {
   async settledOf(groupId: string): Promise<SettledMember[]> {
     return this.database.exclusive(() =>
       totalsOf(this.database, groupId, ['paid', 'refunding']).map((member): SettledMember => ({ ...member })),
+    );
+  }
+
+  async countedOf(groupId: string): Promise<CountedSettlement[]> {
+    // One statement, one snapshot. The moment a settlement started to count is the one its 'paid' line was learned at: a cash one has it
+    // from its recording, a provider one from the provider's word (docs/adr/0028). Falls back to the recording for a file without the line.
+    return this.database.exclusive(() =>
+      (
+        this.database.connection
+          .prepare(
+            `SELECT s.id, s.payer_id, s.payee_id, s.amount, s.method,
+               COALESCE((SELECT MIN(l.learned_at) FROM settlement_statuses l WHERE l.settlement_id = s.id AND l.status = 'paid'), s.recorded_at) AS counted_from
+             FROM settlements s WHERE s.group_id = ? AND s.status IN ('paid', 'refunding')`,
+          )
+          .all(groupId) as Array<{
+          id: string;
+          payer_id: string;
+          payee_id: string;
+          amount: number;
+          method: string;
+          counted_from: string;
+        }>
+      ).map((row): CountedSettlement => ({
+        settlementId: String(row.id),
+        payerId: String(row.payer_id),
+        payeeId: String(row.payee_id),
+        amount: Number(row.amount),
+        method: String(row.method) as CountedSettlement['method'],
+        countedFrom: String(row.counted_from),
+      })),
     );
   }
 

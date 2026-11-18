@@ -1,4 +1,5 @@
 import {
+  CountedSettlement,
   SettledMember,
   SettlementAuditEntry,
   SettlementWithHistory,
@@ -20,6 +21,11 @@ export interface ISettlementQueries {
    * until its money goes back (requests 13, 15).
    */
   settledOf(groupId: string): Promise<SettledMember[]>;
+  /**
+   * Each settlement of the group that counts, with when the balances started to count it, in no particular order (request 29, docs/adr/0028).
+   * Read by Ledger's SettledAmounts for a member's statement: the same settlements `settledOf` totals, one by one.
+   */
+  countedOf(groupId: string): Promise<CountedSettlement[]>;
   /** What each member of the group is waiting to pay and to receive in its pending settlements, one read (request 13). */
   waitingOf(groupId: string): Promise<WaitingMember[]>;
   /**

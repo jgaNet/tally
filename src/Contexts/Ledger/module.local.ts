@@ -19,6 +19,7 @@ import {
   getGroupBalances,
   getGroupExpenses,
   getMemberStatement,
+  getMemberStatementCsv,
   getOfferedRate,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
@@ -103,6 +104,8 @@ export const localLedgerModule = new LiteModule({
     deleteExpense(expenses, groupMembers, systemClock),
     getGroupExpenses(expenseQueries, groupMembers),
     getMemberStatement(expenseQueries, groupMembers),
+    // The statement the CSV is rendered from (request 29, docs/adr/0028): the same read, rendered by the route as text/csv.
+    getMemberStatementCsv(expenseQueries, groupMembers),
     getOfferedRate(groupCurrency, offeredRates, systemClock),
     setUpRecurringExpense(recurring, groupMembers, systemClock),
     stopRecurringExpense(recurring, groupMembers),

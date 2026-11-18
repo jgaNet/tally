@@ -56,7 +56,16 @@ const readStatement = (groupId: string, memberId: string, token?: string) =>
 const readBalances = (groupId: string, token: string) =>
   http.request('GET', `${api}/groups/${groupId}/balances`, { token });
 
-type Entry = { expenseId: string; date: string; description: string; paid: number; share: number; balance: number };
+type Entry = {
+  kind: 'expense' | 'settlement';
+  expenseId?: string;
+  settlementId?: string;
+  date: string;
+  description: string;
+  paid: number;
+  share: number;
+  balance: number;
+};
 type Statement = { memberId: string; balance: number; entries: Entry[] };
 type Balance = { memberId: string; balance: number };
 
@@ -176,9 +185,33 @@ describe("a member's statement", () => {
       memberId: ada.id,
       balance: 950,
       entries: [
-        { expenseId: taxi.id, date: '2026-01-10', description: 'Taxi', paid: 0, share: 450, balance: -450 },
-        { expenseId: dinner.id, date: '2026-01-15', description: 'Dinner', paid: 3000, share: 1000, balance: 1550 },
-        { expenseId: hotel.id, date: '2026-01-15', description: 'Hotel', paid: 0, share: 600, balance: 950 },
+        {
+          kind: 'expense',
+          expenseId: taxi.id,
+          date: '2026-01-10',
+          description: 'Taxi',
+          paid: 0,
+          share: 450,
+          balance: -450,
+        },
+        {
+          kind: 'expense',
+          expenseId: dinner.id,
+          date: '2026-01-15',
+          description: 'Dinner',
+          paid: 3000,
+          share: 1000,
+          balance: 1550,
+        },
+        {
+          kind: 'expense',
+          expenseId: hotel.id,
+          date: '2026-01-15',
+          description: 'Hotel',
+          paid: 0,
+          share: 600,
+          balance: 950,
+        },
       ],
     });
 
@@ -188,8 +221,24 @@ describe("a member's statement", () => {
       memberId: ben.id,
       balance: -550,
       entries: [
-        { expenseId: taxi.id, date: '2026-01-10', description: 'Taxi', paid: 900, share: 450, balance: 450 },
-        { expenseId: dinner.id, date: '2026-01-15', description: 'Dinner', paid: 0, share: 1000, balance: -550 },
+        {
+          kind: 'expense',
+          expenseId: taxi.id,
+          date: '2026-01-10',
+          description: 'Taxi',
+          paid: 900,
+          share: 450,
+          balance: 450,
+        },
+        {
+          kind: 'expense',
+          expenseId: dinner.id,
+          date: '2026-01-15',
+          description: 'Dinner',
+          paid: 0,
+          share: 1000,
+          balance: -550,
+        },
       ],
     });
 
@@ -198,8 +247,24 @@ describe("a member's statement", () => {
       memberId: cy.id,
       balance: -400,
       entries: [
-        { expenseId: dinner.id, date: '2026-01-15', description: 'Dinner', paid: 0, share: 1000, balance: -1000 },
-        { expenseId: hotel.id, date: '2026-01-15', description: 'Hotel', paid: 1200, share: 600, balance: -400 },
+        {
+          kind: 'expense',
+          expenseId: dinner.id,
+          date: '2026-01-15',
+          description: 'Dinner',
+          paid: 0,
+          share: 1000,
+          balance: -1000,
+        },
+        {
+          kind: 'expense',
+          expenseId: hotel.id,
+          date: '2026-01-15',
+          description: 'Hotel',
+          paid: 1200,
+          share: 600,
+          balance: -400,
+        },
       ],
     });
 
@@ -260,7 +325,9 @@ describe('Groups → Ledger', () => {
     expect((await readStatement(groupId, bob.id, bob.token)).body).toEqual<Statement>({
       memberId: bob.id,
       balance: 45,
-      entries: [{ expenseId, date: '2026-04-02', description: 'Dinner', paid: 90, share: 45, balance: 45 }],
+      entries: [
+        { kind: 'expense', expenseId, date: '2026-04-02', description: 'Dinner', paid: 90, share: 45, balance: 45 },
+      ],
     });
     expect(((await readExpenses(groupId, bob.token)).body as Array<{ id: string }>).map(expense => expense.id)).toEqual(
       [expenseId],

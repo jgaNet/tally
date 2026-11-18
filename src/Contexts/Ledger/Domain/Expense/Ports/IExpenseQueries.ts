@@ -22,9 +22,10 @@ export interface IExpenseQueries {
    */
   expensesOf(groupId: string): Promise<ExpenseView[]>;
   /**
-   * The entries of a member's statement in the group, in one read: every expense the member paid or is in the split of, the
-   * earliest date first and, on the same date, the earliest recorded first, each with the balance once it is counted, starting
-   * from 0 (request 8, docs/adr/0008).
+   * The entries of a member's statement in the group: every expense the member paid or is in the split of, and every settlement they
+   * paid or received that counts, the earliest date first and, on the same date, the earliest moment first (an expense by when it was
+   * recorded, a settlement by when it started to count), each with the balance once it is counted, starting from 0 (request 8,
+   * request 29, docs/adr/0008, docs/adr/0028).
    */
   statementOf(groupId: string, memberId: string): Promise<StatementEntryView[]>;
 }

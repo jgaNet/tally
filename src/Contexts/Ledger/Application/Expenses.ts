@@ -1,5 +1,6 @@
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
+import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { NotFoundException, Result } from '@Architecture/Domain';
 
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
@@ -283,17 +284,35 @@ export const getGroupExpenses = query(
  * The caller's membership is read before the statement, and the statement is read after it: a member who has been one of the
  * group is one still or has left with a balance of 0, so the statement's entries are the same whichever way the read falls.
  */
+/**
+ * A member's statement in a group (request 8, request 29): the members of the group read it, a former member's included; for anyone else
+ * the group, or the member, does not exist. Its lines are the expenses and the counted settlements of the member, and its balance the last
+ * line's (docs/adr/0008, docs/adr/0028).
+ */
+const readMemberStatement =
+  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
+  async ({ groupId, memberId }: { groupId: string; memberId: string }, context: ExecutionContext) => {
+    const members = await groupMembers.membersOf(callerOf(context), groupId);
+    if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
+    if (!(await groupMembers.hasBeenMember(groupId, memberId))) {
+      return Result.fail(new NotFoundException('Ledger', 'There is no such member'));
+    }
+    const entries = await expenses.statementOf(groupId, memberId);
+    const statement: StatementView = { memberId, balance: entries.at(-1)?.balance ?? 0, entries };
+    return Result.ok(statement);
+  };
+
+/** A member's statement as JSON (request 8, request 29): `GET /groups/{id}/members/{memberId}/statement`. */
 export const getMemberStatement = query(
   'GetMemberStatement',
-  (expenses: IExpenseQueries, groupMembers: IGroupMembers) =>
-    async ({ groupId, memberId }: { groupId: string; memberId: string }, context) => {
-      const members = await groupMembers.membersOf(callerOf(context), groupId);
-      if (!members) return Result.fail(new NotFoundException('Ledger', 'There is no such group'));
-      if (!(await groupMembers.hasBeenMember(groupId, memberId))) {
-        return Result.fail(new NotFoundException('Ledger', 'There is no such member'));
-      }
-      const entries = await expenses.statementOf(groupId, memberId);
-      const statement: StatementView = { memberId, balance: entries.at(-1)?.balance ?? 0, entries };
-      return Result.ok(statement);
-    },
+  (expenses: IExpenseQueries, groupMembers: IGroupMembers) => readMemberStatement(expenses, groupMembers),
+);
+
+/**
+ * The same statement, for the CSV the transport renders from it (request 29, docs/adr/0028): `GET /groups/{id}/members/{memberId}/statement.csv`.
+ * The rendering, the columns and the quoting are the transport's; the statement is read here, as `GetMemberStatement` reads it.
+ */
+export const getMemberStatementCsv = query(
+  'GetMemberStatementCsv',
+  (expenses: IExpenseQueries, groupMembers: IGroupMembers) => readMemberStatement(expenses, groupMembers),
 );

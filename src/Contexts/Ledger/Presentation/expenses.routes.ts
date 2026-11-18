@@ -10,10 +10,13 @@ import {
   getGroupBalances,
   getGroupExpenses,
   getMemberStatement,
+  getMemberStatementCsv,
   getOfferedRate,
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
+import { StatementView } from '@Contexts/Ledger/Domain/Expense/DTOs';
+import { statementAsCsv } from '@Contexts/Ledger/Presentation/statementCsv';
 
 /**
  * The split a body gives, one of three (request 4, request 7): an equal split between members, the exact amount of each, or
@@ -214,6 +217,20 @@ export const expenseRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
         groupId: req.params.id,
         memberId: req.params.memberId,
       }),
+  );
+
+  // The same statement as CSV (request 29, docs/adr/0028): answered as text/csv when the read succeeds; a refusal is answered as every route's.
+  fastify.get<{ Params: { id: string; memberId: string } }>(
+    '/groups/:id/members/:memberId/statement.csv',
+    { schema: { tags: ['expenses'] } },
+    async (req, reply) => {
+      const answer = await answerAtOnce(req, reply, module.useCase(getMemberStatementCsv), {
+        groupId: req.params.id,
+        memberId: req.params.memberId,
+      });
+      if (reply.statusCode !== 200) return answer;
+      return reply.type('text/csv; charset=utf-8').send(statementAsCsv(answer as StatementView));
+    },
   );
 
   done();

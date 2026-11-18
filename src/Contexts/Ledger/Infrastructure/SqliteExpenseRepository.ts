@@ -48,6 +48,9 @@ export function prepareLedgerSchema(connection: DatabaseSync): void {
   for (const [name, type] of ORIGINAL_COLUMNS) {
     if (!columns.includes(name)) connection.exec(`ALTER TABLE expenses ADD COLUMN ${name} ${type}`);
   }
+  // The instant each expense was recorded (request 29, docs/adr/0028): an expense recorded before it was kept has '', which sorts first on its day.
+  if (!columns.includes('recorded_at'))
+    connection.exec("ALTER TABLE expenses ADD COLUMN recorded_at TEXT NOT NULL DEFAULT ''");
   // The group's audit of the changes of money (request 28, docs/adr/0027): one row per entry, written with the change.
   connection.exec(LEDGER_AUDIT_SCHEMA);
 }
@@ -129,7 +132,7 @@ export class SqliteExpenseRepository implements IExpenseRepository {
     if (snapshot.version === 0) {
       connection
         .prepare(
-          'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, original_currency, original_amount, original_rate, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO expenses (id, group_id, description, amount, date, paid_by, split_kind, version, original_currency, original_amount, original_rate, category, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         )
         .run(
           snapshot.id,
@@ -144,6 +147,8 @@ export class SqliteExpenseRepository implements IExpenseRepository {
           original?.amount ?? null,
           original?.rate ?? null,
           snapshot.category,
+          // The recording is the expense's first audit entry, written with it at the same instant (request 28).
+          expense.audited.find(entry => entry.action === 'expense-recorded')?.at ?? '',
         );
     } else {
       const { changes } = connection
