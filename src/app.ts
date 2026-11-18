@@ -15,6 +15,7 @@ import { registerPayoutAccountRoutes } from './payout-accounts';
 import { registerRateRoutes, type RatesConfig } from './rates';
 import { registerRecurringRoutes, runRecurring } from './recurring';
 import { registerSettlementRoutes } from './settlements';
+import { registerTemplateRoutes } from './templates';
 import { type ProviderConfig } from './provider';
 import { Refusal } from './refusal';
 import { DEFAULT_REMINDER_PERIOD_SECONDS, runReminders } from './reminders';
@@ -96,6 +97,7 @@ export async function createApplication({
       registerRateRoutes(instance, db, rates);
       registerRecurringRoutes(instance, db);
       registerBudgetRoutes(instance, db);
+      registerTemplateRoutes(instance, db);
       registerBalanceRoutes(instance, db);
       registerHistoryRoutes(instance, db);
       registerSettlementRoutes(instance, db, provider);

@@ -32,9 +32,11 @@ async function startServerProcess(databasePath: string): Promise<{ app: Reachabl
 
 /**
  * Takes the categories and budgets out of a file, as a file from before them has none: the migrations that add them run
- * again when the file is set back to an older version.
+ * again when the file is set back to an older version. The split templates, which came after them, are taken out too.
  */
 function dropCategories(before: DatabaseSync): void {
+  before.exec('DROP TABLE template_shares');
+  before.exec('DROP TABLE templates');
   before.exec('DROP TABLE budget_passings');
   before.exec('DROP TABLE budgets');
   before.exec('ALTER TABLE expenses DROP COLUMN category');
@@ -143,7 +145,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 22 });
       expect(db.prepare('SELECT id FROM notices ORDER BY rowid').all()).toEqual([{ id: 'n1' }, { id: 'n2' }]);
       db.prepare(
         "INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('r', 'a', 'reminder', 'g', NULL, 2500, '2026-11-09T00:00:00.000Z')",
@@ -158,7 +160,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 22 });
     } finally {
       db.close();
     }
@@ -186,7 +188,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 22 });
       expect(db.prepare('SELECT COUNT(*) AS count FROM notices').get()).toEqual({ count: 0 });
       expect(() =>
         db.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
@@ -385,7 +387,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 22 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -451,7 +453,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 22 });
       expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
         { id: 's', status: 'paid', provider_id: 'pay_9' },
       ]);
@@ -502,7 +504,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 22 });
       expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
       db.exec(
         "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
@@ -555,7 +557,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 21 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 22 });
       const history = (id: string) =>
         db.prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq').all(id);
       expect(history('cash')).toEqual([{ status: 'paid', at: '2026-11-02T00:00:00.000Z' }]);
@@ -616,7 +618,8 @@ describe('the database', () => {
       before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
       before.exec('DROP TABLE recurring_shares');
       before.exec('DROP TABLE recurring');
-      before.exec(`PRAGMA user_version = ${current - 5}`);
+      // Back to the migration that adds the original currency: six versions below the current one, which now includes templates.
+      before.exec(`PRAGMA user_version = ${current - 6}`);
     } finally {
       before.close();
     }
@@ -666,5 +669,35 @@ describe('the database', () => {
       category: 'other',
     });
     expect((await call(second, 'GET', `/groups/${groupId}/budgets`, { token })).body).toEqual([]);
+  });
+
+  it('takes split templates on a file at version 21, which has none, and keeps the expenses it had', async () => {
+    const first = await start();
+    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
+    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
+    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
+      .id;
+    const expenseId = (
+      await call(first, 'POST', `/groups/${groupId}/expenses`, {
+        body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
+        token,
+      })
+    ).body.id;
+    await first.stop();
+    apps.pop();
+
+    // The file as it was before templates: no tables for them, one version less.
+    const before = new DatabaseSync(database.path);
+    try {
+      before.exec('DROP TABLE template_shares');
+      before.exec('DROP TABLE templates');
+      before.exec('PRAGMA user_version = 21');
+    } finally {
+      before.close();
+    }
+
+    const second = await start();
+    expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({ amount: 1000 });
+    expect((await call(second, 'GET', `/groups/${groupId}/templates`, { token })).body).toEqual([]);
   });
 });

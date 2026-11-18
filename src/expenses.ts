@@ -11,6 +11,7 @@ import { writeExpenseNotices } from './notices';
 import { Refusal } from './refusal';
 import { MILLIONTHS, offeredRate, rateMillionths, type RatesConfig } from './rates';
 import { requireCaller } from './sessions';
+import { templateSplitOf } from './templates';
 
 const DESCRIPTION_MAX = 100;
 const AMOUNT_MAX = 100_000_000;
@@ -86,6 +87,8 @@ export interface NewExpense {
   splitBetween?: string[];
   splitExactly?: ExactShare[];
   splitByShares?: ShareCount[];
+  /** The id of a template of the group, whose split the expense is split by in place of a split given here. */
+  template?: string;
 }
 
 /** An edit gives the expense again, whole, from the version its author read. */
@@ -329,22 +332,25 @@ function checkDate(date: string): void {
 }
 
 /**
- * The split the input gives. Exactly one of its three ways must be given; the request's schema refuses
- * the others as the wrong shape, and this holds the same rule for whatever else reaches it.
+ * The split the input gives: one of its four ways, which are the three splits and a template of the group, whose split it
+ * takes. Exactly one must be given; the request's schema refuses the others as the wrong shape, and this holds the same
+ * rule for whatever else reaches it.
  */
-function splitOf(input: NewExpense): Split {
-  const given: Split[] = [];
-  if (input.splitBetween !== undefined) given.push({ kind: 'equal', members: input.splitBetween });
-  if (input.splitExactly !== undefined) given.push({ kind: 'exact', shares: input.splitExactly });
-  if (input.splitByShares !== undefined) given.push({ kind: 'shares', shares: input.splitByShares });
+function splitOf(db: DatabaseSync, groupId: string, input: NewExpense): Split {
+  const { splitBetween, splitExactly, splitByShares, template } = input;
+  const given = [splitBetween, splitExactly, splitByShares, template].filter(part => part !== undefined);
   if (given.length !== 1) {
     throw new Refusal(
       400,
       'InvalidRequest',
-      'The expense needs exactly one split: splitBetween, splitExactly or splitByShares.',
+      'The expense needs exactly one split: splitBetween, splitExactly, splitByShares or template.',
     );
   }
-  return given[0];
+  if (template !== undefined) return templateSplitOf(db, groupId, template);
+  if (splitBetween !== undefined) return { kind: 'equal', members: splitBetween };
+  if (splitExactly !== undefined) return { kind: 'exact', shares: splitExactly };
+  if (splitByShares === undefined) throw new Error('unreachable: one split is given');
+  return { kind: 'shares', shares: splitByShares };
 }
 
 /** The members of a split, in the order it was given. */
@@ -468,7 +474,7 @@ export async function createExpense(
   const recordedAt = new Date().toISOString();
   // The split is checked and the expense, its shares and the notices of its members are written together, or not at all.
   inTransaction(db, () => {
-    const split = splitOf(input);
+    const split = splitOf(db, groupId, input);
     checkSplit(db, groupId, accountId, membersOf(split));
     const shares = sharesOf(split, amount);
     recordExpense(db, {
@@ -571,7 +577,7 @@ export async function editExpense(
     const description = checkDescription(edit.description);
     const { amount, original } = amountOf(edit, group.currency, offer);
     checkDate(edit.date);
-    const split = splitOf(edit);
+    const split = splitOf(db, expense.groupId, edit);
     checkSplit(db, expense.groupId, expense.paidBy, membersOf(split));
     const shares = sharesOf(split, amount);
     const category = edit.category ?? DEFAULT_CATEGORY;
@@ -651,8 +657,9 @@ export const expenseSchema = {
   },
 };
 
-/** The three ways of giving a split, each optional here: the body must give exactly one of them. */
+/** The ways of giving a split, each optional here: the body must give exactly one of them. */
 const splitProperties = {
+  template: { type: 'string' },
   splitBetween: { type: 'array', items: { type: 'string' } },
   splitExactly: {
     type: 'array',
@@ -672,9 +679,14 @@ const splitProperties = {
   },
 };
 
-/** A body with none of the three splits, or with more than one, is of the wrong shape. */
+/** A body with none of the splits, or with more than one, is of the wrong shape. */
 const exactlyOneSplit = {
-  oneOf: [{ required: ['splitBetween'] }, { required: ['splitExactly'] }, { required: ['splitByShares'] }],
+  oneOf: [
+    { required: ['splitBetween'] },
+    { required: ['splitExactly'] },
+    { required: ['splitByShares'] },
+    { required: ['template'] },
+  ],
 };
 
 /**

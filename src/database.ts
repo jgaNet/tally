@@ -357,6 +357,31 @@ const MIGRATIONS: readonly string[] = [
   CREATE UNIQUE INDEX notices_expense_account ON notices (expense_id, account_id);
   CREATE INDEX notices_account ON notices (account_id, created_at);
   `,
+  `
+  -- A split template: a split saved under a name by a member of a group, which an expense of the group may be split by.
+  -- Its name is unique in its group whatever its case: name_key is the name in lower case. Its split is 'equal' between
+  -- its members, or 'shares' by a number of shares each, kept in template_shares in the order given (value is the number of
+  -- shares, null for an equal split). seq is the order the templates were saved in; a replaced template keeps its place.
+  CREATE TABLE templates (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    group_id TEXT NOT NULL REFERENCES groups (id),
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    split_kind TEXT NOT NULL CHECK (split_kind IN ('equal', 'shares')),
+    created_by TEXT NOT NULL REFERENCES accounts (id),
+    created_at TEXT NOT NULL,
+    UNIQUE (group_id, name_key)
+  );
+
+  CREATE TABLE template_shares (
+    template_id TEXT NOT NULL REFERENCES templates (id),
+    position INTEGER NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    value INTEGER,
+    PRIMARY KEY (template_id, position)
+  );
+  `,
 ];
 
 /**
