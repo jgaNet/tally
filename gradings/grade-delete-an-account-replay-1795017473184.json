@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/full-1",
+  "ref": "587c8b4e265a8db55a1c9505e174cbafe7f0015f",
+  "commit": "587c8b4e265a8db55a1c9505e174cbafe7f0015f",
+  "base": "96973b96afc22ea9d0273de5e04cbe245713c87f",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "delete-an-account",
+      "M2": {
+        "pass": false,
+        "tests": "3 failed, 3 total",
+        "failed": [
+          "delete an account › anonymises a deleted account in every group it was in, and keeps its balances",
+          "delete an account › erases the name and the email of a deleted account from everything Tally keeps",
+          "delete an account › refuses to delete an account that owns a group with another member, or has a payment waiting at the provider"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● delete an account › anonymises a deleted account in every group it was in, and keeps its balances",
+          "  ● delete an account › erases the name and the email of a deleted account from everything Tally keeps",
+          "  ● delete an account › refuses to delete an account that owns a group with another member, or has a payment waiting at the provider",
+          "    thrown: \"Exceeded timeout of 60000 ms for a test.",
+          "        thrown: \"Exceeded timeout of 60000 ms for a test.",
+          "Tests:       3 failed, 3 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 125829,
+  "workers": 1
+}
