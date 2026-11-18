@@ -543,7 +543,7 @@ function checkMayChange(db: DatabaseSync, accountId: string, expense: Expense): 
  * The expense, when the account may change it: found for the account, changeable by it, and not concerning a member who
  * has left the group.
  */
-function changeableExpense(db: DatabaseSync, accountId: string, expenseId: string): Expense {
+export function changeableExpense(db: DatabaseSync, accountId: string, expenseId: string): Expense {
   const expense = findExpenseOf(db, accountId, expenseId);
   if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
   checkMayChange(db, accountId, expense);

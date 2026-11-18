@@ -13,6 +13,7 @@ import { registerNoticeRoutes } from './notices';
 import { registerOperationRoutes } from './operations';
 import { registerPayoutAccountRoutes } from './payout-accounts';
 import { registerRateRoutes, type RatesConfig } from './rates';
+import { registerReceiptRoutes, type ReceiptsConfig } from './receipts';
 import { registerRecurringRoutes, runRecurring } from './recurring';
 import { registerSettlementRoutes } from './settlements';
 import { registerTemplateRoutes } from './templates';
@@ -43,6 +44,7 @@ function positiveNumber(value: string | undefined, fallback: number): number {
  * knows is kept in the SQLite file at `databasePath`. The payment provider is reached at `providerUrl`, and
  * its webhooks are signed with `providerWebhookSecret`; `providerTimeoutMs` is how long it may take to answer.
  * The rates service is reached at `ratesUrl`, for `ratesTimeoutMs` at most; without it, no rate is offered.
+ * The receipts store is reached at `receiptsUrl`, for `receiptsTimeoutMs` at most; without it, no receipt is kept.
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
@@ -53,6 +55,8 @@ export async function createApplication({
   providerTimeoutMs = 5000,
   ratesUrl = process.env.RATES_URL || undefined,
   ratesTimeoutMs = 5000,
+  receiptsUrl = process.env.RECEIPTS_URL || undefined,
+  receiptsTimeoutMs = 5000,
   jobsIntervalSeconds = positiveNumber(process.env.JOBS_INTERVAL_SECONDS, 60),
   reminderPeriodSeconds = positiveNumber(process.env.REMINDER_PERIOD_SECONDS, DEFAULT_REMINDER_PERIOD_SECONDS),
 }: {
@@ -64,6 +68,8 @@ export async function createApplication({
   providerTimeoutMs?: number;
   ratesUrl?: string;
   ratesTimeoutMs?: number;
+  receiptsUrl?: string;
+  receiptsTimeoutMs?: number;
   jobsIntervalSeconds?: number;
   reminderPeriodSeconds?: number;
 } = {}): Promise<Application> {
@@ -73,6 +79,7 @@ export async function createApplication({
     timeoutMs: providerTimeoutMs,
   };
   const rates: RatesConfig = { url: ratesUrl, timeoutMs: ratesTimeoutMs };
+  const receipts: ReceiptsConfig = { url: receiptsUrl, timeoutMs: receiptsTimeoutMs };
   const db = openDatabase(databasePath);
   // Only the JSON the requests name is accepted: a value of another type is refused, never coerced.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
@@ -94,6 +101,7 @@ export async function createApplication({
       registerInvitationRoutes(instance, db);
       registerLeaveRoutes(instance, db);
       registerExpenseRoutes(instance, db, rates);
+      registerReceiptRoutes(instance, db, receipts);
       registerRateRoutes(instance, db, rates);
       registerRecurringRoutes(instance, db);
       registerBudgetRoutes(instance, db);

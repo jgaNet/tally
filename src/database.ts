@@ -382,6 +382,19 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (template_id, position)
   );
   `,
+  `
+  -- A receipt of an expense: a JPEG or a PNG of at most 2 MB, kept in the receipts store, which gave it the id store_id and the
+  -- link url the receipt is read at. One per expense: attaching another replaces it. The receipt is not an edit, so the expense
+  -- keeps its version; it goes with its expense.
+  CREATE TABLE receipts (
+    expense_id TEXT PRIMARY KEY REFERENCES expenses (id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK (type IN ('image/jpeg', 'image/png')),
+    size INTEGER NOT NULL CHECK (size BETWEEN 1 AND 2097152),
+    store_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    attached_at TEXT NOT NULL
+  );
+  `,
 ];
 
 /**
