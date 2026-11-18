@@ -13,10 +13,12 @@ import { IWebhookSignature } from '@Contexts/Settlements/Application/IWebhookSig
 import { openBook } from '@Contexts/Settlements/Application/OpenBook';
 import { settlementAuditId } from '@Contexts/Settlements/Domain/Settlement/SettlementAudit';
 import {
+  FeePolicyNotOwnerException,
   GroupNotFoundException,
   SettlementNotFoundException,
   SignatureNotValidException,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
+import { FeeBearer, settledAmountOf } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
 /** A cash settlement as the request carries it: the group it is in, the payer's account, and the amount; the payee is the caller. */
 export interface RecordCashSettlementInput {
@@ -62,7 +64,7 @@ export const recordCashSettlement = command(
         by: payeeId,
         action: 'settlement-paid',
         subjectId: settlement.id,
-        amount: settlement.amount,
+        amount: settledAmountOf(settlement),
       });
       await publishDomainEvents(book, context);
       return Result.ok(recorded.data.id);
@@ -189,7 +191,7 @@ export const receivePaymentWebhook = command(
           by: learned.from,
           action: 'settlement-paid',
           subjectId: learned.id,
-          amount: learned.amount,
+          amount: settledAmountOf(learned),
         });
       }
       if (learned.status === 'refunded') {
@@ -200,7 +202,7 @@ export const receivePaymentWebhook = command(
           by: learned.to,
           action: 'settlement-refunded',
           subjectId: learned.id,
-          amount: learned.amount,
+          amount: settledAmountOf(learned),
         });
       }
       await publishDomainEvents(book, context);
@@ -244,6 +246,52 @@ export const refundSettlement = command(
       await store.save(book, recorded.data, clock().toISOString());
       await publishDomainEvents(book, context);
       return Result.ok(undefined);
+    },
+);
+
+/** Who bears a group's provider fee, as the request carries it: the owner's choice, by its name (request 38). */
+export interface SetFeePolicyInput {
+  readonly groupId: string;
+  readonly borneBy: string;
+}
+
+/**
+ * The owner of a group decides who bears its provider fee from now on (request 38, the storm's `SetFeePolicy`): `payer`, `payee` or
+ * `shared`. The caller must be a member of the group, else the group's `404`; the owner only (`403` to any other member); a bearer that is
+ * none of the three is refused (`422`) and an archived group changes nothing. The book is opened as it stands and stored at its next
+ * version with the policy, so a payment asked for after it is fixed with it, and one asked for before keeps the policy it was asked with.
+ * Answers nothing (`204`).
+ */
+export const setFeePolicy = command(
+  'SetFeePolicy',
+  (store: ISettlementStore, members: ISettlementMembers, balances: IGroupBalances, clock: Clock) =>
+    async ({ groupId, borneBy }: SetFeePolicyInput, context): Promise<IResult<void>> => {
+      const callerId = callerOf(context);
+      const book = await openBook(store, members, balances, groupId);
+      if (!book || !book.hasMember(callerId)) return Result.fail(new GroupNotFoundException());
+      if ((await members.ownerOf(groupId)) !== callerId) return Result.fail(new FeePolicyNotOwnerException());
+
+      const archived = await members.isArchived(groupId);
+      const decided = book.setFeePolicy(borneBy, archived, clock());
+      if (decided.isFailure()) return Result.fail(decided.error);
+
+      await store.saveBook(book);
+      await publishDomainEvents(book, context);
+      return Result.ok(undefined);
+    },
+);
+
+/**
+ * Who bears a group's provider fee, as a member of the group reads it (request 38, the storm's `GetFeePolicy`): `payer`, `payee` or
+ * `shared`, the payee until the owner decides. To anyone else the group does not exist: the group's `404`.
+ */
+export const getFeePolicy = query(
+  'GetFeePolicy',
+  (store: ISettlementStore, members: ISettlementMembers) =>
+    async (groupId: string, context): Promise<IResult<{ borneBy: FeeBearer }>> => {
+      const memberIds = await members.membersOf(groupId);
+      if (!memberIds || !memberIds.includes(callerOf(context))) return Result.fail(new GroupNotFoundException());
+      return Result.ok({ borneBy: await store.feePolicyOf(groupId) });
     },
 );
 

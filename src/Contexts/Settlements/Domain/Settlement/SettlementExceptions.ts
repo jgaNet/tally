@@ -41,6 +41,24 @@ export class SettlementNotFoundException extends NotFoundException {
 }
 
 /** An amount that is not a whole number of the group's currency's hundredths, 1 or more: `422` (request 12). */
+/** The fee bearer is not one of payer, payee and shared: refused by name, nothing changes (request 38). */
+export class InvalidFeeBearerException extends Exception {
+  constructor() {
+    super({
+      service: SERVICE,
+      type: 'InvalidFeeBearer',
+      message: 'Who bears the provider fee is payer, payee or shared',
+    });
+  }
+}
+
+/** Only the owner of a group decides who bears its provider fee (request 38): `403` to any other member. */
+export class FeePolicyNotOwnerException extends NotAllowedException {
+  constructor() {
+    super(SERVICE, 'Only the owner of the group may decide who bears the provider fee');
+  }
+}
+
 export class InvalidSettlementAmountException extends Exception {
   constructor() {
     super({

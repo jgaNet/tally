@@ -7,7 +7,14 @@ import {
   SettlementView,
 } from '@Contexts/Settlements/Application/ISettlementStore';
 import { WaitingPayment, SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
-import { Settlement, SettlementMethod, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import {
+  FeeBearer,
+  Settlement,
+  SettlementMethod,
+  SettlementStatus,
+  settledAmountOf,
+} from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { DEFAULT_FEE_BEARER } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 
 /**
  * The settlements' tables (features 12 and 13, ADR 10). `settlement_books` is the version each group's book is at: one row per group
@@ -25,6 +32,8 @@ export const settlementsTablesSchema = [
      group_id TEXT PRIMARY KEY REFERENCES groups(id),
      version INTEGER NOT NULL
    )`,
+  // Who bears the group's provider fee, as its owner decided (request 38): the payee until then; added once, as the table is.
+  `ALTER TABLE settlement_books ADD COLUMN IF NOT EXISTS fee_policy TEXT NOT NULL DEFAULT 'payee'`,
   `CREATE TABLE IF NOT EXISTS settlements (
      id TEXT PRIMARY KEY,
      group_id TEXT NOT NULL REFERENCES groups(id),
@@ -42,6 +51,12 @@ export const settlementsTablesSchema = [
    )`,
   // A database created before request 33 has the table without its contest's time: added once, as the table is (request 33, ADR 28).
   'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS contested_at TEXT',
+  // The provider's fee a settlement through the provider was asked with, who bore it, and what the settlement settles (request 38): the
+  // amount less the part of the fee its payer bears. A settlement asked for before has no fee, and settles its amount.
+  'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_amount INTEGER',
+  'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_borne_by TEXT',
+  'ALTER TABLE settlements ADD COLUMN IF NOT EXISTS settles INTEGER',
+  'UPDATE settlements SET settles = amount WHERE settles IS NULL',
   `CREATE TABLE IF NOT EXISTS settlement_history (
      seq INTEGER PRIMARY KEY AUTOINCREMENT,
      settlement_id TEXT NOT NULL REFERENCES settlements(id),
@@ -74,6 +89,9 @@ interface SettlementRow {
   payment_id: string | null;
   pay_url: string | null;
   contested_at: string | null;
+  fee_amount: number | null;
+  fee_borne_by: FeeBearer | null;
+  settles: number;
 }
 
 /** A settlement row as the domain keeps it. */
@@ -88,6 +106,8 @@ const toSettlement = (row: SettlementRow): Settlement => ({
   at: row.recorded_at,
   ...(row.payment_id !== null && row.pay_url !== null && { payment: { id: row.payment_id, payUrl: row.pay_url } }),
   ...(row.contested_at !== null && { contestedAt: row.contested_at }),
+  ...(row.fee_amount !== null &&
+    row.fee_borne_by !== null && { fee: { amount: row.fee_amount, borneBy: row.fee_borne_by } }),
 });
 
 /** What a screen shows of a settlement: its history (request 19), and the link the payer pays at, through the provider only. */
@@ -102,6 +122,7 @@ const toView = (settlement: Settlement, history: SettlementStatusEntry[]): Settl
   at: settlement.at,
   history,
   ...(settlement.payment && { payUrl: settlement.payment.payUrl }),
+  ...(settlement.fee && { fee: settlement.fee }),
 });
 
 const toEntry = (row: HistoryRow): SettlementStatusEntry => ({ status: row.status, at: row.learned_at });
@@ -126,11 +147,22 @@ export class PostgresSettlementStore implements ISettlementStore {
     const rows = (await this.database.read(db =>
       db
         .prepare(
-          "SELECT payer_id, payee_id, amount FROM settlements WHERE group_id = ? AND status IN ('pending', 'contested')",
+          "SELECT payer_id, payee_id, settles FROM settlements WHERE group_id = ? AND status IN ('pending', 'contested')",
         )
         .all(groupId),
-    )) as { payer_id: string; payee_id: string; amount: number }[];
-    return rows.map(row => ({ from: row.payer_id, to: row.payee_id, amount: row.amount }));
+    )) as { payer_id: string; payee_id: string; settles: number }[];
+    return rows.map(row => ({ from: row.payer_id, to: row.payee_id, amount: row.settles }));
+  }
+
+  async feePolicyOf(groupId: string): Promise<FeeBearer> {
+    const row = (await this.database.read(db =>
+      db.prepare('SELECT fee_policy FROM settlement_books WHERE group_id = ?').get(groupId),
+    )) as { fee_policy: FeeBearer } | undefined;
+    return row?.fee_policy ?? DEFAULT_FEE_BEARER;
+  }
+
+  async saveBook(book: SettlementBook): Promise<void> {
+    await this.#checkVersion(book);
   }
 
   async save(book: SettlementBook, settlement: Settlement, learnedAt: string): Promise<void> {
@@ -138,8 +170,9 @@ export class PostgresSettlementStore implements ISettlementStore {
     const writer = this.database.writer;
     await writer
       .prepare(
-        `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, payment_id, pay_url, contested_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, payment_id, pay_url, contested_at,
+           fee_amount, fee_borne_by, settles)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET status = excluded.status, contested_at = excluded.contested_at`,
       )
       .run(
@@ -154,6 +187,9 @@ export class PostgresSettlementStore implements ISettlementStore {
         settlement.payment?.id ?? null,
         settlement.payment?.payUrl ?? null,
         settlement.contestedAt ?? null,
+        settlement.fee?.amount ?? null,
+        settlement.fee?.borneBy ?? null,
+        settledAmountOf(settlement),
       );
     await writer
       .prepare('INSERT INTO settlement_history (settlement_id, status, learned_at) VALUES (?, ?, ?)')
@@ -244,16 +280,21 @@ export class PostgresSettlementStore implements ISettlementStore {
     await this.database.writer.prepare('DELETE FROM settlement_books WHERE group_id = ?').run(mergedGroupId);
   }
 
-  /** Stores the book at its version + 1, only if it is still at the version it was read at; the first settlement creates the row. */
+  /**
+   * Stores the book at its version + 1 with its fee policy, only if it is still at the version it was read at; the first settlement (or
+   * the first policy) creates the row.
+   */
   async #checkVersion(book: SettlementBook): Promise<void> {
     const writer = this.database.writer;
     const { changes } = await (book.version === 0
       ? writer
-          .prepare('INSERT INTO settlement_books (group_id, version) VALUES (?, 1) ON CONFLICT DO NOTHING')
-          .run(book.groupId)
+          .prepare(
+            'INSERT INTO settlement_books (group_id, version, fee_policy) VALUES (?, 1, ?) ON CONFLICT DO NOTHING',
+          )
+          .run(book.groupId, book.feePolicy)
       : writer
-          .prepare('UPDATE settlement_books SET version = ? WHERE group_id = ? AND version = ?')
-          .run(book.version + 1, book.groupId, book.version));
+          .prepare('UPDATE settlement_books SET version = ?, fee_policy = ? WHERE group_id = ? AND version = ?')
+          .run(book.version + 1, book.feePolicy, book.groupId, book.version));
     if (changes === 0) {
       throw new ConcurrencyConflictException(
         'Settlements',

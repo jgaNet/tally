@@ -23,5 +23,6 @@ export async function openBook(
     members: memberIds,
     balances: memberIds.map(memberId => ({ memberId, balance: counted.get(memberId) ?? 0 })),
     waiting: await store.waitingOf(groupId),
+    feePolicy: await store.feePolicyOf(groupId),
   });
 }

@@ -68,7 +68,7 @@ describe('an archived group changes nothing in its settlement book (feature 27)'
 
     const refused = aggregate.recordPayment(
       proposal,
-      { id: 'pay-1', payUrl: 'https://pay.example/pay-1' },
+      { id: 'pay-1', payUrl: 'https://pay.example/pay-1', fee: 0 },
       true,
       false,
     );

@@ -105,7 +105,7 @@ describe('a payment through the provider, decided by the book in two steps', () 
 
     const recorded = aggregate.recordPayment(
       proposal,
-      { id: 'pay-1', payUrl: 'https://pay.example/pay-1' },
+      { id: 'pay-1', payUrl: 'https://pay.example/pay-1', fee: 0 },
       false,
       false,
     );
@@ -120,6 +120,7 @@ describe('a payment through the provider, decided by the book in two steps', () 
       status: 'pending',
       at: NOW.toISOString(),
       payment: { id: 'pay-1', payUrl: 'https://pay.example/pay-1' },
+      fee: { amount: 0, borneBy: 'payee' },
     });
     const events = aggregate.pullDomainEvents();
     expect(events).toHaveLength(1);
@@ -148,9 +149,9 @@ describe('a payment through the provider, decided by the book in two steps', () 
       ProviderUnavailableException,
     );
     expect(
-      aggregate.recordPayment(proposal, { id: '', payUrl: 'https://pay.example/x' }, false, false).error,
+      aggregate.recordPayment(proposal, { id: '', payUrl: 'https://pay.example/x', fee: 0 }, false, false).error,
     ).toBeInstanceOf(ProviderUnavailableException);
-    expect(aggregate.recordPayment(proposal, { id: 'pay-1', payUrl: '' }, false, false).error).toBeInstanceOf(
+    expect(aggregate.recordPayment(proposal, { id: 'pay-1', payUrl: '', fee: 0 }, false, false).error).toBeInstanceOf(
       ProviderUnavailableException,
     );
     expect(aggregate.pullDomainEvents()).toEqual([]);

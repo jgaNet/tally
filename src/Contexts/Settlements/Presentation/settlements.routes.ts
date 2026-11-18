@@ -4,12 +4,14 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
 import {
+  getFeePolicy,
   getGroupSettlements,
   getSettlement,
   payThroughProvider,
   receivePaymentWebhook,
   recordCashSettlement,
   refundSettlement,
+  setFeePolicy,
 } from '@Contexts/Settlements/Application/Settlements';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
@@ -34,6 +36,9 @@ type PaymentWebhookBody = {
   readonly status: string;
   readonly at: string;
 };
+
+/** The body of a fee policy: who bears the provider fee, by name; whether it is one of the three is the domain's (request 38). */
+type SetFeePolicyBody = { readonly borneBy: string };
 
 /** A request whose body was kept as it was sent, for the signature of a webhook. */
 type RawBodyRequest = FastifyRequest & { rawBody?: string };
@@ -143,6 +148,25 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
 
   fastify.get<{ Params: { id: string } }>('/settlements/:id', (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getSettlement), req.params.id),
+  );
+
+  fastify.get<{ Params: { id: string } }>('/groups/:id/fee-policy', (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getFeePolicy), req.params.id),
+  );
+
+  fastify.put<{ Params: { id: string }; Body: SetFeePolicyBody }>(
+    '/groups/:id/fee-policy',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['borneBy'],
+          properties: { borneBy: { type: 'string' } },
+        },
+      },
+    },
+    (req, reply) =>
+      answerAtOnce(req, reply, module.useCase(setFeePolicy), { groupId: req.params.id, borneBy: req.body.borneBy }),
   );
 
   fastify.put<{ Body: SetPayoutAccountBody }>(

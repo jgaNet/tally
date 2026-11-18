@@ -6,12 +6,14 @@ import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/Postgres
 
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
 import {
+  getFeePolicy,
   getGroupSettlements,
   getSettlement,
   payThroughProvider,
   receivePaymentWebhook,
   recordCashSettlement,
   refundSettlement,
+  setFeePolicy,
 } from '@Contexts/Settlements/Application/Settlements';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { getNetting, netDebts } from '@Contexts/Settlements/Application/Nettings';
@@ -152,6 +154,8 @@ export function settlementsWiring(
       contestSettlement(store, members, counted, audit, systemClock),
       decideContest(store, members, counted, administratorLog, audit, systemClock),
       getContests(store),
+      setFeePolicy(store, members, counted, systemClock),
+      getFeePolicy(store, members),
     ],
   });
 }

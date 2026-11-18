@@ -70,7 +70,7 @@ beforeAll(async () => {
       paymentsByReference.set(body.reference, id);
       res.statusCode = 201;
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ id, payUrl: `https://pay.example/${id}` }));
+      res.end(JSON.stringify({ id, payUrl: `https://pay.example/${id}`, fee: 0 }));
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
@@ -207,6 +207,7 @@ describe('a payment through the provider', () => {
       at: expect.any(String),
       history: [{ status: 'pending', at: expect.any(String) }],
       payUrl: `https://pay.example/${paymentOf(id)}`,
+      fee: { amount: 0, borneBy: 'payee' },
     });
     expect((await balances(groupId)).body).toEqual(atStart());
   });

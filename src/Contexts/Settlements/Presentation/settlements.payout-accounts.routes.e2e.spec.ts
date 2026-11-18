@@ -63,7 +63,7 @@ beforeAll(async () => {
       payments += 1;
       res.statusCode = 201;
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify({ id: `pay-${payments}`, payUrl: `https://pay.example/pay-${payments}` }));
+      res.end(JSON.stringify({ id: `pay-${payments}`, payUrl: `https://pay.example/pay-${payments}`, fee: 0 }));
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));

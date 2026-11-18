@@ -9,7 +9,8 @@ import { SettlementAuditEntry } from '@Contexts/Settlements/Domain/Settlement/Se
 
 /**
  * What the paid settlements of a group do to each member's balance, in PostgreSQL (ADR 10): a payer is moved up by what they paid, a payee
- * down by what they were paid, summed in one statement so that a settlement is counted whole or not at all. Only a settlement that is
+ * down by what they were paid, summed in one statement so that a settlement is counted whole or not at all. What is moved is what a
+ * settlement settles (`settles`, request 38): its amount less the part of its fee its payer bears. Only a settlement that is
  * `paid` counts, and so does a `refunding` one (the money has not gone back yet): a payment waiting at the provider is not in the balances
  * until the provider says it succeeded (feature 13), and a `refunded` one is not counted at all (feature 15).
  */
@@ -21,9 +22,9 @@ export class PostgresSettlementRoster implements ISettlementRoster {
       db
         .prepare(
           `SELECT member_id AS "memberId", SUM(moved) AS change FROM (
-             SELECT payer_id AS member_id, amount AS moved FROM settlements WHERE group_id = ? AND status IN ('paid', 'refunding')
+             SELECT payer_id AS member_id, settles AS moved FROM settlements WHERE group_id = ? AND status IN ('paid', 'refunding')
              UNION ALL
-             SELECT payee_id AS member_id, -amount AS moved FROM settlements WHERE group_id = ? AND status IN ('paid', 'refunding')
+             SELECT payee_id AS member_id, -settles AS moved FROM settlements WHERE group_id = ? AND status IN ('paid', 'refunding')
            ) AS moves GROUP BY member_id`,
         )
         .all(groupId, groupId),
@@ -35,7 +36,7 @@ export class PostgresSettlementRoster implements ISettlementRoster {
     const rows = (await this.database.read(db =>
       db
         .prepare(
-          `SELECT s.id AS settlement_id, s.payer_id, s.payee_id, s.amount, s.method, a.at AS counted_from
+          `SELECT s.id AS settlement_id, s.payer_id, s.payee_id, s.settles AS amount, s.method, a.at AS counted_from
              FROM settlements s
              JOIN settlement_audit a ON a.subject_id = s.id AND a.action = 'settlement-paid'
               AND a.seq = (SELECT MAX(l.seq) FROM settlement_audit l WHERE l.subject_id = s.id AND l.action = 'settlement-paid')

@@ -8,6 +8,7 @@ import {
   ContestNotPayeeException,
   ContestPartyLeftException,
   GroupNotFoundException,
+  InvalidFeeBearerException,
   InvalidSettlementAmountException,
   MoreThanPayeeIsOwedException,
   MoreThanPayerOwesException,
@@ -21,7 +22,12 @@ import {
   SettlementNotContestedException,
   SettlementNotRefundableException,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
-import { ProviderPayment, Settlement } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import {
+  FeeBearer,
+  ProviderLink,
+  ProviderPayment,
+  Settlement,
+} from '@Contexts/Settlements/Domain/Settlement/Settlement';
 import { MemberBalance } from '@Contexts/Settlements/Domain/Settlement/SuggestedSettlements';
 
 /** A settlement the payee records in cash, or a payer asks to pay through the provider: who pays whom, and how much. */
@@ -99,6 +105,23 @@ export class SettlementContestedEvent extends DomainEvent<SettlementRecordedPayl
 /** An administrator decided a contested settlement was not paid: it is annulled, and what was owed is owed again (request 33). */
 export class SettlementAnnulledEvent extends DomainEvent<PaymentEndedPayload> {}
 
+/**
+ * Who bears a group's provider fee until its owner decides (request 38): the payee, as they did before fees were borne by anyone.
+ */
+export const DEFAULT_FEE_BEARER: FeeBearer = 'payee';
+
+/** The fee bearers a group's owner may choose from (request 38). */
+export const FEE_BEARERS: readonly FeeBearer[] = ['payer', 'payee', 'shared'];
+
+export type FeePolicySetPayload = {
+  groupId: string;
+  borneBy: FeeBearer;
+  at: string;
+};
+
+/** The owner of a group decided who bears its provider's fee from now on: a payment asked for after it is fixed with it (request 38). */
+export class FeePolicySetEvent extends DomainEvent<FeePolicySetPayload> {}
+
 /** What a group's book is opened with: the group, the version it was read at, its members in join order, and their balances. */
 export interface SettlementBookSnapshot {
   readonly groupId: string;
@@ -108,6 +131,8 @@ export interface SettlementBookSnapshot {
   readonly balances: readonly MemberBalance[];
   /** The payments waiting at the provider, which the book counts as paid for what is still owed (none when omitted). */
   readonly waiting?: readonly WaitingPayment[];
+  /** Who bears the provider's fee of a group's payments, as its owner decided (the payee until then, when omitted). */
+  readonly feePolicy?: FeeBearer;
 }
 
 /**
@@ -122,6 +147,7 @@ export class SettlementBook extends AggregateRoot {
   readonly #members: readonly string[];
   readonly #balances: readonly MemberBalance[];
   readonly #waiting: readonly WaitingPayment[];
+  #feePolicy: FeeBearer;
 
   private constructor(
     id: Id,
@@ -129,11 +155,13 @@ export class SettlementBook extends AggregateRoot {
     members: readonly string[],
     balances: readonly MemberBalance[],
     waiting: readonly WaitingPayment[],
+    feePolicy: FeeBearer,
   ) {
     super(id, version);
     this.#members = members;
     this.#balances = balances;
     this.#waiting = waiting;
+    this.#feePolicy = feePolicy;
   }
 
   /** The group this book is the book of. */
@@ -142,14 +170,41 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /** Opens the book as it was read. Records nothing: a book is read, not created (feature 12). */
-  static open({ groupId, version, members, balances, waiting = [] }: SettlementBookSnapshot): SettlementBook {
+  static open({
+    groupId,
+    version,
+    members,
+    balances,
+    waiting = [],
+    feePolicy = DEFAULT_FEE_BEARER,
+  }: SettlementBookSnapshot): SettlementBook {
     return new SettlementBook(
       new Id(groupId),
       version,
       [...members],
       balances.map(row => ({ ...row })),
       waiting.map(payment => ({ ...payment })),
+      feePolicy,
     );
+  }
+
+  /** Who bears the group's provider fee now: what a payment asked for from now on is fixed with (request 38). */
+  get feePolicy(): FeeBearer {
+    return this.#feePolicy;
+  }
+
+  /**
+   * The owner's decision of who bears the group's provider fee from now on (request 38): the owner is checked by the use case, which reads
+   * the roster; the book checks only the bearer it is given, and that the group is not archived. Records FeePolicySet, and the time is
+   * `now`. A payment asked for before it keeps the policy it was asked with.
+   */
+  setFeePolicy(borneBy: string, archived: boolean, now: Date): IResult<FeeBearer> {
+    if (archived) return Result.fail(new GroupArchivedException());
+    if (!(FEE_BEARERS as readonly string[]).includes(borneBy)) return Result.fail(new InvalidFeeBearerException());
+    const bearer = borneBy as FeeBearer;
+    this.#feePolicy = bearer;
+    this.record(FeePolicySetEvent.set({ groupId: this._id.value, borneBy: bearer, at: now.toISOString() }));
+    return Result.ok(bearer);
   }
 
   /**
@@ -294,7 +349,7 @@ export class SettlementBook extends AggregateRoot {
    */
   recordPayment(
     proposal: PaymentProposal,
-    link: ProviderPayment | undefined,
+    link: ProviderLink | undefined,
     archived: boolean,
     payerSuspended: boolean,
   ): IResult<Settlement> {
@@ -303,6 +358,10 @@ export class SettlementBook extends AggregateRoot {
     const refusal = this.#refusalOf(proposal);
     if (refusal) return Result.fail(refusal);
     if (!link?.id || !link.payUrl) return Result.fail(new ProviderUnavailableException());
+    // An answer whose fee is not 0 or more, or not less than the amount, is no answer (request 38): refused, and nothing kept.
+    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= proposal.amount) {
+      return Result.fail(new ProviderUnavailableException());
+    }
 
     const settlement: Settlement = {
       id: proposal.id,
@@ -314,6 +373,7 @@ export class SettlementBook extends AggregateRoot {
       status: 'pending',
       at: proposal.at,
       payment: { id: link.id, payUrl: link.payUrl },
+      fee: { amount: link.fee, borneBy: this.#feePolicy },
     };
     this.record(
       PaymentRequestedEvent.set({

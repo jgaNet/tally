@@ -10,6 +10,7 @@ import { ISettlementStore, SettlementView } from '@Contexts/Settlements/Applicat
 import { openBook } from '@Contexts/Settlements/Application/OpenBook';
 import { administratorDecisionId } from '@Contexts/Settlements/Domain/Settlement/AdministratorLog';
 import { settlementAuditId } from '@Contexts/Settlements/Domain/Settlement/SettlementAudit';
+import { settledAmountOf } from '@Contexts/Settlements/Domain/Settlement/Settlement';
 import {
   ContestsNotFoundException,
   NotAnAdministratorException,
@@ -58,7 +59,7 @@ export const contestSettlement = command(
         by: payeeId,
         action: 'settlement-contested',
         subjectId: settlement.id,
-        amount: settlement.amount,
+        amount: settledAmountOf(settlement),
       });
       await publishDomainEvents(book, context);
       return Result.ok(undefined);
@@ -109,7 +110,7 @@ export const decideContest = command(
           by,
           action: 'settlement-paid',
           subjectId: settlement.id,
-          amount: settlement.amount,
+          amount: settledAmountOf(settlement),
         });
       }
       await publishDomainEvents(book, context);

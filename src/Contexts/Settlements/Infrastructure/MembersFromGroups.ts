@@ -20,6 +20,11 @@ export class MembersFromGroups implements ISettlementMembers {
     return this.roster.currencyOf(groupId);
   }
 
+  async ownerOf(groupId: string): Promise<string | undefined> {
+    const members = await this.roster.membersOf(groupId);
+    return members?.find(({ role }) => role === 'owner')?.memberId;
+  }
+
   isArchived(groupId: string): Promise<boolean> {
     return this.roster.isArchived(groupId);
   }

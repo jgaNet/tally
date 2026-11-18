@@ -1,5 +1,11 @@
 import { SettlementBook, WaitingPayment } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
-import { Settlement, SettlementMethod, SettlementStatus } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import {
+  FeeBearer,
+  ProviderFee,
+  Settlement,
+  SettlementMethod,
+  SettlementStatus,
+} from '@Contexts/Settlements/Domain/Settlement/Settlement';
 
 /** A status a settlement has had, and when Tally learned it (request 19): one line of its history. */
 export interface SettlementStatusEntry {
@@ -21,6 +27,8 @@ export interface SettlementView {
   readonly history: readonly SettlementStatusEntry[];
   /** The link the payer pays at: a settlement through the provider only. */
   readonly payUrl?: string;
+  /** The provider's fee and who bore it, when it was asked for with request 38 (a settlement through the provider only). */
+  readonly fee?: ProviderFee;
 }
 
 /**
@@ -43,6 +51,10 @@ export interface ISettlementStore {
   viewsOfGroup(groupId: string): Promise<SettlementView[]>;
   /** The settlements contested now, the earliest contested first (request 33). */
   viewsContested(): Promise<SettlementView[]>;
+  /** Who bears the group's provider fee, as its owner decided: the payee until then (request 38). */
+  feePolicyOf(groupId: string): Promise<FeeBearer>;
+  /** Stores the book's fee policy at its version + 1, only while the book is still at the version it was read at (CONC-OPTIMISTIC). */
+  saveBook(book: SettlementBook): Promise<void>;
   settlementOfPayment(paymentId: string): Promise<Settlement | undefined>;
   /** The settlement as the domain keeps it, with its provider's payment, or `undefined` when there is none (request 15). */
   settlementOf(settlementId: string): Promise<Settlement | undefined>;
