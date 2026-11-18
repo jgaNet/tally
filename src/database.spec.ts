@@ -42,6 +42,14 @@ function dropCategories(before: DatabaseSync): void {
   before.exec('ALTER TABLE expenses DROP COLUMN category');
 }
 
+/**
+ * Takes the archived moment of the groups out of a file, as a file from before groups could be archived has no column for it:
+ * the migration that adds it runs again when the file is set back to an older version.
+ */
+function dropArchives(before: DatabaseSync): void {
+  before.exec('ALTER TABLE groups DROP COLUMN archived_at');
+}
+
 describe('the database', () => {
   let database: ReturnType<typeof temporaryDatabase>;
   const apps: Application[] = [];
@@ -108,6 +116,7 @@ describe('the database', () => {
   it('takes reminders on a file at version 13, and keeps the notices it had in order', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -146,7 +155,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 });
       expect(db.prepare('SELECT id FROM notices ORDER BY rowid').all()).toEqual([{ id: 'n1' }, { id: 'n2' }]);
       db.prepare(
         "INSERT INTO notices (id, account_id, kind, group_id, expense_id, amount, created_at) VALUES ('r', 'a', 'reminder', 'g', NULL, 2500, '2026-11-09T00:00:00.000Z')",
@@ -161,7 +170,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 });
     } finally {
       db.close();
     }
@@ -170,6 +179,7 @@ describe('the database', () => {
   it('adds the notices to a file at version 12, with none in it, and refuses a second one per member', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -190,7 +200,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 });
       expect(db.prepare('SELECT COUNT(*) AS count FROM notices').get()).toEqual({ count: 0 });
       expect(() =>
         db.exec(`INSERT INTO accounts (id, email, name, password_hash) VALUES ('a', 'a@example.com', 'A', 'x');
@@ -220,6 +230,7 @@ describe('the database', () => {
 
     // The file as the schema was before splits could be unequal: no column for the kind of split, version 5.
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -266,6 +277,7 @@ describe('the database', () => {
 
     // The file as the schema was before a membership could end: no column for it, version 6.
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -316,6 +328,7 @@ describe('the database', () => {
 
     // The file as the schema was before settlements: no table for them, version 7.
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -354,6 +367,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     // The file as the schema was before provider settlements: the settlements table of version 8, one cash row.
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -393,7 +407,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 });
       expect(db.prepare('SELECT id, method, status, provider_id, pay_url FROM settlements').all()).toEqual([
         { id: 's', method: 'cash', status: 'paid', provider_id: null, pay_url: null },
       ]);
@@ -413,6 +427,7 @@ describe('the database', () => {
     openDatabase(database.path).close();
     // The file as the schema was at version 10: a provider settlement paid, and the decision kept for its payment.
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -460,7 +475,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 });
       expect(db.prepare('SELECT id, status, provider_id FROM settlements').all()).toEqual([
         { id: 's', status: 'paid', provider_id: 'pay_9' },
       ]);
@@ -488,6 +503,7 @@ describe('the database', () => {
   it('takes payout accounts on a file at version 11, and keeps the accounts it had', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -512,7 +528,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 });
       expect(db.prepare('SELECT id FROM accounts').all()).toEqual([{ id: 'a' }]);
       db.exec(
         "INSERT INTO payout_accounts (account_id, provider_account_id, set_at) VALUES ('a', 'acct_a', '2026-11-01T00:00:00.000Z')",
@@ -539,6 +555,7 @@ describe('the database', () => {
   it('dates the settlements of a file at version 14 by when they were recorded, and their decisions by the migration', () => {
     openDatabase(database.path).close();
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -566,7 +583,7 @@ describe('the database', () => {
 
     const db = openDatabase(database.path);
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 23 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 24 });
       const history = (id: string) =>
         db.prepare('SELECT status, at FROM settlement_history WHERE settlement_id = ? ORDER BY seq').all(id);
       expect(history('cash')).toEqual([{ status: 'paid', at: '2026-11-02T00:00:00.000Z' }]);
@@ -619,6 +636,7 @@ describe('the database', () => {
 
     // The file as it was before an expense could be paid in another currency: no columns for it, one version less.
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     dropCategories(before);
     try {
@@ -628,8 +646,8 @@ describe('the database', () => {
       before.exec('ALTER TABLE expenses DROP COLUMN original_currency');
       before.exec('DROP TABLE recurring_shares');
       before.exec('DROP TABLE recurring');
-      // Back to the migration that adds the original currency: seven versions below the current one, which now includes receipts.
-      before.exec(`PRAGMA user_version = ${current - 7}`);
+      // Back to the migration that adds the original currency: eight versions below the current one, which now includes archived groups.
+      before.exec(`PRAGMA user_version = ${current - 8}`);
     } finally {
       before.close();
     }
@@ -663,6 +681,7 @@ describe('the database', () => {
 
     // The file as it was before categories: no column for them and no budgets, one version less than the migrations ask.
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     try {
       dropCategories(before);
@@ -699,6 +718,7 @@ describe('the database', () => {
 
     // The file as it was before templates: no tables for them, one version less.
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     before.exec('DROP TABLE receipts');
     try {
       before.exec('DROP TABLE template_shares');
@@ -730,6 +750,7 @@ describe('the database', () => {
 
     // The file as it was before receipts: no table for them, one version less.
     const before = new DatabaseSync(database.path);
+    dropArchives(before);
     try {
       before.exec('DROP TABLE receipts');
       before.exec('PRAGMA user_version = 22');
@@ -740,5 +761,37 @@ describe('the database', () => {
     const second = await start();
     expect((await call(second, 'GET', `/expenses/${expenseId}`, { token })).body).toMatchObject({ amount: 1000 });
     expect((await call(second, 'GET', `/expenses/${expenseId}/receipt`, { token })).status).toBe(404);
+  });
+
+  it('takes archived groups on a file at version 23, which has none, and keeps the groups it had', async () => {
+    const first = await start();
+    const { id: adaId } = (await call(first, 'POST', '/accounts', { body: ada })).body;
+    const { token } = (await call(first, 'POST', '/accounts/login', { body: ada })).body;
+    const groupId = (await call(first, 'POST', '/groups', { body: { name: 'The flat', currency: 'EUR' }, token })).body
+      .id;
+    await call(first, 'POST', `/groups/${groupId}/expenses`, {
+      body: { description: 'Groceries', amount: 1000, date: '2026-11-01', splitBetween: [adaId] },
+      token,
+    });
+    await first.stop();
+    apps.pop();
+
+    // The file as it was before groups could be archived: no column for it, one version less.
+    const before = new DatabaseSync(database.path);
+    dropArchives(before);
+    try {
+      before.exec('PRAGMA user_version = 23');
+    } finally {
+      before.close();
+    }
+
+    const second = await start();
+    expect((await call(second, 'GET', `/groups/${groupId}`, { token })).body).toMatchObject({
+      id: groupId,
+      name: 'The flat',
+    });
+    expect((await call(second, 'GET', `/groups/${groupId}`, { token })).body).not.toHaveProperty('archivedAt');
+    expect((await call(second, 'GET', `/groups/${groupId}/expenses`, { token })).body).toHaveLength(1);
+    expect((await call(second, 'POST', `/groups/${groupId}/archive`, { token })).status).toBe(204);
   });
 });

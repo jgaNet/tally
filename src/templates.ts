@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ShareCount, Split } from './expenses';
 import { inTransaction } from './database';
-import { findGroupOf } from './groups';
+import { findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
@@ -142,10 +142,12 @@ function checkMayChange(db: DatabaseSync, accountId: string, row: TemplateRow): 
 /** Saves a template of the group under a name, and returns its id. For an account that is not a member, the group does not exist. */
 export function createTemplate(db: DatabaseSync, accountId: string, groupId: string, input: NewTemplate): string {
   if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  refuseIfArchived(db, groupId);
   const name = checkTemplateName(input.name);
   const split = givenSplit(input);
   const id = randomUUID();
   inTransaction(db, () => {
+    refuseIfArchived(db, groupId);
     checkTemplateSplit(db, groupId, split);
     checkNameFree(db, groupId, name);
     db.prepare(
@@ -173,6 +175,7 @@ export function replaceTemplate(db: DatabaseSync, accountId: string, id: string,
   inTransaction(db, () => {
     const row = findTemplateOf(db, accountId, id);
     if (!row) throw new Refusal(404, 'NotFound', 'There is no such template.');
+    refuseIfArchived(db, row.group_id);
     checkMayChange(db, accountId, row);
     const name = checkTemplateName(input.name);
     const split = givenSplit(input);
@@ -194,6 +197,7 @@ export function removeTemplate(db: DatabaseSync, accountId: string, id: string):
   inTransaction(db, () => {
     const row = findTemplateOf(db, accountId, id);
     if (!row) throw new Refusal(404, 'NotFound', 'There is no such template.');
+    refuseIfArchived(db, row.group_id);
     checkMayChange(db, accountId, row);
     db.prepare('DELETE FROM template_shares WHERE template_id = ?').run(id);
     db.prepare('DELETE FROM templates WHERE id = ?').run(id);

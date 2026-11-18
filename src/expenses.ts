@@ -5,7 +5,7 @@ import { writeBudgetPassing } from './budgets';
 import { CATEGORIES, DEFAULT_CATEGORY, type Category } from './categories';
 import { inTransaction } from './database';
 import { isRealDay, todayUtc } from './days';
-import { CURRENCIES, findGroupOf } from './groups';
+import { CURRENCIES, findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
 import { writeExpenseNotices } from './notices';
 import { Refusal } from './refusal';
@@ -466,6 +466,7 @@ export async function createExpense(
 ): Promise<string> {
   const group = findGroupOf(db, accountId, groupId);
   if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  refuseIfArchived(db, groupId);
   const description = checkDescription(input.description);
   const offer = await offerFor(rates, input, group.currency);
   const { amount, original } = amountOf(input, group.currency, offer);
@@ -474,6 +475,7 @@ export async function createExpense(
   const recordedAt = new Date().toISOString();
   // The split is checked and the expense, its shares and the notices of its members are written together, or not at all.
   inTransaction(db, () => {
+    refuseIfArchived(db, groupId);
     const split = splitOf(db, groupId, input);
     checkSplit(db, groupId, accountId, membersOf(split));
     const shares = sharesOf(split, amount);
@@ -546,6 +548,7 @@ function checkMayChange(db: DatabaseSync, accountId: string, expense: Expense): 
 export function changeableExpense(db: DatabaseSync, accountId: string, expenseId: string): Expense {
   const expense = findExpenseOf(db, accountId, expenseId);
   if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
+  refuseIfArchived(db, expense.groupId);
   checkMayChange(db, accountId, expense);
   checkNoFormerMember(db, expense);
   return expense;
@@ -609,6 +612,7 @@ export function deleteExpense(db: DatabaseSync, accountId: string, expenseId: st
   inTransaction(db, () => {
     const expense = findExpenseOf(db, accountId, expenseId);
     if (!expense) throw new Refusal(404, 'NotFound', 'There is no such expense.');
+    refuseIfArchived(db, expense.groupId);
     checkMayChange(db, accountId, expense);
     checkNoFormerMember(db, expense);
     db.prepare('DELETE FROM expense_shares WHERE expense_id = ?').run(expenseId);

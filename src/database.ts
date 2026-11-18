@@ -395,6 +395,11 @@ const MIGRATIONS: readonly string[] = [
     attached_at TEXT NOT NULL
   );
   `,
+  `
+  -- A group may be archived: the moment it was, once every balance is 0 and no payment through the provider waits. An
+  -- archived group is read only. A group that is not archived has no moment, which is null.
+  ALTER TABLE groups ADD COLUMN archived_at TEXT;
+  `,
 ];
 
 /**

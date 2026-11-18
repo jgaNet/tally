@@ -15,7 +15,7 @@ import {
   type Split,
 } from './expenses';
 import { CATEGORIES, DEFAULT_CATEGORY, type Category } from './categories';
-import { findGroupOf } from './groups';
+import { findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
@@ -151,11 +151,13 @@ const COLUMNS =
  */
 export function createRecurring(db: DatabaseSync, accountId: string, groupId: string, input: NewRecurring): string {
   if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  refuseIfArchived(db, groupId);
   const description = checkDescription(input.description);
   checkAmount(input.amount);
   checkStartsOn(input.startsOn);
   const id = randomUUID();
   inTransaction(db, () => {
+    refuseIfArchived(db, groupId);
     const split = splitGiven(input);
     checkSplit(db, groupId, accountId, membersOf(split));
     sharesOf(split, input.amount);
@@ -215,6 +217,7 @@ export function stopRecurring(db: DatabaseSync, accountId: string, id: string): 
   inTransaction(db, () => {
     const recurring = findRecurringOf(db, accountId, id);
     if (!recurring) throw new Refusal(404, 'NotFound', 'There is no such recurring expense.');
+    refuseIfArchived(db, recurring.groupId);
     const isOwner = findGroupOf(db, accountId, recurring.groupId)?.ownerId === accountId;
     if (accountId !== recurring.paidBy && !isOwner) {
       throw new Refusal(
@@ -236,13 +239,21 @@ export function stopRecurring(db: DatabaseSync, accountId: string, id: string): 
 export function runRecurring(db: DatabaseSync, now: Date = new Date()): void {
   const today = now.toISOString().slice(0, 10);
   const at = now.toISOString();
-  const due = db.prepare('SELECT id FROM recurring WHERE next_on <= ? ORDER BY seq').all(today) as unknown as {
-    id: string;
-  }[];
+  // An archived group records nothing: its recurring expenses are left as they are, and so is their next day.
+  const due = db
+    .prepare(
+      `SELECT r.id FROM recurring r JOIN groups g ON g.id = r.group_id
+       WHERE r.next_on <= ? AND g.archived_at IS NULL ORDER BY r.seq`,
+    )
+    .all(today) as unknown as { id: string }[];
   for (const { id } of due) {
     inTransaction(db, () => {
-      const row = db.prepare(`SELECT ${COLUMNS} FROM recurring r WHERE r.id = ? AND r.next_on <= ?`).get(id, today) as
-        RecurringRow | undefined;
+      const row = db
+        .prepare(
+          `SELECT ${COLUMNS} FROM recurring r JOIN groups g ON g.id = r.group_id
+           WHERE r.id = ? AND r.next_on <= ? AND g.archived_at IS NULL`,
+        )
+        .get(id, today) as RecurringRow | undefined;
       if (!row) return;
       const split = splitOfRows(row, sharesOfRecurring(db, id));
       const members = [row.paid_by, ...membersOf(split)];

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { inTransaction } from './database';
 import { newToken } from './credentials';
-import { findGroupOf } from './groups';
+import { findGroupOf, refuseIfArchived } from './groups';
 import { resetBalanceOnRejoin } from './balances';
 import { addMember, isMember } from './members';
 import { Refusal } from './refusal';
@@ -28,6 +28,7 @@ interface InvitationRow {
  */
 export function createInvitation(db: DatabaseSync, accountId: string, groupId: string): string {
   if (!findGroupOf(db, accountId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  refuseIfArchived(db, groupId);
   // 256 random bits, URL-safe: the id is the only secret that lets someone join.
   const id = newToken();
   db.prepare('INSERT INTO invitations (id, group_id, created_by, created_at) VALUES (?, ?, ?, ?)').run(
@@ -58,6 +59,7 @@ export function acceptInvitation(db: DatabaseSync, accountId: string, id: string
   if (!invitation) throw new Refusal(404, 'NotFound', 'There is no such invitation.');
   // The check and the join are one write transaction, so two accepts cannot both join.
   inTransaction(db, () => {
+    refuseIfArchived(db, invitation.groupId);
     if (isMember(db, invitation.groupId, accountId)) {
       throw new Refusal(409, 'AlreadyMember', 'The account is already a member of this group.');
     }

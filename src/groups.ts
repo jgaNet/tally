@@ -20,6 +20,8 @@ export interface Group {
   name: string;
   currency: Currency;
   ownerId: string;
+  /** When the group was archived: present once it is, and only then. */
+  archivedAt?: string;
 }
 
 export interface NewGroup {
@@ -32,12 +34,29 @@ interface GroupRow {
   name: string;
   currency: Currency;
   owner_id: string;
+  archived_at: string | null;
 }
 
-const groupColumns = 'g.id, g.name, g.currency, g.owner_id';
+const groupColumns = 'g.id, g.name, g.currency, g.owner_id, g.archived_at';
 
 function toGroup(row: GroupRow): Group {
-  return { id: row.id, name: row.name, currency: row.currency, ownerId: row.owner_id };
+  const group: Group = { id: row.id, name: row.name, currency: row.currency, ownerId: row.owner_id };
+  if (row.archived_at !== null) group.archivedAt = row.archived_at;
+  return group;
+}
+
+/**
+ * Refuses a change to the group once it is archived: an archived group is read only, so every write that would
+ * change something in it is refused with `GroupArchived`, and changes nothing. Called by each such write, after
+ * its check that the account is a member, and again inside its write transaction, so an archive that lands
+ * meanwhile is not written over.
+ */
+export function refuseIfArchived(db: DatabaseSync, groupId: string): void {
+  const row = db.prepare('SELECT archived_at FROM groups WHERE id = ?').get(groupId) as
+    { archived_at: string | null } | undefined;
+  if (row?.archived_at) {
+    throw new Refusal(409, 'GroupArchived', 'The group is archived: it is read only.');
+  }
 }
 
 /**
@@ -115,6 +134,7 @@ const groupSchema = {
     name: { type: 'string' },
     currency: { type: 'string', enum: [...CURRENCIES] },
     ownerId: { type: 'string' },
+    archivedAt: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
   },
 };
 

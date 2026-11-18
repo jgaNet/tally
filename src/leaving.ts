@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { inTransaction } from './database';
-import { findGroupOf } from './groups';
+import { findGroupOf, refuseIfArchived } from './groups';
 import { Refusal } from './refusal';
 import { hasWaitingSettlement } from './settlements';
 import { requireCaller } from './sessions';
@@ -19,6 +19,7 @@ export function leaveGroup(db: DatabaseSync, accountId: string, groupId: string)
   inTransaction(db, () => {
     const group = findGroupOf(db, accountId, groupId);
     if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    refuseIfArchived(db, groupId);
     if (group.ownerId === accountId) {
       throw new Refusal(403, 'OwnerCannotLeave', 'The owner cannot leave the group they created.');
     }

@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { type Balance, listBalancesIncludingWaiting } from './balances';
 import { inTransaction } from './database';
-import { findGroupOf } from './groups';
+import { findGroupOf, refuseIfArchived } from './groups';
 import { isMember } from './members';
 import { payoutAccountOf } from './payout-accounts';
 import { Refusal } from './refusal';
@@ -148,6 +148,7 @@ export function recordCashSettlement(
   const id = randomUUID();
   inTransaction(db, () => {
     if (!findGroupOf(db, payeeId, groupId)) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    refuseIfArchived(db, groupId);
     checkWholeAmount(input.amount);
     if (input.from === payeeId || !isMember(db, groupId, input.from)) {
       refuse(422, 'InvalidPayer', 'The payer must be another member of the group.');
@@ -182,6 +183,7 @@ export function reserveProviderSettlement(
   inTransaction(db, () => {
     const group = findGroupOf(db, payerId, groupId);
     if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
+    refuseIfArchived(db, groupId);
     currency = group.currency;
     checkWholeAmount(input.amount);
     if (input.to === payerId || !isMember(db, groupId, input.to)) {
@@ -385,6 +387,7 @@ export async function refundSettlement(
   const reserved = inTransaction(db, () => {
     const settlement = findSettlementOf(db, payeeId, settlementId);
     if (!settlement) throw new Refusal(404, 'NotFound', 'There is no such settlement.');
+    refuseIfArchived(db, settlement.groupId);
     if (settlement.to !== payeeId) refuse(403, 'NotAllowed', 'Only the payee of the settlement may refund it.');
     if (settlement.method !== 'provider') {
       refuse(409, 'NotRefundable', 'Only a settlement paid through the payment provider is refunded.');

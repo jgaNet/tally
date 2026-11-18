@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { CATEGORIES, isCategory, type Category } from './categories';
 import { todayUtc } from './days';
-import { findGroupOf } from './groups';
+import { findGroupOf, refuseIfArchived } from './groups';
 import { Refusal } from './refusal';
 import { requireCaller } from './sessions';
 
@@ -87,6 +87,7 @@ export function listBudgetsOf(db: DatabaseSync, accountId: string, groupId: stri
 function ownedGroup(db: DatabaseSync, accountId: string, groupId: string): void {
   const group = findGroupOf(db, accountId, groupId);
   if (!group) throw new Refusal(404, 'NotFound', 'There is no such group.');
+  refuseIfArchived(db, groupId);
   if (group.ownerId !== accountId) {
     throw new Refusal(403, 'NotAllowed', 'Only the owner of the group may set or remove its budgets.');
   }
