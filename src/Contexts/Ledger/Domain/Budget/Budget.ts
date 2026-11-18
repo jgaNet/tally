@@ -1,4 +1,5 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { Category } from '@Contexts/Ledger/Domain/Expense/Category';
 import { isAmount } from '@Contexts/Ledger/Domain/Expense/Expense';
@@ -64,9 +65,10 @@ export class Budget extends AggregateRoot {
 
   /**
    * Sets the amount, replacing the one it had: a whole number from 1 to 100 000 000 of the group's currency. Records `BudgetSet`; the time
-   * is `now`. Who may set it is the use case's to say. Pure.
+   * is `now`. Who may set it is the use case's to say. Refused with GroupArchived in an archived group (`archived`, request 27). Pure.
    */
-  set(amount: number, now: Date): IResult<void> {
+  set(amount: number, archived: boolean, now: Date): IResult<void> {
+    if (archived) return Result.fail(new GroupArchivedException());
     if (!isAmount(amount)) return Result.fail(new InvalidBudgetAmountException());
     this.#amount = amount;
     this.record(
@@ -85,7 +87,8 @@ export class Budget extends AggregateRoot {
    * Removes the budget (`unset`, not `remove`: the store's name for a deletion is not the aggregate's): the category has none in the group from now on, and the months it passed stay passed. Refused when none is set.
    * Records `BudgetRemoved`; the time is `now`. Pure.
    */
-  unset(now: Date): IResult<void> {
+  unset(archived: boolean, now: Date): IResult<void> {
+    if (archived) return Result.fail(new GroupArchivedException());
     if (this.#amount === undefined) return Result.fail(new BudgetNotFoundException());
     this.#amount = undefined;
     this.record(

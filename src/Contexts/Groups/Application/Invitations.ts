@@ -20,6 +20,8 @@ export const createInvitation = command(
       const caller = callerOf(context);
       const group = await groups.findById(groupId);
       if (!group || !group.hasMember(caller)) return Result.fail(new GroupNotFoundException());
+      const open = group.openForChanges();
+      if (open.isFailure()) return Result.fail(open.error);
 
       const invitation = Invitation.issue({ groupId, invitedBy: caller }, clock());
       await invitations.add(invitation);

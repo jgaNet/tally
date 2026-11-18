@@ -17,7 +17,7 @@ const draft = (overrides: Partial<ExpenseDraft> = {}): ExpenseDraft => ({
 
 describe('Expense.register', () => {
   it('records the expense with its shares, and announces it with ExpenseRecorded', () => {
-    const expense = Expense.register(draft(), members, now);
+    const expense = Expense.register(draft(), members, false, now);
     expect(expense.isFailure()).toBe(false);
     const snapshot = expense.data!.toSnapshot();
     expect(snapshot).toMatchObject({
@@ -45,6 +45,7 @@ describe('Expense.register', () => {
         },
       }),
       members,
+      false,
       now,
     );
     expect(expense.isFailure()).toBe(false);
@@ -60,7 +61,12 @@ describe('Expense.register', () => {
   });
 
   it('refuses a member of the split who is not a member of the group', () => {
-    const refused = Expense.register(draft({ split: { kind: 'equal', memberIds: ['ann', 'dana'] } }), members, now);
+    const refused = Expense.register(
+      draft({ split: { kind: 'equal', memberIds: ['ann', 'dana'] } }),
+      members,
+      false,
+      now,
+    );
     expect(refused.error?.type).toBe('SplitMemberNotInGroup');
   });
 
@@ -76,6 +82,7 @@ describe('Expense.register', () => {
         },
       }),
       members,
+      false,
       now,
     );
     expect(twice.error?.type).toBe('DuplicateSplitMember');
@@ -90,6 +97,7 @@ describe('Expense.register', () => {
         },
       }),
       members,
+      false,
       now,
     );
     expect(stranger.error?.type).toBe('SplitMemberNotInGroup');
@@ -100,34 +108,34 @@ describe('Expense.register', () => {
     ['only spaces', '    '],
     ['101 characters', 'x'.repeat(101)],
   ])('refuses a description that is %s', (_label, description) => {
-    expect(Expense.register(draft({ description }), members, now).error?.type).toBe('InvalidExpenseDescription');
+    expect(Expense.register(draft({ description }), members, false, now).error?.type).toBe('InvalidExpenseDescription');
   });
 
   it('accepts a description of exactly 100 characters', () => {
-    expect(Expense.register(draft({ description: 'x'.repeat(100) }), members, now).isFailure()).toBe(false);
+    expect(Expense.register(draft({ description: 'x'.repeat(100) }), members, false, now).isFailure()).toBe(false);
   });
 
   it.each([0, -5, 1.5, 100_000_001])('refuses the amount %s', amount => {
-    expect(Expense.register(draft({ amount }), members, now).error?.type).toBe('InvalidExpenseAmount');
+    expect(Expense.register(draft({ amount }), members, false, now).error?.type).toBe('InvalidExpenseAmount');
   });
 
   it('accepts the bounds of the amount', () => {
-    expect(Expense.register(draft({ amount: 1 }), members, now).isFailure()).toBe(false);
-    expect(Expense.register(draft({ amount: 100_000_000 }), members, now).isFailure()).toBe(false);
+    expect(Expense.register(draft({ amount: 1 }), members, false, now).isFailure()).toBe(false);
+    expect(Expense.register(draft({ amount: 100_000_000 }), members, false, now).isFailure()).toBe(false);
   });
 
   it.each(['2026-02-30', '2026-13-01', '17/11/2026', '2026-11-17T10:00:00Z'])('refuses the date %s', date => {
-    expect(Expense.register(draft({ date }), members, now).error?.type).toBe('InvalidExpenseDate');
+    expect(Expense.register(draft({ date }), members, false, now).error?.type).toBe('InvalidExpenseDate');
   });
 
   it('accepts today in UTC and refuses tomorrow', () => {
-    expect(Expense.register(draft({ date: '2026-11-17' }), members, now).isFailure()).toBe(false);
-    expect(Expense.register(draft({ date: '2026-11-18' }), members, now).error?.type).toBe('InvalidExpenseDate');
+    expect(Expense.register(draft({ date: '2026-11-17' }), members, false, now).isFailure()).toBe(false);
+    expect(Expense.register(draft({ date: '2026-11-18' }), members, false, now).error?.type).toBe('InvalidExpenseDate');
   });
 });
 
 describe('Expense.edit', () => {
-  const recorded = () => Expense.register(draft(), members, now).data!;
+  const recorded = () => Expense.register(draft(), members, false, now).data!;
   /** The expense as the store would have loaded it: at version 1, as a recording stores it. */
   const loaded = () => Expense.fromSnapshot({ ...recorded().toSnapshot(), version: 1 });
   const edit: EditDraft = {
@@ -140,7 +148,7 @@ describe('Expense.edit', () => {
 
   it('gives the expense again whole, its shares computed again, the payer kept, and records ExpenseEdited', () => {
     const expense = loaded();
-    expect(expense.edit(edit, members, 1, now).isFailure()).toBe(false);
+    expect(expense.edit(edit, members, false, 1, now).isFailure()).toBe(false);
     expect(expense.toSnapshot()).toMatchObject({
       description: 'Dinner',
       amount: 900,
@@ -155,51 +163,55 @@ describe('Expense.edit', () => {
   });
 
   it('refuses an edit made from another version than the one the expense is at, before anything else', () => {
-    const refused = loaded().edit({ ...edit, amount: 0 }, members, 2, now);
+    const refused = loaded().edit({ ...edit, amount: 0 }, members, false, 2, now);
     expect(refused.error?.type).toBe('ExpenseChanged');
   });
 
   it('applies the rules of a recording to what it gives: a split without the payer is refused and nothing changes', () => {
     const expense = loaded();
-    expect(expense.edit({ ...edit, split: { kind: 'equal', memberIds: ['bob'] } }, members, 1, now).error?.type).toBe(
-      'PayerNotInSplit',
-    );
+    expect(
+      expense.edit({ ...edit, split: { kind: 'equal', memberIds: ['bob'] } }, members, false, 1, now).error?.type,
+    ).toBe('PayerNotInSplit');
     expect(expense.toSnapshot().amount).toBe(1000);
     expect(expense.pullDomainEvents()).toEqual([]);
   });
 
   it('refuses a member of the split who is not a member of the group', () => {
     expect(
-      loaded().edit({ ...edit, split: { kind: 'equal', memberIds: ['ann', 'dana'] } }, members, 1, now).error?.type,
+      loaded().edit({ ...edit, split: { kind: 'equal', memberIds: ['ann', 'dana'] } }, members, false, 1, now).error
+        ?.type,
     ).toBe('SplitMemberNotInGroup');
   });
 });
 
 describe('Expense.delete', () => {
   it('records ExpenseDeleted', () => {
-    const expense = Expense.fromSnapshot({ ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 1 });
-    expect(expense.delete(members, now).isSuccess()).toBe(true);
+    const expense = Expense.fromSnapshot({
+      ...Expense.register(draft(), members, false, now).data!.toSnapshot(),
+      version: 1,
+    });
+    expect(expense.delete(members, false, now).isSuccess()).toBe(true);
     expect(expense.pullDomainEvents().map(event => event.constructor.name)).toEqual(['ExpenseDeletedEvent']);
   });
 });
 
 describe('Expense.fromSnapshot', () => {
   it('keeps the shares as stored and the version it is at, and records nothing', () => {
-    const snapshot = { ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 3 };
+    const snapshot = { ...Expense.register(draft(), members, false, now).data!.toSnapshot(), version: 3 };
     const expense = Expense.fromSnapshot(snapshot);
     expect(expense.toSnapshot()).toEqual(snapshot);
     expect(expense.pullDomainEvents()).toEqual([]);
   });
 
   it('throws on shares that do not add up to the amount', () => {
-    const snapshot = { ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 1 };
+    const snapshot = { ...Expense.register(draft(), members, false, now).data!.toSnapshot(), version: 1 };
     expect(() => Expense.fromSnapshot({ ...snapshot, amount: 999 })).toThrow();
   });
 });
 
 describe('Expense in another currency (request 21)', () => {
   const loaded = () =>
-    Expense.fromSnapshot({ ...Expense.register(draft(), members, now).data!.toSnapshot(), version: 1 });
+    Expense.fromSnapshot({ ...Expense.register(draft(), members, false, now).data!.toSnapshot(), version: 1 });
   const edit: EditDraft = {
     groupCurrency: 'EUR',
     description: 'Dinner',
@@ -217,7 +229,7 @@ describe('Expense in another currency (request 21)', () => {
     });
 
   it('converts the original at its rate, and keeps the currency, the amount and the rate as given', () => {
-    const expense = Expense.register(inChf(), members, now);
+    const expense = Expense.register(inChf(), members, false, now);
     expect(expense.isFailure()).toBe(false);
     const snapshot = expense.data!.toSnapshot();
     expect(snapshot.amount).toBe(1311);
@@ -226,43 +238,47 @@ describe('Expense in another currency (request 21)', () => {
   });
 
   it('keeps no original for an expense in the group’s currency', () => {
-    expect(Expense.register(draft(), members, now).data!.toSnapshot()).not.toHaveProperty('original');
+    expect(Expense.register(draft(), members, false, now).data!.toSnapshot()).not.toHaveProperty('original');
   });
 
   it('refuses both an amount and an original, and neither, as an invalid amount', () => {
     expect(
-      Expense.register(draft({ original: { currency: 'CHF', amount: 1, rate: '1' } }), members, now).error?.type,
+      Expense.register(draft({ original: { currency: 'CHF', amount: 1, rate: '1' } }), members, false, now).error?.type,
     ).toBe('InvalidExpenseAmount');
-    expect(Expense.register(draft({ amount: undefined }), members, now).error?.type).toBe('InvalidExpenseAmount');
+    expect(Expense.register(draft({ amount: undefined }), members, false, now).error?.type).toBe(
+      'InvalidExpenseAmount',
+    );
   });
 
   it('refuses a converted amount outside 1 to 100 000 000, as any amount is refused', () => {
     expect(
-      Expense.register(inChf({ original: { currency: 'CHF', amount: 1, rate: '0.1' } }), members, now).error?.type,
+      Expense.register(inChf({ original: { currency: 'CHF', amount: 1, rate: '0.1' } }), members, false, now).error
+        ?.type,
     ).toBe('InvalidExpenseAmount');
     expect(
-      Expense.register(inChf({ original: { currency: 'CHF', amount: 100_000_000, rate: '2' } }), members, now).error
-        ?.type,
+      Expense.register(inChf({ original: { currency: 'CHF', amount: 100_000_000, rate: '2' } }), members, false, now)
+        .error?.type,
     ).toBe('InvalidExpenseAmount');
   });
 
   it('refuses a currency that is not Tally’s, or the group’s own, and an original that is not a positive rate', () => {
     expect(
-      Expense.register(inChf({ original: { currency: 'JPY', amount: 1, rate: '1' } }), members, now).error?.type,
+      Expense.register(inChf({ original: { currency: 'JPY', amount: 1, rate: '1' } }), members, false, now).error?.type,
     ).toBe('InvalidOriginalCurrency');
     expect(
       Expense.register(
         inChf({ groupCurrency: 'CHF', original: { currency: 'CHF', amount: 1, rate: '1' } }),
         members,
+        false,
         now,
       ).error?.type,
     ).toBe('OriginalCurrencyIsGroupCurrency');
     expect(
-      Expense.register(inChf({ original: { currency: 'CHF', amount: 0, rate: '1' } }), members, now).error?.type,
+      Expense.register(inChf({ original: { currency: 'CHF', amount: 0, rate: '1' } }), members, false, now).error?.type,
     ).toBe('InvalidOriginalAmount');
     for (const rate of ['0', '0.000', '1.1234567', '.5', '1.', '-1']) {
       expect(
-        Expense.register(inChf({ original: { currency: 'CHF', amount: 1, rate } }), members, now).error?.type,
+        Expense.register(inChf({ original: { currency: 'CHF', amount: 1, rate } }), members, false, now).error?.type,
       ).toBe('InvalidOriginalRate');
     }
   });
@@ -274,6 +290,7 @@ describe('Expense in another currency (request 21)', () => {
         .edit(
           { ...edit, amount: undefined, original: { currency: 'USD', amount: 1000, rate: '0.9545' } },
           members,
+          false,
           1,
           now,
         )
@@ -284,13 +301,13 @@ describe('Expense in another currency (request 21)', () => {
       original: { currency: 'USD', amount: 1000, rate: '0.9545' },
     });
 
-    expect(expense.edit({ ...edit, amount: 900 }, members, 1, now).isFailure()).toBe(false);
+    expect(expense.edit({ ...edit, amount: 900 }, members, false, 1, now).isFailure()).toBe(false);
     expect(expense.toSnapshot().original).toBeUndefined();
     expect(expense.toSnapshot().amount).toBe(900);
   });
 
   it('is refused when the snapshot it is kept from disagrees with its amount', () => {
-    const snapshot = { ...Expense.register(inChf(), members, now).data!.toSnapshot(), version: 1 };
+    const snapshot = { ...Expense.register(inChf(), members, false, now).data!.toSnapshot(), version: 1 };
     expect(() => Expense.fromSnapshot({ ...snapshot, amount: 1312 })).toThrow();
     expect(Expense.fromSnapshot(snapshot).toSnapshot()).toMatchObject({ amount: 1311, original: snapshot.original });
   });
@@ -306,7 +323,7 @@ describe('Expense in another currency at the rate offered (request 22)', () => {
     });
 
   it('is recorded at the offered rate when its rate is left out, and keeps that rate', () => {
-    const expense = Expense.register(usd(), members, now);
+    const expense = Expense.register(usd(), members, false, now);
     expect(expense.isFailure()).toBe(false);
     expect(expense.data!.toSnapshot()).toMatchObject({
       amount: 950,
@@ -315,20 +332,26 @@ describe('Expense in another currency at the rate offered (request 22)', () => {
   });
 
   it('is refused by name when its rate is left out and none is offered', () => {
-    expect(Expense.register(usd({ offered: { kind: 'none' } }), members, now).error?.type).toBe('NoRateOffered');
+    expect(Expense.register(usd({ offered: { kind: 'none' } }), members, false, now).error?.type).toBe('NoRateOffered');
   });
 
   it('keeps a stated rate within 2 % of the offer, and refuses one beyond it by name', () => {
     expect(
-      Expense.register(usd({ original: { currency: 'USD', amount: 1000, rate: '0.969' } }), members, now).isFailure(),
+      Expense.register(
+        usd({ original: { currency: 'USD', amount: 1000, rate: '0.969' } }),
+        members,
+        false,
+        now,
+      ).isFailure(),
     ).toBe(false);
     expect(
-      Expense.register(usd({ original: { currency: 'USD', amount: 1000, rate: '0.97' } }), members, now).error?.type,
+      Expense.register(usd({ original: { currency: 'USD', amount: 1000, rate: '0.97' } }), members, false, now).error
+        ?.type,
     ).toBe('RateOutsideBand');
   });
 
   it('is checked against the offer when the edit states another rate, and refused beyond the band', () => {
-    const recorded = Expense.register(usd(), members, now).data!;
+    const recorded = Expense.register(usd(), members, false, now).data!;
     const loaded = Expense.fromSnapshot({ ...recorded.toSnapshot(), version: 1 });
     const edit: EditDraft = {
       groupCurrency: 'EUR',
@@ -338,9 +361,42 @@ describe('Expense in another currency at the rate offered (request 22)', () => {
       original: { currency: 'USD', amount: 2000, rate: '0.93' },
       offered: { kind: 'rate', rate: '0.95' },
     };
-    expect(loaded.edit(edit, members, 1, now).error?.type).toBe('RateOutsideBand');
-    expect(loaded.edit({ ...edit, original: { currency: 'USD', amount: 2000 } }, members, 1, now).isFailure()).toBe(
-      false,
-    );
+    expect(loaded.edit(edit, members, false, 1, now).error?.type).toBe('RateOutsideBand');
+    expect(
+      loaded.edit({ ...edit, original: { currency: 'USD', amount: 2000 } }, members, false, 1, now).isFailure(),
+    ).toBe(false);
+  });
+});
+
+describe('Expense in an archived group (request 27)', () => {
+  const edit: EditDraft = {
+    groupCurrency: 'EUR',
+    description: 'Dinner',
+    amount: 900,
+    date: '2026-11-16',
+    split: { kind: 'equal', memberIds: ['ann', 'bob'] },
+  };
+  const loaded = () =>
+    Expense.fromSnapshot({ ...Expense.register(draft(), members, false, now).data!.toSnapshot(), version: 1 });
+
+  it('refuses a recording with GroupArchived, and records nothing', () => {
+    expect(Expense.register(draft(), members, true, now).error?.type).toBe('GroupArchived');
+  });
+
+  it('refuses an edit with GroupArchived, and keeps the expense as it was', () => {
+    const expense = loaded();
+    expect(expense.edit(edit, members, true, 1, now).error?.type).toBe('GroupArchived');
+    expect(expense.toSnapshot()).toMatchObject({ description: 'Groceries', amount: 1000, version: 1 });
+    expect(expense.pullDomainEvents()).toEqual([]);
+  });
+
+  it('refuses a deletion with GroupArchived, and records nothing', () => {
+    const expense = loaded();
+    expect(expense.delete(members, true, now).error?.type).toBe('GroupArchived');
+    expect(expense.pullDomainEvents()).toEqual([]);
+  });
+
+  it('still reads the expense it has', () => {
+    expect(loaded().toSnapshot()).toMatchObject({ groupId: 'flat', amount: 1000, paidBy: 'ann', version: 1 });
   });
 });

@@ -2,6 +2,7 @@ import { Exception, IResult, Result } from '@Architecture/Domain';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { IBudgetStore } from '@Contexts/Ledger/Application/IBudgetStore';
 import { IExpenseStore } from '@Contexts/Ledger/Application/IExpenseStore';
@@ -38,13 +39,14 @@ export const setBudget = command(
   'SetBudget',
   (budgets: IBudgetStore, groupMembers: IGroupMembers, clock: Clock) =>
     async ({ groupId, category, amount }: SetBudgetInput, context): Promise<IResult<void>> => {
-      const owner = await ownerRefusal(groupMembers, groupId, context);
+      const archived = await groupMembers.isArchived(groupId);
+      const owner = await ownerRefusal(groupMembers, groupId, archived, context);
       if (owner) return Result.fail(owner);
       if (!isCategory(category)) return Result.fail(new InvalidExpenseCategoryException());
 
       const existing = await budgets.findByCategory(groupId, category);
       const budget = existing ?? Budget.create(groupId, category);
-      const set = budget.set(amount, clock());
+      const set = budget.set(amount, archived, clock());
       if (set.isFailure()) return set;
 
       if (existing) await budgets.save(budget);
@@ -62,13 +64,14 @@ export const removeBudget = command(
   'RemoveBudget',
   (budgets: IBudgetStore, groupMembers: IGroupMembers, clock: Clock) =>
     async ({ groupId, category }: { groupId: string; category: string }, context): Promise<IResult<void>> => {
-      const owner = await ownerRefusal(groupMembers, groupId, context);
+      const archived = await groupMembers.isArchived(groupId);
+      const owner = await ownerRefusal(groupMembers, groupId, archived, context);
       if (owner) return Result.fail(owner);
       if (!isCategory(category)) return Result.fail(new InvalidExpenseCategoryException());
 
       const budget = await budgets.findByCategory(groupId, category);
       if (!budget) return Result.fail(new BudgetNotFoundException());
-      const removed = budget.unset(clock());
+      const removed = budget.unset(archived, clock());
       if (removed.isFailure()) return removed;
 
       await budgets.save(budget);
@@ -108,16 +111,18 @@ export const getGroupBudgets = query(
 
 /**
  * Why the caller may not change a group's budgets, or `undefined` when they are its owner: a caller who is not a member of the group gets
- * the group's `404`, and a member who is not its owner gets `403` (request 24).
+ * the group's `404`, a change in an archived group is GroupArchived (request 27), and a member who is not its owner gets `403` (request 24).
  */
 const ownerRefusal = async (
   groupMembers: IGroupMembers,
   groupId: string,
+  archived: boolean,
   context: ExecutionContext,
 ): Promise<Exception | undefined> => {
   const members = await groupMembers.membersOf(groupId);
   const me = members?.find(member => member.memberId === callerOf(context));
   if (!members || !me) return new GroupNotFoundException();
+  if (archived) return new GroupArchivedException();
   if (me.role !== 'owner') return new NotTheOwnerException();
   return undefined;
 };

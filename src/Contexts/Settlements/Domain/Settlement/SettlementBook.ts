@@ -1,5 +1,7 @@
 import { AggregateRoot, DomainEvent, Exception, Id, IResult, Result } from '@Architecture/Domain';
 
+import { GroupArchivedException } from '@SharedKernel/Domain';
+
 import { PayoutAccount } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccount';
 import { PayeeHasNoPayoutAccountException } from '@Contexts/Settlements/Domain/PayoutAccount/PayoutAccountExceptions';
 import {
@@ -155,7 +157,8 @@ export class SettlementBook extends AggregateRoot {
    * `#refusalOf` hold. Otherwise it is recorded as paid, with its identity generated here (DOMAIN-IDENTITY), and
    * SettlementRecorded is recorded with it. The time is `now`.
    */
-  recordCash(draft: SettlementDraft, now: Date): IResult<Settlement> {
+  recordCash(draft: SettlementDraft, archived: boolean, now: Date): IResult<Settlement> {
+    if (archived) return Result.fail(new GroupArchivedException());
     const refusal = this.#refusalOf(draft);
     if (refusal) return Result.fail(refusal);
 
@@ -189,7 +192,13 @@ export class SettlementBook extends AggregateRoot {
    * given). Nothing is recorded: the provider is asked only once the rules hold, and `recordPayment` keeps the payment with the link it
    * answers.
    */
-  proposePayment(draft: SettlementDraft, payeeAccount: PayoutAccount | undefined, now: Date): IResult<PaymentProposal> {
+  proposePayment(
+    draft: SettlementDraft,
+    payeeAccount: PayoutAccount | undefined,
+    archived: boolean,
+    now: Date,
+  ): IResult<PaymentProposal> {
+    if (archived) return Result.fail(new GroupArchivedException());
     const refusal = this.#refusalOf(draft);
     if (refusal) return Result.fail(refusal);
     if (!payeeAccount) return Result.fail(new PayeeHasNoPayoutAccountException());
@@ -207,7 +216,8 @@ export class SettlementBook extends AggregateRoot {
    * the settlement is kept pending, with the provider's payment, and PaymentRequested is recorded. Its status is `pending`: it
    * counts for what is still owed, and not in the balances, until the provider says it succeeded.
    */
-  recordPayment(proposal: PaymentProposal, link: ProviderPayment | undefined): IResult<Settlement> {
+  recordPayment(proposal: PaymentProposal, link: ProviderPayment | undefined, archived: boolean): IResult<Settlement> {
+    if (archived) return Result.fail(new GroupArchivedException());
     const refusal = this.#refusalOf(proposal);
     if (refusal) return Result.fail(refusal);
     if (!link?.id || !link.payUrl) return Result.fail(new ProviderUnavailableException());
@@ -243,7 +253,11 @@ export class SettlementBook extends AggregateRoot {
    * (one the provider has not named, or one still pending) changes nothing and answers `undefined`. Returns the settlement as it now stands
    * when it changed.
    */
-  receive(settlement: Settlement, verdict: string): Settlement | undefined {
+  receive(settlement: Settlement, verdict: string, archived: boolean): IResult<Settlement | undefined> {
+    const next = endedBy(settlement, verdict);
+    if (!next) return Result.ok(undefined);
+    if (archived) return Result.fail(new GroupArchivedException());
+
     const ended: PaymentEndedPayload = {
       settlementId: settlement.id,
       groupId: settlement.groupId,
@@ -251,22 +265,10 @@ export class SettlementBook extends AggregateRoot {
       to: settlement.to,
       amount: settlement.amount,
     };
-    if (verdict === 'refunded') {
-      if (settlement.status !== 'pending' && settlement.status !== 'paid' && settlement.status !== 'refunding')
-        return undefined;
-      this.record(SettlementRefundedEvent.set(ended));
-      return { ...settlement, status: 'refunded' };
-    }
-    if (settlement.status !== 'pending') return undefined;
-    if (verdict === 'succeeded') {
-      this.record(SettlementPaidEvent.set(ended));
-      return { ...settlement, status: 'paid' };
-    }
-    if (verdict === 'failed') {
-      this.record(SettlementFailedEvent.set(ended));
-      return { ...settlement, status: 'failed' };
-    }
-    return undefined;
+    if (next === 'refunded') this.record(SettlementRefundedEvent.set(ended));
+    else if (next === 'paid') this.record(SettlementPaidEvent.set(ended));
+    else this.record(SettlementFailedEvent.set(ended));
+    return Result.ok({ ...settlement, status: next });
   }
 
   /**
@@ -275,7 +277,8 @@ export class SettlementBook extends AggregateRoot {
    * recorded: the provider is asked for the refund only once these hold, and `recordRefund` keeps its answer. Answers the provider's
    * payment, whose id the provider is asked by.
    */
-  proposeRefund(settlement: Settlement, payeeId: string): IResult<ProviderPayment> {
+  proposeRefund(settlement: Settlement, payeeId: string, archived: boolean): IResult<ProviderPayment> {
+    if (archived) return Result.fail(new GroupArchivedException());
     if (settlement.to !== payeeId) return Result.fail(new RefundNotPayeeException());
     if (settlement.method !== 'provider' || settlement.status !== 'paid' || !settlement.payment) {
       return Result.fail(new SettlementNotRefundableException());
@@ -290,7 +293,8 @@ export class SettlementBook extends AggregateRoot {
    * settlement stays paid. Otherwise the settlement is `refunding`: the money has not gone back yet, so the balances still count it, and
    * RefundRequested is recorded. The book is the one `proposeRefund` read, and the store refuses the save if another writer moved it since.
    */
-  recordRefund(settlement: Settlement, accepted: boolean): IResult<Settlement> {
+  recordRefund(settlement: Settlement, accepted: boolean, archived: boolean): IResult<Settlement> {
+    if (archived) return Result.fail(new GroupArchivedException());
     if (!accepted) return Result.fail(new RefundUnavailableException());
     this.record(
       RefundRequestedEvent.set({
@@ -319,3 +323,19 @@ export class SettlementBook extends AggregateRoot {
     return undefined;
   }
 }
+
+/**
+ * The status a provider's verdict moves a payment to, or `undefined` when the verdict changes nothing (requests 13, 14 and 15). A
+ * `refunded` verdict takes a payment that is pending, paid or refunding; any other takes only a pending one, to paid or failed.
+ */
+const endedBy = (settlement: Settlement, verdict: string): 'refunded' | 'paid' | 'failed' | undefined => {
+  if (verdict === 'refunded') {
+    const refundable =
+      settlement.status === 'pending' || settlement.status === 'paid' || settlement.status === 'refunding';
+    return refundable ? 'refunded' : undefined;
+  }
+  if (settlement.status !== 'pending') return undefined;
+  if (verdict === 'succeeded') return 'paid';
+  if (verdict === 'failed') return 'failed';
+  return undefined;
+};

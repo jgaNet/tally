@@ -2,6 +2,7 @@ import { IResult, Result } from '@Architecture/Domain';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { IExpenseStore, ExpenseView } from '@Contexts/Ledger/Application/IExpenseStore';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
@@ -82,6 +83,8 @@ export const recordExpense = command(
       const payerId = callerOf(context);
       const members = await groupMembers.membersOf(groupId);
       if (!members || !isMember(members, payerId)) return Result.fail(new GroupNotFoundException());
+      const archived = await groupMembers.isArchived(groupId);
+      if (archived) return Result.fail(new GroupArchivedException());
       const currency = await groupCurrency.currencyOf(groupId);
       if (currency === undefined) return Result.fail(new GroupNotFoundException());
       const split = await splitOf(templates, groupId, draft.split);
@@ -91,6 +94,7 @@ export const recordExpense = command(
       const recorded = Expense.register(
         { groupId, payerId, groupCurrency: currency, offered, ...draft, split: split.data },
         members.map(member => member.memberId),
+        archived,
         clock(),
       );
       if (recorded.isFailure()) return recorded;
@@ -122,7 +126,7 @@ export const editExpense = command(
     async ({ expenseId, version, ...draft }: EditExpenseInput, context): Promise<IResult<void>> => {
       const found = await changeable(expenses, groupMembers, groupCurrency, expenseId, context);
       if (found.isFailure()) return Result.fail(found.error);
-      const { expense, members, currency } = found.data;
+      const { expense, members, currency, archived } = found.data;
       const split = await splitOf(templates, expense.toSnapshot().groupId, draft.split);
       if (split.isFailure()) return Result.fail(split.error);
       const offered = await offeredRateFor(rates, draft.original, currency, draft.date);
@@ -130,6 +134,7 @@ export const editExpense = command(
       const edited = expense.edit(
         { groupCurrency: currency, offered, ...draft, split: split.data },
         members.map(member => member.memberId),
+        archived,
         version,
         clock(),
       );
@@ -152,10 +157,11 @@ export const deleteExpense = command(
     async (expenseId: string, context): Promise<IResult<void>> => {
       const found = await changeable(expenses, groupMembers, groupCurrency, expenseId, context);
       if (found.isFailure()) return Result.fail(found.error);
-      const { expense, members } = found.data;
+      const { expense, members, archived } = found.data;
 
       const deleted = expense.delete(
         members.map(member => member.memberId),
+        archived,
         clock(),
       );
       if (deleted.isFailure()) return Result.fail(deleted.error);
@@ -194,7 +200,7 @@ async function changeable(
   groupCurrency: IGroupCurrency,
   expenseId: string,
   context: ExecutionContext,
-): Promise<IResult<{ expense: Expense; members: GroupMemberRole[]; currency: string }>> {
+): Promise<IResult<{ expense: Expense; members: GroupMemberRole[]; currency: string; archived: boolean }>> {
   const expense = await expenses.findById(expenseId);
   if (!expense) return Result.fail(new ExpenseNotFoundException());
 
@@ -203,11 +209,13 @@ async function changeable(
   const caller = callerOf(context);
   const me = members?.find(member => member.memberId === caller);
   if (!members || !me) return Result.fail(new ExpenseNotFoundException());
+  const archived = await groupMembers.isArchived(groupId);
+  if (archived) return Result.fail(new GroupArchivedException());
   if (paidBy !== caller && me.role !== 'owner') return Result.fail(new NotThePayerOrOwnerException());
   const currency = await groupCurrency.currencyOf(groupId);
   if (currency === undefined) return Result.fail(new ExpenseNotFoundException());
 
-  return Result.ok({ expense, members, currency });
+  return Result.ok({ expense, members, currency, archived });
 }
 
 /**

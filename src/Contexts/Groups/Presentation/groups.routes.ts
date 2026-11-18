@@ -5,6 +5,7 @@ import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
 import {
   CreateGroupInput,
+  archiveGroup,
   createGroup,
   getGroup,
   getGroupMembers,
@@ -48,6 +49,10 @@ export const groupRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fasti
 
   fastify.post<{ Params: { id: string } }>('/groups/:id/leave', (req, reply) =>
     answerAtOnce(req, reply, module.useCase(leaveGroup), req.params.id),
+  );
+
+  fastify.post<{ Params: { id: string } }>('/groups/:id/archive', (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(archiveGroup), req.params.id),
   );
 
   done();

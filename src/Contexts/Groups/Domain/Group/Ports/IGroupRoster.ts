@@ -10,6 +10,11 @@ export interface IGroupRoster {
   hasBeenMember(groupId: string, accountId: string): Promise<boolean>;
   /** The currency the group was created in, as a code (EUR, USD, ...); a group that is not there answers `undefined` (feature 13). */
   currencyOf(groupId: string): Promise<string | undefined>;
+  /**
+   * Whether the group is archived (feature 27, request 27): nothing in it changes any more, and its members read it as before. A group that
+   * is not there answers `false`, which callers never need: they have asked for its members first.
+   */
+  isArchived(groupId: string): Promise<boolean>;
   /** The ids of every group there is, the earliest made first: what a sweep over all the groups reads (feature 18). */
   groupIds(): Promise<string[]>;
   /**

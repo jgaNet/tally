@@ -23,4 +23,8 @@ export class GroupMembersFromGroups implements IGroupMembers {
   passedBalancesOf(groupId: string): Promise<PassedBalance[]> {
     return this.roster.passedBalancesOf(groupId);
   }
+
+  isArchived(groupId: string): Promise<boolean> {
+    return this.roster.isArchived(groupId);
+  }
 }

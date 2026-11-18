@@ -2,6 +2,7 @@ import { IResult, Result } from '@Architecture/Domain';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { IRecurringExpenseStore, RecurringExpenseView } from '@Contexts/Ledger/Application/IRecurringExpenseStore';
 import { GroupMemberRole, IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
@@ -33,10 +34,13 @@ export const setUpRecurringExpense = command(
       const payerId = callerOf(context);
       const members = await groupMembers.membersOf(groupId);
       if (!members || !isMember(members, payerId)) return Result.fail(new GroupNotFoundException());
+      const archived = await groupMembers.isArchived(groupId);
+      if (archived) return Result.fail(new GroupArchivedException());
 
       const set = RecurringExpense.setUp(
         { groupId, payerId, ...draft },
         members.map(member => member.memberId),
+        archived,
         clock(),
       );
       if (set.isFailure()) return Result.fail(set.error);
@@ -58,9 +62,10 @@ export const stopRecurringExpense = command(
     async (recurringId: string, context): Promise<IResult<void>> => {
       const found = await changeable(recurring, groupMembers, recurringId, context);
       if (found.isFailure()) return Result.fail(found.error);
-      const { recurring: stopped } = found.data;
+      const { recurring: stopped, archived } = found.data;
 
-      stopped.stop(clock());
+      const halted = stopped.stop(archived, clock());
+      if (halted.isFailure()) return halted;
       await recurring.remove(stopped);
       await publishDomainEvents(stopped, context);
       return Result.ok(undefined);
@@ -105,7 +110,8 @@ export const getGroupRecurringExpenses = query(
  * aggregate decides: a recurring expense whose payer or a split member has left ends, and is removed; any other records the days that
  * have come, each for its expense, and is saved over the version it was read at. Nothing is decided by a read. A conflict with another
  * server's run runs the whole sweep again on what that run committed (CONFLICT_ATTEMPTS). Its facts go out with the commit, and the
- * expense each day records is made by the reaction to its fact.
+ * expense each day records is made by the reaction to its fact. A group that is archived (request 27) is left alone: its recurring
+ * expenses are not swept, nothing is recorded in it, and nothing is saved.
  */
 export const sweepRecurringExpenses = command(
   'SweepRecurringExpenses',
@@ -114,10 +120,13 @@ export const sweepRecurringExpenses = command(
       const now = clock();
       for (const item of await recurring.dueBy(dayOf(now))) {
         const members = await groupMembers.membersOf(item.groupId);
+        const archived = await groupMembers.isArchived(item.groupId);
         const outcome = item.sweep(
           members?.map(member => member.memberId),
+          archived,
           now,
         );
+        if (outcome === 'archived') continue;
         if (outcome === 'ended') await recurring.remove(item);
         else await recurring.save(item);
         await publishDomainEvents(item, context);
@@ -135,7 +144,7 @@ async function changeable(
   groupMembers: IGroupMembers,
   recurringId: string,
   context: ExecutionContext,
-): Promise<IResult<{ recurring: RecurringExpense }>> {
+): Promise<IResult<{ recurring: RecurringExpense; archived: boolean }>> {
   const item = await recurring.findById(recurringId);
   if (!item) return Result.fail(new RecurringExpenseNotFoundException());
 
@@ -143,8 +152,10 @@ async function changeable(
   const caller = callerOf(context);
   const me = members?.find(member => member.memberId === caller);
   if (!members || !me) return Result.fail(new RecurringExpenseNotFoundException());
+  const archived = await groupMembers.isArchived(item.groupId);
+  if (archived) return Result.fail(new GroupArchivedException());
   if (item.toSnapshot().paidBy !== caller && me.role !== 'owner') return Result.fail(new NotThePayerOrOwnerException());
-  return Result.ok({ recurring: item });
+  return Result.ok({ recurring: item, archived });
 }
 
 const isMember = (members: readonly GroupMemberRole[], memberId: string): boolean =>

@@ -38,7 +38,8 @@ export const recordCashSettlement = command(
       const book = await openBook(store, members, balances, groupId);
       if (!book || !book.hasMember(payeeId)) return Result.fail(new GroupNotFoundException());
 
-      const recorded = book.recordCash({ from, to: payeeId, amount }, clock());
+      const archived = await members.isArchived(groupId);
+      const recorded = book.recordCash({ from, to: payeeId, amount }, archived, clock());
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
       await store.save(book, recorded.data, recorded.data.at);
@@ -80,7 +81,13 @@ export const payThroughProvider = command(
       const book = await openBook(store, members, balances, groupId);
       if (!book || !book.hasMember(payerId)) return Result.fail(new GroupNotFoundException());
 
-      const proposed = book.proposePayment({ from: payerId, to, amount }, await payouts.payoutAccountOf(to), clock());
+      const archived = await members.isArchived(groupId);
+      const proposed = book.proposePayment(
+        { from: payerId, to, amount },
+        await payouts.payoutAccountOf(to),
+        archived,
+        clock(),
+      );
       if (proposed.isFailure()) return Result.fail(proposed.error);
 
       const currency = await members.currencyOf(groupId);
@@ -94,7 +101,7 @@ export const payThroughProvider = command(
       // A payment id the provider already gave another settlement is no link for this one: refused, as any answer Tally cannot keep.
       const reused = link !== undefined && (await store.settlementOfPayment(link.id)) !== undefined;
 
-      const recorded = book.recordPayment(proposed.data, reused ? undefined : link);
+      const recorded = book.recordPayment(proposed.data, reused ? undefined : link, archived);
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
       await store.save(book, recorded.data, recorded.data.at);
@@ -137,11 +144,13 @@ export const receivePaymentWebhook = command(
       const book = await openBook(store, members, balances, settlement.groupId);
       if (!book) return Result.ok(undefined);
 
-      const changed = book.receive(settlement, status);
-      if (!changed) return Result.ok(undefined);
+      const archived = await members.isArchived(settlement.groupId);
+      const changed = book.receive(settlement, status, archived);
+      if (changed.isFailure()) return Result.fail(changed.error);
+      if (!changed.data) return Result.ok(undefined);
 
       // The status is learned now: its history line is the time Tally was told (request 19).
-      await store.save(book, changed, clock().toISOString());
+      await store.save(book, changed.data, clock().toISOString());
       await publishDomainEvents(book, context);
       return Result.ok(undefined);
     },
@@ -172,11 +181,12 @@ export const refundSettlement = command(
       const book = await openBook(store, members, balances, settlement.groupId);
       if (!book || !book.hasMember(payeeId)) return Result.fail(new SettlementNotFoundException());
 
-      const proposed = book.proposeRefund(settlement, payeeId);
+      const archived = await members.isArchived(settlement.groupId);
+      const proposed = book.proposeRefund(settlement, payeeId, archived);
       if (proposed.isFailure()) return Result.fail(proposed.error);
       const accepted = await provider.refundPayment({ paymentId: proposed.data.id, reference: settlement.id });
 
-      const recorded = book.recordRefund(settlement, accepted);
+      const recorded = book.recordRefund(settlement, accepted, archived);
       if (recorded.isFailure()) return Result.fail(recorded.error);
 
       await store.save(book, recorded.data, clock().toISOString());

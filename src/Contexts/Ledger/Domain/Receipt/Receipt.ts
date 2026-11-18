@@ -1,4 +1,5 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import {
   InvalidReceiptSizeException,
@@ -77,8 +78,16 @@ export class Receipt extends AggregateRoot {
     this.#size = size;
   }
 
-  /** A receipt attached to an expense that had none. The identity is generated here (DOMAIN-IDENTITY); records `ReceiptAttached`. */
-  static attach(draft: { expenseId: string; fileId: string; url: string; file: ReceiptFile }, now: Date): Receipt {
+  /**
+   * A receipt attached to an expense that had none. The identity is generated here (DOMAIN-IDENTITY); records `ReceiptAttached`. An expense
+   * of an archived group gets no receipt (`archived`, request 27: GroupArchived).
+   */
+  static attach(
+    draft: { expenseId: string; fileId: string; url: string; file: ReceiptFile },
+    archived: boolean,
+    now: Date,
+  ): IResult<Receipt> {
+    if (archived) return Result.fail(new GroupArchivedException());
     const receipt = new Receipt(
       Id.generate(),
       draft.expenseId,
@@ -95,11 +104,15 @@ export class Receipt extends AggregateRoot {
         at: now.toISOString(),
       }),
     );
-    return receipt;
+    return Result.ok(receipt);
   }
 
-  /** The receipt an expense has, replaced by a new file: the same receipt, its id kept, `ReceiptAttached` recorded again. */
-  reattach(draft: { fileId: string; url: string; file: ReceiptFile }, now: Date): void {
+  /**
+   * The receipt an expense has, replaced by a new file: the same receipt, its id kept, `ReceiptAttached` recorded again. Refused with
+   * GroupArchived in an archived group (`archived`, request 27), and then nothing changes.
+   */
+  reattach(draft: { fileId: string; url: string; file: ReceiptFile }, archived: boolean, now: Date): IResult<void> {
+    if (archived) return Result.fail(new GroupArchivedException());
     this.#fileId = draft.fileId;
     this.#url = draft.url;
     this.#type = draft.file.type;
@@ -111,6 +124,7 @@ export class Receipt extends AggregateRoot {
         at: now.toISOString(),
       }),
     );
+    return Result.ok(undefined);
   }
 
   /** A receipt the store keeps, as it was last attached. Records nothing; throws on a receipt the domain never keeps. */

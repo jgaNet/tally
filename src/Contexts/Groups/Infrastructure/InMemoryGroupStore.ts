@@ -48,4 +48,5 @@ const toView = (group: GroupSnapshot): GroupView => ({
   name: group.name,
   currency: group.currency,
   ownerId: group.ownerId,
+  ...(group.archivedAt === undefined ? {} : { archivedAt: group.archivedAt }),
 });

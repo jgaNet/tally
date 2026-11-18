@@ -1,5 +1,6 @@
 import { Id, IResult, Result } from '@Architecture/Domain';
 import { Clock, EventHandler, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { IExpenseStore } from '@Contexts/Ledger/Application/IExpenseStore';
 import { IGroupCurrency } from '@Contexts/Ledger/Application/IGroupCurrency';
@@ -14,7 +15,8 @@ import { RecurringExpenseDayCameEvent } from '@Contexts/Ledger/Domain/RecurringE
  * payer, with the description, amount and split of the recurring expense, decided by the rule in force now and checked as a recording
  * is. An expense already recorded under that id is left as it is, so a redelivery records nothing twice. It runs in its own transaction:
  * the expense, its balances and its ExpenseRecorded commit together or not at all, as any expense's do; a refusal (a member who left
- * between the sweep and this reaction) records nothing, and the reaction fails with it.
+ * between the sweep and this reaction) records nothing, and the reaction fails with it. In an archived group (request 27) nothing is recorded:
+ * the reaction fails with GroupArchived.
  */
 export class RecordRecurringExpenseHandler extends EventHandler<RecurringExpenseDayCameEvent> {
   constructor(
@@ -33,10 +35,13 @@ export class RecordRecurringExpenseHandler extends EventHandler<RecurringExpense
     const members = await this.groupMembers.membersOf(groupId);
     const currency = await this.groupCurrency.currencyOf(groupId);
     if (!members || currency === undefined) return Result.fail(new GroupNotFoundException());
+    const archived = await this.groupMembers.isArchived(groupId);
+    if (archived) return Result.fail(new GroupArchivedException());
 
     const recorded = Expense.register(
       { groupId, payerId: paidBy, groupCurrency: currency, description, date: day, amount, split, category },
       members.map(member => member.memberId),
+      archived,
       this.clock(),
       new Id(expenseId),
     );

@@ -116,3 +116,33 @@ export const leaveGroup = command(
       return Result.ok(undefined);
     },
 );
+
+/**
+ * The owner archives a group (feature 27, request 27): once every member's balance is 0 (MemberBalances, read for each member in the
+ * archive's own transaction) and no payment through the provider waits (WaitingPayments, read for each member: a pending or refunding
+ * payment always involves a member who has not left). Refused, and nothing changes: with GroupArchived to a group already archived,
+ * `403` to a member who is not its owner, `422` GroupNotSettled while a balance is not 0 or a payment waits, and `404` to anyone who
+ * is not a member. What it recorded (GroupArchived) goes out with the commit, through the outbox. Answers nothing.
+ */
+export const archiveGroup = command(
+  'ArchiveGroup',
+  (groups: IGroupStore, balances: IMemberBalances, waiting: IWaitingPayments, clock: Clock) =>
+    async (groupId: string, context): Promise<IResult<void>> => {
+      const caller = callerOf(context);
+      const group = await groups.findById(groupId);
+      if (!group || !group.hasMember(caller)) return Result.fail(new GroupNotFoundException());
+
+      let balancesCleared = true;
+      let paymentWaiting = false;
+      for (const member of group.members()) {
+        if ((await balances.balanceOf(groupId, member.accountId)) !== 0) balancesCleared = false;
+        if (await waiting.hasWaitingPayment(groupId, member.accountId)) paymentWaiting = true;
+      }
+      const archived = group.archive(caller, { balancesCleared, paymentWaiting }, clock());
+      if (archived.isFailure()) return archived;
+
+      await groups.save(group);
+      await publishDomainEvents(group, context);
+      return Result.ok(undefined);
+    },
+);

@@ -48,13 +48,15 @@ describe('Receipt: one per expense, kept with the store’s link (ADR 21)', () =
         url: 'https://store.example.com/files/file-1',
         file: { type: 'image/jpeg', size: 6 },
       },
+      false,
       now,
-    );
+    ).data!;
     const first = attached.toSnapshot();
     expect(first).toMatchObject({ expenseId: 'expense-1', fileId: 'file-1', type: 'image/jpeg', size: 6, version: 0 });
 
     attached.reattach(
       { fileId: 'file-2', url: 'https://store.example.com/files/file-2', file: { type: 'image/png', size: 9 } },
+      false,
       now,
     );
     expect(attached.toSnapshot()).toMatchObject({
@@ -79,5 +81,35 @@ describe('Receipt: one per expense, kept with the store’s link (ADR 21)', () =
     expect(Receipt.fromSnapshot(snapshot).toSnapshot()).toEqual(snapshot);
     expect(() => Receipt.fromSnapshot({ ...snapshot, type: 'image/gif' as never })).toThrow();
     expect(() => Receipt.fromSnapshot({ ...snapshot, size: 0 })).toThrow();
+  });
+});
+
+describe('Receipt in an archived group (request 27)', () => {
+  const file = { type: 'image/jpeg' as const, size: 6 };
+
+  it('is not attached to an expense of an archived group, and no receipt is made', () => {
+    const attached = Receipt.attach(
+      { expenseId: 'expense-1', fileId: 'file-1', url: 'https://store.example.com/files/file-1', file },
+      true,
+      now,
+    );
+    expect(attached.error?.type).toBe('GroupArchived');
+  });
+
+  it('is not replaced in an archived group, and keeps the file it has', () => {
+    const receipt = Receipt.attach(
+      { expenseId: 'expense-1', fileId: 'file-1', url: 'https://store.example.com/files/file-1', file },
+      false,
+      now,
+    ).data!;
+    const before = receipt.toSnapshot();
+    const reattached = receipt.reattach(
+      { fileId: 'file-2', url: 'https://store.example.com/files/file-2', file: { type: 'image/png', size: 9 } },
+      true,
+      now,
+    );
+    expect(reattached.error?.type).toBe('GroupArchived');
+    expect(receipt.toSnapshot()).toEqual(before);
+    expect(receipt.pullDomainEvents()).toHaveLength(1);
   });
 });

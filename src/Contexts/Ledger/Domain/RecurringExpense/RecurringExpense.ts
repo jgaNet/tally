@@ -1,4 +1,5 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import {
   InvalidExpenseAmountException,
@@ -42,7 +43,7 @@ export interface RecurringExpenseSnapshot {
 }
 
 /** What a sweep decides for one recurring expense: it goes on, or it ended (its payer or a member of its split has left). */
-export type SweepOutcome = 'kept' | 'ended';
+export type SweepOutcome = 'kept' | 'ended' | 'archived';
 
 /**
  * A recurring expense (request 23, the storm's RecurringExpense, ADR 18): an expense a member pays every month, whose expense the
@@ -93,7 +94,13 @@ export class RecurringExpense extends AggregateRoot {
    * after it (UTC, `now`), and the split is one the members of the group (`members`) may be in, the payer among them, as an expense's
    * split is decided. The identity is generated here (DOMAIN-IDENTITY), and the set up records `RecurringExpenseSetUp`. Pure.
    */
-  static setUp(draft: RecurringExpenseDraft, members: readonly string[], now: Date): IResult<RecurringExpense> {
+  static setUp(
+    draft: RecurringExpenseDraft,
+    members: readonly string[],
+    archived: boolean,
+    now: Date,
+  ): IResult<RecurringExpense> {
+    if (archived) return Result.fail(new GroupArchivedException());
     const { groupId, payerId, description, amount, startsOn, split, category: givenCategory } = draft;
     if (!isDescription(description)) return Result.fail(new InvalidExpenseDescriptionException());
     const category = categoryGiven(givenCategory);
@@ -154,9 +161,10 @@ export class RecurringExpense extends AggregateRoot {
 
   /**
    * A stop: no expense is recorded for it from now on, and the expenses it recorded stay. Who may stop it is the use case's to say.
-   * Records `RecurringExpenseStopped`; the time is `now`. Pure.
+   * Records `RecurringExpenseStopped`; the time is `now`. Refused with GroupArchived in an archived group (`archived`, request 27). Pure.
    */
-  stop(now: Date): void {
+  stop(archived: boolean, now: Date): IResult<void> {
+    if (archived) return Result.fail(new GroupArchivedException());
     this.record(
       RecurringExpenseStoppedEvent.set({
         recurringId: this._id.value,
@@ -164,6 +172,7 @@ export class RecurringExpense extends AggregateRoot {
         at: now.toISOString(),
       }),
     );
+    return Result.ok(undefined);
   }
 
   /**
@@ -171,9 +180,11 @@ export class RecurringExpense extends AggregateRoot {
    * the group is not there: if the payer or a member of its split is not among them, it ends (`RecurringExpenseEnded`) and no expense is
    * recorded for it. Otherwise every day from `next` up to today (UTC, `now`) has come, and each records `RecurringExpenseDayCame`, with
    * the id of the expense that day stands for, generated here; `next` moves to the first day of the month after the last of them.
-   * Records nothing on a day that has not come. Pure: the members and the time are given.
+   * Records nothing on a day that has not come. Pure: the members and the time are given. In an archived group (`archived`, request 27) the
+   * sweep decides nothing: it answers `archived`, records nothing, moves nothing, and the recurring expense stays as it is.
    */
-  sweep(members: readonly string[] | undefined, now: Date): SweepOutcome {
+  sweep(members: readonly string[] | undefined, archived: boolean, now: Date): SweepOutcome {
+    if (archived) return 'archived';
     const at = now.toISOString();
     const concerned = [this.#paidBy, ...memberIdsOf(this.#split)];
     if (!members || !concerned.every(memberId => members.includes(memberId))) {

@@ -2,6 +2,7 @@ import { IResult, Result } from '@Architecture/Domain';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { ISplitTemplateStore, TemplateView } from '@Contexts/Ledger/Application/ISplitTemplateStore';
 import { GroupMemberRole, IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
@@ -38,9 +39,11 @@ export const saveTemplate = command(
       const savedBy = callerOf(context);
       const members = await groupMembers.membersOf(groupId);
       if (!members || !isMember(members, savedBy)) return Result.fail(new GroupNotFoundException());
+      const archived = await groupMembers.isArchived(groupId);
+      if (archived) return Result.fail(new GroupArchivedException());
 
       const holder = await templates.nameHeldBy(groupId, name);
-      const saved = SplitTemplate.create({ groupId, savedBy, name, split }, idsOf(members), holder, clock());
+      const saved = SplitTemplate.create({ groupId, savedBy, name, split }, idsOf(members), holder, archived, clock());
       if (saved.isFailure()) return Result.fail(saved.error);
 
       await templates.add(saved.data);
@@ -60,10 +63,10 @@ export const replaceTemplate = command(
     async ({ templateId, name, split }: ReplaceTemplateInput, context): Promise<IResult<void>> => {
       const found = await changeable(templates, groupMembers, templateId, context);
       if (found.isFailure()) return Result.fail(found.error);
-      const { template, members } = found.data;
+      const { template, members, archived } = found.data;
 
       const holder = await templates.nameHeldBy(template.groupId, name);
-      const replaced = template.replace({ name, split }, idsOf(members), holder, clock());
+      const replaced = template.replace({ name, split }, idsOf(members), holder, archived, clock());
       if (replaced.isFailure()) return replaced;
 
       await templates.save(template);
@@ -83,9 +86,10 @@ export const removeTemplate = command(
     async (templateId: string, context): Promise<IResult<void>> => {
       const found = await changeable(templates, groupMembers, templateId, context);
       if (found.isFailure()) return Result.fail(found.error);
-      const { template } = found.data;
+      const { template, archived } = found.data;
 
-      template.remove(clock());
+      const removed = template.remove(archived, clock());
+      if (removed.isFailure()) return removed;
       await templates.remove(template);
       await publishDomainEvents(template, context);
       return Result.ok(undefined);
@@ -116,7 +120,7 @@ async function changeable(
   groupMembers: IGroupMembers,
   templateId: string,
   context: ExecutionContext,
-): Promise<IResult<{ template: SplitTemplate; members: GroupMemberRole[] }>> {
+): Promise<IResult<{ template: SplitTemplate; members: GroupMemberRole[]; archived: boolean }>> {
   const template = await templates.findById(templateId);
   if (!template) return Result.fail(new TemplateNotFoundException());
 
@@ -124,8 +128,10 @@ async function changeable(
   const caller = callerOf(context);
   const me = members?.find(member => member.memberId === caller);
   if (!members || !me) return Result.fail(new TemplateNotFoundException());
+  const archived = await groupMembers.isArchived(template.groupId);
+  if (archived) return Result.fail(new GroupArchivedException());
   if (template.savedBy !== caller && me.role !== 'owner') return Result.fail(new NotTheSaverOrOwnerException());
-  return Result.ok({ template, members });
+  return Result.ok({ template, members, archived });
 }
 
 const isMember = (members: readonly GroupMemberRole[], memberId: string): boolean =>

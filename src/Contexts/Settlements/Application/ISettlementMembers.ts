@@ -8,4 +8,9 @@
 export interface ISettlementMembers {
   membersOf(groupId: string): Promise<readonly string[] | undefined>;
   currencyOf(groupId: string): Promise<string | undefined>;
+  /**
+   * Whether the group is archived (feature 27, request 27): nothing in it changes any more, so no settlement is recorded, requested,
+   * refunded, or changed in it; a change is refused by the shared kernel's GroupArchived. A group that is not there answers `false`.
+   */
+  isArchived(groupId: string): Promise<boolean>;
 }

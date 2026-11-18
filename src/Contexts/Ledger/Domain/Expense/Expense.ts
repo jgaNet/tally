@@ -1,4 +1,5 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import {
   OfferedRate,
@@ -131,14 +132,17 @@ export class Expense extends AggregateRoot {
    * exact amounts, or by shares), the remainder to the member listed first. The identity is generated here (DOMAIN-IDENTITY), and
    * the recording records `ExpenseRecorded`. Pure: the members, the group's currency and the time are given, nothing is read.
    * An expense whose day a recurring expense stands for is recorded under the id that day's fact carries (`id`, request 23, ADR 18), so
-   * the expense is built on the id it was given and not a new one; by default the identity is generated here.
+   * the expense is built on the id it was given and not a new one; by default the identity is generated here. `archived` is the group's
+   * state: an archived group records no expense, and the recording is refused with GroupArchived (request 27) before anything is decided.
    */
   static register(
     draft: ExpenseDraft,
     members: readonly string[],
+    archived: boolean,
     now: Date,
     id: Id = Id.generate(),
   ): IResult<Expense> {
+    if (archived) return Result.fail(new GroupArchivedException());
     const { groupId, description, date, payerId, split: splitDraft } = draft;
     const checked = checkDraft({ ...draft, payerId, split: splitDraft }, members, now);
     if (checked.isFailure()) return Result.fail(checked.error);
@@ -209,7 +213,8 @@ export class Expense extends AggregateRoot {
    * expense that concerns a member who has left the group (its payer, or one of its split) is refused with
    * `ExpenseConcernsFormerMember` (feature 9). Records `ExpenseEdited`; the time is `now`. Pure.
    */
-  edit(draft: EditDraft, members: readonly string[], fromVersion: number, now: Date): IResult<void> {
+  edit(draft: EditDraft, members: readonly string[], archived: boolean, fromVersion: number, now: Date): IResult<void> {
+    if (archived) return Result.fail(new GroupArchivedException());
     if (fromVersion !== this.version) return Result.fail(new ExpenseChangedException());
     if (!this.#concernsOnly(members)) return Result.fail(new ExpenseConcernsFormerMemberException());
 
@@ -242,9 +247,10 @@ export class Expense extends AggregateRoot {
    * A deletion: the expense is no longer there for anyone (the store takes its rows, and its balances, out in the same
    * transaction). Who may delete it is the use case's to say. An expense that concerns a member who has left the group is
    * refused with `ExpenseConcernsFormerMember` (feature 9), given the group's current members (`members`). Records
-   * `ExpenseDeleted`; the time is `now`.
+   * `ExpenseDeleted`; the time is `now`. An archived group's expense is not deleted (request 27: GroupArchived, first).
    */
-  delete(members: readonly string[], now: Date): IResult<void> {
+  delete(members: readonly string[], archived: boolean, now: Date): IResult<void> {
+    if (archived) return Result.fail(new GroupArchivedException());
     if (!this.#concernsOnly(members)) return Result.fail(new ExpenseConcernsFormerMemberException());
 
     this.record(

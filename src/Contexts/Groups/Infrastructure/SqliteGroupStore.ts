@@ -47,6 +47,11 @@ export const groupsTablesSchema = [
      at TEXT NOT NULL,
      PRIMARY KEY (group_id, position)
    )`,
+  // A group is archived (feature 27, request 27) by one row, written once and never removed: a group with a row is read only.
+  `CREATE TABLE IF NOT EXISTS group_archives (
+     group_id TEXT PRIMARY KEY REFERENCES groups(id),
+     archived_at TEXT NOT NULL
+   )`,
 ];
 
 /**
@@ -68,6 +73,7 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
       .run(snapshot.id, snapshot.name, snapshot.currency, snapshot.ownerId, snapshot.createdAt, snapshot.version + 1);
     this.#saveMembers(snapshot);
     this.#savePasses(snapshot);
+    this.#saveArchive(snapshot);
   }
 
   async findById(groupId: string): Promise<Group | undefined> {
@@ -91,6 +97,9 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
         )
         .all(groupId),
     ) as unknown as PassRow[];
+    const archive = this.database.read(db =>
+      db.prepare('SELECT archived_at FROM group_archives WHERE group_id = ?').get(groupId),
+    ) as { archived_at: string } | undefined;
     return Group.fromSnapshot({
       id: row.id,
       name: row.name,
@@ -100,6 +109,7 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
       formerMembers: formerMembers.map(toFormerMember),
       passes: passes.map(toPass),
       createdAt: row.created_at,
+      archivedAt: archive?.archived_at,
       version: row.version,
     });
   }
@@ -114,14 +124,16 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     }
     this.#saveMembers(snapshot);
     this.#savePasses(snapshot);
+    this.#saveArchive(snapshot);
   }
 
   async viewFor(groupId: string, memberId: string): Promise<GroupView | undefined> {
     const row = this.database.read(db =>
       db
         .prepare(
-          `SELECT g.id, g.name, g.currency, g.owner_id FROM groups g
+          `SELECT g.id, g.name, g.currency, g.owner_id, a.archived_at FROM groups g
            JOIN group_members m ON m.group_id = g.id
+           LEFT JOIN group_archives a ON a.group_id = g.id
            WHERE g.id = ? AND m.account_id = ?`,
         )
         .get(groupId, memberId),
@@ -133,8 +145,9 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     const rows = this.database.read(db =>
       db
         .prepare(
-          `SELECT g.id, g.name, g.currency, g.owner_id FROM groups g
+          `SELECT g.id, g.name, g.currency, g.owner_id, a.archived_at FROM groups g
            JOIN group_members m ON m.group_id = g.id
+           LEFT JOIN group_archives a ON a.group_id = g.id
            WHERE m.account_id = ?
            ORDER BY g.created_at DESC, g.rowid DESC`,
         )
@@ -167,6 +180,13 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
     return rows.map(row => row.id);
   }
 
+  async isArchived(groupId: string): Promise<boolean> {
+    const row = this.database.read(db =>
+      db.prepare('SELECT 1 AS found FROM group_archives WHERE group_id = ?').get(groupId),
+    );
+    return row !== undefined;
+  }
+
   async passedBalancesOf(groupId: string): Promise<PassedBalance[]> {
     const rows = this.database.read(db =>
       db
@@ -190,6 +210,14 @@ export class SqliteGroupStore implements IGroupStore, IGroupRoster {
         .get(groupId, accountId, groupId, accountId),
     );
     return row !== undefined;
+  }
+
+  /** Writes the archive row once the group is archived; a group that is not archived has none, and an archive is never removed. */
+  #saveArchive(snapshot: GroupSnapshot): void {
+    if (snapshot.archivedAt === undefined) return;
+    this.database.writer
+      .prepare('INSERT OR IGNORE INTO group_archives (group_id, archived_at) VALUES (?, ?)')
+      .run(snapshot.id, snapshot.archivedAt);
   }
 
   /**
@@ -252,6 +280,7 @@ interface GroupViewRow {
   name: string;
   currency: string;
   owner_id: string;
+  archived_at: string | null;
 }
 
 interface RosterRow {
@@ -289,6 +318,8 @@ const toView = (row: GroupViewRow): GroupView => ({
   name: row.name,
   currency: row.currency,
   ownerId: row.owner_id,
+  // Only an archived group reads `archivedAt` (feature 27): the key is absent otherwise.
+  ...(row.archived_at === null ? {} : { archivedAt: row.archived_at }),
 });
 
 const toMember = (row: MemberRow): GroupMember => ({ accountId: row.account_id, joinedAt: row.joined_at });

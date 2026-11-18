@@ -30,7 +30,7 @@ describe('a cash settlement, decided by its payee', () => {
   it('records a paid settlement in cash, with its identity generated, and records SettlementRecorded', () => {
     const aggregate = book();
 
-    const recorded = aggregate.recordCash({ from: 'bob', to: 'ann', amount: 400 }, NOW);
+    const recorded = aggregate.recordCash({ from: 'bob', to: 'ann', amount: 400 }, false, NOW);
 
     expect(recorded.isFailure()).toBe(false);
     expect(recorded.data).toEqual({
@@ -57,39 +57,39 @@ describe('a cash settlement, decided by its payee', () => {
   });
 
   it('may settle the whole of what the payer owes, when the payee is owed as much', () => {
-    expect(book().recordCash({ from: 'bob', to: 'ann', amount: 1000 }, NOW).isFailure()).toBe(false);
+    expect(book().recordCash({ from: 'bob', to: 'ann', amount: 1000 }, false, NOW).isFailure()).toBe(false);
   });
 
   it('refuses an amount that is not a whole number of 1 or more, and records nothing', () => {
     for (const amount of [0, -5, 1.5]) {
       const aggregate = book();
-      const refused = aggregate.recordCash({ from: 'bob', to: 'ann', amount }, NOW);
+      const refused = aggregate.recordCash({ from: 'bob', to: 'ann', amount }, false, NOW);
       expect(refused.error).toBeInstanceOf(InvalidSettlementAmountException);
       expect(aggregate.pullDomainEvents()).toEqual([]);
     }
   });
 
   it('refuses a payer who is the payee', () => {
-    const refused = book().recordCash({ from: 'ann', to: 'ann', amount: 100 }, NOW);
+    const refused = book().recordCash({ from: 'ann', to: 'ann', amount: 100 }, false, NOW);
     expect(refused.error).toBeInstanceOf(PayeeIsPayerException);
   });
 
   it('refuses a payer who is not a member of the group', () => {
-    const refused = book().recordCash({ from: 'eve', to: 'ann', amount: 100 }, NOW);
+    const refused = book().recordCash({ from: 'eve', to: 'ann', amount: 100 }, false, NOW);
     expect(refused.error).toBeInstanceOf(PayerNotInGroupException);
   });
 
   it('answers the group is not there for a payee who is not a member', () => {
-    const refused = book().recordCash({ from: 'bob', to: 'eve', amount: 100 }, NOW);
+    const refused = book().recordCash({ from: 'bob', to: 'eve', amount: 100 }, false, NOW);
     expect(refused.error).toBeInstanceOf(GroupNotFoundException);
   });
 
   it('refuses more than the payer owes, including a payer who owes nothing', () => {
-    const more = book().recordCash({ from: 'cy', to: 'ann', amount: 501 }, NOW);
+    const more = book().recordCash({ from: 'cy', to: 'ann', amount: 501 }, false, NOW);
     expect(more.error).toBeInstanceOf(MoreThanPayerOwesException);
 
     // Ann is owed, so she owes nothing: a payment from her is more than she owes.
-    const owesNothing = book().recordCash({ from: 'ann', to: 'cy', amount: 1 }, NOW);
+    const owesNothing = book().recordCash({ from: 'ann', to: 'cy', amount: 1 }, false, NOW);
     expect(owesNothing.error).toBeInstanceOf(MoreThanPayerOwesException);
   });
 
@@ -105,13 +105,13 @@ describe('a cash settlement, decided by its payee', () => {
         { memberId: 'cy', balance: -500 },
       ],
     });
-    const refused = afterCy.recordCash({ from: 'bob', to: 'ann', amount: 600 }, NOW);
+    const refused = afterCy.recordCash({ from: 'bob', to: 'ann', amount: 600 }, false, NOW);
     expect(refused.error).toBeInstanceOf(MoreThanPayeeIsOwedException);
   });
 
   it('keeps the version it was read at, and never changes it', () => {
     expect(book(4).version).toBe(4);
-    book(4).recordCash({ from: 'bob', to: 'ann', amount: 100 }, NOW);
+    book(4).recordCash({ from: 'bob', to: 'ann', amount: 100 }, false, NOW);
     expect(book(4).version).toBe(4);
   });
 });

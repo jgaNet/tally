@@ -15,7 +15,7 @@ const members = ['ann', 'bob', 'cy'];
 const groupId = 'group-1';
 
 const saved = (split: Parameters<typeof SplitTemplate.create>[0]['split'], name = 'Rent share') => {
-  const result = SplitTemplate.create({ groupId, savedBy: 'ann', name, split }, members, undefined, now);
+  const result = SplitTemplate.create({ groupId, savedBy: 'ann', name, split }, members, undefined, false, now);
   if (result.isFailure()) throw new Error('the template should be saved');
   return result.data;
 };
@@ -52,7 +52,7 @@ describe('a split template', () => {
   it('has a name of 1 to 60 characters, not only spaces', () => {
     const split = { kind: 'equal' as const, memberIds: ['ann'] };
     const refused = (name: string) =>
-      SplitTemplate.create({ groupId, savedBy: 'ann', name, split }, members, undefined, now);
+      SplitTemplate.create({ groupId, savedBy: 'ann', name, split }, members, undefined, false, now);
 
     expect(refused('   ').error).toBeInstanceOf(InvalidTemplateNameException);
     expect(refused('x'.repeat(61)).error).toBeInstanceOf(InvalidTemplateNameException);
@@ -64,6 +64,7 @@ describe('a split template', () => {
       { groupId, savedBy: 'ann', name: 'RENT', split: { kind: 'equal', memberIds: ['ann'] } },
       members,
       'some-other-template',
+      false,
       now,
     );
 
@@ -76,6 +77,8 @@ describe('a split template', () => {
         { groupId, savedBy: 'ann', name: 'A', split: { kind: 'equal', memberIds: ['ann', 'eve'] } },
         members,
         undefined,
+        false,
+
         now,
       ).error,
     ).toBeInstanceOf(TemplateMemberNotInGroupException);
@@ -84,6 +87,8 @@ describe('a split template', () => {
         { groupId, savedBy: 'ann', name: 'A', split: { kind: 'equal', memberIds: ['ann', 'ann'] } },
         members,
         undefined,
+        false,
+
         now,
       ).error,
     ).toBeInstanceOf(DuplicateTemplateMemberException);
@@ -92,6 +97,8 @@ describe('a split template', () => {
         { groupId, savedBy: 'ann', name: 'A', split: { kind: 'equal', memberIds: [] } },
         members,
         undefined,
+        false,
+
         now,
       ).error,
     ).toBeInstanceOf(NoTemplateMemberException);
@@ -100,6 +107,8 @@ describe('a split template', () => {
         { groupId, savedBy: 'ann', name: 'A', split: { kind: 'shares', shares: [{ memberId: 'ann', shares: 0 }] } },
         members,
         undefined,
+        false,
+
         now,
       ).error,
     ).toBeInstanceOf(InvalidTemplateSharesException);
@@ -111,13 +120,18 @@ describe('a split template', () => {
 
     expect(
       template
-        .replace({ name: 'Rent share', split: { kind: 'equal', memberIds: ['bob'] } }, members, id, now)
+        .replace({ name: 'Rent share', split: { kind: 'equal', memberIds: ['bob'] } }, members, id, false, now)
         .isFailure(),
     ).toBe(false);
     expect(template.splitDraft()).toEqual({ kind: 'equal', memberIds: ['bob'] });
     expect(
-      template.replace({ name: 'Other', split: { kind: 'equal', memberIds: ['bob'] } }, members, 'someone-else', now)
-        .error,
+      template.replace(
+        { name: 'Other', split: { kind: 'equal', memberIds: ['bob'] } },
+        members,
+        'someone-else',
+        false,
+        now,
+      ).error,
     ).toBeInstanceOf(TemplateNameTakenException);
   });
 
@@ -140,5 +154,36 @@ describe('a split template', () => {
         version: 1,
       }),
     ).toThrow();
+  });
+});
+
+describe('SplitTemplate in an archived group (request 27)', () => {
+  const now = new Date('2026-11-17T10:00:00.000Z');
+  const split = { kind: 'equal' as const, memberIds: ['ann'] };
+  const members = ['ann', 'bob'];
+
+  it('is not saved in an archived group', () => {
+    const saved = SplitTemplate.create(
+      { groupId: 'flat', savedBy: 'ann', name: 'Rent', split },
+      members,
+      undefined,
+      true,
+      now,
+    );
+    expect(saved.error?.type).toBe('GroupArchived');
+  });
+
+  it('is not replaced nor removed in an archived group, and keeps what it was', () => {
+    const template = SplitTemplate.create(
+      { groupId: 'flat', savedBy: 'ann', name: 'Rent', split },
+      members,
+      undefined,
+      false,
+      now,
+    ).data!;
+    expect(template.replace({ name: 'Other', split }, members, undefined, true, now).error?.type).toBe('GroupArchived');
+    expect(template.remove(true, now).error?.type).toBe('GroupArchived');
+    expect(template.toSnapshot()).toMatchObject({ name: 'Rent' });
+    expect(template.pullDomainEvents()).toHaveLength(1);
   });
 });

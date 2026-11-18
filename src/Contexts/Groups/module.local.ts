@@ -4,7 +4,14 @@ import { SqliteDatabase } from '@Architecture/Infrastructure/Sqlite/SqliteDataba
 
 import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 import { IMemberBalances, IWaitingPayments } from '@Contexts/Groups/Application/IMemberBalances';
-import { createGroup, getGroup, getGroupMembers, getMyGroups, leaveGroup } from '@Contexts/Groups/Application/Groups';
+import {
+  archiveGroup,
+  createGroup,
+  getGroup,
+  getGroupMembers,
+  getMyGroups,
+  leaveGroup,
+} from '@Contexts/Groups/Application/Groups';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { authenticateWith } from '@Contexts/Groups/Presentation/authentication';
 import { IGroupRoster } from '@Contexts/Groups/Domain/Group/Ports/IGroupRoster';
@@ -60,6 +67,7 @@ export async function groupsWiring(database: SqliteDatabase, balances: IMemberBa
       acceptInvitation(groups, invitations, systemClock),
       getGroupMembers(groups, accounts),
       leaveGroup(groups, balances, waiting, systemClock),
+      archiveGroup(groups, balances, waiting, systemClock),
     ],
   });
   return { module, authenticate: authenticateWith(tokens), roster: groups };

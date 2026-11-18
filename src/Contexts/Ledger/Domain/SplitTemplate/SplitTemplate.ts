@@ -1,4 +1,5 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { SplitDraft } from '@Contexts/Ledger/Domain/Expense/Split';
 import {
@@ -80,8 +81,10 @@ export class SplitTemplate extends AggregateRoot {
     draft: { groupId: string; savedBy: string; name: string; split: TemplateSplit },
     members: readonly string[],
     nameHeldBy: string | undefined,
+    archived: boolean,
     now: Date,
   ): IResult<SplitTemplate> {
+    if (archived) return Result.fail(new GroupArchivedException());
     const checked = checkTemplate(draft.name, draft.split, members, nameHeldBy !== undefined);
     if (checked.isFailure()) return Result.fail(checked.error);
 
@@ -134,8 +137,10 @@ export class SplitTemplate extends AggregateRoot {
     draft: { name: string; split: TemplateSplit },
     members: readonly string[],
     nameHeldBy: string | undefined,
+    archived: boolean,
     now: Date,
   ): IResult<void> {
+    if (archived) return Result.fail(new GroupArchivedException());
     const takenByOther = nameHeldBy !== undefined && nameHeldBy !== this._id.value;
     const checked = checkTemplate(draft.name, draft.split, members, takenByOther);
     if (checked.isFailure()) return Result.fail(checked.error);
@@ -154,7 +159,8 @@ export class SplitTemplate extends AggregateRoot {
   }
 
   /** Removes the template: no expense changes, and no one can split by it from now on. Records `TemplateRemoved`; the time is `now`. */
-  remove(now: Date): void {
+  remove(archived: boolean, now: Date): IResult<void> {
+    if (archived) return Result.fail(new GroupArchivedException());
     this.record(
       TemplateRemovedEvent.set({
         templateId: this._id.value,
@@ -162,6 +168,7 @@ export class SplitTemplate extends AggregateRoot {
         at: now.toISOString(),
       }),
     );
+    return Result.ok(undefined);
   }
 
   /** The split as it was given, in the words of a recording: the members of an equal split, or each member with their shares. */

@@ -1,10 +1,13 @@
 import { AggregateRoot, DomainEvent, Id, IResult, Result } from '@Architecture/Domain';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { Currency } from '@Contexts/Groups/Domain/Group/Currency';
 import { GroupName } from '@Contexts/Groups/Domain/Group/GroupName';
 import {
   AlreadyMemberException,
   GroupNotFoundException,
+  GroupNotSettledException,
+  OnlyTheOwnerArchivesException,
   OwnerCannotLeaveException,
   PaymentWaitingException,
 } from '@Contexts/Groups/Domain/Group/GroupExceptions';
@@ -18,6 +21,9 @@ import {
  * A member who leaves (feature 9, request 20) is no longer among `members`, and is kept in `formerMembers` with when they
  * left. What they owed or were owed passed to the owner when they left (`passes`, ADR 15): a pass is kept for good, so the
  * balances still add up to 0 and a member who joins again starts at 0.
+ *
+ * An archived group (feature 27, request 27) is read only: once `archivedAt` is set nothing in it changes. Every change a
+ * member asks for is refused by the shared kernel's GroupArchived (`openForChanges`), and the group is never unarchived.
  */
 export class Group extends AggregateRoot {
   readonly #name: GroupName;
@@ -27,6 +33,7 @@ export class Group extends AggregateRoot {
   readonly #formerMembers: FormerMember[];
   readonly #passes: BalancePass[];
   readonly #createdAt: string;
+  #archivedAt: string | undefined;
 
   private constructor(
     id: Id,
@@ -37,6 +44,7 @@ export class Group extends AggregateRoot {
     formerMembers: FormerMember[],
     passes: BalancePass[],
     createdAt: string,
+    archivedAt: string | undefined,
     version: number,
   ) {
     super(id, version);
@@ -47,11 +55,25 @@ export class Group extends AggregateRoot {
     this.#formerMembers = formerMembers;
     this.#passes = passes;
     this.#createdAt = createdAt;
+    this.#archivedAt = archivedAt;
   }
 
   /** The account that created the group. */
   get ownerId(): string {
     return this.#ownerId;
+  }
+
+  /** When the group was archived, or `undefined` while it is not (feature 27). */
+  get archivedAt(): string | undefined {
+    return this.#archivedAt;
+  }
+
+  /**
+   * Whether a change in the group may be made: refused with GroupArchived once it is archived (feature 27, request 27). Every change
+   * of the group's members or invitations asks it first; the refusal changes nothing.
+   */
+  openForChanges(): IResult<void> {
+    return this.#archivedAt === undefined ? Result.ok(undefined) : Result.fail(new GroupArchivedException());
   }
 
   /** The members in the order they joined, the owner first. A copy: the aggregate keeps its own list. */
@@ -98,6 +120,7 @@ export class Group extends AggregateRoot {
       [],
       [],
       at,
+      undefined,
       0,
     );
     group.record(GroupCreatedEvent.set({ groupId: id.value, createdBy: ownerId, at }));
@@ -110,6 +133,8 @@ export class Group extends AggregateRoot {
    * its former row and joins last, with the balance its earlier expenses gave it. Records MemberJoined; the time is `now`.
    */
   join(accountId: string, now: Date): IResult<void> {
+    const open = this.openForChanges();
+    if (open.isFailure()) return open;
     if (this.hasMember(accountId)) return Result.fail(new AlreadyMemberException());
 
     const at = now.toISOString();
@@ -128,6 +153,8 @@ export class Group extends AggregateRoot {
    * same step: BalancePassed, then MemberLeft are recorded, and the time is `now`. Pure.
    */
   leave(accountId: string, reading: LeaveReading, now: Date): IResult<void> {
+    const open = this.openForChanges();
+    if (open.isFailure()) return open;
     if (accountId === this.#ownerId) return Result.fail(new OwnerCannotLeaveException());
 
     const member = this.#members.find(candidate => candidate.accountId === accountId);
@@ -152,6 +179,24 @@ export class Group extends AggregateRoot {
     return Result.ok(undefined);
   }
 
+  /**
+   * The group is archived (feature 27, request 27): by its owner, once every member's balance is 0 and no payment through the provider is
+   * pending or refunding (the reading the caller takes, as a plain value). Refused with GroupArchived when it is archived already (`422`),
+   * with `403` to any member who is not its owner, and with GroupNotSettled (`422`) while a balance is not 0 or a payment waits. Records
+   * GroupArchived, and the time is `now`. Pure. An archived group stays archived.
+   */
+  archive(accountId: string, reading: ArchiveReading, now: Date): IResult<void> {
+    const open = this.openForChanges();
+    if (open.isFailure()) return open;
+    if (accountId !== this.#ownerId) return Result.fail(new OnlyTheOwnerArchivesException());
+    if (!reading.balancesCleared || reading.paymentWaiting) return Result.fail(new GroupNotSettledException());
+
+    const at = now.toISOString();
+    this.#archivedAt = at;
+    this.record(GroupArchivedEvent.set({ groupId: this._id.value, at }));
+    return Result.ok(undefined);
+  }
+
   /** The group as the store keeps it. Records nothing; throws on a snapshot that is not a group the domain accepts. */
   static fromSnapshot(snapshot: GroupSnapshot): Group {
     const name = GroupName.create(snapshot.name);
@@ -168,6 +213,7 @@ export class Group extends AggregateRoot {
       snapshot.formerMembers.map(member => ({ ...member })),
       snapshot.passes.map(pass => ({ ...pass })),
       snapshot.createdAt,
+      snapshot.archivedAt,
       snapshot.version,
     );
   }
@@ -182,9 +228,19 @@ export class Group extends AggregateRoot {
       formerMembers: this.formerMembers(),
       passes: this.passes(),
       createdAt: this.#createdAt,
+      archivedAt: this.#archivedAt,
       version: this.version,
     };
   }
+}
+
+/**
+ * What an archive is decided on, read by the caller (feature 27): whether every member's balance in the group is 0, and whether a payment
+ * through the provider is pending or refunding in it.
+ */
+export interface ArchiveReading {
+  readonly balancesCleared: boolean;
+  readonly paymentWaiting: boolean;
 }
 
 /** What a leave is decided on, read by the caller: the member's balance in the group, and whether a payment of theirs waits. */
@@ -235,6 +291,8 @@ export interface GroupSnapshot {
   /** The balances that passed to the owner when members left, in the order they were made (request 20). */
   readonly passes: readonly BalancePass[];
   readonly createdAt: string;
+  /** When the group was archived (feature 27); absent while it is not. */
+  readonly archivedAt?: string;
   readonly version: number;
 }
 
@@ -261,6 +319,14 @@ export type MemberLeftPayload = { groupId: string; accountId: string; at: string
  * after the commit; nothing subscribes to it (Ledger reads the members when it decides, as for joining).
  */
 export class MemberLeftEvent extends DomainEvent<MemberLeftPayload> {}
+
+export type GroupArchivedPayload = { groupId: string; at: string };
+
+/**
+ * The fact of an archive (feature 27): which group was archived, and when. It is made durable with the group and published after the
+ * commit; nothing subscribes to it yet (the other contexts ask Groups through their own ports, not by this event).
+ */
+export class GroupArchivedEvent extends DomainEvent<GroupArchivedPayload> {}
 
 export type BalancePassedPayload = {
   groupId: string;

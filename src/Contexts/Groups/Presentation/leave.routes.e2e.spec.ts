@@ -418,6 +418,43 @@ describe('Settlements → Groups (WaitingPayments)', () => {
     const left = await http.request('POST', `${api}/groups/${groupId}/leave`, { token: bob.token });
     expect(left.status).toBeLessThan(300);
   });
+
+  it('a group with a payment of Bob waiting at the provider is archived only once it has ended, by the group id it was made in', async () => {
+    const { groupId } = await groupWithDinner();
+    // Bob pays Ann 100 through the provider: pending, so not counted. Carol pays Ann her 100 in cash, so only Bob's balance is open.
+    const paid = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      token: bob.token,
+      body: { to: ann.id, amount: 100 },
+    });
+    expect(paid.status).toBeLessThan(300);
+    const settlementId = (paid.body as { id: string }).id;
+    const cash = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      token: ann.token,
+      body: { from: carol.id, to: ann.id, amount: 100 },
+    });
+    expect(cash.status).toBeLessThan(300);
+
+    expect(await http.request('POST', `${api}/groups/${groupId}/archive`, { token: ann.token })).toMatchObject({
+      status: 422,
+      body: { type: 'GroupNotSettled' },
+    });
+
+    // The provider says the payment succeeded: every balance is 0, and the group is archived.
+    const webhook = {
+      id: `wh-${settlementId}`,
+      paymentId: paymentsByReference.get(settlementId),
+      status: 'succeeded',
+      at: WEBHOOK_AT,
+    };
+    const counted = await http.request('POST', `${api}/provider/webhooks`, {
+      body: webhook,
+      headers: { 'provider-signature': createHmac('sha256', SECRET).update(JSON.stringify(webhook)).digest('hex') },
+    });
+    expect(counted.status).toBe(204);
+    expect(await http.request('POST', `${api}/groups/${groupId}/archive`, { token: ann.token })).toMatchObject({
+      status: 204,
+    });
+  });
 });
 
 describe('leaving at the same moment as an expense (two servers, one database)', () => {

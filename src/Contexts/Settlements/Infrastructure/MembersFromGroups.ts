@@ -19,4 +19,8 @@ export class MembersFromGroups implements ISettlementMembers {
   async currencyOf(groupId: string): Promise<string | undefined> {
     return this.roster.currencyOf(groupId);
   }
+
+  isArchived(groupId: string): Promise<boolean> {
+    return this.roster.isArchived(groupId);
+  }
 }

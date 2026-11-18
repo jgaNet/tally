@@ -2,6 +2,7 @@ import { IResult, Result } from '@Architecture/Domain';
 import { Clock, publishDomainEvents } from '@Architecture/Application';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
+import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import { IExpenseStore } from '@Contexts/Ledger/Application/IExpenseStore';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
@@ -33,6 +34,7 @@ export const attachReceipt = command(
     async ({ expenseId, bytes }: AttachReceiptInput, context): Promise<IResult<void>> => {
       const allowed = await mayAttach(expenses, groupMembers, expenseId, context);
       if (allowed.isFailure()) return Result.fail(allowed.error);
+      const { archived } = allowed.data;
 
       const file = examineReceipt(bytes);
       if (file.isFailure()) return Result.fail(file.error);
@@ -42,13 +44,19 @@ export const attachReceipt = command(
 
       const current = await receipts.findByExpense(expenseId);
       if (current) {
-        current.reattach({ fileId: kept.id, url: kept.url, file: file.data }, clock());
+        const reattached = current.reattach({ fileId: kept.id, url: kept.url, file: file.data }, archived, clock());
+        if (reattached.isFailure()) return reattached;
         await receipts.save(current);
         await publishDomainEvents(current, context);
       } else {
-        const attached = Receipt.attach({ expenseId, fileId: kept.id, url: kept.url, file: file.data }, clock());
-        await receipts.add(attached);
-        await publishDomainEvents(attached, context);
+        const attached = Receipt.attach(
+          { expenseId, fileId: kept.id, url: kept.url, file: file.data },
+          archived,
+          clock(),
+        );
+        if (attached.isFailure()) return Result.fail(attached.error);
+        await receipts.add(attached.data);
+        await publishDomainEvents(attached.data, context);
       }
       return Result.ok(undefined);
     },
@@ -76,20 +84,23 @@ export const getReceipt = query(
 
 /**
  * Whether the caller may attach a receipt to the expense, by the expense's rules (the same as an edit's, request 6): it is there for a member of
- * its group (else the expense's `404`), and the caller paid it or is the group's owner (else `403`).
+ * its group (else the expense's `404`), the group is not archived (request 27: GroupArchived, before any file is sent to the store), and the
+ * caller paid it or is the group's owner (else `403`). Answers the group's archived state, which the receipt's aggregate takes.
  */
 async function mayAttach(
   expenses: IExpenseStore,
   groupMembers: IGroupMembers,
   expenseId: string,
   context: ExecutionContext,
-): Promise<IResult<void>> {
+): Promise<IResult<{ archived: boolean }>> {
   const expense = await expenses.viewOf(expenseId);
   if (!expense) return Result.fail(new ExpenseNotFoundException());
   const members = await groupMembers.membersOf(expense.groupId);
   const caller = callerOf(context);
   const me = members?.find(member => member.memberId === caller);
   if (!members || !me) return Result.fail(new ExpenseNotFoundException());
+  const archived = await groupMembers.isArchived(expense.groupId);
+  if (archived) return Result.fail(new GroupArchivedException());
   if (expense.paidBy !== caller && me.role !== 'owner') return Result.fail(new NotThePayerOrOwnerException());
-  return Result.ok(undefined);
+  return Result.ok({ archived });
 }

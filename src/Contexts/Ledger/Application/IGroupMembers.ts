@@ -26,6 +26,11 @@ export interface IGroupMembers {
    * to 0. Answered over the same roster.
    */
   passedBalancesOf(groupId: string): Promise<PassedBalance[]>;
+  /**
+   * Whether the group is archived (feature 27, request 27): the group is read-only then, and a change in it is refused by the shared
+   * kernel's GroupArchived. Answered over the same roster; a group that is not there answers `false`.
+   */
+  isArchived(groupId: string): Promise<boolean>;
 }
 
 /** A balance that passed from a member who left a group to its owner, in the group's currency's hundredths (request 20). */

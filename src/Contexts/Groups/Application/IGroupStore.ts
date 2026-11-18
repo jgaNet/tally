@@ -6,6 +6,8 @@ export interface GroupView {
   readonly name: string;
   readonly currency: string;
   readonly ownerId: string;
+  /** When the group was archived (feature 27, request 27): present once it is, and only then. */
+  readonly archivedAt?: string;
 }
 
 /**

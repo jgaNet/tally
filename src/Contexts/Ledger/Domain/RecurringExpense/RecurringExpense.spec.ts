@@ -20,7 +20,7 @@ const draft = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const setUpOrThrow = (overrides: Record<string, unknown> = {}): RecurringExpense => {
-  const set = RecurringExpense.setUp(draft(overrides) as never, members, now);
+  const set = RecurringExpense.setUp(draft(overrides) as never, members, false, now);
   if (set.isFailure()) throw set.error;
   return set.data;
 };
@@ -43,27 +43,31 @@ describe('RecurringExpense.setUp', () => {
   });
 
   it('accepts a start exactly 365 days before today and exactly 365 days after it', () => {
-    expect(RecurringExpense.setUp(draft({ startsOn: '2025-11-18' }) as never, members, now).isSuccess()).toBe(true);
-    expect(RecurringExpense.setUp(draft({ startsOn: '2027-11-18' }) as never, members, now).isSuccess()).toBe(true);
+    expect(RecurringExpense.setUp(draft({ startsOn: '2025-11-18' }) as never, members, false, now).isSuccess()).toBe(
+      true,
+    );
+    expect(RecurringExpense.setUp(draft({ startsOn: '2027-11-18' }) as never, members, false, now).isSuccess()).toBe(
+      true,
+    );
   });
 
   it('refuses a start more than 365 days before today or after it', () => {
-    const before = RecurringExpense.setUp(draft({ startsOn: '2025-11-17' }) as never, members, now);
-    const after = RecurringExpense.setUp(draft({ startsOn: '2027-11-19' }) as never, members, now);
+    const before = RecurringExpense.setUp(draft({ startsOn: '2025-11-17' }) as never, members, false, now);
+    const after = RecurringExpense.setUp(draft({ startsOn: '2027-11-19' }) as never, members, false, now);
     expect(before.isFailure() && before.error.type).toBe('InvalidRecurringStartsOn');
     expect(after.isFailure() && after.error.type).toBe('InvalidRecurringStartsOn');
   });
 
   it('refuses a start that is not a day every month has, or a day that is not on the calendar', () => {
     for (const startsOn of ['2026-09-29', '2026-09-31', '2026-02-30', '2026-09-00', '2026-9-05', 'not a day']) {
-      const set = RecurringExpense.setUp(draft({ startsOn }) as never, members, now);
+      const set = RecurringExpense.setUp(draft({ startsOn }) as never, members, false, now);
       expect(set.isFailure() && set.error.type).toBe('InvalidRecurringStartsOn');
     }
   });
 
   it('refuses an amount that is not a whole number from 1, and a description that is empty', () => {
-    const amount = RecurringExpense.setUp(draft({ amount: 0 }) as never, members, now);
-    const description = RecurringExpense.setUp(draft({ description: '   ' }) as never, members, now);
+    const amount = RecurringExpense.setUp(draft({ amount: 0 }) as never, members, false, now);
+    const description = RecurringExpense.setUp(draft({ description: '   ' }) as never, members, false, now);
     expect(amount.isFailure() && amount.error.type).toBe('InvalidExpenseAmount');
     expect(description.isFailure() && description.error.type).toBe('InvalidExpenseDescription');
   });
@@ -72,11 +76,13 @@ describe('RecurringExpense.setUp', () => {
     const outsider = RecurringExpense.setUp(
       draft({ split: { kind: 'equal', memberIds: ['ann', 'carl'] } }) as never,
       members,
+      false,
       now,
     );
     const payerLeft = RecurringExpense.setUp(
       draft({ split: { kind: 'equal', memberIds: ['bob'] } }) as never,
       members,
+      false,
       now,
     );
     expect(outsider.isFailure() && outsider.error.type).toBe('SplitMemberNotInGroup');
@@ -108,7 +114,7 @@ describe('RecurringExpense.sweep', () => {
     const recurring = loaded(setUpOrThrow());
     recurring.pullDomainEvents();
 
-    expect(recurring.sweep(members, now)).toBe('kept');
+    expect(recurring.sweep(members, false, now)).toBe('kept');
 
     const events = recurring.pullDomainEvents() as RecurringExpenseDayCameEvent[];
     expect(events.map(event => event.payload.day)).toEqual(['2026-09-05', '2026-10-05', '2026-11-05']);
@@ -120,14 +126,14 @@ describe('RecurringExpense.sweep', () => {
 
   it('records nothing before its day has come', () => {
     const recurring = loaded(setUpOrThrow({ startsOn: '2026-12-05' }));
-    expect(recurring.sweep(members, now)).toBe('kept');
+    expect(recurring.sweep(members, false, now)).toBe('kept');
     expect(recurring.pullDomainEvents()).toHaveLength(0);
     expect(recurring.next).toBe('2026-12-05');
   });
 
   it('records a day on the very day it comes', () => {
     const recurring = loaded(setUpOrThrow({ startsOn: '2026-11-18' }));
-    recurring.sweep(members, now);
+    recurring.sweep(members, false, now);
     expect((recurring.pullDomainEvents() as RecurringExpenseDayCameEvent[]).map(event => event.payload.day)).toEqual([
       '2026-11-18',
     ]);
@@ -138,7 +144,7 @@ describe('RecurringExpense.sweep', () => {
     const recurring = loaded(setUpOrThrow());
     recurring.pullDomainEvents();
 
-    expect(recurring.sweep(['ann'], now)).toBe('ended');
+    expect(recurring.sweep(['ann'], false, now)).toBe('ended');
 
     const events = recurring.pullDomainEvents();
     expect(events).toHaveLength(1);
@@ -147,7 +153,7 @@ describe('RecurringExpense.sweep', () => {
 
   it('ends when the group is not there', () => {
     const recurring = loaded(setUpOrThrow());
-    expect(recurring.sweep(undefined, now)).toBe('ended');
+    expect(recurring.sweep(undefined, false, now)).toBe('ended');
   });
 });
 
@@ -155,5 +161,26 @@ describe('nextMonthOf', () => {
   it('is the same day of the next month, the year turning in December', () => {
     expect(nextMonthOf('2026-09-05')).toBe('2026-10-05');
     expect(nextMonthOf('2026-12-28')).toBe('2027-01-28');
+  });
+});
+
+describe('RecurringExpense in an archived group (request 27)', () => {
+  it('is not set up in an archived group', () => {
+    expect(RecurringExpense.setUp(draft() as never, members, true, now).error?.type).toBe('GroupArchived');
+  });
+
+  it('is not stopped in an archived group, and stays as it was', () => {
+    const recurring = setUpOrThrow();
+    recurring.pullDomainEvents();
+    expect(recurring.stop(true, now).error?.type).toBe('GroupArchived');
+    expect(recurring.pullDomainEvents()).toEqual([]);
+  });
+
+  it('is left alone by the sweep in an archived group: nothing recorded, next day not moved', () => {
+    const recurring = loaded(setUpOrThrow({ startsOn: '2026-09-05' }));
+    const next = recurring.next;
+    expect(recurring.sweep(members, true, now)).toBe('archived');
+    expect(recurring.next).toBe(next);
+    expect(recurring.pullDomainEvents()).toEqual([]);
   });
 });
