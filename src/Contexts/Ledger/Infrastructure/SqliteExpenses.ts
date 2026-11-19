@@ -7,6 +7,7 @@ import {
   ExpenseView,
   IExpenseQueries,
   OriginalView,
+  SpendingView,
 } from '@Contexts/Ledger/Application/IExpenseQueries';
 
 import { LedgerDatabase } from './LedgerDatabase';
@@ -242,6 +243,25 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
       [groupId, month],
     );
     return new Map(rows.map(row => [row.category, row.spent]));
+  }
+
+  async spendingOf(memberId: string, groupIds: string[]): Promise<SpendingView[]> {
+    if (groupIds.length === 0) return [];
+    const groups = groupIds.map((_, index) => `$${index + 2}`).join(', ');
+    const rows = await this.database.rows<{
+      group_id: string;
+      month: string;
+      category: ExpenseCategory;
+      amount: number;
+    }>(
+      `SELECT e.group_id, substr(e.date, 1, 7) AS month, e.category, CAST(SUM(s.amount) AS INTEGER) AS amount
+         FROM ledger_expenses e
+         JOIN ledger_expense_shares s ON s.expense_id = e.id
+        WHERE s.member_id = $1 AND e.group_id IN (${groups})
+        GROUP BY e.group_id, substr(e.date, 1, 7), e.category`,
+      [memberId, ...groupIds],
+    );
+    return rows.map(row => ({ groupId: row.group_id, month: row.month, category: row.category, amount: row.amount }));
   }
 
   async isInvolved(groupId: string, memberId: string): Promise<boolean> {

@@ -566,4 +566,36 @@ describe('Groups → Ledger, a deleted account (request 35)', () => {
     });
     expect((refused.body as { type: string }).type).toBe('AccountDeleted');
   });
+
+  it('finds, by the id Groups answered, the groups a person is in now and their currency: a spending line is in the group’s currency, and a left group counts for nothing', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const created = await http.request('POST', `${api}/groups`, {
+      body: { name: 'Milan', currency: 'CHF' },
+      token: ada.token,
+    });
+    expect(created.status).toBe(201);
+    const { id: groupId } = created.body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as { id: string };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: {
+        description: 'Train',
+        amount: 3000,
+        date: '2026-07-02',
+        category: 'travel',
+        splitBetween: [ada.id, grace.id],
+      },
+      token: ada.token,
+    });
+    expect(recorded.status).toBeLessThan(300);
+
+    const insights = (await http.request('GET', `${api}/accounts/me/insights`, { token: ada.token })).body;
+    expect(insights).toEqual([{ month: '2026-07', currency: 'CHF', category: 'travel', amount: 1500 }]);
+    expect((await http.request('GET', `${api}/accounts/me/insights`, { token: grace.token })).body).toEqual([
+      { month: '2026-07', currency: 'CHF', category: 'travel', amount: 1500 },
+    ]);
+  });
 });

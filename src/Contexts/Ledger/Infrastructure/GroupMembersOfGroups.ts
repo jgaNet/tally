@@ -12,9 +12,13 @@ export class GroupMembersOfGroups implements IGroupMembers {
   constructor(
     private readonly groups: () => Pick<
       IGroupQueries,
-      'membersOf' | 'passesOf' | 'archivedOf' | 'suspendedOf' | 'deletedOf'
+      'membersOf' | 'passesOf' | 'archivedOf' | 'suspendedOf' | 'deletedOf' | 'groupsOf'
     >,
   ) {}
+
+  async groupsOf(accountId: string): Promise<string[]> {
+    return (await this.groups().groupsOf(accountId)).map(group => group.id);
+  }
 
   async archivedOf(groupId: string): Promise<boolean> {
     return this.groups().archivedOf(groupId);

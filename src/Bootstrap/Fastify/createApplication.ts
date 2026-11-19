@@ -20,6 +20,7 @@ import { database as ledgerDatabase, localLedgerModule } from '@Contexts/Ledger/
 import { sweepRecurringExpenses } from '@Contexts/Ledger/Application/RecurringExpenses';
 import { auditRoutes } from '@Contexts/Ledger/Presentation/audit.routes';
 import { budgetRoutes } from '@Contexts/Ledger/Presentation/budgets.routes';
+import { insightRoutes } from '@Contexts/Ledger/Presentation/insights.routes';
 import { templateRoutes } from '@Contexts/Ledger/Presentation/templates.routes';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
 import {
@@ -81,6 +82,7 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
     .registerRoutes('/', budgetRoutes, { module: localLedgerModule })
+    .registerRoutes('/', insightRoutes, { module: localLedgerModule })
     .registerRoutes('/', auditRoutes, { module: localLedgerModule })
     .registerRoutes('/', templateRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { module: localSettlementsModule, providerSignedBy })

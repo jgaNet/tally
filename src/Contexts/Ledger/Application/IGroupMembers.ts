@@ -46,4 +46,10 @@ export interface IGroupMembers {
    * and the background job ends a recurring expense it pays or is in the split of (ADR 33). Asked by no member: it is the answer about an account.
    */
   deletedOf(accountId: string): Promise<boolean>;
+  /**
+   * The groups the account is a member of now, by id, the most recently created first (request 37). Groups it has left are not in it.
+   * Asked by no member: it is the answer about the account asking, and each group's currency is then asked through `GroupCurrency`
+   * with that account, which is a member of each of them.
+   */
+  groupsOf(accountId: string): Promise<string[]>;
 }

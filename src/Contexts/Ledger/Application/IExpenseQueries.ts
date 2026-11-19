@@ -53,8 +53,24 @@ export interface ExpenseLineView {
   share: number;
 }
 
+/**
+ * What a member's shares add up to in one group, in one month and one category (request 37): the sum of the member's shares of the
+ * group's expenses of that category dated in that month (UTC), deleted ones left out. Amounts are in the group's currency.
+ */
+export interface SpendingView {
+  groupId: string;
+  month: string;
+  category: ExpenseCategory;
+  amount: number;
+}
+
 /** The read side of the expenses: read models, never aggregates (QUERY-READ-MODELS). */
 export interface IExpenseQueries extends IBalanceQueries {
+  /**
+   * The member's shares of the expenses of the given groups, summed by group, month and category (request 37), one row for each that
+   * has any. Asked for the member only: it is their own spending, and the groups are the ones they are a member of now.
+   */
+  spendingOf(memberId: string, groupIds: string[]): Promise<SpendingView[]>;
   /**
    * Every expense of the group that is not deleted, each as `expenseOf` reads it, the latest date first and, on the same
    * date, the most recently recorded first (request 8). An edit does not change when an expense was recorded.

@@ -2,6 +2,7 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { groupsMembersReadModel } from '@Contexts/Groups/module.local';
 import { getGroupAudit } from '@Contexts/Ledger/Application/Audit';
+import { getMyInsights } from '@Contexts/Ledger/Application/Insights';
 import {
   deleteExpense,
   editExpense,
@@ -148,5 +149,6 @@ export const localLedgerModule = new LiteModule({
     attachReceipt(expenses, groupMembers, receipts, receiptStore, systemClock),
     getReceipt(expenses, groupMembers, receipts),
     getGroupAudit(groupMembers, audit, settlementAudit, passedBalances),
+    getMyInsights(groupMembers, groupCurrency, expenses),
   ],
 });

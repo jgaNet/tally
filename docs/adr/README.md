@@ -43,3 +43,4 @@ it from this table and from wherever the rule is stated.
 | [32](0032-suspending-an-account-groups-keeps-the-flag-and-each-context-refuses-by-its-port.md) | Suspending an account: Groups decides it and keeps the flag, each context asks through its port and refuses by `AccountSuspended` |
 | [33](0033-deleting-an-account-groups-erases-it-and-each-context-refuses-by-its-port.md) | Deleting an account: Groups erases its name and email and keeps its id, each context refuses a deleted account by its port |
 | [34](0034-notice-preferences-one-choice-per-person-read-when-a-notice-would-be-made.md) | Notice preferences: one choice per person, read when a notice would be made, and a reminder not made is not made |
+| [35](0035-spending-insights-a-query-of-ledger-over-the-shares-through-its-own-ports.md) | Spending insights: a query of Ledger over the shares, across the groups a person is in now, through its own ports |
