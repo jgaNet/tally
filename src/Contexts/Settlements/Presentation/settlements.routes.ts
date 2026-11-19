@@ -3,6 +3,7 @@ import { Readable } from 'stream';
 
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
+import { getNetting, netDebts, NetDebtsInput } from '@Contexts/Settlements/Application/Nettings';
 import {
   getGroupSettlements,
   getSettlement,
@@ -24,6 +25,8 @@ const SHAPE_REFUSAL = 'The body must have from (the payer account id, a string) 
 const PROVIDER_SHAPE_REFUSAL = 'The body must have to (the payee account id, a string) and amount (a whole number)';
 const WEBHOOK_SHAPE_REFUSAL = 'The body must have id, paymentId, status and at, each a string';
 const PAYOUT_ACCOUNT_SHAPE_REFUSAL = 'The body must have accountId, the provider id of the payout account, a string';
+const NETTING_SHAPE_REFUSAL =
+  "The body must have with (the other member's account id, a string) and currency (a string)";
 /** Whether a webhook's body, as sent, is signed by the provider under the header given: composed at the root, where the secret is read. */
 export type ProviderSignatureCheck = (body: Buffer, header: string | undefined) => boolean;
 
@@ -41,6 +44,13 @@ const hasProviderShape = (body: unknown): boolean => {
   if (typeof body !== 'object' || body === null) return false;
   const { to, amount } = body as Record<string, unknown>;
   return typeof to === 'string' && Number.isInteger(amount);
+};
+
+/** A netting's body: the other member's account id and the currency, each a string; whether the currency is Tally's is the domain's (request 32). */
+const hasNettingShape = (body: unknown): boolean => {
+  if (typeof body !== 'object' || body === null) return false;
+  const { with: other, currency } = body as Record<string, unknown>;
+  return typeof other === 'string' && typeof currency === 'string';
 };
 
 /** A payout account's body: the provider's id of the account, a string (request 16). */
@@ -181,6 +191,33 @@ export const settlementRoutes: FastifyPluginCallback<{
 
   fastify.get('/settlements/:id', { schema: { tags: ['settlements'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getSettlement), { id: (req.params as { id: string }).id }),
+  );
+
+  // A signed-in person nets what they and another member owe each other across their groups in one currency: created, `201 { id }` (request 32).
+  fastify.post(
+    '/nettings',
+    {
+      schema: { tags: ['settlements'] },
+      preValidation: async (request, reply) => {
+        if (!hasNettingShape(request.body)) return reply.code(400).send({ message: NETTING_SHAPE_REFUSAL });
+        return undefined;
+      },
+    },
+    (req, reply) => {
+      const body = req.body as { with: string; currency: string };
+      return answerAtOnce(
+        req,
+        reply,
+        module.useCase(netDebts),
+        { with: body.with, currency: body.currency } as NetDebtsInput,
+        { created: true },
+      );
+    },
+  );
+
+  // The two people who netted read it: who asked, with whom, its currency, the amount and its settlements (request 32).
+  fastify.get('/nettings/:id', { schema: { tags: ['settlements'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getNetting), { id: (req.params as { id: string }).id }),
   );
 
   done();

@@ -7,7 +7,7 @@ export interface CountedSettlement {
   from: string;
   to: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   /** When the balances started to count it: the instant it became paid, as ISO 8601 in UTC. */
   countedAt: string;
 }

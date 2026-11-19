@@ -54,7 +54,7 @@ export class StatementCountingSettlements implements IStatementQueries {
             kind: 'settlement' as const,
             settlementId: settlement.settlementId,
             date,
-            description: settlement.method === 'cash' ? 'Settlement in cash' : 'Settlement through the provider',
+            description: DESCRIPTION_OF[settlement.method],
             paid,
             share,
           },
@@ -74,6 +74,13 @@ export class StatementCountingSettlements implements IStatementQueries {
     return { memberId, balance, entries };
   }
 }
+
+/** What a statement says of a settlement, by how it was paid (request 29, request 32). */
+const DESCRIPTION_OF: Record<'cash' | 'provider' | 'net', string> = {
+  cash: 'Settlement in cash',
+  provider: 'Settlement through the provider',
+  net: 'Settlement by netting',
+};
 
 /** The instant of a record, in milliseconds since the epoch; a record with no instant (an expense a file held before it had one) is the first. */
 const instantOf = (at: string): number => (at === '' ? Number.NEGATIVE_INFINITY : Date.parse(at));

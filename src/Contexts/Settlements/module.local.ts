@@ -21,6 +21,8 @@ import { SettlementsDatabase } from '@Contexts/Settlements/Infrastructure/Settle
 import { GroupsMergedIntegrationEventHandler } from '@Contexts/Settlements/Application/Events/GroupsMergedHandler';
 import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
 import { SqliteSettlements } from '@Contexts/Settlements/Infrastructure/SqliteSettlements';
+import { SqliteNettings } from '@Contexts/Settlements/Infrastructure/SqliteNettings';
+import { getNetting, netDebts } from '@Contexts/Settlements/Application/Nettings';
 import { SqlitePayoutAccounts } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccounts';
 
 /**
@@ -34,6 +36,8 @@ import { SqlitePayoutAccounts } from '@Contexts/Settlements/Infrastructure/Sqlit
  */
 export const database = new SettlementsDatabase();
 export const settlementsReadModel = new SqliteSettlements(database);
+/** The nettings a netting is saved to, in the transaction of the settlements it made (request 32). */
+export const nettingsStore = new SqliteNettings(database);
 
 const groupBalances = new GroupBalancesOfLedger(() => ledgerBalancesReadModel);
 const settlementMembers = new SettlementMembersOfGroups(() => groupsMembersReadModel);
@@ -75,6 +79,8 @@ export const localSettlementsModule = new LiteModule({
     receivePaymentWebhook(settlementsReadModel, systemClock),
     getSettlement(settlementsReadModel, settlementMembers),
     getGroupSettlements(settlementsReadModel, settlementMembers),
+    netDebts(settlementsReadModel, groupBalances, settlementMembers, nettingsStore, systemClock),
+    getNetting(settlementsReadModel),
   ],
   integrationEvents: [
     {

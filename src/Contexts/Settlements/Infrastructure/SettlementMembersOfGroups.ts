@@ -9,11 +9,30 @@ import { ISettlementMembers } from '@Contexts/Settlements/Application/ISettlemen
  */
 export class SettlementMembersOfGroups implements ISettlementMembers {
   constructor(
-    private readonly groups: () => Pick<IGroupQueries, 'membersOf' | 'groupOf' | 'currentMembers' | 'archivedOf'>,
+    private readonly groups: () => Pick<
+      IGroupQueries,
+      'membersOf' | 'groupOf' | 'groupsOf' | 'currentMembers' | 'archivedOf'
+    >,
   ) {}
 
   archivedOf(groupId: string): Promise<boolean> {
     return this.groups().archivedOf(groupId);
+  }
+
+  /**
+   * The groups the asking member and the other are both in, read from the groups the asker is in, the earliest created first (Groups answers
+   * the most recent first), each with its currency and whether it is archived (request 32).
+   */
+  async sharedGroupsOf(askedBy: string, other: string) {
+    const groups = this.groups();
+    const shared: { groupId: string; currency: string; archived: boolean }[] = [];
+    for (const group of [...(await groups.groupsOf(askedBy))].reverse()) {
+      const members = await groups.membersOf(group.id, askedBy);
+      if (members?.some(member => member.memberId === other)) {
+        shared.push({ groupId: group.id, currency: group.currency, archived: group.archivedAt !== undefined });
+      }
+    }
+    return shared;
   }
 
   async membersOf(groupId: string, askedBy: string): Promise<string[] | undefined> {

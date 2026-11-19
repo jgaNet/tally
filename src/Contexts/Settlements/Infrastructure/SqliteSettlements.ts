@@ -3,6 +3,7 @@ import { ISettlementBooks } from '@Contexts/Settlements/Application/ISettlementB
 import {
   CountedSettlement,
   ISettlementQueries,
+  NettingView,
   SettledTransfer,
   SettlementAuditLine,
   SettlementHistoryLine,
@@ -36,7 +37,7 @@ type CountedRow = {
   payer: string;
   payee: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: SettlementMethod;
   counted_at: string;
 };
 type HistoryRow = { status: SettlementHistoryLine['status']; at: string };
@@ -49,7 +50,10 @@ type AuditRow = {
   method: SettlementMethod;
   status: SettlementHistoryLine['status'];
   at: string;
+  /** Who asked the netting the settlement was made by (request 32); null for any other settlement. */
+  netted_by: string | null;
 };
+type NettingRow = { id: string; asked_by: string; asked_with: string; currency: string; amount: number };
 type LiveRow = {
   id: string;
   payer: string;
@@ -270,8 +274,10 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
 
   async auditOf(groupId: string): Promise<SettlementAuditLine[]> {
     const rows = await this.database.rows<AuditRow>(
-      `SELECT s.id, s.payer, s.payee, s.amount, s.method, h.status, h.at
+      `SELECT s.id, s.payer, s.payee, s.amount, s.method, h.status, h.at, n.asked_by AS netted_by
          FROM settlement_history h JOIN settlements s ON s.id = h.settlement_id
+         LEFT JOIN netting_settlements ns ON ns.settlement_id = s.id
+         LEFT JOIN nettings n ON n.id = ns.netting_id
         WHERE s.group_id = $1
           AND (h.status = 'paid'
                OR (h.status = 'refunded' AND EXISTS (
@@ -284,7 +290,7 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
         ? {
             id: `${row.id}:paid`,
             at: row.at,
-            by: row.method === 'cash' ? row.payee : row.payer,
+            by: byOf(row),
             action: 'settlement-paid',
             subjectId: row.id,
             amount: row.amount,
@@ -300,6 +306,26 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
     );
   }
 
+  async nettingOf(id: string): Promise<NettingView | undefined> {
+    const row = await this.database.row<NettingRow>(
+      'SELECT id, asked_by, asked_with, currency, amount FROM nettings WHERE id = $1',
+      [id],
+    );
+    if (!row) return undefined;
+    const settlements = await this.database.rows<{ settlement_id: string }>(
+      'SELECT settlement_id FROM netting_settlements WHERE netting_id = $1 ORDER BY seq',
+      [id],
+    );
+    return {
+      id: row.id,
+      by: row.asked_by,
+      with: row.asked_with,
+      currency: row.currency,
+      amount: row.amount,
+      settlements: settlements.map(settlement => settlement.settlement_id),
+    };
+  }
+
   async pendingOf(groupId: string): Promise<PendingTransfer[]> {
     const rows = await this.database.rows<LiveRow>(
       `SELECT ${LIVE_COLUMNS} FROM settlements WHERE group_id = $1 AND status = 'pending'`,
@@ -308,6 +334,16 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));
   }
 }
+
+/**
+ * Who a settlement's paid line is by in the audit: its payee when it was recorded in cash, who asked the netting when it was made by netting
+ * (request 32), otherwise its payer (the one who paid through the provider).
+ */
+const byOf = (row: AuditRow): string => {
+  if (row.method === 'cash') return row.payee;
+  if (row.method === 'net' && row.netted_by !== null) return row.netted_by;
+  return row.payer;
+};
 
 /** A settlement as a read model has it: its row, and its history, the earliest first. */
 const toView = (row: SettlementRow, history: HistoryRow[]): SettlementView => ({

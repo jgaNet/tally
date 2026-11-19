@@ -20,6 +20,11 @@ export interface ISettlementMembers {
    */
   allMembers(): Promise<{ groupId: string; memberIds: string[] }[]>;
   /**
+   * The groups `askedBy` and `other` are both current members of, the earliest created first, each with its currency and whether it is
+   * archived (request 32): what a netting between the two reads. Asked by a member, and answered to no one else.
+   */
+  sharedGroupsOf(askedBy: string, other: string): Promise<{ groupId: string; currency: string; archived: boolean }[]>;
+  /**
    * Whether the group is archived (request 27): then no settlement is recorded, asked for or refunded in it. Asked by no member: a settlement
    * asks it after the member is checked, and the answer is only the flag (ADR 24).
    */

@@ -11,8 +11,11 @@ import {
 } from './SettlementEvents';
 import { PendingTransfer, stillOwed } from './StillOwed';
 
-/** How a settlement is paid: in cash, recorded by its payee, or through the payment provider (request 13). */
-export type SettlementMethod = 'cash' | 'provider';
+/**
+ * How a settlement is paid: in cash, recorded by its payee; through the payment provider (request 13); or by netting, which moves no money
+ * and counts at once (request 32).
+ */
+export type SettlementMethod = 'cash' | 'provider' | 'net';
 
 /**
  * Where a settlement stands: pending at the provider until its webhook says otherwise; paid; failed when the provider says so; being
@@ -146,14 +149,33 @@ export class SettlementBook extends AggregateRoot {
    */
   recordCash({ from, to, amount, at }: { from: string; to: string; amount: number; at: Date }): string {
     const id = Id.generate().value;
-    this.#recorded = [
-      ...this.#recorded,
-      { id, groupId: this.#groupId, from, to, amount, method: 'cash', status: 'paid', at: at.toISOString() },
-    ];
+    this.#recorded = [...this.#recorded, this.#paidSnapshot(id, 'cash', { from, to, amount, at })];
     this.record(
       SettlementRecordedEvent.set({ settlementId: id, groupId: this.#groupId, payer: from, payee: to, amount }),
     );
     return id;
+  }
+
+  /**
+   * Records a settlement made by netting (request 32): `from` pays `to` `amount`, paid at once, as a cash settlement is, and counted by the
+   * balances at once. Generates the settlement's id and records `SettlementRecorded`, published once the book is saved. Answers the id.
+   */
+  recordNet({ from, to, amount, at }: { from: string; to: string; amount: number; at: Date }): string {
+    const id = Id.generate().value;
+    this.#recorded = [...this.#recorded, this.#paidSnapshot(id, 'net', { from, to, amount, at })];
+    this.record(
+      SettlementRecordedEvent.set({ settlementId: id, groupId: this.#groupId, payer: from, payee: to, amount }),
+    );
+    return id;
+  }
+
+  /** A settlement paid at once, as it is stored: its method is the one it was recorded by. */
+  #paidSnapshot(
+    id: string,
+    method: 'cash' | 'net',
+    { from, to, amount, at }: { from: string; to: string; amount: number; at: Date },
+  ): SettlementSnapshot {
+    return { id, groupId: this.#groupId, from, to, amount, method, status: 'paid', at: at.toISOString() };
   }
 
   /**

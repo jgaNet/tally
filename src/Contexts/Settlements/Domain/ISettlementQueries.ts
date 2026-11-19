@@ -17,7 +17,7 @@ export interface SettlementView {
   from: string;
   to: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
   at: string;
   payUrl?: string;
@@ -37,6 +37,19 @@ export interface SettlementAuditLine {
   amount: number;
 }
 
+/**
+ * A netting as the two people read it (request 32): who asked, with whom, the currency, the amount netted, and the settlements it made, in the
+ * order they were made.
+ */
+export interface NettingView {
+  id: string;
+  by: string;
+  with: string;
+  currency: string;
+  amount: number;
+  settlements: string[];
+}
+
 /** A settled transfer of a group, as Ledger counts it: what the payer paid the payee. */
 export type SettledTransfer = PendingTransfer;
 
@@ -50,7 +63,7 @@ export interface CountedSettlement {
   from: string;
   to: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   countedAt: string;
 }
 
@@ -62,6 +75,8 @@ export interface CountedSettlement {
 export interface ISettlementQueries {
   /** The settlement with this id, if it is stored. */
   settlementOf(id: string): Promise<SettlementView | undefined>;
+  /** The netting with this id, if it is stored; the use case answers it only to the two people it is between (request 32). */
+  nettingOf(id: string): Promise<NettingView | undefined>;
   /** Every settlement of the group, the most recently recorded first (request 19). */
   settlementsOf(groupId: string): Promise<SettlementView[]>;
   /**
