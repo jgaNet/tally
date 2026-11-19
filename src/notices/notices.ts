@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from '../database';
 import type { Category } from '../budgets/categories';
+import { isNoticeOn } from './preferences';
 
 /** A notice of an expense: to a member of its split but its payer, with their share of it. */
 export interface ExpenseNotice {
@@ -79,6 +80,10 @@ export async function recordBudgetNotices(db: Database, passing: BudgetPassing, 
     [passing.groupId],
   );
   for (const { account_id } of members) {
+    // A member who has turned budget notices off is told nothing of this passing, nor later: it is counted once for the group.
+    if (!(await isNoticeOn(db, account_id, 'budget'))) {
+      continue;
+    }
     await db.execute(
       `INSERT INTO notices (id, account_id, kind, group_id, expense_id, category, month, budget, amount, created_at)
        VALUES (?, ?, 'budget', ?, NULL, ?, ?, ?, ?, ?)`,
@@ -90,7 +95,8 @@ export async function recordBudgetNotices(db: Database, passing: BudgetPassing, 
 /**
  * Writes a notice to each member of an expense's split but its payer, with their share. Called inside
  * the transaction that records the expense, so the notices exist exactly when the expense does: none is
- * written twice, and none is left behind when the expense is refused.
+ * written twice, and none is left behind when the expense is refused. A member who has turned expense notices off
+ * is not told of this expense, nor of any later one's share of it.
  */
 export async function recordExpenseNotices(
   db: Database,
@@ -99,6 +105,9 @@ export async function recordExpenseNotices(
 ): Promise<void> {
   for (const share of expense.shares) {
     if (share.memberId === expense.paidBy) {
+      continue;
+    }
+    if (!(await isNoticeOn(db, share.memberId, 'expense'))) {
       continue;
     }
     await db.execute(

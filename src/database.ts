@@ -334,6 +334,16 @@ const migrations: readonly string[] = [
   -- is when it was deleted, and the account is then no account for signing in or for a new split.
   ALTER TABLE accounts ADD COLUMN deleted_at TEXT;
   `,
+  `
+  -- A person's preference for a kind of notice: one row once they have turned the kind off or on again, and none while it
+  -- is on, as it is by default. A notice of a kind turned off is not made for them, from then on; nothing made earlier changes.
+  CREATE TABLE notice_preferences (
+    account_id TEXT NOT NULL REFERENCES accounts (id),
+    kind       TEXT NOT NULL CHECK (kind IN ('expense', 'reminder', 'budget')),
+    enabled    BOOLEAN NOT NULL,
+    PRIMARY KEY (account_id, kind)
+  );
+  `,
 ];
 
 /** The database: every read and write Tally makes goes through it, to the PostgreSQL database it was opened on. */

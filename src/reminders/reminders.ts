@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isDeleted } from '../accounts/accounts';
 import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
+import { isNoticeOn } from '../notices/preferences';
 
 /** A member owing more than this, in hundredths of the group's currency (20.00), is noted, and may be reminded. */
 export const REMINDED_ABOVE = 2000;
@@ -54,6 +55,11 @@ export async function sweepDebts(db: Database, at: Date, reminderPeriodMs: numbe
           [memberId, groupId, periodStart],
         );
         if (reminded !== undefined) {
+          continue;
+        }
+        // A member who has turned reminders off is not reminded at this run, and a reminder not made does not count as
+        // made: once they are on again, the next run that would remind them does.
+        if (!(await isNoticeOn(db, memberId, 'reminder'))) {
           continue;
         }
         await db.execute(
