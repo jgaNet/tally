@@ -5,10 +5,12 @@ import { type Database, inTransaction } from '../database';
 import { requireNotSuspended } from '../admin/suspensions';
 import { requireMembership, requireNotArchived } from '../groups/groups';
 import { payoutAccountOf } from '../payouts/payout-accounts';
+import { type RatesConfig, convertedAmount } from '../rates/rates';
 import { Refusal } from '../refusal';
 import { type StatusEntry, recordStatus } from './history';
 import { feePolicyOf } from './fees';
-import { checkNewSettlement } from './settlements';
+import { type PricedSettlement, type SettlementMoneyInput, paidOf, priceSettlement } from './money';
+import { checkNewSettlement, originalColumns } from './settlements';
 
 /** Where the payment provider is, and the secret it and Tally share. */
 export interface ProviderConfig {
@@ -21,32 +23,47 @@ export interface ProviderConfig {
 }
 
 /**
- * Asks the provider for a payment of `amount` in `groupId`'s currency, `payerId` paying `payeeId`, and
- * answers the settlement's id. The settlement is kept `pending` with the provider's `payUrl`, and with the fee the
- * provider says, which is kept out of what it settles: who bears it is the group's policy as it is now, kept with it.
+ * Asks the provider for a payment, `money` (in the group's currency, or in another at the rate offered today) from
+ * `payerId` to `payeeId` in `groupId`, and answers the settlement's id. The payment is asked for in the currency and the
+ * amount it is paid in: the original when the settlement has one, else the group's. The settlement is kept `pending`
+ * with the provider's `payUrl`, and with the fee the provider says, converted to the group's currency at the settlement's
+ * rate, which is kept out of what it settles: who bears it is the group's policy as it is now, kept with it.
  *
  * The rules are those of a cash settlement, with a payment waiting at the provider counting as paid. A payee whose
  * account is deleted is refused with `AccountDeleted`. The payee must have a payout account, which the provider is
- * told: a payee with none is refused before the provider is asked. The settlement is first held in a transaction, so
+ * told: a payee with none is refused before the provider is asked. The rate is asked before the settlement is held, and
+ * a settlement refused for a rule asks nothing of the rates service. The settlement is first held in a transaction, so
  * a second request sees it; the provider is then asked outside the transaction. When the provider does not answer
- * `201 { id, payUrl, fee }` in time, or its fee is not a whole number from 0 below `amount`, the hold is removed and the
- * request is refused: nothing is kept.
+ * `201 { id, payUrl, fee }` in time, or its fee is not a whole number from 0 below the amount paid, or below the group's
+ * amount once converted, the hold is removed and the request is refused: nothing is kept.
  */
 export async function requestProviderSettlement(
   db: Database,
   provider: ProviderConfig,
+  rates: RatesConfig,
   groupId: string,
   payerId: string,
   payeeId: string,
-  amount: number,
+  money: SettlementMoneyInput,
 ): Promise<string> {
+  const group = await requireMembership(db, groupId, payerId);
+  await requireNotSuspended(db, payerId);
+  await requireNotArchived(db, groupId);
+  if (provider.url === '') {
+    throw new Refusal(409, 'ProviderNotConfigured', 'Payment through the provider is not set up on this server.');
+  }
+  if (await isDeleted(db, payeeId)) {
+    throw new Refusal(
+      409,
+      'AccountDeleted',
+      'The payee has deleted their account: nothing is paid to it through the provider.',
+    );
+  }
+  const priced = await priceSettlement(rates, group.currency, money);
   const held = await inTransaction(db, async () => {
-    const group = await requireMembership(db, groupId, payerId);
+    await requireMembership(db, groupId, payerId);
     await requireNotSuspended(db, payerId);
     await requireNotArchived(db, groupId);
-    if (provider.url === '') {
-      throw new Refusal(409, 'ProviderNotConfigured', 'Payment through the provider is not set up on this server.');
-    }
     if (await isDeleted(db, payeeId)) {
       throw new Refusal(
         409,
@@ -54,7 +71,7 @@ export async function requestProviderSettlement(
         'The payee has deleted their account: nothing is paid to it through the provider.',
       );
     }
-    await checkNewSettlement(db, groupId, payerId, payeeId, amount);
+    await checkNewSettlement(db, groupId, payerId, payeeId, priced.amount);
     const borneBy = await feePolicyOf(db, groupId);
     // The payee's account as it is now: a payment asked for goes to the account set at that moment.
     const payee = await payoutAccountOf(db, payeeId);
@@ -68,20 +85,22 @@ export async function requestProviderSettlement(
     const id = randomUUID();
     const at = new Date().toISOString();
     await db.execute(
-      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
-       VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?)`,
-      [id, groupId, payerId, payeeId, amount, at],
+      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at,
+                                original_currency, original_amount, original_rate)
+       VALUES (?, ?, ?, ?, ?, 'provider', 'pending', ?, ?, ?, ?)`,
+      [id, groupId, payerId, payeeId, priced.amount, at, ...originalColumns(priced.original)],
     );
     await recordStatus(db, id, 'pending', at);
-    return { id, currency: group.currency, payee, borneBy };
+    return { id, payee, borneBy };
   });
 
+  const paid = paidOf(priced, group.currency);
   let payment: ProviderPayment;
   try {
     payment = await createProviderPayment(
       provider,
-      { reference: held.id, amount, currency: held.currency, payee: held.payee },
-      amount,
+      { reference: held.id, amount: paid.amount, currency: paid.currency, payee: held.payee },
+      priced,
     );
   } catch {
     await db.execute('DELETE FROM settlements WHERE id = ?', [held.id]);
@@ -105,18 +124,19 @@ interface ProviderPayment {
   id: string;
   /** Where the payer pays. */
   payUrl: string;
-  /** The provider's fee, in hundredths of the currency: a whole number from 0, below the amount. */
+  /** The provider's fee, in hundredths of the group's currency, converted at the settlement's rate: a whole number from 0, below the group's amount. */
   fee: number;
 }
 
 /**
- * `POST {url}/payments`. Anything but `201` with an `id`, a `payUrl` and a `fee` is an error, and so is a fee that is
- * not a whole number from 0 below `amount`: a payment whose fee is not known is not started.
+ * `POST {url}/payments`. Anything but `201` with an `id`, a `payUrl` and a `fee` is an error. The fee is in the currency
+ * the payment is made in: it must be a whole number from 0 below the amount paid, and, converted to the group's currency
+ * at the settlement's rate, below the group's amount, else a payment whose fee is not known is not started.
  */
 async function createProviderPayment(
   provider: ProviderConfig,
   body: { reference: string; amount: number; currency: string; payee: string },
-  amount: number,
+  priced: PricedSettlement,
 ): Promise<ProviderPayment> {
   const response = await fetch(`${provider.url}/payments`, {
     method: 'POST',
@@ -128,7 +148,7 @@ async function createProviderPayment(
   if (response.status !== 201) {
     throw new Error(`the provider answered ${response.status}`);
   }
-  const answer = (await response.json()) as Partial<Record<keyof ProviderPayment, unknown>> | null;
+  const answer = (await response.json()) as Partial<Record<'id' | 'payUrl' | 'fee', unknown>> | null;
   if (
     typeof answer !== 'object' ||
     answer === null ||
@@ -139,10 +159,14 @@ async function createProviderPayment(
   ) {
     throw new Error('the provider did not answer with an id and a payUrl');
   }
-  if (typeof answer.fee !== 'number' || !Number.isInteger(answer.fee) || answer.fee < 0 || answer.fee >= amount) {
+  if (typeof answer.fee !== 'number' || !Number.isInteger(answer.fee) || answer.fee < 0 || answer.fee >= body.amount) {
     throw new Error('the provider did not answer with a fee below the amount');
   }
-  return { id: answer.id, payUrl: answer.payUrl, fee: answer.fee };
+  const fee = convertedAmount(answer.fee, priced.millionths);
+  if (fee >= BigInt(priced.amount)) {
+    throw new Error('the provider did not answer with a fee below the amount, in the group’s currency');
+  }
+  return { id: answer.id, payUrl: answer.payUrl, fee: Number(fee) };
 }
 
 /**

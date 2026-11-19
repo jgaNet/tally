@@ -1,6 +1,6 @@
 import { type Category, categoryOf } from '../budgets/categories';
 import { CURRENCIES, type Currency } from '../groups/validation';
-import { millionthsOf } from '../rates/rates';
+import { convertedAmount, millionthsOf } from '../rates/rates';
 import { Refusal } from '../refusal';
 import { charLength } from '../text';
 
@@ -182,7 +182,7 @@ function validateMoney(
   }
 
   const { rate, millionths } = rateOf(money.rate, offer);
-  const converted = (BigInt(money.amount) * millionths + 500_000n) / 1_000_000n;
+  const converted = convertedAmount(money.amount, millionths);
   if (converted < 1n || converted > BigInt(MAX_AMOUNT)) {
     throw new Refusal(
       422,

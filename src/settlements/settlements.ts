@@ -4,9 +4,12 @@ import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
 import { requireNotSuspended } from '../admin/suspensions';
 import { requireMembership, requireNotArchived } from '../groups/groups';
+import type { Currency } from '../groups/validation';
+import type { RatesConfig } from '../rates/rates';
 import { Refusal } from '../refusal';
 import { type SettlementStatus, type StatusEntry, historyOf, recordStatus } from './history';
 import type { FeeBearer } from './fees';
+import { type SettlementMoneyInput, type SettlementOriginal, priceSettlement } from './money';
 
 /** A settlement as the API answers it. */
 export interface Settlement {
@@ -17,8 +20,9 @@ export interface Settlement {
   /** The account id of the member who was paid, and who recorded a cash settlement. */
   to: string;
   /**
-   * The amount asked for, in hundredths of the group's currency. What it settles is this, less the part of the
-   * provider's fee its payer bears (see `fee`): the balances, the statement and the audit count that.
+   * The amount asked for, in hundredths of the group's currency: in another currency (see `original`), the original
+   * times its rate. What it settles is this, less the part of the provider's fee its payer bears (see `fee`): the
+   * balances, the statement and the audit count that.
    */
   amount: number;
   method: 'cash' | 'provider' | 'net';
@@ -40,6 +44,11 @@ export interface Settlement {
    * asked for, and who bore it then, fixed from then on.
    */
   fee?: { amount: number; borneBy: FeeBearer };
+  /**
+   * Paid in another currency only: what was paid in it, and the rate it was decided at, which it keeps whatever the rates
+   * service says later. Its `amount` is the group's currency's, the original times that rate.
+   */
+  original?: SettlementOriginal;
 }
 
 /**
@@ -83,36 +92,55 @@ export async function checkNewSettlement(
 }
 
 /**
- * Records that `input.from` paid `payeeId` in cash, `input.amount` in hundredths of the group's
- * currency, and answers its id. The rules are those of `checkNewSettlement`; otherwise it is refused
- * and nothing is written.
+ * Records that `input.from` paid `payeeId` in cash, `input.money` (in the group's currency, or in another at the rate
+ * offered today, see `priceSettlement`), and answers its id. The rules are those of `checkNewSettlement`, applied to
+ * the amount in the group's currency; otherwise it is refused and nothing is written, and the rates service is not asked
+ * for a settlement that is refused before it.
  *
- * The balances are read and the settlement written in one transaction, so two settlements recorded at
- * once are decided one after the other: the second sees the first, and one of them is refused when
- * together they would pay more than is owed.
+ * The rate is asked outside the transaction, since the rates service is slow. The balances are read and the settlement
+ * written in one transaction, so two settlements recorded at once are decided one after the other: the second sees the
+ * first, and one of them is refused when together they would pay more than is owed.
  */
-export function recordCashSettlement(
+export async function recordCashSettlement(
   db: Database,
+  rates: RatesConfig,
   groupId: string,
   payeeId: string,
-  input: { from: string; amount: number },
+  input: { from: string; money: SettlementMoneyInput },
 ): Promise<string> {
+  const group = await requireMembership(db, groupId, payeeId);
+  await requireNotSuspended(db, payeeId);
+  await requireNotArchived(db, groupId);
+  const priced = await priceSettlement(rates, group.currency, input.money);
   return inTransaction(db, async () => {
     await requireMembership(db, groupId, payeeId);
     await requireNotSuspended(db, payeeId);
-    await checkNewSettlement(db, groupId, input.from, payeeId, input.amount);
+    await checkNewSettlement(db, groupId, input.from, payeeId, priced.amount);
     const id = randomUUID();
     const at = new Date().toISOString();
     await db.execute(
-      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at)
-       VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?)`,
-      [id, groupId, input.from, payeeId, input.amount, at],
+      `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, created_at,
+                                original_currency, original_amount, original_rate)
+       VALUES (?, ?, ?, ?, ?, 'cash', 'paid', ?, ?, ?, ?)`,
+      [id, groupId, input.from, payeeId, priced.amount, at, ...originalColumns(priced.original)],
     );
     await recordStatus(db, id, 'paid', at);
     // A cash settlement starts to count at once, and its payee is the one who recorded it.
-    await recordAudit(db, groupId, { by: payeeId, action: 'settlement-paid', subjectId: id, amount: input.amount }, at);
+    await recordAudit(
+      db,
+      groupId,
+      { by: payeeId, action: 'settlement-paid', subjectId: id, amount: priced.amount },
+      at,
+    );
     return id;
   });
+}
+
+/** The three columns of a settlement's original, as they are written: all null for one in the group's currency. */
+export function originalColumns(
+  original: SettlementOriginal | undefined,
+): [string | null, number | null, string | null] {
+  return original === undefined ? [null, null, null] : [original.currency, original.amount, original.rate];
 }
 
 interface SettlementRow {
@@ -126,12 +154,16 @@ interface SettlementRow {
   pay_url: string | null;
   fee_amount: number | null;
   fee_borne_by: FeeBearer | null;
+  original_currency: Currency | null;
+  original_amount: number | null;
+  original_rate: string | null;
   created_at: string;
 }
 
 const SETTLEMENT_COLUMNS = `settlements.id, settlements.group_id, settlements.payer_id, settlements.payee_id,
   settlements.amount, settlements.method, settlements.status, settlements.pay_url, settlements.fee_amount,
-  settlements.fee_borne_by, settlements.created_at`;
+  settlements.fee_borne_by, settlements.original_currency, settlements.original_amount, settlements.original_rate,
+  settlements.created_at`;
 
 /** The settlement as the API answers it, with its history. */
 async function settlementOf(db: Database, row: SettlementRow): Promise<Settlement> {
@@ -151,6 +183,13 @@ async function settlementOf(db: Database, row: SettlementRow): Promise<Settlemen
   }
   if (row.fee_amount !== null && row.fee_borne_by !== null) {
     settlement.fee = { amount: row.fee_amount, borneBy: row.fee_borne_by };
+  }
+  if (row.original_currency !== null) {
+    settlement.original = {
+      currency: row.original_currency,
+      amount: row.original_amount as number,
+      rate: row.original_rate as string,
+    };
   }
   return settlement;
 }

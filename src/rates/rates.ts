@@ -58,3 +58,11 @@ export async function offeredRate(
     return undefined;
   }
 }
+
+/**
+ * An amount in hundredths of one currency, at a rate in millionths, in hundredths of another: the product to the
+ * nearest whole number, a half rounded up. Worked in integers, so no product rounds early.
+ */
+export function convertedAmount(amount: number, millionths: bigint): bigint {
+  return (BigInt(amount) * millionths + 500_000n) / 1_000_000n;
+}

@@ -364,6 +364,19 @@ const migrations: readonly string[] = [
                   ELSE 0 END
   ) STORED CHECK (settled_amount >= 1);
   `,
+  `
+  -- A settlement paid in another currency keeps what was paid in it, and the rate it was decided at, as the rates service
+  -- offered it. Its amount is in the group's currency: the original times the rate, to the nearest whole number. A
+  -- settlement in the group's currency has none of the three.
+  ALTER TABLE settlements ADD COLUMN original_currency TEXT
+    CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'));
+  ALTER TABLE settlements ADD COLUMN original_amount INTEGER CHECK (original_amount BETWEEN 1 AND 100000000);
+  ALTER TABLE settlements ADD COLUMN original_rate TEXT;
+  ALTER TABLE settlements ADD CONSTRAINT settlements_original_check CHECK (
+    (original_currency IS NULL) = (original_amount IS NULL)
+    AND (original_currency IS NULL) = (original_rate IS NULL)
+  );
+  `,
 ];
 
 /** The database: every read and write Tally makes goes through it, to the PostgreSQL database it was opened on. */

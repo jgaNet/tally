@@ -140,7 +140,7 @@ export async function createApplication({
       registerNoticeRoutes(routes, db);
       registerStatementRoutes(routes, db);
       registerPayoutAccountRoutes(routes, db, provider);
-      registerSettlementRoutes(routes, db, provider);
+      registerSettlementRoutes(routes, db, provider, rates);
       registerNettingRoutes(routes, db);
       registerInsightRoutes(routes, db);
       registerAdminRoutes(routes, db, administratorsOf(adminEmails));
