@@ -5,4 +5,6 @@ export interface AccountSnapshot {
   name: string;
   passwordHash: string;
   version: number;
+  /** When an administrator suspended it, absent or null while it is not suspended (request 34). */
+  suspendedAt?: string | null;
 }

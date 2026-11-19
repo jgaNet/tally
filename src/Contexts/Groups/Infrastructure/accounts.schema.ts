@@ -11,4 +11,16 @@ export const ACCOUNT_STATEMENTS = [
      key TEXT PRIMARY KEY,
      value TEXT NOT NULL
    )`,
+  // When an administrator suspended the account (request 34, ADR 25): null while it is not suspended, cleared when reinstated.
+  `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS suspended_at TEXT`,
+  // The administrators' log of what Groups decides about accounts (request 34, ADR 25): every suspension and reinstatement, in
+  // the transaction of the change; `seq` is the order they were written in, and breaks a tie of `at`.
+  `CREATE TABLE IF NOT EXISTS account_administration_log (
+     id TEXT PRIMARY KEY,
+     at TEXT NOT NULL,
+     by_id TEXT NOT NULL,
+     action TEXT NOT NULL CHECK (action IN ('suspended', 'reinstated')),
+     subject_id TEXT NOT NULL,
+     seq BIGSERIAL
+   )`,
 ];

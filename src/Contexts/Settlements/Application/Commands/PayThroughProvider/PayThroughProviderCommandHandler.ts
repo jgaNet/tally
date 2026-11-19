@@ -44,6 +44,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
       return Result.fail(new NotFoundException('Settlements', 'Group not found'));
     }
     const groupArchived = await this.members.isArchived(payload.groupId);
+    const callerSuspended = await this.members.isSuspended(payer.data.value);
 
     const book = await this.books.findByGroup(new Id(payload.groupId));
     const balances = await this.balances.balancesOf(payload.groupId);
@@ -56,6 +57,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
       members,
       payeeAccount: payeeAccount?.accountId,
       groupArchived,
+      callerSuspended,
     });
     if (proposed.isFailure()) return proposed;
 

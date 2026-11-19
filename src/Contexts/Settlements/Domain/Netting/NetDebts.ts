@@ -1,3 +1,4 @@
+import { AccountSuspended } from '@SharedKernel/Domain';
 import { Exception, Id, IResult, Result } from '@Architecture/Domain';
 import { Settlement, SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import {
@@ -26,11 +27,15 @@ export function refusalOfNetting({
   by,
   with: other,
   currency,
+  callerSuspended = false,
 }: {
   by: Id;
   with: Id;
   currency: string;
+  /** Whether the member who asks is suspended (request 34): a suspended account nets nothing. */
+  callerSuspended?: boolean;
 }): Exception | undefined {
+  if (callerSuspended) return new AccountSuspended();
   if (by.equals(other)) return new NettingWithOneself();
   if (!(NETTING_CURRENCIES as readonly string[]).includes(currency)) return new UnknownNettingCurrency();
   return undefined;

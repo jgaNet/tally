@@ -1,5 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
-import { GroupArchived } from '@SharedKernel/Domain';
+import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
@@ -78,6 +78,7 @@ export class Expense extends AggregateRoot {
     split,
     groupMembers,
     groupArchived = false,
+    callerSuspended = false,
     at,
   }: {
     /** The identity the expense is given, when a recurring expense's day already gave one (request 23, ADR 16); generated otherwise. */
@@ -95,9 +96,12 @@ export class Expense extends AggregateRoot {
      * background job has already asked before it reaches here; every command passes what Groups answered.
      */
     groupArchived?: boolean;
+    /** Whether the account that starts it is suspended (request 34): an expense it starts is refused by AccountSuspended. */
+    callerSuspended?: boolean;
     at: Date;
   }): IResult<Expense> {
     if (groupArchived) return Result.fail(new GroupArchived());
+    if (callerSuspended) return Result.fail(new AccountSuspended());
     const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
     if (outsider) return Result.fail(new NotAGroupMember());
 

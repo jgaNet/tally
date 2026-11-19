@@ -32,7 +32,8 @@ export class NetDebtsCommandHandler extends CommandHandler<NetDebtsCommandEvent>
     if (by.isFailure()) return by;
 
     const other = new Id(payload.with);
-    const refusal = refusalOfNetting({ by: by.data, with: other, currency: payload.currency });
+    const callerSuspended = await this.members.isSuspended(by.data.value);
+    const refusal = refusalOfNetting({ by: by.data, with: other, currency: payload.currency, callerSuspended });
     if (refusal) return Result.fail(refusal);
 
     const groups: NettingGroup[] = [];

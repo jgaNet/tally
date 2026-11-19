@@ -31,6 +31,7 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
 
     const groupId = new Id(payload.groupId);
     const groupArchived = await this.groupMembers.isArchived(groupId);
+    const callerSuspended = await this.groupMembers.isSuspended(payer.data);
     const category = categoryOf(payload.category);
     if (category.isFailure()) return category;
     const recurring = RecurringExpense.setUp({
@@ -43,6 +44,7 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
       request: payload,
       groupMembers: await this.groupMembers.currentMembers(groupId),
       groupArchived,
+      callerSuspended,
       at: this.clock(),
     });
     if (recurring.isFailure()) return recurring;

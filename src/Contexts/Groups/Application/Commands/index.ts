@@ -12,3 +12,7 @@ export * from '@Contexts/Groups/Application/Commands/ArchiveGroup/ArchiveGroupCo
 export * from '@Contexts/Groups/Application/Commands/ArchiveGroup/ArchiveGroupCommandHandler';
 export * from '@Contexts/Groups/Application/Commands/MergeGroups/MergeGroupsCommandEvent';
 export * from '@Contexts/Groups/Application/Commands/MergeGroups/MergeGroupsCommandHandler';
+export * from '@Contexts/Groups/Application/Commands/SuspendAccount/SuspendAccountCommandEvent';
+export * from '@Contexts/Groups/Application/Commands/SuspendAccount/SuspendAccountCommandHandler';
+export * from '@Contexts/Groups/Application/Commands/ReinstateAccount/ReinstateAccountCommandEvent';
+export * from '@Contexts/Groups/Application/Commands/ReinstateAccount/ReinstateAccountCommandHandler';

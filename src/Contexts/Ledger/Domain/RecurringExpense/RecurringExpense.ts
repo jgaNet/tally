@@ -1,5 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
-import { GroupArchived } from '@SharedKernel/Domain';
+import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { SplitKind, SplitRequest } from '@Contexts/Ledger/Domain/Expense/DTOs';
@@ -99,6 +99,7 @@ export class RecurringExpense extends AggregateRoot {
     request,
     groupMembers,
     groupArchived,
+    callerSuspended = false,
     at,
   }: {
     groupId: Id;
@@ -110,9 +111,12 @@ export class RecurringExpense extends AggregateRoot {
     request: SplitRequest;
     groupMembers: readonly Id[];
     groupArchived: boolean;
+    /** Whether the payer, who sets it up, is suspended (request 34): then it is refused by AccountSuspended. */
+    callerSuspended?: boolean;
     at: Date;
   }): IResult<RecurringExpense> {
     if (groupArchived) return Result.fail(new GroupArchived());
+    if (callerSuspended) return Result.fail(new AccountSuspended());
     const described = Description.create(description);
     if (described.isFailure()) return described;
     const paid = Amount.create(amount);

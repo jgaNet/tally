@@ -13,6 +13,8 @@ export interface IGroupMembership {
   groupsShared(first: string, second: string): Promise<{ groupId: string; currency: string; archived: boolean }[]>;
   /** Whether the group is archived (request 27, ADR 20): every other context refuses a change in it once it is, by GroupArchived. */
   isArchived(groupId: string): Promise<boolean>;
+  /** Whether an administrator has suspended the account (request 34, ADR 25): every expense or settlement it starts is refused by AccountSuspended. */
+  isSuspended(accountId: string): Promise<boolean>;
   /** The balances that passed when members left the group, each with its member who left, the owner it passed to and the amount, the earliest first. */
   balancesPassed(groupId: string): Promise<{ fromId: string; toId: string; amount: number }[]>;
 }

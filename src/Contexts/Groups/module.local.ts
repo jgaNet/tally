@@ -43,6 +43,16 @@ import { GroupsMergedEventHandler } from '@Contexts/Groups/Application/Events/Gr
 import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 import { IAdministratorDecisions } from '@Contexts/Groups/Application/Ports/IAdministratorDecisions';
 import { GetAdministratorsLogQueryHandler } from '@Contexts/Groups/Application/Queries';
+import { PostgresAdministratorLog } from '@Contexts/Groups/Infrastructure/PostgresAdministratorLog';
+import { IAdministratorLogReads } from '@Contexts/Groups/Application/Ports/IAdministratorLog';
+import {
+  SuspendAccountCommandEvent,
+  SuspendAccountCommandHandler,
+} from '@Contexts/Groups/Application/Commands/SuspendAccount';
+import {
+  ReinstateAccountCommandEvent,
+  ReinstateAccountCommandHandler,
+} from '@Contexts/Groups/Application/Commands/ReinstateAccount';
 
 /**
  * The Groups context (conventions/domain.yaml, ADR 1): accounts (signing up, signing in, reading one's own account)
@@ -93,9 +103,27 @@ export function groupsModuleWith(
   administratorDecisions: IAdministratorDecisions,
   administratorEmails: readonly string[],
 ): Module {
+  // Groups' own entries of the administrators' log (request 34): written with each change, read with Settlements' decisions.
+  const administratorLog = new PostgresAdministratorLog(database);
+  const administratorLogReads: IAdministratorLogReads = {
+    decisions: () => administratorDecisions.decisions(),
+    entries: () => administratorLog.entries(),
+  };
   return new Module({
     name: 'Groups',
     commands: [
+      {
+        event: SuspendAccountCommandEvent,
+        handlers: [
+          new SuspendAccountCommandHandler(new PostgresAccountRepository(database), administratorLog, systemClock),
+        ],
+      },
+      {
+        event: ReinstateAccountCommandEvent,
+        handlers: [
+          new ReinstateAccountCommandHandler(new PostgresAccountRepository(database), administratorLog, systemClock),
+        ],
+      },
       {
         event: SignUpCommandEvent,
         handlers: [new SignUpCommandHandler(new PostgresAccountRepository(database), hasher)],
@@ -159,7 +187,7 @@ export function groupsModuleWith(
       new GetMyGroupsQueryHandler(groupQueries),
       new GetInvitationQueryHandler(invitationQueries),
       new GetGroupMembersQueryHandler(groupQueries),
-      new GetAdministratorsLogQueryHandler(administratorDecisions),
+      new GetAdministratorsLogQueryHandler(administratorLogReads),
     ],
   });
 }

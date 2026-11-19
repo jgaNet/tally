@@ -12,6 +12,7 @@ interface AccountRow {
   name: string;
   password_hash: string;
   version: number;
+  suspended_at: string | null;
 }
 
 /** The accounts' repository over the PostgreSQL database; used inside the command's transaction, which holds the connection. */
@@ -29,7 +30,7 @@ export class PostgresAccountRepository implements IAccountRepository {
   }
 
   async save(account: Account): Promise<IResult> {
-    const { id, email, name, passwordHash, version } = account.toSnapshot();
+    const { id, email, name, passwordHash, version, suspendedAt } = account.toSnapshot();
     const { connection } = this.database;
     if (version === 0) {
       // The email's uniqueness is decided on committed state (the write lock, ADR 22), and the UNIQUE index backs it.
@@ -43,9 +44,10 @@ export class PostgresAccountRepository implements IAccountRepository {
       return changes === 0 ? Result.fail(new EmailAlreadyUsed()) : Result.ok();
     }
     const { changes } = await connection.run(
-      'UPDATE accounts SET name = ?, password_hash = ?, version = version + 1 WHERE id = ? AND version = ?',
+      'UPDATE accounts SET name = ?, password_hash = ?, suspended_at = ?, version = version + 1 WHERE id = ? AND version = ?',
       name,
       passwordHash,
+      suspendedAt ?? null,
       id,
       version,
     );
@@ -64,6 +66,7 @@ export class PostgresAccountRepository implements IAccountRepository {
           name: row.name,
           passwordHash: row.password_hash,
           version: row.version,
+          suspendedAt: row.suspended_at,
         })
       : null;
   }

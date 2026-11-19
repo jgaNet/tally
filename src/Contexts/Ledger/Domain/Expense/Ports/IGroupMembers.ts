@@ -22,4 +22,6 @@ export interface IGroupMembers {
   balancesPassed(groupId: Id): Promise<Map<string, number>>;
   /** Whether the group is archived (request 27, ADR 20): a change in an archived group is refused by GroupArchived. */
   isArchived(groupId: Id): Promise<boolean>;
+  /** Whether an administrator has suspended the account (request 34, ADR 25): a suspended account records no expense, in any group. */
+  isSuspended(accountId: Id): Promise<boolean>;
 }

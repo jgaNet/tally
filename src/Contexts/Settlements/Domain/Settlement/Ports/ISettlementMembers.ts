@@ -15,6 +15,8 @@ export interface ISettlementMembers {
   currentMembers(groupId: string): Promise<string[]>;
   /** Whether the group is archived (request 27, ADR 20): a change in an archived group is refused by GroupArchived. */
   isArchived(groupId: string): Promise<boolean>;
+  /** Whether an administrator has suspended the account (request 34, ADR 25): a suspended account starts no settlement, in any group. */
+  isSuspended(accountId: string): Promise<boolean>;
   /** The groups both accounts are members of now, the earliest created first, each with its currency and whether it is archived (request 32). */
   sharedGroups(first: string, second: string): Promise<SharedGroup[]>;
 }

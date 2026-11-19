@@ -85,6 +85,13 @@ export class PostgresGroupQueries implements IGroupQueries, IGroupMembership {
     return this.database.exclusive(connection => connection.rows(SHARED_GROUPS_SQL, first, second));
   }
 
+  async isSuspended(accountId: string): Promise<boolean> {
+    const row = await this.database.exclusive(connection =>
+      connection.row('SELECT 1 AS found FROM accounts WHERE id = ? AND suspended_at IS NOT NULL', accountId),
+    );
+    return row !== undefined;
+  }
+
   async isArchived(groupId: string): Promise<boolean> {
     const row = await this.database.exclusive(connection =>
       connection.row('SELECT 1 AS found FROM group_archives WHERE group_id = ?', groupId),

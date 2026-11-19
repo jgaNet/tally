@@ -1,5 +1,5 @@
 import { AggregateRoot, Exception, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { GroupArchived } from '@SharedKernel/Domain';
+import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import {
   SettlementAnnulledEvent,
   SettlementContestedEvent,
@@ -138,9 +138,11 @@ export class SettlementBook extends AggregateRoot {
   recordCash({
     at,
     groupArchived,
+    callerSuspended = false,
     ...decision
-  }: SettlementDecision & { at: Date; groupArchived: boolean }): IResult<Settlement> {
+  }: SettlementDecision & { at: Date; groupArchived: boolean; callerSuspended?: boolean }): IResult<Settlement> {
     if (groupArchived) return Result.fail(new GroupArchived());
+    if (callerSuspended) return Result.fail(new AccountSuspended());
     const settlement = this.#keepSettled('cash', decision, at);
     if (settlement.isFailure()) return settlement;
     this.record(
@@ -206,9 +208,15 @@ export class SettlementBook extends AggregateRoot {
   proposePayment({
     payeeAccount,
     groupArchived,
+    callerSuspended = false,
     ...decision
-  }: SettlementDecision & { payeeAccount: string | undefined; groupArchived: boolean }): IResult<PaymentProposal> {
+  }: SettlementDecision & {
+    payeeAccount: string | undefined;
+    groupArchived: boolean;
+    callerSuspended?: boolean;
+  }): IResult<PaymentProposal> {
     if (groupArchived) return Result.fail(new GroupArchived());
+    if (callerSuspended) return Result.fail(new AccountSuspended());
     const refusal = this.#refusal(decision);
     if (refusal) return Result.fail(refusal);
     if (payeeAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccount());

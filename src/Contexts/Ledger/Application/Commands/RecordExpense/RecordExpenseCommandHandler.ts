@@ -46,6 +46,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
     if (description.isFailure()) return description;
     const groupId = new Id(payload.groupId);
     const groupArchived = await this.groupMembers.isArchived(groupId);
+    const payerSuspended = await this.groupMembers.isSuspended(payer.data);
     const date = ExpenseDate.create(payload.date, now);
     if (date.isFailure()) return date;
     const priced = await priceExpense(payload, groupId, date.data, this.groupCurrency, this.offeredRates);
@@ -71,6 +72,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(groupId),
       groupArchived,
+      callerSuspended: payerSuspended,
       at: now,
     });
     if (expense.isFailure()) return expense;
