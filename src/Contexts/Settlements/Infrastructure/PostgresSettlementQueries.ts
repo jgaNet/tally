@@ -17,6 +17,9 @@ interface SettlementRow {
   pay_url: string | null;
   fee_amount: number | null;
   fee_borne_by: FeeBearer | null;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 }
 
 interface HistoryRow {
@@ -103,5 +106,10 @@ function toReadModel(row: SettlementRow, history: HistoryRow[]): SettlementReadM
     history: history.filter(line => line.settlement_id === row.id).map(line => ({ status: line.status, at: line.at })),
     ...(row.pay_url !== null && { payUrl: row.pay_url }),
     ...(row.fee_borne_by !== null && { fee: { amount: Number(row.fee_amount), borneBy: row.fee_borne_by } }),
+    ...(row.original_currency !== null &&
+      row.original_amount !== null &&
+      row.original_rate !== null && {
+        original: { currency: row.original_currency, amount: Number(row.original_amount), rate: row.original_rate },
+      }),
   };
 }

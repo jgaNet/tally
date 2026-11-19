@@ -1,6 +1,11 @@
 import { AggregateRoot, Exception, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { AccountDeleted, AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import {
+  OriginalAmount,
+  OriginalAmountSnapshot,
+  OtherCurrencyPayment,
+} from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
+import {
   FeePolicySetEvent,
   SettlementAnnulledEvent,
   SettlementContestedEvent,
@@ -99,6 +104,14 @@ export interface Settlement {
   readonly settled: number;
   /** The provider's fee and who bore it, for a settlement through the provider asked from request 38 on (request 38). */
   readonly fee?: SettlementFee;
+  /** What the settlement was paid in, when it was another currency than the group's, with the rate decided on (request 39). */
+  readonly original?: OriginalAmountSnapshot;
+}
+
+/** The amount a settlement is decided on, as a command gives it: `amount` in the group's currency, or `original`, paid in another currency (request 39). */
+export interface SettlementPriceInput {
+  amount?: number;
+  original?: OtherCurrencyPayment;
 }
 
 /** What a settlement is decided on: who pays whom, how much, and the balances and members the caller read in its transaction. */
@@ -116,6 +129,8 @@ export interface PaymentProposal extends SettlementDecision {
   readonly id: Id;
   /** The provider's id of the payee's payout account, which the payment is paid to (request 16, ADR 10). */
   readonly payeeAccount: string;
+  /** What the payment is asked in, when it is another currency than the group's, with the rate decided on (request 39). */
+  readonly original?: OriginalAmountSnapshot;
 }
 
 /** A refund the book checked, to ask the provider for: the settlement it refunds, and the payment's id at the provider. */
@@ -185,11 +200,16 @@ export class SettlementBook extends AggregateRoot {
     at,
     groupArchived,
     callerSuspended = false,
+    amount,
+    original,
     ...decision
-  }: SettlementDecision & { at: Date; groupArchived: boolean; callerSuspended?: boolean }): IResult<Settlement> {
+  }: Omit<SettlementDecision, 'amount'> &
+    SettlementPriceInput & { at: Date; groupArchived: boolean; callerSuspended?: boolean }): IResult<Settlement> {
     if (groupArchived) return Result.fail(new GroupArchived());
     if (callerSuspended) return Result.fail(new AccountSuspended());
-    const settlement = this.#keepSettled('cash', decision, at);
+    const priced = this.#price({ amount, original });
+    if (priced.isFailure()) return priced;
+    const settlement = this.#keepSettled('cash', { ...decision, amount: priced.data.amount }, at, priced.data.original);
     if (settlement.isFailure()) return settlement;
     this.record(
       SettlementRecordedEvent.set({
@@ -228,7 +248,12 @@ export class SettlementBook extends AggregateRoot {
   }
 
   /** The rules of a settlement that is paid now, by its method, on the balances given; kept when they hold (nothing is recorded). */
-  #keepSettled(method: 'cash' | 'net', decision: SettlementDecision, at: Date): IResult<Settlement> {
+  #keepSettled(
+    method: 'cash' | 'net',
+    decision: SettlementDecision,
+    at: Date,
+    original?: OriginalAmountSnapshot,
+  ): IResult<Settlement> {
     const refusal = this.#refusal(decision);
     if (refusal) return Result.fail(refusal);
     return Result.ok(
@@ -242,6 +267,7 @@ export class SettlementBook extends AggregateRoot {
         method,
         status: 'paid',
         at,
+        ...(original && { original }),
       }),
     );
   }
@@ -291,21 +317,32 @@ export class SettlementBook extends AggregateRoot {
     groupArchived,
     callerSuspended = false,
     payeeDeleted = false,
+    amount,
+    original,
     ...decision
-  }: SettlementDecision & {
-    payeeAccount: string | undefined;
-    groupArchived: boolean;
-    callerSuspended?: boolean;
-    /** Whether the payee's person deleted their account (request 35): no one is paid through the provider then, refused by AccountDeleted. */
-    payeeDeleted?: boolean;
-  }): IResult<PaymentProposal> {
+  }: Omit<SettlementDecision, 'amount'> &
+    SettlementPriceInput & {
+      payeeAccount: string | undefined;
+      groupArchived: boolean;
+      callerSuspended?: boolean;
+      /** Whether the payee's person deleted their account (request 35): no one is paid through the provider then, refused by AccountDeleted. */
+      payeeDeleted?: boolean;
+    }): IResult<PaymentProposal> {
     if (groupArchived) return Result.fail(new GroupArchived());
     if (callerSuspended) return Result.fail(new AccountSuspended());
     if (payeeDeleted) return Result.fail(new AccountDeleted());
-    const refusal = this.#refusal(decision);
+    const priced = this.#price({ amount, original });
+    if (priced.isFailure()) return priced;
+    const refusal = this.#refusal({ ...decision, amount: priced.data.amount });
     if (refusal) return Result.fail(refusal);
     if (payeeAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccount());
-    return Result.ok({ ...decision, id: Id.generate(), payeeAccount });
+    return Result.ok({
+      ...decision,
+      amount: priced.data.amount,
+      id: Id.generate(),
+      payeeAccount,
+      ...(priced.data.original && { original: priced.data.original }),
+    });
   }
 
   /**
@@ -321,10 +358,15 @@ export class SettlementBook extends AggregateRoot {
   ): IResult<Settlement> {
     const refusal = this.#refusal(proposal);
     if (refusal) return Result.fail(refusal);
-    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= proposal.amount) {
+    // The fee is the provider's, in the currency the payment was asked in: the original's when there is one (request 39). It
+    // is converted at the settlement's rate, the same way as the amount, before the group's fee is taken (request 38).
+    const paid = proposal.original?.amount ?? proposal.amount;
+    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= paid) {
       return Result.fail(new ProviderFeeOutOfRange());
     }
-    const fee: SettlementFee = { amount: link.fee, borneBy: this.#feePolicy };
+    const groupFee = proposal.original ? OriginalAmount.fromSnapshot(proposal.original).convert(link.fee) : link.fee;
+    if (groupFee >= proposal.amount) return Result.fail(new ProviderFeeOutOfRange());
+    const fee: SettlementFee = { amount: groupFee, borneBy: this.#feePolicy };
     const settlement = this.#keep({
       id: proposal.id,
       groupId: this._id,
@@ -338,6 +380,7 @@ export class SettlementBook extends AggregateRoot {
       at,
       providerPaymentId: link.id,
       payUrl: link.payUrl,
+      ...(proposal.original && { original: proposal.original }),
     });
     this.record(
       PaymentRequestedEvent.set({
@@ -542,6 +585,21 @@ export class SettlementBook extends AggregateRoot {
         mergedAt: at.toISOString(),
       }),
     );
+  }
+
+  /**
+   * The amount a settlement is decided on (request 39): `amount` in the group's currency as it is given, or `original`, paid in
+   * another currency, decided on the rate the rates service offered for its day (none, or no service, is refused by name). Its
+   * amount in the group's currency is the original amount times that rate, a half rounded up; the rate is kept with it.
+   */
+  #price({ amount, original }: SettlementPriceInput): IResult<{ amount: number; original?: OriginalAmountSnapshot }> {
+    if (original === undefined) {
+      if (amount === undefined) return Result.fail(new InvalidSettlementAmount());
+      return Result.ok({ amount });
+    }
+    const decided = OriginalAmount.decide(original);
+    if (decided.isFailure()) return decided;
+    return Result.ok({ amount: decided.data.amountInGroupCurrency(), original: decided.data.snapshot() });
   }
 
   /** The refusal of a settlement on these balances, or none: the rules of a settlement, on what is still owed. */

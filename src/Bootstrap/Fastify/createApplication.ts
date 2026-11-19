@@ -39,6 +39,7 @@ import {
 } from '@Contexts/Settlements/module.local';
 import { LedgerGroupBalances } from '@Contexts/Settlements/Infrastructure/LedgerGroupBalances';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
+import { HttpSettlementRates } from '@Contexts/Settlements/Infrastructure/HttpSettlementRates';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/API/REST/Routes';
 import { debtSweepWith, localNotificationsModule } from '@Contexts/Notifications/module.local';
 import { SettlementsOutstandingDebts } from '@Contexts/Notifications/Infrastructure/SettlementsOutstandingDebts';
@@ -104,6 +105,9 @@ export async function createApplication({
     new LedgerGroupBalances(groupBalanceSumsInCommand),
     // The payment provider (ADR 8): its API is PROVIDER_URL; without it, paying through the provider is refused.
     new HttpPaymentProvider(process.env.PROVIDER_URL),
+    // The rates service, as Settlements asks it for a payment in another currency (request 39, ADR 15): the same RATES_URL
+    // Ledger reads, through its own port; without it, such a payment is refused, since no rate is offered.
+    new HttpSettlementRates(process.env.RATES_URL),
   );
   // The rates service (request 22, ADR 15): its API is RATES_URL; without it, no rate is offered, and an expense in another
   // currency is recorded at the rate its payer states, as request 21 has it.

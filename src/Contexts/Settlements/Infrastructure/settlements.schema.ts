@@ -127,4 +127,9 @@ export const SETTLEMENT_STATEMENTS = [
      account_id TEXT NOT NULL,
      version BIGINT NOT NULL
    )`,
+  // A settlement paid in another currency (request 39): what it was paid in, its hundredths, and the rate decided on. All three are
+  // null for one in the group's currency, which reads as before; a rate is kept as the rates service wrote it.
+  `ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_currency TEXT CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'))`,
+  `ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_amount BIGINT`,
+  `ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_rate TEXT`,
 ];

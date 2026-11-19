@@ -24,6 +24,9 @@ interface SettlementRow {
   settled: number | null;
   fee_amount: number | null;
   fee_borne_by: FeeBearer | null;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 }
 
 /** The books' repository over the PostgreSQL database; used inside the command's transaction, which holds the connection. */
@@ -102,8 +105,8 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
     for (const settlement of book.unsaved) {
       await connection.run(
         `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, provider_payment_id, pay_url,
-                                  settled, fee_amount, fee_borne_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                  settled, fee_amount, fee_borne_by, original_currency, original_amount, original_rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET status = excluded.status, group_id = excluded.group_id`,
         settlement.id.value,
         groupId,
@@ -118,6 +121,9 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
         settlement.settled,
         settlement.fee?.amount ?? null,
         settlement.fee?.borneBy ?? null,
+        settlement.original?.currency ?? null,
+        settlement.original?.amount ?? null,
+        settlement.original?.rate ?? null,
       );
     }
     for (const decision of book.unsavedDecisions) {
@@ -172,5 +178,10 @@ function toSettlement(row: SettlementRow, history: SettlementStatusLine[]): Sett
     ...(row.fee_borne_by !== null && {
       fee: { amount: Number(row.fee_amount), borneBy: row.fee_borne_by },
     }),
+    ...(row.original_currency !== null &&
+      row.original_amount !== null &&
+      row.original_rate !== null && {
+        original: { currency: row.original_currency, amount: Number(row.original_amount), rate: row.original_rate },
+      }),
   };
 }

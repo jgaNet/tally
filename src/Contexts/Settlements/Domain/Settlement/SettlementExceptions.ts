@@ -147,3 +147,30 @@ export class ProviderFeeOutOfRange extends SettlementException {
     );
   }
 }
+
+export class InvalidOriginalCurrency extends SettlementException {
+  constructor(currencies: readonly string[]) {
+    super('InvalidOriginalCurrency', `The currency must be one of ${currencies.join(', ')}`);
+  }
+}
+
+export class SameCurrencyAsGroup extends SettlementException {
+  constructor() {
+    super('SameCurrencyAsGroup', "A settlement in another currency must be in a currency other than the group's");
+  }
+}
+
+export class InvalidOriginalAmount extends SettlementException {
+  constructor(max: number) {
+    super(
+      'InvalidOriginalAmount',
+      `The amount in another currency must be a whole number of hundredths from 1 to ${max}`,
+    );
+  }
+}
+
+export class NoRateOffered extends SettlementException {
+  constructor() {
+    super('NoRateOffered', 'No rate is offered for that currency on this day, so the settlement is not kept');
+  }
+}

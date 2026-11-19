@@ -43,6 +43,7 @@ import { DecideContestCommandHandler } from '@Contexts/Settlements/Application/C
 import { IAdministratorDecisionEntries } from '@Contexts/Settlements/Domain/Settlement/Ports/IAdministratorDecisionEntries';
 import { PostgresAdministratorDecisionEntries } from '@Contexts/Settlements/Infrastructure/PostgresAdministratorDecisionEntries';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
+import { ISettlementRates } from '@Contexts/Settlements/Application/Ports/ISettlementRates';
 import { IWaitingEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingEffects';
 import { GroupsGroupCurrency } from '@Contexts/Settlements/Infrastructure/GroupsGroupCurrency';
 import { GroupsSettlementMembers } from '@Contexts/Settlements/Infrastructure/GroupsSettlementMembers';
@@ -128,6 +129,7 @@ export function settlementsModuleWith(
   balances: IGroupBalances,
   balancesInCommand: IGroupBalances,
   provider: IPaymentProvider,
+  rates: ISettlementRates,
 ): Module {
   return new Module({
     name: 'Settlements',
@@ -151,6 +153,8 @@ export function settlementsModuleWith(
             new PostgresSettlementBookRepository(database),
             balancesInCommand,
             new GroupsSettlementMembers(groupMembershipInCommand),
+            new GroupsGroupCurrency(groupCurrencyInCommand),
+            rates,
             systemClock,
           ),
         ],
@@ -165,6 +169,7 @@ export function settlementsModuleWith(
             new GroupsGroupCurrency(groupCurrencyInCommand),
             new PostgresPayoutAccountRepository(database),
             provider,
+            rates,
             systemClock,
           ),
         ],

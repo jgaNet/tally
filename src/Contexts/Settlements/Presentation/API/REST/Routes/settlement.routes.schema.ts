@@ -20,14 +20,29 @@ export const GetSuggestedSettlementsResSchema = {
   404: RefusedSchema,
 } as const;
 
-/** The shape of a cash settlement: the payer's account id and the amount. Whether the amount is allowed is the domain's. */
+/** What a payment is paid in another currency: its currency and its amount in hundredths. Whether they are allowed is the domain's (request 39). */
+const OriginalPaymentBodySchema = {
+  type: 'object',
+  required: ['currency', 'amount'],
+  properties: {
+    currency: { type: 'string' },
+    amount: { type: 'integer' },
+  },
+} as const;
+
+/**
+ * The shape of a cash settlement: the payer's account id, and either the amount in the group's currency or what was paid in
+ * another currency, never both and never neither (request 39). Whether the amount is allowed is the domain's.
+ */
 export const RecordCashSettlementBodySchema = {
   type: 'object',
-  required: ['from', 'amount'],
+  required: ['from'],
   properties: {
     from: { type: 'string' },
     amount: { type: 'integer' },
+    original: OriginalPaymentBodySchema,
   },
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
 } as const;
 
 export const RecordCashSettlementResSchema = {
@@ -36,14 +51,16 @@ export const RecordCashSettlementResSchema = {
   401: RefusedSchema,
 } as const;
 
-/** The body of a payment through the provider: the payee's account id and the amount. Whether the amount is allowed is the domain's. */
+/** The body of a payment through the provider: the payee's account id, and either the amount or what is paid in another currency. */
 export const PayThroughProviderBodySchema = {
   type: 'object',
-  required: ['to', 'amount'],
+  required: ['to'],
   properties: {
     to: { type: 'string' },
     amount: { type: 'integer' },
+    original: OriginalPaymentBodySchema,
   },
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
 } as const;
 
 export const PayThroughProviderResSchema = {
@@ -137,6 +154,15 @@ const SettlementSchema = {
     at: { type: 'string' },
     history: { type: 'array', minItems: 1, items: SettlementStatusLineSchema },
     payUrl: { type: 'string', minLength: 1 },
+    original: {
+      type: 'object',
+      required: ['currency', 'amount', 'rate'],
+      properties: {
+        currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+        amount: { type: 'integer', minimum: 1 },
+        rate: { type: 'string', pattern: '^\\d+(\\.\\d{1,6})?$' },
+      },
+    },
     fee: {
       type: 'object',
       required: ['amount', 'borneBy'],

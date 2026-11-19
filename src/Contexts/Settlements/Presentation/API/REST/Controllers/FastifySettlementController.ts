@@ -24,6 +24,14 @@ import {
 import { refuse } from '@Contexts/Settlements/Presentation/API/REST/Controllers/refuse';
 import { signatureMatches } from '@Contexts/Settlements/Presentation/API/REST/Controllers/ProviderSignature';
 
+/** A payment's body: either the amount in the group's currency, or what is paid in another one (request 39); the transport checks one of them. */
+type PaymentBody = { amount?: number; original?: { currency: string; amount: number } };
+
+/** The amount a payment's body gives: `original` when it is paid in another currency, otherwise `amount` (request 39). */
+function amountOf(body: PaymentBody): PaymentBody {
+  return body.original !== undefined ? { original: body.original } : { amount: body.amount };
+}
+
 /** A webhook's body as it was sent, kept beside the parsed one, for its signature (ADR 8). */
 export type WebhookRequest = FastifyRequest & { rawBody?: string };
 
@@ -44,26 +52,26 @@ export class FastifySettlementController {
   }
 
   recordCashSettlement(
-    req: FastifyRequest<{ Params: { id: string }; Body: { from: string; amount: number } }>,
+    req: FastifyRequest<{ Params: { id: string }; Body: PaymentBody & { from: string } }>,
     reply: FastifyReply,
   ) {
     return acceptCommand(
       req,
       reply,
       this.#module,
-      RecordCashSettlementCommandEvent.set({ groupId: req.params.id, from: req.body.from, amount: req.body.amount }),
+      RecordCashSettlementCommandEvent.set({ groupId: req.params.id, from: req.body.from, ...amountOf(req.body) }),
     );
   }
 
   payThroughProvider(
-    req: FastifyRequest<{ Params: { id: string }; Body: { to: string; amount: number } }>,
+    req: FastifyRequest<{ Params: { id: string }; Body: PaymentBody & { to: string } }>,
     reply: FastifyReply,
   ) {
     return acceptCommand(
       req,
       reply,
       this.#module,
-      PayThroughProviderCommandEvent.set({ groupId: req.params.id, to: req.body.to, amount: req.body.amount }),
+      PayThroughProviderCommandEvent.set({ groupId: req.params.id, to: req.body.to, ...amountOf(req.body) }),
     );
   }
 
