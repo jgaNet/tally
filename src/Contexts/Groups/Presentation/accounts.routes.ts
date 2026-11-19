@@ -2,7 +2,7 @@ import { FastifyPluginCallback } from 'fastify';
 
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
-import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import { getAdministratorsLog, getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 
 import { shapeOf } from './bodyShape';
 
@@ -43,6 +43,11 @@ export const accountRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.get('/accounts/me', { schema: { tags: ['accounts'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getMyAccount), undefined),
+  );
+
+  // An administrator reads the log of their decisions, the oldest first; anyone else finds nothing (request 33).
+  fastify.get('/admin/log', { schema: { tags: ['accounts'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getAdministratorsLog), undefined),
   );
 
   done();

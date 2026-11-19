@@ -141,7 +141,9 @@ relationships:
       A member with a payment through the provider waiting cannot leave: a payment that lands after they left would change
       a former member's balance. Only Settlements knows which payments wait. Groups asks through a port it owns
       (WaitingPayments) when it decides the leave, in the same transaction as the leave (ADR 16, ADR 17). Carried since
-      request 20, which the leave storm declared before the code.
+      request 20, which the leave storm declared before the code. Since request 33 a contested settlement waits too, and
+      Groups answers the administrators' log through a port beside it (AdministratorDecisions): each decision of an
+      administrator is written by Settlements in the transaction of the decision, and Groups reads it (ADR 31).
   - upstream: Ledger
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]

@@ -5,6 +5,9 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 import { getNetting, netDebts, NetDebtsInput } from '@Contexts/Settlements/Application/Nettings';
 import {
+  contestSettlement,
+  decideContest,
+  getContests,
   getGroupSettlements,
   getSettlement,
   getSuggestedSettlements,
@@ -23,6 +26,7 @@ import {
 
 const SHAPE_REFUSAL = 'The body must have from (the payer account id, a string) and amount (a whole number)';
 const PROVIDER_SHAPE_REFUSAL = 'The body must have to (the payee account id, a string) and amount (a whole number)';
+const DECISION_SHAPE_REFUSAL = 'The body must have paid, a boolean';
 const WEBHOOK_SHAPE_REFUSAL = 'The body must have id, paymentId, status and at, each a string';
 const PAYOUT_ACCOUNT_SHAPE_REFUSAL = 'The body must have accountId, the provider id of the payout account, a string';
 const NETTING_SHAPE_REFUSAL =
@@ -167,6 +171,36 @@ export const settlementRoutes: FastifyPluginCallback<{
   );
 
   // A member sets the account the provider pays them on, `204` (request 16); the caller is the owner of the account.
+  // The payee contests a settlement paid through the provider; answered at once, `204` (request 33).
+  fastify.post('/settlements/:id/contest', { schema: { tags: ['settlements'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(contestSettlement), { id: (req.params as { id: string }).id }),
+  );
+
+  // An administrator reads the settlements contested now, the earliest contested first (request 33).
+  fastify.get('/admin/contests', { schema: { tags: ['settlements'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getContests), undefined),
+  );
+
+  // An administrator decides a contested settlement: `paid` is true when the money arrived (request 33).
+  fastify.post(
+    '/admin/settlements/:id/decision',
+    {
+      schema: { tags: ['settlements'] },
+      preValidation: async (request, reply) => {
+        const body = request.body as Record<string, unknown> | null | undefined;
+        if (typeof body !== 'object' || body === null || typeof body.paid !== 'boolean') {
+          return reply.code(400).send({ message: DECISION_SHAPE_REFUSAL });
+        }
+        return undefined;
+      },
+    },
+    (req, reply) =>
+      answerAtOnce(req, reply, module.useCase(decideContest), {
+        id: (req.params as { id: string }).id,
+        paid: (req.body as { paid: boolean }).paid,
+      }),
+  );
+
   fastify.put(
     '/accounts/me/payout-account',
     {

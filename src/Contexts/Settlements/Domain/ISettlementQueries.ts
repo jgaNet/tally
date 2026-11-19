@@ -2,7 +2,7 @@ import { PendingTransfer } from '@Contexts/Settlements/Domain/SettlementBook/Sti
 
 /** One status a settlement has had, and when Tally learned it (request 19). */
 export interface SettlementHistoryLine {
-  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
   at: string;
 }
 
@@ -18,7 +18,7 @@ export interface SettlementView {
   to: string;
   amount: number;
   method: 'cash' | 'provider' | 'net';
-  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
   at: string;
   payUrl?: string;
   history: SettlementHistoryLine[];
@@ -32,9 +32,18 @@ export interface SettlementAuditLine {
   id: string;
   at: string;
   by: string;
-  action: 'settlement-paid' | 'settlement-refunded';
+  action: 'settlement-paid' | 'settlement-refunded' | 'settlement-contested';
   subjectId: string;
   amount: number;
+}
+
+/** An entry of the administrators' log (request 33): which administrator decided what about which settlement, and when. */
+export interface AdministratorDecisionLine {
+  id: string;
+  at: string;
+  by: string;
+  action: 'decided-paid' | 'decided-annulled';
+  subjectId: string;
 }
 
 /**
@@ -95,11 +104,20 @@ export interface ISettlementQueries {
    * a settlement that was never paid (one refunded while pending) has no entry of its refund.
    */
   auditOf(groupId: string): Promise<SettlementAuditLine[]>;
-  /** Every payment waiting at the provider in the group, in no order: what is still owed counts them as paid (ADR 12). */
+  /**
+   * Every settlement contested now, the earliest contested first, as `settlementOf` reads each (request 33): what an administrator decides.
+   */
+  contestedNow(): Promise<SettlementView[]>;
+  /** The administrators' log, the oldest entry first (request 33). */
+  administratorDecisions(): Promise<AdministratorDecisionLine[]>;
+  /**
+   * Every payment waiting in the group, in no order: pending at the provider, or contested and held until an administrator decides; what is
+   * still owed counts them as paid (ADR 12, request 33).
+   */
   pendingOf(groupId: string): Promise<PendingTransfer[]>;
   /**
-   * Whether a payment through the provider of the member, as payer or payee, is waiting, pending or being refunded in the group: a member
-   * with one cannot leave the group (request 20, ADR 16).
+   * Whether a payment through the provider of the member, as payer or payee, is waiting, pending or being refunded, or contested, in the group: a
+   * member with one cannot leave the group (request 20, ADR 16, request 33).
    */
   hasWaitingPayment(groupId: string, memberId: string): Promise<boolean>;
 }

@@ -1,7 +1,7 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { ledgerBalancesReadModel } from '@Contexts/Ledger/module.local';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import { getAdministratorsLog, getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 import {
   archiveGroup,
   createGroup,
@@ -16,6 +16,7 @@ import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/GroupEvents';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { settlementsReadModel } from '@Contexts/Settlements/module.local';
 import { BalancesOfLedger } from '@Contexts/Groups/Infrastructure/BalancesOfLedger';
+import { AdministratorDecisionsOfSettlements } from '@Contexts/Groups/Infrastructure/AdministratorDecisionsOfSettlements';
 import { WaitingPaymentsOfSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsOfSettlements';
 import { GroupsDatabase } from '@Contexts/Groups/Infrastructure/GroupsDatabase';
 import { SqliteAccounts } from '@Contexts/Groups/Infrastructure/SqliteAccounts';
@@ -35,6 +36,13 @@ const groups = new SqliteGroups(database);
 const invitations = new SqliteInvitations(database);
 const passwords = new ScryptPasswordHasher();
 
+/** The emails of the platform's administrators, `ADMIN_EMAILS` separated by commas, read when a sign-in comes (request 33). */
+const administratorEmails = (): string[] =>
+  String(process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map(email => email.trim())
+    .filter(Boolean);
+
 export const groupsAccessTokens = new SignedAccessTokens(database);
 
 /**
@@ -48,7 +56,8 @@ export const localGroupsModule = new LiteModule({
   name: 'Groups',
   useCases: [
     signUp(accounts, passwords, systemClock),
-    signIn(accounts, passwords, groupsAccessTokens),
+    signIn(accounts, passwords, groupsAccessTokens, administratorEmails),
+    getAdministratorsLog(new AdministratorDecisionsOfSettlements(() => settlementsReadModel)),
     getMyAccount(accounts),
     createGroup(groups, systemClock),
     getGroup(groups),

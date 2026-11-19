@@ -5,7 +5,7 @@ feature: contest-a-settlement
 intent: >-
   The payee contests a paid settlement through the provider; its effect on the balances is held, and it waits, until an administrator decides it was paid or annuls it; every decision is in the administrators' log.
 
-done: false
+done: true
 
 hotSpots:
   - question: Who is an administrator?

@@ -1,6 +1,7 @@
 import { ConcurrencyConflictException } from '@Architecture/Domain';
 import { ISettlementBooks } from '@Contexts/Settlements/Application/ISettlementBooks';
 import {
+  AdministratorDecisionLine,
   CountedSettlement,
   ISettlementQueries,
   NettingView,
@@ -41,6 +42,13 @@ type CountedRow = {
   counted_at: string;
 };
 type HistoryRow = { status: SettlementHistoryLine['status']; at: string };
+type AdministratorLogRow = {
+  id: string;
+  at: string;
+  by_account: string;
+  action: AdministratorDecisionLine['action'];
+  subject_id: string;
+};
 type HistoryOfGroupRow = HistoryRow & { settlement_id: string };
 type AuditRow = {
   id: string;
@@ -52,6 +60,8 @@ type AuditRow = {
   at: string;
   /** Who asked the netting the settlement was made by (request 32); null for any other settlement. */
   netted_by: string | null;
+  /** Who decided the settlement paid again, an administrator (request 33); null for any other line. */
+  decided_by: string | null;
 };
 type NettingRow = { id: string; asked_by: string; asked_with: string; currency: string; amount: number };
 type LiveRow = {
@@ -61,12 +71,12 @@ type LiveRow = {
   amount: number;
   provider_payment_id: string;
   pay_url: string;
-  status: 'pending' | 'paid' | 'refunding';
+  status: 'pending' | 'paid' | 'refunding' | 'contested';
 };
 
 const LIVE_COLUMNS = 'id, payer, payee, amount, provider_payment_id, pay_url, status';
-/** The statuses a provider payment is held in the book in: waiting, paid, or being refunded (request 15). */
-const LIVE_STATUSES = "('pending', 'paid', 'refunding')";
+/** The statuses a provider payment is held in the book in: waiting, paid, being refunded (request 15), or contested (request 33). */
+const LIVE_STATUSES = "('pending', 'paid', 'refunding', 'contested')";
 /** The statuses the balances count: paid, and being refunded, as the money has not gone back yet (request 15). */
 const COUNTED_STATUSES = "('paid', 'refunding')";
 
@@ -160,19 +170,25 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
         );
         await this.#history(settlement.id, settlement.status, settlement.at);
       }
-      for (const { id, status, at } of book.moved()) {
+      for (const { id, status, at, by } of book.moved()) {
         await this.database.execute('UPDATE settlements SET status = $1 WHERE id = $2', [status, id]);
-        await this.#history(id, status, at);
+        await this.#history(id, status, at, by);
+      }
+      // Every decision of an administrator is an entry of their log, made durable with the decision (request 33).
+      for (const entry of book.decisions()) {
+        await this.database.execute(
+          'INSERT INTO administrator_log (id, at, by_account, action, subject_id) VALUES ($1, $2, $3, $4, $5)',
+          [entry.id, entry.at, entry.by, entry.action, entry.subjectId],
+        );
       }
     });
   }
 
-  async #history(settlementId: string, status: string, at: string): Promise<void> {
-    await this.database.execute('INSERT INTO settlement_history (settlement_id, status, at) VALUES ($1, $2, $3)', [
-      settlementId,
-      status,
-      at,
-    ]);
+  async #history(settlementId: string, status: string, at: string, by?: string): Promise<void> {
+    await this.database.execute(
+      'INSERT INTO settlement_history (settlement_id, status, at, by_account) VALUES ($1, $2, $3, $4)',
+      [settlementId, status, at, by ?? null],
+    );
   }
 
   async absorb(book: SettlementBook, mergedGroupId: string): Promise<void> {
@@ -265,7 +281,7 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
   async hasWaitingPayment(groupId: string, memberId: string): Promise<boolean> {
     const rows = await this.database.rows(
       `SELECT 1 AS waiting FROM settlements
-        WHERE group_id = $1 AND method = 'provider' AND status IN ('pending', 'refunding') AND (payer = $2 OR payee = $2)
+        WHERE group_id = $1 AND method = 'provider' AND status IN ('pending', 'refunding', 'contested') AND (payer = $2 OR payee = $2)
         LIMIT 1`,
       [groupId, memberId],
     );
@@ -274,12 +290,12 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
 
   async auditOf(groupId: string): Promise<SettlementAuditLine[]> {
     const rows = await this.database.rows<AuditRow>(
-      `SELECT s.id, s.payer, s.payee, s.amount, s.method, h.status, h.at, n.asked_by AS netted_by
+      `SELECT s.id, s.payer, s.payee, s.amount, s.method, h.status, h.at, n.asked_by AS netted_by, h.by_account AS decided_by
          FROM settlement_history h JOIN settlements s ON s.id = h.settlement_id
          LEFT JOIN netting_settlements ns ON ns.settlement_id = s.id
          LEFT JOIN nettings n ON n.id = ns.netting_id
         WHERE s.group_id = $1
-          AND (h.status = 'paid'
+          AND (h.status IN ('paid', 'contested')
                OR (h.status = 'refunded' AND EXISTS (
                      SELECT 1 FROM settlement_history p WHERE p.settlement_id = h.settlement_id AND p.status = 'paid')))
         ORDER BY h.seq`,
@@ -288,21 +304,31 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
     return rows.map(row =>
       row.status === 'paid'
         ? {
-            id: `${row.id}:paid`,
+            // A settlement an administrator decided paid is a second paid line, by that administrator (request 33).
+            id: row.decided_by === null ? `${row.id}:paid` : `${row.id}:paid-decided`,
             at: row.at,
-            by: byOf(row),
+            by: row.decided_by ?? byOf(row),
             action: 'settlement-paid',
             subjectId: row.id,
             amount: row.amount,
           }
-        : {
-            id: `${row.id}:refunded`,
-            at: row.at,
-            by: row.payee,
-            action: 'settlement-refunded',
-            subjectId: row.id,
-            amount: row.amount,
-          },
+        : row.status === 'contested'
+          ? {
+              id: `${row.id}:contested`,
+              at: row.at,
+              by: row.payee,
+              action: 'settlement-contested',
+              subjectId: row.id,
+              amount: row.amount,
+            }
+          : {
+              id: `${row.id}:refunded`,
+              at: row.at,
+              by: row.payee,
+              action: 'settlement-refunded',
+              subjectId: row.id,
+              amount: row.amount,
+            },
     );
   }
 
@@ -326,9 +352,39 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
     };
   }
 
+  async contestedNow(): Promise<SettlementView[]> {
+    const rows = await this.database.rows<SettlementRow>(
+      `SELECT s.id, s.group_id, s.payer, s.payee, s.amount, s.method, s.status, s.at, s.pay_url FROM settlements s
+        WHERE s.status = 'contested'
+        ORDER BY (SELECT MAX(h.seq) FROM settlement_history h WHERE h.settlement_id = s.id AND h.status = 'contested')`,
+    );
+    const views: SettlementView[] = [];
+    for (const row of rows) {
+      const history = await this.database.rows<HistoryRow>(
+        'SELECT status, at FROM settlement_history WHERE settlement_id = $1 ORDER BY seq',
+        [row.id],
+      );
+      views.push(toView(row, history));
+    }
+    return views;
+  }
+
+  async administratorDecisions(): Promise<AdministratorDecisionLine[]> {
+    const rows = await this.database.rows<AdministratorLogRow>(
+      'SELECT id, at, by_account, action, subject_id FROM administrator_log ORDER BY seq',
+    );
+    return rows.map(row => ({
+      id: row.id,
+      at: row.at,
+      by: row.by_account,
+      action: row.action,
+      subjectId: row.subject_id,
+    }));
+  }
+
   async pendingOf(groupId: string): Promise<PendingTransfer[]> {
     const rows = await this.database.rows<LiveRow>(
-      `SELECT ${LIVE_COLUMNS} FROM settlements WHERE group_id = $1 AND status = 'pending'`,
+      `SELECT ${LIVE_COLUMNS} FROM settlements WHERE group_id = $1 AND status IN ('pending', 'contested')`,
       [groupId],
     );
     return rows.map(row => ({ from: row.payer, to: row.payee, amount: row.amount }));

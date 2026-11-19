@@ -42,3 +42,10 @@ export const decideSignIn = (
   if (!account || !passwordMatches) return Result.fail(new NotAllowedException('Groups', 'Wrong email or password'));
   return decided(account);
 };
+
+/**
+ * Whether an account is an administrator of the platform (request 33): its email is one of the administrators' emails the server is started
+ * with, whatever the case. Nobody becomes one otherwise: no command makes one. Pure: the list is given.
+ */
+export const isAdministratorAccount = (account: Account, administratorEmails: readonly string[]): boolean =>
+  administratorEmails.some(email => email.trim().toLowerCase() === account.email.value);

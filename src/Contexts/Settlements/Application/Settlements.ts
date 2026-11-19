@@ -1,11 +1,14 @@
-import { NotFoundException, Result } from '@Architecture/Domain';
+import { NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
 import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { suggestTransfers, SuggestedTransfer } from '@Contexts/Settlements/Domain/Suggestion/SuggestedTransfers';
+import { Role } from '@SharedKernel/Domain';
 import { ISettlementQueries, SettlementView } from '@Contexts/Settlements/Domain/ISettlementQueries';
 import { stillOwed } from '@Contexts/Settlements/Domain/SettlementBook/StillOwed';
 import {
+  decideContestSettlement,
+  decideDecideContest,
   decideRecordCashSettlement,
   decideRefundSettlement,
   decideRequestProviderPayment,
@@ -263,3 +266,87 @@ export const getGroupSettlements = query(
       return Result.ok(await settlements.settlementsOf(groupId));
     },
 );
+
+/** What the payee asks to contest: the settlement's id (request 33). */
+export interface ContestSettlementInput {
+  id: string;
+}
+
+/**
+ * The payee of a settlement paid through the provider contests it: the money did not reach them (request 33). The book is read first, then
+ * the settlement and the members of its group, so a change to the settlement since moves the book's version and the save refuses this
+ * decision (CONC-OPTIMISTIC). The decision allows it only for the payee, only while the settlement is `paid`, only once, and only while its
+ * payer and payee are members. The book then moves it to `contested`, where the balances stop counting it and it waits for an administrator.
+ * Answers nothing (`204`). Anyone who is not a member gets the answer for a settlement that does not exist.
+ */
+export const contestSettlement = command(
+  'ContestSettlement',
+  (books: ISettlementBooks, settlements: ISettlementQueries, members: ISettlementMembers, clock: Clock) =>
+    async ({ id }: ContestSettlementInput, context) => {
+      return books.inTransaction(async () => {
+        const payee = callerOf(context);
+        const now = clock();
+        const book = await books.bookOfSettlement(id);
+        if (!book) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+        const settlement = await settlements.settlementOf(id);
+        if (!settlement) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+        const memberIds = await members.membersOf(book.groupId, payee);
+        if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+
+        const archived = await members.archivedOf(book.groupId);
+        const decision = decideContestSettlement({ memberIds, settlement, archived }, { caller: payee }, now);
+        if (decision.isFailure()) return decision;
+
+        book.contest(id, now);
+        await books.save(book);
+        await publishDomainEvents(book, context);
+        return Result.ok(undefined);
+      });
+    },
+);
+
+/** What an administrator decides: the settlement, and whether the money arrived (request 33). */
+export interface DecideContestInput {
+  id: string;
+  paid: boolean;
+}
+
+/**
+ * An administrator decides a contested settlement (request 33): `paid` when the money arrived, and it counts as it did before it was
+ * contested, or not paid, and it is annulled. Anyone else is refused. Only a contested settlement is decided, once. The decision is an entry
+ * of the administrators' log, saved with the book in the same transaction. Answers nothing (`204`).
+ */
+export const decideContest = command(
+  'DecideContest',
+  (books: ISettlementBooks, settlements: ISettlementQueries, clock: Clock) =>
+    async ({ id, paid }: DecideContestInput, context) => {
+      const administrator = callerOf(context);
+      if (context.auth.role !== Role.ADMIN) {
+        return Result.fail(new NotAllowedException('Settlements', 'Only an administrator may decide a contest'));
+      }
+      return books.inTransaction(async () => {
+        const now = clock();
+        const book = await books.bookOfSettlement(id);
+        if (!book) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+        const settlement = await settlements.settlementOf(id);
+        if (!settlement) return Result.fail(new NotFoundException('Settlements', 'No settlement is found'));
+
+        const decision = decideDecideContest({ settlement }, { paid }, now);
+        if (decision.isFailure()) return decision;
+
+        book.decideContest({ settlementId: id, paid, by: administrator, at: now });
+        await books.save(book);
+        await publishDomainEvents(book, context);
+        return Result.ok(undefined);
+      });
+    },
+);
+
+/**
+ * An administrator reads the settlements contested now, the earliest contested first, each as `GetSettlement` reads it (request 33).
+ * What only an administrator reads does not exist for anyone else.
+ */
+export const getContests = query('GetContests', (settlements: ISettlementQueries) => async (_input: void, context) => {
+  if (context.auth.role !== Role.ADMIN) return Result.fail(new NotFoundException('Settlements', 'Nothing is found'));
+  return Result.ok(await settlements.contestedNow());
+});

@@ -2,12 +2,14 @@ import { NotFoundException, Result } from '@Architecture/Domain';
 import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
-import { Email } from '@SharedKernel/Domain';
-import { decideSignIn, decideSignUp } from '@Contexts/Groups/Domain/Account/Account.decision';
+import { decideSignIn, decideSignUp, isAdministratorAccount } from '@Contexts/Groups/Domain/Account/Account.decision';
 import { EmailAlreadyUsedException } from '@Contexts/Groups/Domain/Account/AccountExceptions';
 
 import { AccountView, IAccountQueries } from './IAccountQueries';
+import { Email, Role } from '@SharedKernel/Domain';
+
 import { IAccessTokens } from './IAccessTokens';
+import { IAdministratorDecisions } from './IAdministratorDecisions';
 import { IAccountRepository } from './IAccountRepository';
 import { IPasswordHasher } from './IPasswordHasher';
 
@@ -41,18 +43,25 @@ export const signUp = command(
 
 /**
  * Signing in changes nothing: it checks the credentials and answers a token. Anyone may ask; a wrong password and an
- * unknown email are refused the same way.
+ * unknown email are refused the same way. The token says the caller is an administrator when the account's email is one of the
+ * administrators' (request 33), read when the sign-in comes.
  */
 export const signIn = query(
   'SignIn',
-  (accounts: IAccountRepository, passwords: IPasswordHasher, tokens: IAccessTokens) =>
+  (
+    accounts: IAccountRepository,
+    passwords: IPasswordHasher,
+    tokens: IAccessTokens,
+    administratorEmails: () => readonly string[],
+  ) =>
     async ({ email, password }: { email: string; password: string }) => {
       const address = Email.create(email);
       const account = address.isSuccess() ? await accounts.findByEmail(address.data) : undefined;
       const matches = await passwords.matches(password, account?.passwordHash);
       const decision = decideSignIn(account, { passwordMatches: matches });
       if (decision.isFailure()) return decision;
-      return Result.ok({ token: await tokens.issue(decision.data.state._id.value) });
+      const administrator = isAdministratorAccount(decision.data.state, administratorEmails());
+      return Result.ok({ token: await tokens.issue(decision.data.state._id.value, administrator) });
     },
   { caller: 'anyone' },
 );
@@ -63,3 +72,15 @@ export const getMyAccount = query('GetMyAccount', (accounts: IAccountQueries) =>
   if (!account) return Result.fail(new NotFoundException('Groups', 'No account is signed in'));
   return Result.ok(account);
 });
+
+/**
+ * An administrator reads the administrators' log, the oldest entry first (request 33): the decisions the administrators made, which Settlements
+ * writes and Groups reads through its port. What only an administrator reads does not exist for anyone else.
+ */
+export const getAdministratorsLog = query(
+  'GetAdministratorsLog',
+  (decisions: IAdministratorDecisions) => async (_input: void, context) => {
+    if (context.auth.role !== Role.ADMIN) return Result.fail(new NotFoundException('Groups', 'Nothing is found'));
+    return Result.ok(await decisions.decisions());
+  },
+);

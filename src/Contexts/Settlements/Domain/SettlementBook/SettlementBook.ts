@@ -4,6 +4,8 @@ import {
   PaymentRequestedEvent,
   RefundRequestedEvent,
   SettlementFailedEvent,
+  SettlementAnnulledEvent,
+  SettlementContestedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
   SettlementBookMergedEvent,
@@ -21,7 +23,19 @@ export type SettlementMethod = 'cash' | 'provider' | 'net';
  * Where a settlement stands: pending at the provider until its webhook says otherwise; paid; failed when the provider says so; being
  * refunded at the provider, the money not back yet (request 15); refunded, when the provider says so.
  */
-export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
+
+/** What an administrator decided about a contested settlement (request 33): the money arrived, or it did not. */
+export type ContestDecision = 'decided-paid' | 'decided-annulled';
+
+/** An entry of the administrators' log (request 33): which administrator decided what, about which settlement, and when. */
+export interface AdministratorDecisionEntry {
+  id: string;
+  at: string;
+  by: string;
+  action: ContestDecision;
+  subjectId: string;
+}
 
 /** A settlement as it is stored: a payment from one member of a group to another, recorded at `at`. */
 export interface SettlementSnapshot {
@@ -46,7 +60,7 @@ export interface ProviderPayment extends PendingTransfer {
   id: string;
   providerPaymentId: string;
   payUrl: string;
-  status: 'pending' | 'paid' | 'refunding';
+  status: 'pending' | 'paid' | 'refunding' | 'contested';
 }
 
 /**
@@ -64,7 +78,8 @@ export class SettlementBook extends AggregateRoot {
   readonly #groupId: string;
   #payments: ProviderPayment[];
   #recorded: SettlementSnapshot[] = [];
-  #moved: { id: string; status: SettlementStatus; at: string }[] = [];
+  #moved: { id: string; status: SettlementStatus; at: string; by?: string }[] = [];
+  #decisions: AdministratorDecisionEntry[] = [];
 
   private constructor(id: Id, version: number, groupId: string, payments: ProviderPayment[]) {
     super(id, version);
@@ -121,13 +136,21 @@ export class SettlementBook extends AggregateRoot {
    * The statuses the settlements of this book moved to since it was read, in the order they moved, each with the time Tally learned
    * it: what the store updates, and what each settlement's history gains (request 19).
    */
-  moved(): readonly { id: string; status: SettlementStatus; at: string }[] {
+  moved(): readonly { id: string; status: SettlementStatus; at: string; by?: string }[] {
     return this.#moved;
   }
 
-  /** The payments waiting at the provider, in the order they were requested. */
+  /** The administrators' decisions made in this book since it was read, in the order they were made: what the store logs (request 33). */
+  decisions(): readonly AdministratorDecisionEntry[] {
+    return this.#decisions;
+  }
+
+  /**
+   * The payments that wait: pending at the provider, or contested by their payee until an administrator decides (request 33). What is
+   * still owed counts them as paid, and the balances count neither.
+   */
   pendingPayments(): readonly ProviderPayment[] {
-    return this.#payments.filter(payment => payment.status === 'pending');
+    return this.#payments.filter(payment => payment.status === 'pending' || payment.status === 'contested');
   }
 
   /** The provider's id of the live payment of this settlement, if the book holds it: what a refund is asked of the provider with. */
@@ -232,6 +255,8 @@ export class SettlementBook extends AggregateRoot {
   settlePayment(providerPaymentId: string, outcome: 'paid' | 'failed' | 'refunded', at: Date): void {
     const payment = this.#payments.find(live => live.providerPaymentId === providerPaymentId);
     if (!payment) return;
+    // A contested payment waits for an administrator: what the provider says about it changes nothing (request 33).
+    if (payment.status === 'contested') return;
     if (outcome !== 'refunded' && payment.status !== 'pending') return;
     // A paid payment stays held, since a refund is asked for it; a failed or refunded one is no longer live.
     this.#payments =
@@ -272,5 +297,58 @@ export class SettlementBook extends AggregateRoot {
         amount: payment.amount,
       }),
     );
+  }
+
+  /**
+   * The payee contests a paid settlement (request 33): it is `contested` at `at`, the balances stop counting it and it waits, as a pending
+   * payment does, until an administrator decides. The decision has allowed it. Records `SettlementContested`.
+   */
+  contest(settlementId: string, at: Date): void {
+    const payment = this.#payments.find(live => live.id === settlementId);
+    if (!payment || payment.status !== 'paid') {
+      throw new Error(`The settlement ${settlementId} is not paid in its book, so it cannot be contested`);
+    }
+    this.#payments = this.#payments.map(live => (live === payment ? { ...live, status: 'contested' } : live));
+    this.#moved = [...this.#moved, { id: payment.id, status: 'contested', at: at.toISOString() }];
+    this.record(SettlementContestedEvent.set(this.#fact(payment)));
+  }
+
+  /**
+   * An administrator decides a contested settlement (request 33): `paid` when the money arrived, and it is paid again, counted as it was
+   * before it was contested; otherwise it is annulled, counted no more, and no longer waits. Either is an entry of the administrators' log,
+   * written with the book. The decision has allowed it. Records `SettlementPaid` or `SettlementAnnulled`.
+   */
+  decideContest({ settlementId, paid, by, at }: { settlementId: string; paid: boolean; by: string; at: Date }): void {
+    const payment = this.#payments.find(live => live.id === settlementId);
+    if (!payment || payment.status !== 'contested') {
+      throw new Error(`The settlement ${settlementId} is not contested in its book, so it cannot be decided`);
+    }
+    const status = paid ? 'paid' : 'annulled';
+    this.#payments = paid
+      ? this.#payments.map(live => (live === payment ? { ...live, status: 'paid' } : live))
+      : this.#payments.filter(live => live !== payment);
+    this.#moved = [...this.#moved, { id: payment.id, status, at: at.toISOString(), by }];
+    this.#decisions = [
+      ...this.#decisions,
+      {
+        id: Id.generate().value,
+        at: at.toISOString(),
+        by,
+        action: paid ? 'decided-paid' : 'decided-annulled',
+        subjectId: payment.id,
+      },
+    ];
+    if (paid) this.record(SettlementPaidEvent.set(this.#fact(payment)));
+    else this.record(SettlementAnnulledEvent.set(this.#fact(payment)));
+  }
+
+  #fact(payment: ProviderPayment) {
+    return {
+      settlementId: payment.id,
+      groupId: this.#groupId,
+      payer: payment.from,
+      payee: payment.to,
+      amount: payment.amount,
+    };
   }
 }

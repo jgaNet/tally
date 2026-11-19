@@ -134,3 +134,36 @@ export class ProviderRefundUnavailableException extends Exception {
     });
   }
 }
+
+/** A settlement is contested once: it was contested before (request 33). */
+export class SettlementAlreadyContestedException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementAlreadyContested',
+      message: 'A settlement is contested once',
+    });
+  }
+}
+
+/** Only a contested settlement is decided, once (request 33). */
+export class SettlementNotContestedException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'SettlementNotContested',
+      message: 'Only a contested settlement is decided',
+    });
+  }
+}
+
+/** The payer or the payee of the settlement has left the group, so the settlement is not contested (request 9, request 33). */
+export class ContestPartyNotMemberException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'ContestPartyNotMember',
+      message: 'The payer and the payee must both still be members of the group',
+    });
+  }
+}

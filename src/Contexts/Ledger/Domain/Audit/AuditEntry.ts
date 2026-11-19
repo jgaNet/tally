@@ -1,7 +1,7 @@
 import { Id } from '@Architecture/Domain';
 
 /**
- * What a change of money is, as the audit names it (request 28). Ledger writes the first three, of its own expenses; the other three
+ * What a change of money is, as the audit names it (request 28). Ledger writes the first three, of its own expenses; the other four
  * are read through Settlements' and Groups' ports and kept by them, in their own words, under the same public names.
  */
 export type AuditAction =
@@ -10,6 +10,7 @@ export type AuditAction =
   | 'expense-deleted'
   | 'settlement-paid'
   | 'settlement-refunded'
+  | 'settlement-contested'
   | 'balance-passed';
 
 /**

@@ -12,6 +12,6 @@ export const authenticateWith =
   async (request: FastifyRequest): Promise<void> => {
     const match = /^Bearer (\S+)$/.exec(request.headers.authorization ?? '');
     if (!match) return;
-    const accountId = await tokens.accountOf(match[1]);
-    if (accountId) request.auth = { subjectId: accountId, role: Role.USER };
+    const caller = await tokens.accountOf(match[1]);
+    if (caller) request.auth = { subjectId: caller.accountId, role: caller.administrator ? Role.ADMIN : Role.USER };
   };

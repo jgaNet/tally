@@ -78,3 +78,27 @@ export class SettlementFailedEvent extends DomainEvent<{
  * from then on, each with its status and history. Recorded by `SettlementBook.absorb` and published after the move; nothing reacts to it.
  */
 export class SettlementBookMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string }> {}
+
+/**
+ * The payee of a settlement paid through the provider contested it (request 33): the money did not reach them. The balances stop counting it,
+ * and it waits for an administrator. Recorded by `SettlementBook.contest`, published after the save; nothing reacts to it yet.
+ */
+export class SettlementContestedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}
+
+/**
+ * An administrator decided a contested settlement was not paid (request 33): it is annulled, nothing counts it, and what was owed is owed
+ * again. Recorded by `SettlementBook.decideContest`, published after the save; nothing reacts to it yet.
+ */
+export class SettlementAnnulledEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}

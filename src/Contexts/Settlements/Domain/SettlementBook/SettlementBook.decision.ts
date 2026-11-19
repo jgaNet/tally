@@ -4,11 +4,14 @@ import { GroupArchivedException } from '@SharedKernel/Domain';
 
 import type { SettlementMethod, SettlementStatus } from './SettlementBook';
 import {
+  ContestPartyNotMemberException,
   InvalidSettlementAmountException,
   PayeeHasNoPayoutAccountException,
   RefundPartyNotMemberException,
+  SettlementAlreadyContestedException,
   SettlementMoreThanIsOwedException,
   SettlementMoreThanOwedException,
+  SettlementNotContestedException,
   SettlementNotPaidException,
   SettlementNotThroughProviderException,
   SettlementPayeeNotMemberException,
@@ -176,5 +179,59 @@ export const decideRefundSettlement: Decision<{ id: string }, RefundSettlementCo
   if (!memberIds.includes(settlement.from) || !memberIds.includes(settlement.to)) {
     return Result.fail(new RefundPartyNotMemberException());
   }
+  return decided({ id: settlement.id });
+};
+
+/** What a contest is asked by (request 33): the caller, who must be the payee of the settlement. */
+export interface ContestSettlementCommand {
+  caller: string;
+}
+
+/** The settlement a contest is asked of, as the read model has it now: and every status it has had, which says whether it was contested before. */
+export interface ContestedSettlementFacts extends RefundedSettlementFacts {
+  history: readonly { status: SettlementStatus }[];
+}
+
+/** What a contest decision is given: the members of the settlement's group, and the settlement's facts. */
+export interface ContestGiven {
+  memberIds: readonly string[];
+  settlement: ContestedSettlementFacts;
+  /** Whether the group is archived (request 27): then no settlement is contested in it. */
+  archived: boolean;
+}
+
+/**
+ * Contesting a settlement (request 33): only its payee may, only a settlement through the provider that is `paid`, only once, and only while
+ * its payer and its payee are members of the group. Otherwise it is refused and nothing changes. Answers the settlement's id; the book then
+ * moves it to contested.
+ */
+export const decideContestSettlement: Decision<{ id: string }, ContestSettlementCommand, never, ContestGiven> = (
+  { memberIds, settlement, archived },
+  { caller },
+) => {
+  if (archived) return Result.fail(new GroupArchivedException());
+  if (settlement.to !== caller)
+    return Result.fail(new NotAllowedException('Settlements', 'Only the payee may contest the settlement'));
+  if (settlement.method !== 'provider') return Result.fail(new SettlementNotThroughProviderException());
+  if (settlement.history.some(line => line.status === 'contested')) {
+    return Result.fail(new SettlementAlreadyContestedException());
+  }
+  if (settlement.status !== 'paid') return Result.fail(new SettlementNotPaidException());
+  if (!memberIds.includes(settlement.from) || !memberIds.includes(settlement.to)) {
+    return Result.fail(new ContestPartyNotMemberException());
+  }
+  return decided({ id: settlement.id });
+};
+
+/** What an administrator's decision is given: the status the settlement has now. */
+export interface DecideContestGiven {
+  settlement: { id: string; status: SettlementStatus };
+}
+
+/** Deciding a contested settlement (request 33): only a contested one is decided, and once, as it is no longer contested after. */
+export const decideDecideContest: Decision<{ id: string }, { paid: boolean }, never, DecideContestGiven> = ({
+  settlement,
+}) => {
+  if (settlement.status !== 'contested') return Result.fail(new SettlementNotContestedException());
   return decided({ id: settlement.id });
 };
