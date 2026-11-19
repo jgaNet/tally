@@ -102,3 +102,12 @@ export class SettlementAnnulledEvent extends DomainEvent<{
   payee: string;
   amount: number;
 }> {}
+
+/**
+ * The group's owner decided who bears the provider's fee (request 38): payer, payee or shared. Recorded by `SettlementBook.setFeePolicy`,
+ * published after the save; nothing reacts to it yet, so it is not an integration event.
+ */
+export class FeePolicySetEvent extends DomainEvent<{
+  groupId: string;
+  borneBy: 'payer' | 'payee' | 'shared';
+}> {}

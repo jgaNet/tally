@@ -42,7 +42,7 @@ beforeAll(async () => {
       received = [...received, payment];
       const id = `pay_${received.length}`;
       response.writeHead(201, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ id, payUrl: `https://pay.example/${id}` }));
+      response.end(JSON.stringify({ id, fee: 0, payUrl: `https://pay.example/${id}` }));
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', () => resolve()));
@@ -138,6 +138,7 @@ describe('Payment through the provider (request 13)', () => {
       status: 'pending',
       at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/),
       payUrl: expect.stringMatching(/^https:\/\/pay\.example\//),
+      fee: { amount: 0, borneBy: 'payee' },
       history: [{ status: 'pending', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/) }],
     });
 

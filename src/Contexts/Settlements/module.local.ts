@@ -6,6 +6,7 @@ import {
   contestSettlement,
   decideContest,
   getContests,
+  getFeePolicy,
   getGroupSettlements,
   getSettlement,
   getSuggestedSettlements,
@@ -13,6 +14,7 @@ import {
   receivePaymentWebhook,
   recordCashSettlement,
   refundSettlement,
+  setFeePolicy,
 } from '@Contexts/Settlements/Application/Settlements';
 import { GroupBalancesOfLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesOfLedger';
 import { PaymentProviderOverHttp } from '@Contexts/Settlements/Infrastructure/PaymentProviderOverHttp';
@@ -87,6 +89,8 @@ export const localSettlementsModule = new LiteModule({
     getContests(settlementsReadModel),
     netDebts(settlementsReadModel, groupBalances, settlementMembers, nettingsStore, systemClock),
     getNetting(settlementsReadModel),
+    setFeePolicy(settlementsReadModel, settlementMembers, systemClock),
+    getFeePolicy(settlementsReadModel, settlementMembers),
   ],
   integrationEvents: [
     {

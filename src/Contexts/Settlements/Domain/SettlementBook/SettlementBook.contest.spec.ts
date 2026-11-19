@@ -68,7 +68,16 @@ describe('SettlementBook contest and decision (request 33)', () => {
       groupId: 'g',
       version: 2,
       payments: [
-        { id: 's1', from: 'grace', to: 'ada', amount: 30, providerPaymentId: 'pay_1', payUrl: 'u', status: 'paid' },
+        {
+          id: 's1',
+          from: 'grace',
+          to: 'ada',
+          amount: 30,
+          settled: 30,
+          providerPaymentId: 'pay_1',
+          payUrl: 'u',
+          status: 'paid',
+        },
       ],
     });
   const balances = new Map([

@@ -10,8 +10,10 @@ import {
   SettlementRecordedEvent,
   SettlementBookMergedEvent,
   SettlementRefundedEvent,
+  FeePolicySetEvent,
 } from './SettlementEvents';
 import { PendingTransfer, stillOwed } from './StillOwed';
+import { DEFAULT_FEE_BORNE, FeeBorne, ProviderFee, settledAmountOf } from './ProviderFee';
 
 /**
  * How a settlement is paid: in cash, recorded by its payee; through the payment provider (request 13); or by netting, which moves no money
@@ -43,13 +45,17 @@ export interface SettlementSnapshot {
   groupId: string;
   from: string;
   to: string;
+  /** The amount asked for. */
   amount: number;
+  /** What the settlement settles: its amount, less the part of the provider's fee its payer bears (request 38). */
+  settled: number;
   method: SettlementMethod;
   status: SettlementStatus;
   at: string;
-  /** Through the provider only: the payment's id at the provider, and the link where the payer pays. */
+  /** Through the provider only: the payment's id at the provider, the link where the payer pays, and the fee it was asked with. */
   providerPaymentId?: string;
   payUrl?: string;
+  fee?: ProviderFee;
 }
 
 /**
@@ -58,6 +64,8 @@ export interface SettlementSnapshot {
  */
 export interface ProviderPayment extends PendingTransfer {
   id: string;
+  /** What the payment settles (request 38): the amount it moves the balances by, once it counts. */
+  settled: number;
   providerPaymentId: string;
   payUrl: string;
   status: 'pending' | 'paid' | 'refunding' | 'contested';
@@ -80,11 +88,27 @@ export class SettlementBook extends AggregateRoot {
   #recorded: SettlementSnapshot[] = [];
   #moved: { id: string; status: SettlementStatus; at: string; by?: string }[] = [];
   #decisions: AdministratorDecisionEntry[] = [];
+  #feeBorneBy: FeeBorne;
 
-  private constructor(id: Id, version: number, groupId: string, payments: ProviderPayment[]) {
+  private constructor(id: Id, version: number, groupId: string, payments: ProviderPayment[], feeBorneBy: FeeBorne) {
     super(id, version);
     this.#groupId = groupId;
     this.#payments = payments;
+    this.#feeBorneBy = feeBorneBy;
+  }
+
+  /**
+   * The group's owner decides who bears the provider's fee (request 38): payer, payee or shared. A payment asked for from now on keeps it;
+   * the settlements asked for before are not changed. Records `FeePolicySet`, published once the book is saved.
+   */
+  setFeePolicy(borneBy: FeeBorne): void {
+    this.#feeBorneBy = borneBy;
+    this.record(FeePolicySetEvent.set({ groupId: this.#groupId, borneBy }));
+  }
+
+  /** Who bears the provider's fee of the group's payments asked for from now on (request 38). */
+  get feeBorneBy(): FeeBorne {
+    return this.#feeBorneBy;
   }
 
   /**
@@ -97,7 +121,7 @@ export class SettlementBook extends AggregateRoot {
 
   /** The book of a group with no settlement stored yet: version 0, its id generated here. */
   static open(groupId: string): SettlementBook {
-    return new SettlementBook(Id.generate(), 0, groupId, []);
+    return new SettlementBook(Id.generate(), 0, groupId, [], DEFAULT_FEE_BORNE);
   }
 
   /**
@@ -109,14 +133,16 @@ export class SettlementBook extends AggregateRoot {
     groupId,
     version,
     payments,
+    feeBorneBy = DEFAULT_FEE_BORNE,
   }: {
     id: string;
     groupId: string;
     version: number;
     payments: ProviderPayment[];
+    feeBorneBy?: FeeBorne;
   }): SettlementBook {
     if (!Number.isInteger(version) || version < 1) throw new Error(`The stored settlement book ${id} is corrupted`);
-    return new SettlementBook(new Id(id), version, groupId, payments);
+    return new SettlementBook(new Id(id), version, groupId, payments, feeBorneBy);
   }
 
   get bookId(): string {
@@ -163,7 +189,10 @@ export class SettlementBook extends AggregateRoot {
    * (`stillOwed`, ADR 12). The decisions of the rule and of the suggestions are made on these.
    */
   stillOwed(balances: ReadonlyMap<string, number>): ReadonlyMap<string, number> {
-    return stillOwed(balances, this.pendingPayments());
+    return stillOwed(
+      balances,
+      this.pendingPayments().map(payment => ({ from: payment.from, to: payment.to, amount: payment.settled })),
+    );
   }
 
   /**
@@ -198,7 +227,17 @@ export class SettlementBook extends AggregateRoot {
     method: 'cash' | 'net',
     { from, to, amount, at }: { from: string; to: string; amount: number; at: Date },
   ): SettlementSnapshot {
-    return { id, groupId: this.#groupId, from, to, amount, method, status: 'paid', at: at.toISOString() };
+    return {
+      id,
+      groupId: this.#groupId,
+      from,
+      to,
+      amount,
+      settled: amount,
+      method,
+      status: 'paid',
+      at: at.toISOString(),
+    };
   }
 
   /**
@@ -214,6 +253,7 @@ export class SettlementBook extends AggregateRoot {
     at,
     providerPaymentId,
     payUrl,
+    fee,
   }: {
     id: string;
     from: string;
@@ -222,9 +262,15 @@ export class SettlementBook extends AggregateRoot {
     at: Date;
     providerPaymentId: string;
     payUrl: string;
+    fee: ProviderFee;
   }): void {
     if (!providerPaymentId || !payUrl) throw new Error('A payment through the provider needs its id and its link');
-    this.#payments = [...this.#payments, { id, from, to, amount, providerPaymentId, payUrl, status: 'pending' }];
+    // What it settles is decided now, with the fee it was asked with and who bears it (request 38).
+    const settled = settledAmountOf(amount, fee);
+    this.#payments = [
+      ...this.#payments,
+      { id, from, to, amount, settled, providerPaymentId, payUrl, status: 'pending' },
+    ];
     this.#recorded = [
       ...this.#recorded,
       {
@@ -233,15 +279,17 @@ export class SettlementBook extends AggregateRoot {
         from,
         to,
         amount,
+        settled,
         method: 'provider',
         status: 'pending',
         at: at.toISOString(),
         providerPaymentId,
         payUrl,
+        fee,
       },
     ];
     this.record(
-      PaymentRequestedEvent.set({ settlementId: id, groupId: this.#groupId, payer: from, payee: to, amount }),
+      PaymentRequestedEvent.set({ settlementId: id, groupId: this.#groupId, payer: from, payee: to, amount: settled }),
     );
   }
 
@@ -269,7 +317,7 @@ export class SettlementBook extends AggregateRoot {
       groupId: this.#groupId,
       payer: payment.from,
       payee: payment.to,
-      amount: payment.amount,
+      amount: payment.settled,
     };
     if (outcome === 'paid') this.record(SettlementPaidEvent.set(fact));
     else if (outcome === 'failed') this.record(SettlementFailedEvent.set(fact));
@@ -294,7 +342,7 @@ export class SettlementBook extends AggregateRoot {
         groupId: this.#groupId,
         payer: payment.from,
         payee: payment.to,
-        amount: payment.amount,
+        amount: payment.settled,
       }),
     );
   }
@@ -348,7 +396,7 @@ export class SettlementBook extends AggregateRoot {
       groupId: this.#groupId,
       payer: payment.from,
       payee: payment.to,
-      amount: payment.amount,
+      amount: payment.settled,
     };
   }
 }

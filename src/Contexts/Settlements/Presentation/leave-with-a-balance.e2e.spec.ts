@@ -30,7 +30,11 @@ beforeAll(async () => {
       const payment = JSON.parse(body) as { reference: string };
       response.writeHead(201, { 'content-type': 'application/json' });
       response.end(
-        JSON.stringify({ id: `pay_${payment.reference}`, payUrl: `https://pay.example/pay_${payment.reference}` }),
+        JSON.stringify({
+          id: `pay_${payment.reference}`,
+          fee: 0,
+          payUrl: `https://pay.example/pay_${payment.reference}`,
+        }),
       );
     });
   });

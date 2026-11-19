@@ -1,4 +1,5 @@
 import { PendingTransfer } from '@Contexts/Settlements/Domain/SettlementBook/StillOwed';
+import { FeeBorne } from '@Contexts/Settlements/Domain/SettlementBook/ProviderFee';
 
 /** One status a settlement has had, and when Tally learned it (request 19). */
 export interface SettlementHistoryLine {
@@ -21,6 +22,8 @@ export interface SettlementView {
   status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
   at: string;
   payUrl?: string;
+  /** Through the provider, asked for from request 38 on: the fee the provider said and who bore it (request 38). */
+  fee?: { amount: number; borneBy: FeeBorne };
   history: SettlementHistoryLine[];
 }
 
@@ -84,13 +87,15 @@ export interface CountedSettlement {
 export interface ISettlementQueries {
   /** The settlement with this id, if it is stored. */
   settlementOf(id: string): Promise<SettlementView | undefined>;
+  /** Who bears the provider's fee in the group: the payee until its owner decides otherwise (request 38). */
+  feePolicyOf(groupId: string): Promise<FeeBorne>;
   /** The netting with this id, if it is stored; the use case answers it only to the two people it is between (request 32). */
   nettingOf(id: string): Promise<NettingView | undefined>;
   /** Every settlement of the group, the most recently recorded first (request 19). */
   settlementsOf(groupId: string): Promise<SettlementView[]>;
   /**
-   * Every settlement counted in the group, in no order: paid, and being refunded (the money has not gone back yet, request 15). One
-   * statement, so it is one state of the group's counted settlements.
+   * Every settlement counted in the group, in no order: paid, and being refunded (the money has not gone back yet, request 15), each
+   * counted at what it settles (request 38). One statement, so it is one state of the group's counted settlements.
    */
   settledOf(groupId: string): Promise<SettledTransfer[]>;
   /**

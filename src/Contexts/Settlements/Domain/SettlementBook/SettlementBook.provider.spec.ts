@@ -96,6 +96,7 @@ describe('SettlementBook with payments through the provider (request 13)', () =>
       at,
       providerPaymentId: 'pay_1',
       payUrl: 'https://pay.example/1',
+      fee: { amount: 0, borneBy: 'payee' },
     });
     expect(book.recorded()).toEqual([
       {
@@ -104,11 +105,13 @@ describe('SettlementBook with payments through the provider (request 13)', () =>
         from: 'grace',
         to: 'ada',
         amount: 30,
+        settled: 30,
         method: 'provider',
         status: 'pending',
         at: '2026-01-01T00:00:00.000Z',
         providerPaymentId: 'pay_1',
         payUrl: 'https://pay.example/1',
+        fee: { amount: 0, borneBy: 'payee' },
       },
     ]);
     expect(book.pullDomainEvents().map(event => event.constructor.name)).toEqual(['PaymentRequestedEvent']);
@@ -125,6 +128,7 @@ describe('SettlementBook with payments through the provider (request 13)', () =>
           from: 'grace',
           to: 'ada',
           amount: 30,
+          settled: 30,
           providerPaymentId: 'pay_1',
           payUrl: 'https://pay.example/1',
           status: 'pending',

@@ -167,3 +167,25 @@ export class ContestPartyNotMemberException extends Exception {
     });
   }
 }
+
+/** The provider gave no fee for a payment, or one that is not a whole number from 0, less than the amount: the request is refused and nothing is kept (request 38). */
+export class ProviderFeeUnavailableException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'ProviderFeeUnavailable',
+      message: 'The payment provider did not give a usable fee for the payment',
+    });
+  }
+}
+
+/** A fee policy names who bears the provider's fee: the payer, the payee, or both, shared (request 38). */
+export class InvalidFeePolicyException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'InvalidFeePolicy',
+      message: 'The fee is borne by the payer, the payee, or shared',
+    });
+  }
+}

@@ -1,7 +1,11 @@
-/** The payment link the provider gave for a payment: its id there, and the page where the payer pays. */
+/**
+ * The payment link the provider gave for a payment: its id there, the page where the payer pays, and the fee it keeps of the payment, in the
+ * hundredths of its currency (request 38): `undefined` when it said none, which the use case refuses.
+ */
 export interface PaymentLink {
   id: string;
   payUrl: string;
+  fee: number | undefined;
 }
 
 /**

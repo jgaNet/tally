@@ -32,7 +32,9 @@ async function startProvider(): Promise<string> {
     request.on('end', () => {
       asked = [...asked, JSON.parse(body) as { reference: string; amount: number; currency: string }];
       response.writeHead(201, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ id: `pay_${asked.length}`, payUrl: `https://pay.example/${asked.length}` }));
+      response.end(
+        JSON.stringify({ id: `pay_${asked.length}`, fee: 0, payUrl: `https://pay.example/${asked.length}` }),
+      );
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', () => resolve()));

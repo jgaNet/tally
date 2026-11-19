@@ -38,7 +38,7 @@ beforeAll(async () => {
         received = [...received, json as { reference: string; amount: number; currency: string }];
         const id = `pay_${received.length}`;
         response.writeHead(201, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ id, payUrl: `https://pay.example/${id}` }));
+        response.end(JSON.stringify({ id, fee: 0, payUrl: `https://pay.example/${id}` }));
         return;
       }
       const match = /^\/payments\/([^/]+)\/refunds$/.exec(request.url ?? '');

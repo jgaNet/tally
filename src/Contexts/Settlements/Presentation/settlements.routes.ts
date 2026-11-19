@@ -10,6 +10,7 @@ import {
   getContests,
   getGroupSettlements,
   getSettlement,
+  getFeePolicy,
   getSuggestedSettlements,
   payThroughProvider,
   PayThroughProviderInput,
@@ -17,6 +18,8 @@ import {
   recordCashSettlement,
   RecordCashSettlementInput,
   refundSettlement,
+  setFeePolicy,
+  SetFeePolicyInput,
 } from '@Contexts/Settlements/Application/Settlements';
 import {
   getPayoutAccount,
@@ -29,6 +32,8 @@ const PROVIDER_SHAPE_REFUSAL = 'The body must have to (the payee account id, a s
 const DECISION_SHAPE_REFUSAL = 'The body must have paid, a boolean';
 const WEBHOOK_SHAPE_REFUSAL = 'The body must have id, paymentId, status and at, each a string';
 const PAYOUT_ACCOUNT_SHAPE_REFUSAL = 'The body must have accountId, the provider id of the payout account, a string';
+const FEE_POLICY_SHAPE_REFUSAL =
+  'The body must have borneBy, who bears the provider fee (payer, payee or shared), a string';
 const NETTING_SHAPE_REFUSAL =
   "The body must have with (the other member's account id, a string) and currency (a string)";
 /** Whether a webhook's body, as sent, is signed by the provider under the header given: composed at the root, where the secret is read. */
@@ -91,6 +96,31 @@ export const settlementRoutes: FastifyPluginCallback<{
   module: LiteModule;
   providerSignedBy: ProviderSignatureCheck;
 }> = (fastify, { module, providerSignedBy }, done) => {
+  // A member reads who bears the provider's fee of the group's payments (request 38).
+  fastify.get('/groups/:id/fee-policy', { schema: { tags: ['settlements'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(getFeePolicy), { groupId: (req.params as { id: string }).id }),
+  );
+
+  // The group's owner decides who bears the provider's fee: payer, payee or shared, `204` (request 38).
+  fastify.put(
+    '/groups/:id/fee-policy',
+    {
+      schema: { tags: ['settlements'] },
+      preValidation: async (request, reply) => {
+        const body = request.body as Record<string, unknown> | null | undefined;
+        if (typeof body !== 'object' || body === null || typeof body.borneBy !== 'string') {
+          return reply.code(400).send({ message: FEE_POLICY_SHAPE_REFUSAL });
+        }
+        return undefined;
+      },
+    },
+    (req, reply) =>
+      answerAtOnce(req, reply, module.useCase(setFeePolicy), {
+        groupId: (req.params as { id: string }).id,
+        borneBy: (req.body as { borneBy: string }).borneBy,
+      } as SetFeePolicyInput),
+  );
+
   // A member lists the group's settlements, the most recent first, each with its history (request 19).
   fastify.get('/groups/:id/settlements', { schema: { tags: ['settlements'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getGroupSettlements), { groupId: (req.params as { id: string }).id }),

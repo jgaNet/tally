@@ -25,6 +25,11 @@ export interface ISettlementMembers {
    */
   sharedGroupsOf(askedBy: string, other: string): Promise<{ groupId: string; currency: string; archived: boolean }[]>;
   /**
+   * The account id of the group's owner, if the group is there and `askedBy` is one of its members (request 38): the owner alone decides who
+   * bears the provider's fee. `undefined` when `askedBy` is not a member, or the group is not there (as `membersOf`).
+   */
+  ownerOf(groupId: string, askedBy: string): Promise<string | undefined>;
+  /**
    * Whether the group is archived (request 27): then no settlement is recorded, asked for or refunded in it. Asked by no member: a settlement
    * asks it after the member is checked, and the answer is only the flag (ADR 24).
    */

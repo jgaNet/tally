@@ -9,9 +9,11 @@ import { stillOwed } from '@Contexts/Settlements/Domain/SettlementBook/StillOwed
 import {
   decideContestSettlement,
   decideDecideContest,
+  decideProviderFee,
   decideRecordCashSettlement,
   decideRefundSettlement,
   decideRequestProviderPayment,
+  decideSetFeePolicy,
   providerOutcomeOf,
 } from '@Contexts/Settlements/Domain/SettlementBook/SettlementBook.decision';
 import {
@@ -142,9 +144,13 @@ export const payThroughProvider = command(
         const { payeeAccount: payee, ...payment } = decision.data.state;
         const link = await provider.paymentLinkFor({ reference: payment.id, amount: payment.amount, currency, payee });
         if (!link) return Result.fail(new ProviderUnavailableException());
+        // The fee the provider keeps is taken with who bears it by the group's policy, as it is now (request 38); a payment without a usable
+        // fee is refused, and nothing is kept.
+        const fee = decideProviderFee({ fee: link.fee, amount: payment.amount, borneBy: book.feeBorneBy });
+        if (fee.isFailure()) return fee;
 
         // The book records the payment with the link in hand; the save refuses it if the book moved since it was read.
-        book.requestPayment({ ...payment, at: now, providerPaymentId: link.id, payUrl: link.payUrl });
+        book.requestPayment({ ...payment, at: now, providerPaymentId: link.id, payUrl: link.payUrl, fee: fee.data });
         await books.save(book);
         await publishDomainEvents(book, context);
         return Result.ok(payment.id);
@@ -310,6 +316,54 @@ export const contestSettlement = command(
         await publishDomainEvents(book, context);
         return Result.ok(undefined);
       });
+    },
+);
+
+/** What the owner of a group decides about the provider's fee: who bears it (request 38). */
+export interface SetFeePolicyInput {
+  groupId: string;
+  borneBy: string;
+}
+
+/**
+ * The owner of a group decides who bears the provider's fee of its payments: its payer, its payee, or both, shared (request 38). The book is
+ * read first, so the decision and the save are one state (CONC-OPTIMISTIC); the group's owner alone may, while the group is not archived,
+ * and any other member is refused. Answers nothing (`204`). Anyone who is not a member gets the answer for a group that does not exist.
+ */
+export const setFeePolicy = command(
+  'SetFeePolicy',
+  (books: ISettlementBooks, members: ISettlementMembers, clock: Clock) =>
+    async ({ groupId, borneBy }: SetFeePolicyInput, context) => {
+      return books.inTransaction(async () => {
+        const caller = callerOf(context);
+        const book = await books.bookOf(groupId);
+        const memberIds = await members.membersOf(groupId, caller);
+        if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No group is found'));
+        const ownerId = await members.ownerOf(groupId, caller);
+        const archived = await members.archivedOf(groupId);
+        const decision = decideSetFeePolicy({ ownerId, archived }, { caller, borneBy }, clock());
+        if (decision.isFailure()) return decision;
+
+        book.setFeePolicy(decision.data.state.borneBy);
+        await books.save(book);
+        await publishDomainEvents(book, context);
+        return Result.ok(undefined);
+      });
+    },
+);
+
+/**
+ * A member of a group reads who bears the provider's fee of its payments (request 38): the payee until the owner decides otherwise. Anyone
+ * who is not a member gets the answer for a group that does not exist.
+ */
+export const getFeePolicy = query(
+  'GetFeePolicy',
+  (settlements: ISettlementQueries, members: ISettlementMembers) =>
+    async ({ groupId }: { groupId: string }, context) => {
+      if (!(await members.membersOf(groupId, callerOf(context)))) {
+        return Result.fail(new NotFoundException('Settlements', 'No group is found'));
+      }
+      return Result.ok({ borneBy: await settlements.feePolicyOf(groupId) });
     },
 );
 

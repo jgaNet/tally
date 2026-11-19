@@ -15,6 +15,10 @@ export class SettlementMembersOfGroups implements ISettlementMembers {
     >,
   ) {}
 
+  async ownerOf(groupId: string, askedBy: string): Promise<string | undefined> {
+    return (await this.groups().groupOf(groupId, askedBy))?.ownerId;
+  }
+
   archivedOf(groupId: string): Promise<boolean> {
     return this.groups().archivedOf(groupId);
   }

@@ -54,6 +54,7 @@ describe('SettlementBook', () => {
         from: 'grace',
         to: 'ada',
         amount: 30,
+        settled: 30,
         method: 'cash',
         status: 'paid',
         at: '2026-01-01T00:00:00.000Z',

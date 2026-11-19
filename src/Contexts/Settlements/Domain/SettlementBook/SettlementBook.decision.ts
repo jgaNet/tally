@@ -1,11 +1,14 @@
-import { Exception, Id, NotAllowedException, Result } from '@Architecture/Domain';
+import { Exception, IResult, Id, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
 import { AccountDeletedException, AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import type { SettlementMethod, SettlementStatus } from './SettlementBook';
+import { FeeBorne, isFeeBorne, ProviderFee } from './ProviderFee';
 import {
   ContestPartyNotMemberException,
+  InvalidFeePolicyException,
   InvalidSettlementAmountException,
+  ProviderFeeUnavailableException,
   PayeeHasNoPayoutAccountException,
   RefundPartyNotMemberException,
   SettlementAlreadyContestedException,
@@ -241,3 +244,51 @@ export const decideDecideContest: Decision<{ id: string }, { paid: boolean }, ne
   if (settlement.status !== 'contested') return Result.fail(new SettlementNotContestedException());
   return decided({ id: settlement.id });
 };
+
+/** Who bears the provider's fee, as the group's owner decides (request 38): the group, its owner, and whether it is archived. */
+export interface FeePolicyGiven {
+  ownerId: string | undefined;
+  archived: boolean;
+}
+
+/** The owner's decision on who bears the provider's fee: the asking account, and the value it names. */
+export interface SetFeePolicyCommand {
+  caller: string;
+  borneBy: string;
+}
+
+/**
+ * Deciding who bears the provider's fee (request 38): only the group's owner, only while the group is not archived (request 27), and only one
+ * of the three. Otherwise it is refused and nothing changes. Answers the policy the book then keeps and records `FeePolicySet`.
+ */
+export const decideSetFeePolicy: Decision<{ borneBy: FeeBorne }, SetFeePolicyCommand, never, FeePolicyGiven> = (
+  { ownerId, archived },
+  { caller, borneBy },
+) => {
+  if (archived) return Result.fail(new GroupArchivedException());
+  if (caller !== ownerId)
+    return Result.fail(
+      new NotAllowedException('Settlements', 'Only the owner of the group may decide who bears the provider fee'),
+    );
+  if (!isFeeBorne(borneBy)) return Result.fail(new InvalidFeePolicyException());
+  return decided({ borneBy });
+};
+
+/** The provider's fee for a payment once it has answered: the fee it said, if it said one, the amount, and who bears the fee by the policy. */
+export interface ProviderFeeGiven {
+  fee: number | undefined;
+  amount: number;
+  borneBy: FeeBorne;
+}
+
+/**
+ * Taking the fee the provider said for a payment (request 38, DOMAIN-NON-DETERMINISM): the fee is kept only when it is a whole number of at
+ * least 0 and less than the amount, which the provider gives and the book then keeps with who bears it. A payment without such a fee is
+ * refused, and nothing is kept.
+ */
+export function decideProviderFee({ fee, amount, borneBy }: ProviderFeeGiven): IResult<ProviderFee> {
+  if (fee === undefined || !Number.isInteger(fee) || fee < 0 || fee >= amount) {
+    return Result.fail(new ProviderFeeUnavailableException());
+  }
+  return Result.ok({ amount: fee, borneBy });
+}

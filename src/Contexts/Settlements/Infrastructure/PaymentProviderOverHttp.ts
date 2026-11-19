@@ -5,7 +5,7 @@ export const PROVIDER_TIMEOUT_MS = 5000;
 
 /**
  * Answers Settlements' `IPaymentProvider` port over the provider's API (request 13): `POST {PROVIDER_URL}/payments` with `{ reference,
- * amount, currency }`, whose `201 { id, payUrl }` is the link. Any other answer, a timeout, a network failure, or no `PROVIDER_URL` at
+ * amount, currency }`, whose `201 { id, payUrl, fee }` is the link (request 38: the fee it keeps, a whole number of hundredths). Any other answer, a timeout, a network failure, or no `PROVIDER_URL` at
  * all is no link (`undefined`), and the use case refuses the request with nothing kept. The URL is read when a request comes, not when
  * the modules are built (ADR 7), and is the base of the API without a trailing slash.
  */
@@ -31,10 +31,12 @@ export class PaymentProviderOverHttp implements IPaymentProvider {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
       if (response.status !== 201) return undefined;
-      const body = (await response.json()) as { id?: unknown; payUrl?: unknown };
+      const body = (await response.json()) as { id?: unknown; payUrl?: unknown; fee?: unknown };
       if (typeof body.id !== 'string' || body.id === '') return undefined;
       if (typeof body.payUrl !== 'string' || body.payUrl === '') return undefined;
-      return { id: body.id, payUrl: body.payUrl };
+      // The fee is what the provider keeps (request 38); an answer without one is no link, and the use case refuses it. Whether it is a
+      // whole number that is less than the amount is the domain's to decide.
+      return { id: body.id, payUrl: body.payUrl, fee: typeof body.fee === 'number' ? body.fee : undefined };
     } catch {
       return undefined;
     }
