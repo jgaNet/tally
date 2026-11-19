@@ -9,7 +9,10 @@ import {
   getGroupMembers,
   getMyGroups,
   leaveGroup,
+  mergeGroups,
 } from '@Contexts/Groups/Application/Groups';
+import { GroupsMergedHandler } from '@Contexts/Groups/Application/Events/GroupsMergedHandler';
+import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/GroupEvents';
 import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Groups/Application/Invitations';
 import { settlementsReadModel } from '@Contexts/Settlements/module.local';
 import { BalancesOfLedger } from '@Contexts/Groups/Infrastructure/BalancesOfLedger';
@@ -66,5 +69,7 @@ export const localGroupsModule = new LiteModule({
       new WaitingPaymentsOfSettlements(() => settlementsReadModel),
       systemClock,
     ),
+    mergeGroups(groups, new WaitingPaymentsOfSettlements(() => settlementsReadModel), systemClock),
   ],
+  domainEvents: [{ event: GroupsMergedEvent, handlers: [new GroupsMergedHandler()] }],
 });

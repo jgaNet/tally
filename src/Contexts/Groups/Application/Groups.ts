@@ -3,7 +3,12 @@ import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import { Group } from '@Contexts/Groups/Domain/Group/Group';
-import { decideArchiveGroup, decideCreateGroup, decideLeaveGroup } from '@Contexts/Groups/Domain/Group/Group.decision';
+import {
+  decideArchiveGroup,
+  decideCreateGroup,
+  decideLeaveGroup,
+  decideMergeGroups,
+} from '@Contexts/Groups/Domain/Group/Group.decision';
 
 import { GroupView, IGroupQueries, MemberView } from '@Contexts/Groups/Domain/IGroupQueries';
 import { IGroupRepository } from './IGroupRepository';
@@ -50,6 +55,61 @@ export const archiveGroup = command(
         if (archived.isFailure()) return archived;
         await groups.save(group);
         await publishDomainEvents(group, context);
+        return Result.ok(undefined);
+      });
+    },
+);
+
+/**
+ * The owner of two groups of one currency merges the group `from` into the group `id`, which is kept (request 31): the members of the group
+ * merged join the group kept, after its members, in the order they joined the group merged; the group merged is closed, so it is no group for
+ * anyone at once, and the balances that passed to its owner are the group kept's. Its expenses, settlements, recurring expenses and audit move
+ * in the reactions to the published `GroupsMerged`, and its budgets, templates and invitations are not moved (ADR 28). Refused for anyone but the
+ * owner of both, for the same group twice, two currencies, an archived group (request 27), and while a payment through the provider waits in
+ * the group merged. Anyone who is not a member of a group gets the answer for a group that does not exist. Both groups are read, the decision
+ * made and both saved in one transaction on the groups' file, so an expense or a settlement recorded at the same moment is either before the
+ * merge, and moves with it, or after it, and refused because the group merged is gone (ADR 17). Each group is saved at the version it was read
+ * at (CONC-OPTIMISTIC).
+ */
+export const mergeGroups = command(
+  'MergeGroups',
+  (groups: IGroupRepository, waiting: IWaitingPayments, clock: Clock) =>
+    async ({ id, from }: { id: string; from: string }, context) => {
+      const by = callerOf(context);
+      return groups.inTransaction(async () => {
+        const kept = await groups.get(id);
+        if (!kept || !kept.hasMember(by)) return Result.fail(new NotFoundException('Groups', 'No group is found'));
+        const merged = await groups.get(from);
+        if (!merged || !merged.hasMember(by)) return Result.fail(new NotFoundException('Groups', 'No group is found'));
+
+        let anyWaiting = false;
+        for (const member of merged.members) {
+          anyWaiting = anyWaiting || (await waiting.waitingOf(from, member.accountId));
+        }
+        const at = clock();
+        const decision = decideMergeGroups(
+          {
+            kept: { ownerId: kept.ownerId, currency: kept.currency.value, archived: kept.archivedAt !== undefined },
+            merged: {
+              ownerId: merged.ownerId,
+              currency: merged.currency.value,
+              archived: merged.archivedAt !== undefined,
+            },
+            waiting: anyWaiting,
+          },
+          { by, sameGroup: id === from },
+          at,
+        );
+        if (decision.isFailure()) return decision;
+
+        const absorbed = kept.absorb(merged, at);
+        if (absorbed.isFailure()) return absorbed;
+        const closed = merged.closeInto(id);
+        if (closed.isFailure()) return closed;
+        await groups.save(kept);
+        await groups.save(merged);
+        await groups.movePasses(from, id);
+        await publishDomainEvents(kept, context);
         return Result.ok(undefined);
       });
     },

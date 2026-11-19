@@ -20,6 +20,11 @@ export interface ISettlementBooks {
    */
   save(book: SettlementBook): Promise<void>;
   /**
+   * Takes the settlements of the group merged into this book's group into it (request 31), and the book's version + 1, in one transaction; the
+   * merged group's book is dropped. Refuses a book that is no longer at the stored version with a `ConcurrencyConflictException`.
+   */
+  absorb(book: SettlementBook, mergedGroupId: string): Promise<void>;
+  /**
    * Runs `work` in one transaction on the settlements' file: the book and the balances it is decided on are read and written as one state,
    * so no expense or settlement is recorded between the read and the write (ADR 17). A save inside it joins it.
    */

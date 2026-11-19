@@ -17,6 +17,13 @@ export interface IExpenseRepository {
   save(expense: Expense): Promise<void>;
   /** Removes a deleted expense over the version it was read at, with its shares and balances, in one transaction. */
   remove(expense: Expense): Promise<void>;
+  /** The expenses of a group, as they are stored, in the order they were recorded (request 31, the move of a merged group). */
+  ofGroup(groupId: string): Promise<Expense[]>;
+  /**
+   * Writes an expense moved to another group over the version it was read at, the version kept (request 31): its balances move from
+   * `fromGroupId` to its group in the same transaction. Refused with a `ConcurrencyConflictException` over a newer version.
+   */
+  saveMoved(expense: Expense, fromGroupId: string): Promise<void>;
   /**
    * Runs `work` in one transaction on the expenses' file: what it reads (a group's members, the expense) is read and written as one state,
    * so no other writer comes between its read and its write (ADR 17). A write inside it joins it.

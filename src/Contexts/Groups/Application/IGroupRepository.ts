@@ -15,6 +15,10 @@ export interface IGroupRepository {
    */
   save(group: Group): Promise<void>;
   /**
+   * Moves the balances that passed to an owner from the group merged into the group kept (request 31), in the same transaction as the merge.
+   */
+  movePasses(fromGroupId: string, toGroupId: string): Promise<void>;
+  /**
    * Runs `work` in one transaction on the groups' file: what it reads is read and written as one state, so no other writer comes between
    * its read and its write (ADR 17). A save inside it joins it.
    */

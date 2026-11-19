@@ -8,6 +8,8 @@ import { AuditEntry } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
 export interface IAuditEntries {
   /** Adds an entry of a group, in the transaction the change is made in. */
   add(groupId: string, entry: AuditEntry): Promise<void>;
+  /** Moves every entry of a group merged into another to the group kept, each keeping its place in the order (request 31). */
+  moveGroup(fromGroupId: string, toGroupId: string): Promise<void>;
   /** The entries of Ledger's own changes in a group, in the order they were written (the oldest first). */
   auditOf(groupId: string): Promise<AuditEntry[]>;
 }

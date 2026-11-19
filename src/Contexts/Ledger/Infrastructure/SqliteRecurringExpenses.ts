@@ -102,6 +102,27 @@ export class SqliteRecurringExpenses implements IRecurringExpenseRepository, IRe
     return row ? this.#viewOf(row) : undefined;
   }
 
+  async ofGroup(groupId: string): Promise<RecurringExpense[]> {
+    const rows = await this.database.rows<{ id: string }>(
+      'SELECT id FROM ledger_recurring_expenses WHERE group_id = $1 ORDER BY seq',
+      [groupId],
+    );
+    const recurrings: RecurringExpense[] = [];
+    for (const { id } of rows) {
+      const recurring = await this.get(id);
+      if (recurring) recurrings.push(recurring);
+    }
+    return recurrings;
+  }
+
+  async saveMoved(recurring: RecurringExpense): Promise<void> {
+    const { id, groupId, version } = recurring.toSnapshot();
+    await this.database.transaction(async () => {
+      await this.#checkVersion(id, version);
+      await this.database.execute('UPDATE ledger_recurring_expenses SET group_id = $1 WHERE id = $2', [groupId, id]);
+    });
+  }
+
   async recurringsOf(groupId: string): Promise<RecurringExpenseView[]> {
     const rows = await this.database.rows<RecurringRow>(
       `SELECT ${RECURRING_COLUMNS} FROM ledger_recurring_expenses WHERE group_id = $1 ORDER BY seq`,

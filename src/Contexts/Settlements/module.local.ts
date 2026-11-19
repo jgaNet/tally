@@ -18,6 +18,8 @@ import { isSignedByProvider } from '@Contexts/Settlements/Infrastructure/Provide
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { OutstandingDebtsOfBalances } from '@Contexts/Settlements/Infrastructure/OutstandingDebtsOfBalances';
 import { SettlementsDatabase } from '@Contexts/Settlements/Infrastructure/SettlementsDatabase';
+import { GroupsMergedIntegrationEventHandler } from '@Contexts/Settlements/Application/Events/GroupsMergedHandler';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
 import { SqliteSettlements } from '@Contexts/Settlements/Infrastructure/SqliteSettlements';
 import { SqlitePayoutAccounts } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccounts';
 
@@ -73,5 +75,11 @@ export const localSettlementsModule = new LiteModule({
     receivePaymentWebhook(settlementsReadModel, systemClock),
     getSettlement(settlementsReadModel, settlementMembers),
     getGroupSettlements(settlementsReadModel, settlementMembers),
+  ],
+  integrationEvents: [
+    {
+      event: GroupsMergedIntegrationEvent,
+      handlers: [new GroupsMergedIntegrationEventHandler(settlementsReadModel)],
+    },
   ],
 });

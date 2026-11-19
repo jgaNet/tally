@@ -5,9 +5,12 @@ import { GroupArchivedException } from '@SharedKernel/Domain';
 import { Currency } from './Currency';
 import {
   BalancesNotSettledException,
+  CurrenciesDifferException,
+  MergePaymentsWaitingException,
   OwnerCannotLeaveException,
   PaymentsWaitingException,
   PaymentWaitingException,
+  SameGroupException,
 } from './GroupExceptions';
 import { GroupName } from './GroupName';
 
@@ -103,5 +106,47 @@ export const decideArchiveGroup: Decision<undefined, ArchiveGroupCommand, never,
   if (by !== ownerId) return Result.fail(new NotAllowedException('Groups', "Only the group's owner may archive it"));
   if (balances.some(balance => balance !== 0)) return Result.fail(new BalancesNotSettledException());
   if (waiting) return Result.fail(new PaymentsWaitingException());
+  return decided(undefined);
+};
+
+/** What a merge says: only who asks for it (the caller), and whether the two groups named are one group. */
+export interface MergeGroupsCommand {
+  by: string;
+  sameGroup: boolean;
+}
+
+/** One of the two groups of a merge, as the decision is given it: its owner, its currency, whether it is archived. */
+export interface MergingGroup {
+  ownerId: string;
+  currency: string;
+  archived: boolean;
+}
+
+/**
+ * What a merge is given: the group kept and the group merged, and whether a payment through the provider is pending or being refunded in
+ * the group merged (read from Settlements, WaitingPayments, for each of its members).
+ */
+export interface MergingGroups {
+  kept: MergingGroup;
+  merged: MergingGroup;
+  waiting: boolean;
+}
+
+/**
+ * Merging a group into another, as request 31 has it: only the owner of both may, and only groups in one currency, neither of them archived
+ * (the rule that keeps an archived group read only comes first), and not while a payment through the provider waits in the group merged.
+ * It answers nothing: the use case merges the groups with `Group.absorb` and `Group.closeInto`, which record `GroupsMerged`. Refused, in order:
+ * the same group, an archived group, anyone but the owner of both, two currencies, a payment waiting.
+ */
+export const decideMergeGroups: Decision<undefined, MergeGroupsCommand, never, MergingGroups> = (
+  { kept, merged, waiting },
+  { by, sameGroup },
+) => {
+  if (sameGroup) return Result.fail(new SameGroupException());
+  if (kept.archived || merged.archived) return Result.fail(new GroupArchivedException());
+  if (kept.ownerId !== by || merged.ownerId !== by)
+    return Result.fail(new NotAllowedException('Groups', 'Only the owner of both groups may merge them'));
+  if (kept.currency !== merged.currency) return Result.fail(new CurrenciesDifferException());
+  if (waiting) return Result.fail(new MergePaymentsWaitingException());
   return decided(undefined);
 };

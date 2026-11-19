@@ -5,6 +5,7 @@ import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 import {
   archiveGroup,
   createGroup,
+  mergeGroups,
   getGroup,
   getGroupMembers,
   getMyGroups,
@@ -15,6 +16,13 @@ import { acceptInvitation, createInvitation, getInvitation } from '@Contexts/Gro
 import { shapeOf } from './bodyShape';
 
 type CreateGroupInput = { name: string; currency: string };
+type MergeGroupInput = { from: string };
+
+const mergeGroupBody = {
+  type: 'object',
+  required: ['from'],
+  properties: { from: { type: 'string' } },
+};
 
 const createGroupBody = {
   type: 'object',
@@ -52,6 +60,19 @@ export const groupRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fasti
 
   fastify.post('/groups/:id/archive', { schema: { tags: ['groups'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(archiveGroup), { id: (req.params as { id: string }).id }),
+  );
+
+  fastify.post(
+    '/groups/:id/merge',
+    {
+      schema: { tags: ['groups'], body: mergeGroupBody },
+      preValidation: shapeOf(['from']),
+    },
+    (req, reply) =>
+      answerAtOnce(req, reply, module.useCase(mergeGroups), {
+        id: (req.params as { id: string }).id,
+        from: (req.body as MergeGroupInput).from,
+      }),
   );
 
   fastify.post('/groups/:id/invitations', { schema: { tags: ['invitations'] } }, (req, reply) =>

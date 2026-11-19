@@ -37,3 +37,4 @@ why, what it costs, and when to revisit it.
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link
 it from this table and from wherever the rule is stated.
+| [29](0029-a-merged-group-is-closed-and-the-passes-it-holds-move-with-its-members.md) | A merged group is closed by its write, and what it holds moves in the merge or in the reactions to it |

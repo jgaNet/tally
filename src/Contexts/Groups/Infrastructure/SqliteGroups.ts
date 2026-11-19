@@ -57,7 +57,7 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
 
   async get(id: string): Promise<Group | undefined> {
     const row = await this.database.row<GroupRow>(
-      'SELECT id, name, currency, owner_id, created_at, version, archived_at FROM expense_groups WHERE id = $1',
+      'SELECT id, name, currency, owner_id, created_at, version, archived_at FROM expense_groups WHERE id = $1 AND merged_into IS NULL',
       [id],
     );
     if (!row) return undefined;
@@ -82,11 +82,11 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
   }
 
   async save(group: Group): Promise<void> {
-    const { id, members, archivedAt } = group.toSnapshot();
+    const { id, members, archivedAt, mergedInto } = group.toSnapshot();
     await this.database.transaction(async () => {
       const updated = await this.database.execute(
-        'UPDATE expense_groups SET version = $1, archived_at = $2 WHERE id = $3 AND version = $4',
-        [group.version + 1, archivedAt ?? null, id, group.version],
+        'UPDATE expense_groups SET version = $1, archived_at = $2, merged_into = $3 WHERE id = $4 AND version = $5',
+        [group.version + 1, archivedAt ?? null, mergedInto ?? null, id, group.version],
       );
       if (updated !== 1) {
         throw new ConcurrencyConflictException('Groups', 'The group changed since it was read');
@@ -106,6 +106,17 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
         );
       }
     });
+  }
+
+  /**
+   * Moves the balances that passed to an owner from a group merged into the group kept (request 31): they are the kept group's from then on,
+   * each with its own amount, its owner and its time. Made in the merge's transaction, with the members and the group (ADR 28).
+   */
+  async movePasses(fromGroupId: string, toGroupId: string): Promise<void> {
+    await this.database.execute('UPDATE expense_group_passes SET group_id = $1 WHERE group_id = $2', [
+      toGroupId,
+      fromGroupId,
+    ]);
   }
 
   async archivedOf(groupId: string): Promise<boolean> {

@@ -42,3 +42,14 @@ export class RecurringExpenseDayCameEvent extends DomainEvent<{
   split: SplitRequest;
   category: ExpenseCategory;
 }> {}
+
+/**
+ * A recurring expense moved from one group to another, when the group it was set up in was merged into the other (request 31). Recorded by
+ * `RecurringExpense.moveTo` and published after its move; nothing reacts to it. It keeps its id, its version and everything it says but its group.
+ */
+export class RecurringExpenseMovedEvent extends DomainEvent<{
+  recurringId: string;
+  from: string;
+  to: string;
+  at: Date;
+}> {}

@@ -6,6 +6,7 @@ import {
   SettlementFailedEvent,
   SettlementPaidEvent,
   SettlementRecordedEvent,
+  SettlementBookMergedEvent,
   SettlementRefundedEvent,
 } from './SettlementEvents';
 import { PendingTransfer, stillOwed } from './StillOwed';
@@ -66,6 +67,14 @@ export class SettlementBook extends AggregateRoot {
     super(id, version);
     this.#groupId = groupId;
     this.#payments = payments;
+  }
+
+  /**
+   * The group merged into this book's group (request 31): its settlements are this group's from the move on, and this book records
+   * `SettlementBookMerged`. The status and the history of each settlement are kept.
+   */
+  absorb(mergedGroupId: string): void {
+    this.record(SettlementBookMergedEvent.set({ groupId: this.#groupId, mergedGroupId }));
   }
 
   /** The book of a group with no settlement stored yet: version 0, its id generated here. */

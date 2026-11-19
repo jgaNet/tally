@@ -134,6 +134,31 @@ export class SqliteExpenses implements IExpenseRepository, IExpenseQueries {
     return this.database.transaction(work);
   }
 
+  async ofGroup(groupId: string): Promise<Expense[]> {
+    const rows = await this.database.rows<{ id: string }>(
+      'SELECT id FROM ledger_expenses WHERE group_id = $1 ORDER BY recorded_seq',
+      [groupId],
+    );
+    const expenses: Expense[] = [];
+    for (const { id } of rows) {
+      const expense = await this.get(id);
+      if (expense) expenses.push(expense);
+    }
+    return expenses;
+  }
+
+  async saveMoved(expense: Expense, fromGroupId: string): Promise<void> {
+    const { id, groupId, paidBy, amount, shares, version } = expense.toSnapshot();
+    await this.database.transaction(async () => {
+      if (!(await this.#storedAt(id, version)))
+        throw new ConcurrencyConflictException('Ledger', 'The expense changed since it was read');
+      // The balances the expense counts move from the group it was in to the group it is in now, as one change; its version is kept.
+      await this.#moveBalances(fromGroupId, paidBy, amount, shares, -1);
+      await this.database.execute('UPDATE ledger_expenses SET group_id = $1 WHERE id = $2', [groupId, id]);
+      await this.#moveBalances(groupId, paidBy, amount, shares, 1);
+    });
+  }
+
   async remove(expense: Expense): Promise<void> {
     const { id, groupId, paidBy, amount, shares, version } = expense.toSnapshot();
     await this.database.transaction(async () => {

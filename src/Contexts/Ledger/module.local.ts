@@ -14,6 +14,8 @@ import {
   recordExpense,
 } from '@Contexts/Ledger/Application/Expenses';
 import { BudgetPassedEvent } from '@Contexts/Ledger/Domain/Budget/BudgetEvents';
+import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupIntegrationEvents';
+import { GroupsMergedIntegrationEventHandler } from '@Contexts/Ledger/Application/Events/GroupsMergedHandler';
 import { ExpenseEditedEvent, ExpenseRecordedEvent } from '@Contexts/Ledger/Domain/Expense/ExpenseEvents';
 import { getGroupBudgets, removeBudget, setBudget } from '@Contexts/Ledger/Application/Budgets';
 import {
@@ -113,6 +115,12 @@ export const localLedgerModule = new LiteModule({
     {
       event: RecurringExpenseDayCameEvent,
       handlers: [new RecurringExpenseDayCameHandler(expenses, groupMembers, audit, systemClock)],
+    },
+  ],
+  integrationEvents: [
+    {
+      event: GroupsMergedIntegrationEvent,
+      handlers: [new GroupsMergedIntegrationEventHandler(expenses, recurringExpenses, audit, systemClock)],
     },
   ],
   useCases: [

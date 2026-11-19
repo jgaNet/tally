@@ -38,3 +38,10 @@ export class BalancePassedEvent extends DomainEvent<{
  * nothing reacts to it, so it is not an integration event. The other contexts learn it by asking Groups through their ports (ADR 24).
  */
 export class GroupArchivedEvent extends DomainEvent<{ groupId: string; archivedAt: Date }> {}
+
+/**
+ * A group was merged into another (request 31): the members of the group merged are now the group kept's, and the group merged is gone.
+ * Recorded by `Group.absorb()` on the group kept and published after its save, through the policy that announces it to the other contexts
+ * as the integration event `GroupsMerged` (ADR 28).
+ */
+export class GroupsMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string; at: Date }> {}

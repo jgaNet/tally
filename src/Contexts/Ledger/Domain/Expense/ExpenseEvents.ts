@@ -45,3 +45,9 @@ export class ExpenseDeletedEvent extends DomainEvent<{
   paidBy: string;
   amount: number;
 }> {}
+
+/**
+ * An expense moved from one group to another, when the group it was recorded in was merged into the other (request 31). Recorded by
+ * `Expense.moveTo` and published after its move; nothing reacts to it. The expense keeps its id, its version and everything it says but its group.
+ */
+export class ExpenseMovedEvent extends DomainEvent<{ expenseId: string; from: string; to: string; at: Date }> {}

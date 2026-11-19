@@ -76,3 +76,37 @@ export class PaymentWaitingException extends Exception {
     });
   }
 }
+
+/** The two groups of a merge are one group: a group is not merged into itself (request 31). */
+export class SameGroupException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'SameGroup',
+      message: 'A group cannot be merged into itself',
+    });
+  }
+}
+
+/** The two groups of a merge are in different currencies: only groups in one currency are merged (request 31). */
+export class CurrenciesDifferException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'CurrenciesDiffer',
+      message: 'Only groups in the same currency can be merged',
+    });
+  }
+}
+
+/** A group whose payment through the provider is pending or being refunded is not merged while it is (request 31). */
+export class MergePaymentsWaitingException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'PaymentsWaiting',
+      message:
+        'The group merged cannot be merged while a payment through the provider is pending or being refunded in it',
+    });
+  }
+}

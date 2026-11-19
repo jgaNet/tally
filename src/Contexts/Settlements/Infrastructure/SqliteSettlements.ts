@@ -171,6 +171,35 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
     ]);
   }
 
+  async absorb(book: SettlementBook, mergedGroupId: string): Promise<void> {
+    await this.database.transaction(async () => {
+      const stored = await this.database.row<{ version: number }>(
+        'SELECT version FROM settlement_books WHERE group_id = $1',
+        [book.groupId],
+      );
+      if ((stored?.version ?? 0) !== book.version) {
+        throw new ConcurrencyConflictException('Settlements', 'The settlement book changed since it was read');
+      }
+      if (stored) {
+        await this.database.execute('UPDATE settlement_books SET version = $1 WHERE group_id = $2', [
+          book.version + 1,
+          book.groupId,
+        ]);
+      } else {
+        await this.database.execute('INSERT INTO settlement_books (id, group_id, version) VALUES ($1, $2, $3)', [
+          book.bookId,
+          book.groupId,
+          book.version + 1,
+        ]);
+      }
+      await this.database.execute('UPDATE settlements SET group_id = $1 WHERE group_id = $2', [
+        book.groupId,
+        mergedGroupId,
+      ]);
+      await this.database.execute('DELETE FROM settlement_books WHERE group_id = $1', [mergedGroupId]);
+    });
+  }
+
   async settlementOf(id: string): Promise<SettlementView | undefined> {
     const row = await this.database.row<SettlementRow>(
       'SELECT id, group_id, payer, payee, amount, method, status, at, pay_url FROM settlements WHERE id = $1',

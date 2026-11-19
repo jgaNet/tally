@@ -13,6 +13,10 @@ export interface IRecurringExpenseRepository {
   insert(recurring: RecurringExpense): Promise<void>;
   /** Writes a recurring expense whose days moved on over the version it was read at. */
   save(recurring: RecurringExpense): Promise<void>;
+  /** The recurring expenses of a group, as they are stored, in the order they were set up (request 31, the move of a merged group). */
+  ofGroup(groupId: string): Promise<RecurringExpense[]>;
+  /** Writes a recurring expense moved to another group over the version it was read at, the version kept (request 31). */
+  saveMoved(recurring: RecurringExpense): Promise<void>;
   /** Removes a recurring expense over the version it was read at: stopped, or ended. */
   remove(recurring: RecurringExpense): Promise<void>;
   /** Runs `work` in one transaction on the store, so what it reads and writes is one state (ADR 17). */

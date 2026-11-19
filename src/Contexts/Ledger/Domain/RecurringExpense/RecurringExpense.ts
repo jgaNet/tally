@@ -7,6 +7,7 @@ import { monthAfter } from './RecurringDay';
 import {
   RecurringExpenseDayCameEvent,
   RecurringExpenseEndedEvent,
+  RecurringExpenseMovedEvent,
   RecurringExpenseSetUpEvent,
   RecurringExpenseStoppedEvent,
 } from './RecurringExpenseEvents';
@@ -32,7 +33,7 @@ export interface RecurringExpenseSnapshot {
  * the following month and records `RecurringExpenseDayCame`, which carries the id of the expense that day becomes.
  */
 export class RecurringExpense extends AggregateRoot {
-  readonly #groupId: string;
+  #groupId: string;
   readonly #paidBy: string;
   readonly #description: string;
   readonly #amount: number;
@@ -136,6 +137,16 @@ export class RecurringExpense extends AggregateRoot {
   }
 
   /** Stopped by its payer or the group's owner: it no longer exists. Records `RecurringExpenseStopped`. */
+  /**
+   * The recurring expense moves to the group `groupId` at `at` (request 31), the group it was set up in having been merged into it. Recorded as
+   * `RecurringExpenseMoved`; its version is not changed, and its payer, split and days are kept.
+   */
+  moveTo(groupId: string, at: Date): void {
+    const from = this.#groupId;
+    this.#groupId = groupId;
+    this.record(RecurringExpenseMovedEvent.set({ recurringId: this._id.value, from, to: groupId, at }));
+  }
+
   stop(): void {
     this.record(RecurringExpenseStoppedEvent.set({ recurringId: this._id.value, groupId: this.#groupId }));
   }

@@ -4,7 +4,7 @@ import { ExpenseAmount } from './ExpenseAmount';
 import { DEFAULT_CATEGORY, ExpenseCategory, isExpenseCategory } from './ExpenseCategory';
 import { ExpenseDate } from './ExpenseDate';
 import { ExpenseDescription } from './ExpenseDescription';
-import { ExpenseDeletedEvent, ExpenseEditedEvent, ExpenseRecordedEvent } from './ExpenseEvents';
+import { ExpenseDeletedEvent, ExpenseEditedEvent, ExpenseMovedEvent, ExpenseRecordedEvent } from './ExpenseEvents';
 import { OriginalAmount, OriginalSnapshot } from './OriginalAmount';
 import { Share, Split, SplitKind } from './Split';
 
@@ -37,7 +37,7 @@ export interface ExpenseSnapshot {
  * expenses, never held by one (feature 5).
  */
 export class Expense extends AggregateRoot {
-  readonly #groupId: string;
+  #groupId: string;
   #description: ExpenseDescription;
   #amount: ExpenseAmount;
   #original: OriginalAmount | undefined;
@@ -192,6 +192,16 @@ export class Expense extends AggregateRoot {
         date: date.value,
       }),
     );
+  }
+
+  /**
+   * The expense moves to the group `groupId` at `at` (request 31), the group it was recorded in having been merged into it. Recorded as
+   * `ExpenseMoved`. Its version is not changed: the move is not an edit, and what the expense says is kept but its group.
+   */
+  moveTo(groupId: string, at: Date): void {
+    const from = this.#groupId;
+    this.#groupId = groupId;
+    this.record(ExpenseMovedEvent.set({ expenseId: this._id.value, from, to: groupId, at }));
   }
 
   /** The expense is deleted: recorded as `ExpenseDeleted`, and removed from storage with its shares on save. */

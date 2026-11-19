@@ -13,6 +13,13 @@ type AuditRow = { id: string; at: string; by_account: string; action: AuditActio
 export class SqliteAuditEntries implements IAuditEntries {
   constructor(private readonly database: LedgerDatabase) {}
 
+  async moveGroup(fromGroupId: string, toGroupId: string): Promise<void> {
+    await this.database.execute('UPDATE ledger_audit_entries SET group_id = $1 WHERE group_id = $2', [
+      toGroupId,
+      fromGroupId,
+    ]);
+  }
+
   async add(groupId: string, entry: AuditEntry): Promise<void> {
     await this.database.execute(
       'INSERT INTO ledger_audit_entries (id, group_id, at, by_account, action, subject_id, amount) VALUES ($1, $2, $3, $4, $5, $6, $7)',

@@ -72,3 +72,9 @@ export class SettlementFailedEvent extends DomainEvent<{
   payee: string;
   amount: number;
 }> {}
+
+/**
+ * The settlements of a group merged into another were taken into this group's book (request 31): the book's settlements are the group kept's
+ * from then on, each with its status and history. Recorded by `SettlementBook.absorb` and published after the move; nothing reacts to it.
+ */
+export class SettlementBookMergedEvent extends DomainEvent<{ groupId: string; mergedGroupId: string }> {}

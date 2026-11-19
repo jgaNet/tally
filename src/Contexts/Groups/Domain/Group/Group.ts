@@ -6,6 +6,7 @@ import {
   BalancePassedEvent,
   GroupArchivedEvent,
   GroupCreatedEvent,
+  GroupsMergedEvent,
   MemberJoinedEvent,
   MemberLeftEvent,
 } from './GroupEvents';
@@ -29,6 +30,8 @@ export interface GroupSnapshot {
   version: number;
   /** When the owner archived it, once it is archived (request 27); absent before. */
   archivedAt?: string;
+  /** The group kept, once this group was merged into it (request 31): the group is gone, and nothing is stored under it but this. */
+  mergedInto?: string;
 }
 
 /** A balance that passed from a member who left to the owner, when it left (request 20): what the member's balance was, and the owner. */
@@ -59,6 +62,7 @@ export class Group extends AggregateRoot {
   readonly #members: GroupMember[];
   readonly #passes: GroupPass[] = [];
   #archivedAt: Date | undefined;
+  #mergedInto: string | undefined;
 
   private constructor(
     id: Id,
@@ -151,6 +155,31 @@ export class Group extends AggregateRoot {
   }
 
   /**
+   * The group kept takes the members of `merged` at `at` (request 31): each one not among its members yet joins it, as its last member, in
+   * the order they joined the group merged; a member of both stays where it is. Recorded as `GroupsMerged` (the group merged is named by
+   * its id). Refused when this group is archived; whether the merge may be is the decision's to say (`decideMergeGroups`), before this is called.
+   */
+  absorb(merged: Group, at: Date): IResult<void> {
+    if (this.#archivedAt !== undefined) return Result.fail(new GroupArchivedException());
+    for (const member of merged.members) {
+      if (!this.hasMember(member.accountId)) this.#members.push({ accountId: member.accountId, joinedAt: at });
+    }
+    this.record(GroupsMergedEvent.set({ groupId: this._id.value, mergedGroupId: merged._id.value, at }));
+    return Result.ok(undefined);
+  }
+
+  /**
+   * The group merged is closed into the group kept `keptId` (request 31): it has no members any more, so it is no group for anyone, and
+   * it is stored as merged into `keptId` in the same write as its members' removal. Its members are the group kept's, taken by `absorb`.
+   */
+  closeInto(keptId: string): IResult<void> {
+    if (this.#archivedAt !== undefined) return Result.fail(new GroupArchivedException());
+    this.#mergedInto = keptId;
+    this.#members.splice(0, this.#members.length);
+    return Result.ok(undefined);
+  }
+
+  /**
    * An account joins the group at `at`, as the last member. Refused when it is a member already; recorded as
    * `MemberJoined` otherwise.
    */
@@ -218,6 +247,11 @@ export class Group extends AggregateRoot {
     return this.#archivedAt;
   }
 
+  /** The group kept, once this group was merged into it (request 31); `undefined` while it is not merged. */
+  get mergedInto(): string | undefined {
+    return this.#mergedInto;
+  }
+
   /** The members, in the order they joined: the owner first. */
   get members(): readonly GroupMember[] {
     return [...this.#members];
@@ -236,6 +270,7 @@ export class Group extends AggregateRoot {
       })),
       version: this.version,
       ...(this.#archivedAt === undefined ? {} : { archivedAt: this.#archivedAt.toISOString() }),
+      ...(this.#mergedInto === undefined ? {} : { mergedInto: this.#mergedInto }),
     };
   }
 }
