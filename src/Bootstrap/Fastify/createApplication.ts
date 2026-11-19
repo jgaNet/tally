@@ -31,6 +31,7 @@ import { database as notificationsDatabase, localNotificationsModule } from '@Co
 import { expenseRoutes } from '@Contexts/Ledger/Presentation/expenses.routes';
 import { sweepDebts } from '@Contexts/Notifications/Application/Reminders';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
+import { noticePreferenceRoutes } from '@Contexts/Notifications/Presentation/noticePreferences.routes';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
 
 /**
@@ -83,7 +84,8 @@ export async function createApplication({
     .registerRoutes('/', auditRoutes, { module: localLedgerModule })
     .registerRoutes('/', templateRoutes, { module: localLedgerModule })
     .registerRoutes('/', settlementRoutes, { module: localSettlementsModule, providerSignedBy })
-    .registerRoutes('/', noticeRoutes, { module: localNotificationsModule });
+    .registerRoutes('/', noticeRoutes, { module: localNotificationsModule })
+    .registerRoutes('/', noticePreferenceRoutes, { module: localNotificationsModule });
 
   await app.startModules();
   runEvery(jobsIntervalMs, app, logger, async () => {

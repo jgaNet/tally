@@ -5,7 +5,7 @@ const t0 = new Date('2026-03-02T10:00:00.000Z');
 const after = (ms: number) => new Date(t0.getTime() + ms);
 
 const see = (kept: WatchState | undefined, owed: number, now: Date) => {
-  const decision = decideSeeDebt(kept, { owed, periodMs: WEEK }, now);
+  const decision = decideSeeDebt(kept, { owed, periodMs: WEEK, remindable: true }, now);
   if (decision.isFailure()) throw decision.error;
   return decision.data;
 };
@@ -53,5 +53,17 @@ describe('decideSeeDebt', () => {
     expect(back.facts).toEqual([{ type: 'DebtNoted' }]);
     expect(see(back.state, 3000, after(WEEK + 10 + WEEK - 1)).facts).toEqual([]);
     expect(see(back.state, 3000, after(WEEK + 10 + WEEK)).facts).toEqual([{ type: 'ReminderDue', owed: 3000 }]);
+  });
+
+  it('makes no reminder while reminders are off for the member, and the debt stays noted, so the next run on reminds', () => {
+    const noted = { notedSince: t0.toISOString(), remindedAt: null };
+    const off = decideSeeDebt(noted, { owed: 2500, periodMs: WEEK, remindable: false }, after(WEEK));
+    if (off.isFailure()) throw off.error;
+    expect(off.data.facts).toEqual([]);
+    expect(off.data.state).toEqual(noted);
+
+    const on = decideSeeDebt(off.data.state, { owed: 2500, periodMs: WEEK, remindable: true }, after(WEEK + 60_000));
+    if (on.isFailure()) throw on.error;
+    expect(on.data.facts).toEqual([{ type: 'ReminderDue', owed: 2500 }]);
   });
 });

@@ -8,19 +8,27 @@ import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 
 import { IDebtWatches } from './IDebtWatches';
 import { IOutstandingDebts } from './IOutstandingDebts';
+import { INoticePreferenceRepository } from './INoticePreferenceRepository';
 
 const keyOf = (groupId: string, memberId: string): string => JSON.stringify([groupId, memberId]);
 
 /**
  * One run of the background job (request 18, ADR 15): it looks at what every member of every group still owes, notes the ones it
  * sees owe more than the threshold, stops noting the ones it sees owe less, and reminds the ones noted for a period and not reminded
- * during the last. The job calls it, nobody else: no read ever notes or reminds. `periodMs` is the period (`REMINDER_PERIOD_SECONDS`),
- * read when the run starts. Each watch is saved with the reminder it made in one transaction; a watch another server saved first is
+ * during the last. A member who has reminders turned off (request 36) is noted all the same, but no reminder is made for them, and
+ * none counts as made: the first run after they are on again reminds them. The job calls it, nobody else: no read ever notes or reminds.
+ * `periodMs` is the period (`REMINDER_PERIOD_SECONDS`), read when the run starts. Each watch is saved with the reminder it made in one transaction; a watch another server saved first is
  * a conflict, and the run is read again and finds the member reminded within the period.
  */
 export const sweepDebts = command(
   'SweepDebts',
-  (debts: IOutstandingDebts, watches: IDebtWatches, clock: Clock, periodMs: () => number) =>
+  (
+    debts: IOutstandingDebts,
+    watches: IDebtWatches,
+    preferences: INoticePreferenceRepository,
+    clock: Clock,
+    periodMs: () => number,
+  ) =>
     async (_input: void, context) => {
       const now = clock();
       const period = periodMs();
@@ -28,11 +36,19 @@ export const sweepDebts = command(
       for (const debt of await debts.outstandingDebts()) owedBy.set(keyOf(debt.groupId, debt.memberId), debt);
       const kept = new Map<string, DebtWatch>();
       for (const watch of await watches.all()) kept.set(keyOf(watch.groupId, watch.memberId), watch);
+      const keys = new Set([...owedBy.keys(), ...kept.keys()]);
+      const memberIds = [...new Set([...owedBy.values(), ...kept.values()].map(each => each.memberId))];
+      const remindersOff = await preferences.turnedOff('reminder', memberIds);
 
-      for (const key of new Set([...owedBy.keys(), ...kept.keys()])) {
+      for (const key of keys) {
         const debt = owedBy.get(key);
         let watch = kept.get(key);
-        const decision = decideSeeDebt(watch?.state, { owed: debt?.owed ?? 0, periodMs: period }, now);
+        const memberId = debt?.memberId ?? watch!.memberId;
+        const decision = decideSeeDebt(
+          watch?.state,
+          { owed: debt?.owed ?? 0, periodMs: period, remindable: !remindersOff.has(memberId) },
+          now,
+        );
         if (decision.isFailure()) return decision;
         if (decision.data.facts.length === 0) continue;
 

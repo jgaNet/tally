@@ -18,7 +18,10 @@ export interface NoticeSnapshot {
   at: string;
 }
 
-export type NoticeKind = 'expense' | 'reminder' | 'budget';
+/** The kinds of notice, in the order a person's preferences are read in (request 36). */
+export const NOTICE_KINDS = ['expense', 'reminder', 'budget'] as const;
+
+export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**
  * One message owed to one member about one fact, made once from the fact (conventions/domain.yaml): that a member's share of an

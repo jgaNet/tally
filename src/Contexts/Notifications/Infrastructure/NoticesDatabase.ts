@@ -5,8 +5,8 @@ import {
 } from '@Architecture/Infrastructure/DataSources/PostgresDatabase';
 
 /**
- * The tables the Notifications context keeps its notices in, in the database at `DATABASE_URL`: the notices, and the debt watches of request 18,
- * under tables of its own, as Ledger and Settlements keep theirs (ADR 5).
+ * The tables the Notifications context keeps its notices in, in the database at `DATABASE_URL`: the notices, the debt watches of request 18,
+ * and the notice preferences of request 36, under tables of its own, as Ledger and Settlements keep theirs (ADR 5).
  */
 export class NoticesDatabase extends PostgresTables {
   constructor(urlOf: () => string = databaseUrl) {
@@ -14,7 +14,7 @@ export class NoticesDatabase extends PostgresTables {
   }
 }
 
-/** The tables of the notices and the debt watches, made once (idempotent). */
+/** The tables of the notices, the debt watches and the notice preferences, made once (idempotent). */
 async function setUp(database: PostgresDatabase): Promise<void> {
   await database.query(`
     CREATE TABLE IF NOT EXISTS notifications_notices (
@@ -39,6 +39,14 @@ async function setUp(database: PostgresDatabase): Promise<void> {
       reminded_at TEXT,
       version INTEGER NOT NULL,
       UNIQUE (group_id, member_id)
+    );
+    CREATE TABLE IF NOT EXISTS notifications_notice_preferences (
+      id TEXT PRIMARY KEY,
+      member_id TEXT NOT NULL UNIQUE,
+      expense_on BOOLEAN NOT NULL,
+      reminder_on BOOLEAN NOT NULL,
+      budget_on BOOLEAN NOT NULL,
+      version INTEGER NOT NULL
     );
   `);
 }
