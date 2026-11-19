@@ -7,6 +7,7 @@ import { applyProviderStatus, type ProviderConfig, requestProviderSettlement, si
 import { contestSettlement } from './contests';
 import { requestRefund } from './refunds';
 import { recordCashSettlement, requireSettlement, settlementsOfGroup } from './settlements';
+import { FEE_BEARERS, type FeeBearer, feePolicyOf, setFeePolicy } from './fees';
 import { suggestedTransfersOf } from './suggested';
 
 const transferSchema = {
@@ -32,6 +33,14 @@ export const settlementSchema = {
     status: { type: 'string', enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string' },
     payUrl: { type: 'string' },
+    fee: {
+      type: 'object',
+      required: ['amount', 'borneBy'],
+      properties: {
+        amount: { type: 'integer', minimum: 0 },
+        borneBy: { type: 'string', enum: [...FEE_BEARERS] },
+      },
+    },
     history: {
       type: 'array',
       minItems: 1,
@@ -52,6 +61,12 @@ export const settlementSchema = {
 
 const idSchema = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } };
 
+const feePolicySchema = {
+  type: 'object',
+  required: ['borneBy'],
+  properties: { borneBy: { type: 'string', enum: [...FEE_BEARERS] } },
+};
+
 export function registerSettlementRoutes(app: FastifyInstance, db: Database, provider: ProviderConfig): void {
   app.get<{ Params: { id: string } }>(
     '/groups/:id/settlements',
@@ -67,6 +82,38 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
       // else is told it does not exist.
       await requireMembership(db, request.params.id, account.id);
       return await settlementsOfGroup(db, request.params.id);
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    '/groups/:id/fee-policy',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        response: { 200: feePolicySchema },
+      },
+    },
+    async request => {
+      const account = await requireAccount(db, request);
+      // Only the members of a group read who bears its fee; anyone else is told it does not exist.
+      await requireMembership(db, request.params.id, account.id);
+      return { borneBy: await feePolicyOf(db, request.params.id) };
+    },
+  );
+
+  app.put<{ Params: { id: string }; Body: { borneBy: FeeBearer } }>(
+    '/groups/:id/fee-policy',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        body: feePolicySchema,
+      },
+    },
+    async (request, reply) => {
+      const account = await requireAccount(db, request);
+      // Only the owner of the group decides who bears its fee.
+      await setFeePolicy(db, request.params.id, account.id, request.body.borneBy);
+      return reply.code(204).send();
     },
   );
 

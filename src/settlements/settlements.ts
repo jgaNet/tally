@@ -6,6 +6,7 @@ import { requireNotSuspended } from '../admin/suspensions';
 import { requireMembership, requireNotArchived } from '../groups/groups';
 import { Refusal } from '../refusal';
 import { type SettlementStatus, type StatusEntry, historyOf, recordStatus } from './history';
+import type { FeeBearer } from './fees';
 
 /** A settlement as the API answers it. */
 export interface Settlement {
@@ -15,7 +16,10 @@ export interface Settlement {
   from: string;
   /** The account id of the member who was paid, and who recorded a cash settlement. */
   to: string;
-  /** In hundredths of the group's currency. */
+  /**
+   * The amount asked for, in hundredths of the group's currency. What it settles is this, less the part of the
+   * provider's fee its payer bears (see `fee`): the balances, the statement and the audit count that.
+   */
   amount: number;
   method: 'cash' | 'provider' | 'net';
   /**
@@ -31,6 +35,11 @@ export interface Settlement {
   history: StatusEntry[];
   /** Through the provider only: the link where the payer pays. */
   payUrl?: string;
+  /**
+   * Through the provider, asked for once the fee was made a part of it: the fee the provider said when the payment was
+   * asked for, and who bore it then, fixed from then on.
+   */
+  fee?: { amount: number; borneBy: FeeBearer };
 }
 
 /**
@@ -115,11 +124,14 @@ interface SettlementRow {
   method: 'cash' | 'provider' | 'net';
   status: SettlementStatus;
   pay_url: string | null;
+  fee_amount: number | null;
+  fee_borne_by: FeeBearer | null;
   created_at: string;
 }
 
 const SETTLEMENT_COLUMNS = `settlements.id, settlements.group_id, settlements.payer_id, settlements.payee_id,
-  settlements.amount, settlements.method, settlements.status, settlements.pay_url, settlements.created_at`;
+  settlements.amount, settlements.method, settlements.status, settlements.pay_url, settlements.fee_amount,
+  settlements.fee_borne_by, settlements.created_at`;
 
 /** The settlement as the API answers it, with its history. */
 async function settlementOf(db: Database, row: SettlementRow): Promise<Settlement> {
@@ -137,7 +149,18 @@ async function settlementOf(db: Database, row: SettlementRow): Promise<Settlemen
   if (row.pay_url !== null) {
     settlement.payUrl = row.pay_url;
   }
+  if (row.fee_amount !== null && row.fee_borne_by !== null) {
+    settlement.fee = { amount: row.fee_amount, borneBy: row.fee_borne_by };
+  }
   return settlement;
+}
+
+/** What the settlement `settlementId` settles: its amount, less the part of the provider's fee its payer bears. */
+export async function settledAmountOf(db: Database, settlementId: string): Promise<number> {
+  const row = await db.row<{ settled_amount: number }>('SELECT settled_amount FROM settlements WHERE id = ?', [
+    settlementId,
+  ]);
+  return (row as { settled_amount: number }).settled_amount;
 }
 
 /**

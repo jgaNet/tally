@@ -116,6 +116,8 @@ export interface FakeProvider {
   payments: { id: string; payUrl: string; reference: string }[];
   /** How it answers the next requests for a payment: `accept`, `refuse` (a `500`), `malformed` or `hang`. */
   mode: 'accept' | 'refuse' | 'malformed' | 'hang';
+  /** The fee it answers each payment with, as the JSON value it is: `0` by default; `undefined` answers none. */
+  fee: unknown;
   /** Every request for a refund, in the order received: the provider's payment id and the reference. */
   refunds: { paymentId: string; reference: string }[];
   /** How it answers the next requests for a refund, as `mode` does for a payment. */
@@ -148,6 +150,7 @@ export async function startFakeProvider(): Promise<FakeProvider> {
     accountRequests,
     unknownAccounts: [] as string[],
     mode: 'accept',
+    fee: 0,
     refundMode: 'accept',
     accountMode: 'accept',
   } as FakeProvider;
@@ -218,7 +221,9 @@ export async function startFakeProvider(): Promise<FakeProvider> {
       const id = `pay-${payments.length + 1}`;
       const payUrl = `https://pay.example.test/${id}`;
       payments.push({ id, payUrl, reference: body.reference });
-      response.writeHead(201, { 'content-type': 'application/json' }).end(JSON.stringify({ id, payUrl }));
+      response
+        .writeHead(201, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ id, payUrl, fee: provider.fee }));
     });
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));

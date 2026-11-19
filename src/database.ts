@@ -344,6 +344,26 @@ const migrations: readonly string[] = [
     PRIMARY KEY (account_id, kind)
   );
   `,
+  `
+  -- Who bears the provider's fee in a group, as its owner decides: the payee, until then.
+  ALTER TABLE groups ADD COLUMN fee_borne_by TEXT NOT NULL DEFAULT 'payee'
+    CHECK (fee_borne_by IN ('payer', 'payee', 'shared'));
+  -- A settlement through the provider keeps the fee the provider said when its payment was asked for, and who bore it
+  -- then. A settlement asked for before has neither, and settles its amount.
+  ALTER TABLE settlements ADD COLUMN fee_amount INTEGER;
+  ALTER TABLE settlements ADD COLUMN fee_borne_by TEXT CHECK (fee_borne_by IN ('payer', 'payee', 'shared'));
+  ALTER TABLE settlements ADD CONSTRAINT settlements_fee_check CHECK (
+    (fee_amount IS NULL) = (fee_borne_by IS NULL)
+    AND (fee_amount IS NULL OR (method = 'provider' AND fee_amount >= 0 AND fee_amount < amount))
+  );
+  -- What a settlement settles: its amount, less the part of the fee its payer bears (the whole of it, or half of it rounded
+  -- down when shared). The balances, the statements and the audit count this, never the amount asked for.
+  ALTER TABLE settlements ADD COLUMN settled_amount INTEGER GENERATED ALWAYS AS (
+    amount - CASE WHEN fee_borne_by = 'payer' THEN fee_amount
+                  WHEN fee_borne_by = 'shared' THEN fee_amount / 2
+                  ELSE 0 END
+  ) STORED CHECK (settled_amount >= 1);
+  `,
 ];
 
 /** The database: every read and write Tally makes goes through it, to the PostgreSQL database it was opened on. */

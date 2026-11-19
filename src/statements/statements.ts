@@ -106,9 +106,9 @@ export async function statementOf(db: Database, groupId: string, memberId: strin
   );
 
   // A settlement counts from the first time it was paid (its history's first `paid`), and stops counting
-  // once it is refunded: the statuses the balances count are `paid` and `refunding`.
+  // once it is refunded: the statuses the balances count are `paid` and `refunding`. It counts what it settles.
   const settlementRows = await db.rows<SettlementRow>(
-    `SELECT settlements.id, settlements.payer_id, settlements.payee_id, settlements.amount,
+    `SELECT settlements.id, settlements.payer_id, settlements.payee_id, settlements.settled_amount AS amount,
             settlements.method, settlements.seq AS seq,
             COALESCE((SELECT settlement_statuses.at
                         FROM settlement_statuses

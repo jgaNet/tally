@@ -4,7 +4,7 @@ import { leftMembersAmong, requireNotArchived } from '../groups/groups';
 import { recordAdministratorEntry } from '../admin/log';
 import { Refusal } from '../refusal';
 import { recordStatus } from './history';
-import { requireSettlement } from './settlements';
+import { requireSettlement, settledAmountOf } from './settlements';
 
 /**
  * Contests the settlement `settlementId` for its payee `accountId`: the money did not reach them. Only the payee may,
@@ -46,7 +46,12 @@ export async function contestSettlement(db: Database, settlementId: string, acco
     await recordAudit(
       db,
       settlement.groupId,
-      { by: accountId, action: 'settlement-contested', subjectId: settlementId, amount: settlement.amount },
+      {
+        by: accountId,
+        action: 'settlement-contested',
+        subjectId: settlementId,
+        amount: await settledAmountOf(db, settlementId),
+      },
       at,
     );
   });
@@ -66,8 +71,8 @@ export async function decideContest(
   paid: boolean,
 ): Promise<void> {
   await inTransaction(db, async () => {
-    const row = await db.row<{ status: string; group_id: string; amount: number }>(
-      'SELECT status, group_id, amount FROM settlements WHERE id = ?',
+    const row = await db.row<{ status: string; group_id: string; settled_amount: number }>(
+      'SELECT status, group_id, settled_amount FROM settlements WHERE id = ?',
       [settlementId],
     );
     if (row === undefined) {
@@ -84,7 +89,7 @@ export async function decideContest(
       await recordAudit(
         db,
         row.group_id,
-        { by: administratorId, action: 'settlement-paid', subjectId: settlementId, amount: row.amount },
+        { by: administratorId, action: 'settlement-paid', subjectId: settlementId, amount: row.settled_amount },
         at,
       );
     }

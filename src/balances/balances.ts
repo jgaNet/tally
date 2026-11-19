@@ -21,7 +21,8 @@ interface BalanceRow {
  * members). A member with nothing recorded and in no split has a balance of 0. Only a settlement that
  * is paid counts, or one being refunded, which still counts until the provider says it is refunded:
  * one waiting at the provider, one the provider failed, one refunded, or one contested (held until an
- * administrator decides it), does not move a balance.
+ * administrator decides it), does not move a balance. A settlement moves what it settles: its amount, less the part
+ * of the provider's fee its payer bears.
  *
  * It is one statement, so it reads one snapshot of the file: an expense is either wholly in the
  * balances or not at all. Each expense's shares add up to its amount, so the balances always add
@@ -54,12 +55,12 @@ async function balancesCounting(db: Database, groupId: string, counted: string):
                  JOIN expenses ON expenses.id = expense_shares.expense_id
                 WHERE expenses.group_id = memberships.group_id
                   AND expense_shares.member_id = memberships.account_id)
-            + (SELECT COALESCE(SUM(settlements.amount), 0)
+            + (SELECT COALESCE(SUM(settlements.settled_amount), 0)
                  FROM settlements
                 WHERE settlements.group_id = memberships.group_id
                   AND settlements.payer_id = memberships.account_id
                   AND ${counted})
-            - (SELECT COALESCE(SUM(settlements.amount), 0)
+            - (SELECT COALESCE(SUM(settlements.settled_amount), 0)
                  FROM settlements
                 WHERE settlements.group_id = memberships.group_id
                   AND settlements.payee_id = memberships.account_id

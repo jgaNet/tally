@@ -7,6 +7,7 @@ import { requireMembership, requireNotArchived } from '../groups/groups';
 import { payoutAccountOf } from '../payouts/payout-accounts';
 import { Refusal } from '../refusal';
 import { type StatusEntry, recordStatus } from './history';
+import { feePolicyOf } from './fees';
 import { checkNewSettlement } from './settlements';
 
 /** Where the payment provider is, and the secret it and Tally share. */
@@ -21,13 +22,15 @@ export interface ProviderConfig {
 
 /**
  * Asks the provider for a payment of `amount` in `groupId`'s currency, `payerId` paying `payeeId`, and
- * answers the settlement's id. The settlement is kept `pending` with the provider's `payUrl`.
+ * answers the settlement's id. The settlement is kept `pending` with the provider's `payUrl`, and with the fee the
+ * provider says, which is kept out of what it settles: who bears it is the group's policy as it is now, kept with it.
  *
  * The rules are those of a cash settlement, with a payment waiting at the provider counting as paid. A payee whose
  * account is deleted is refused with `AccountDeleted`. The payee must have a payout account, which the provider is
  * told: a payee with none is refused before the provider is asked. The settlement is first held in a transaction, so
- * a second request sees it; the provider is then asked outside the transaction. When the provider does not answer `201 { id, payUrl }`
- * in time, the hold is removed and the request is refused: nothing is kept.
+ * a second request sees it; the provider is then asked outside the transaction. When the provider does not answer
+ * `201 { id, payUrl, fee }` in time, or its fee is not a whole number from 0 below `amount`, the hold is removed and the
+ * request is refused: nothing is kept.
  */
 export async function requestProviderSettlement(
   db: Database,
@@ -52,6 +55,7 @@ export async function requestProviderSettlement(
       );
     }
     await checkNewSettlement(db, groupId, payerId, payeeId, amount);
+    const borneBy = await feePolicyOf(db, groupId);
     // The payee's account as it is now: a payment asked for goes to the account set at that moment.
     const payee = await payoutAccountOf(db, payeeId);
     if (payee === undefined) {
@@ -69,17 +73,16 @@ export async function requestProviderSettlement(
       [id, groupId, payerId, payeeId, amount, at],
     );
     await recordStatus(db, id, 'pending', at);
-    return { id, currency: group.currency, payee };
+    return { id, currency: group.currency, payee, borneBy };
   });
 
   let payment: ProviderPayment;
   try {
-    payment = await createProviderPayment(provider, {
-      reference: held.id,
+    payment = await createProviderPayment(
+      provider,
+      { reference: held.id, amount, currency: held.currency, payee: held.payee },
       amount,
-      currency: held.currency,
-      payee: held.payee,
-    });
+    );
   } catch {
     await db.execute('DELETE FROM settlements WHERE id = ?', [held.id]);
     throw new Refusal(
@@ -89,11 +92,11 @@ export async function requestProviderSettlement(
     );
   }
 
-  await db.execute('UPDATE settlements SET pay_url = ?, provider_payment_id = ? WHERE id = ?', [
-    payment.payUrl,
-    payment.id,
-    held.id,
-  ]);
+  // The fee and who bears it are kept together with the payment, as they were when it was asked for.
+  await db.execute(
+    'UPDATE settlements SET pay_url = ?, provider_payment_id = ?, fee_amount = ?, fee_borne_by = ? WHERE id = ?',
+    [payment.payUrl, payment.id, payment.fee, held.borneBy, held.id],
+  );
   return held.id;
 }
 
@@ -102,12 +105,18 @@ interface ProviderPayment {
   id: string;
   /** Where the payer pays. */
   payUrl: string;
+  /** The provider's fee, in hundredths of the currency: a whole number from 0, below the amount. */
+  fee: number;
 }
 
-/** `POST {url}/payments`. Anything but `201` with an `id` and a `payUrl` is an error. */
+/**
+ * `POST {url}/payments`. Anything but `201` with an `id`, a `payUrl` and a `fee` is an error, and so is a fee that is
+ * not a whole number from 0 below `amount`: a payment whose fee is not known is not started.
+ */
 async function createProviderPayment(
   provider: ProviderConfig,
   body: { reference: string; amount: number; currency: string; payee: string },
+  amount: number,
 ): Promise<ProviderPayment> {
   const response = await fetch(`${provider.url}/payments`, {
     method: 'POST',
@@ -130,7 +139,10 @@ async function createProviderPayment(
   ) {
     throw new Error('the provider did not answer with an id and a payUrl');
   }
-  return { id: answer.id, payUrl: answer.payUrl };
+  if (typeof answer.fee !== 'number' || !Number.isInteger(answer.fee) || answer.fee < 0 || answer.fee >= amount) {
+    throw new Error('the provider did not answer with a fee below the amount');
+  }
+  return { id: answer.id, payUrl: answer.payUrl, fee: answer.fee };
 }
 
 /**
@@ -174,7 +186,8 @@ interface ProviderSettlementRow {
   status: StatusEntry['status'];
   payer_id: string;
   payee_id: string;
-  amount: number;
+  /** What it settles: the amount, less the part of the fee its payer bears. */
+  settled_amount: number;
 }
 
 /**
@@ -209,7 +222,7 @@ async function setProviderStatus(
     // `from` is written here, never from a request: only its placeholders are built from it.
     const settlements = await db.rows<ProviderSettlementRow>(
       `SELECT settlements.id, settlements.group_id, settlements.status, settlements.payer_id, settlements.payee_id,
-              settlements.amount
+              settlements.settled_amount
          FROM settlements
         WHERE settlements.provider_payment_id = ? AND settlements.method = 'provider'
           AND settlements.status IN (${from.map(() => '?').join(', ')})`,
@@ -226,7 +239,7 @@ async function setProviderStatus(
         await recordAudit(
           db,
           settlement.group_id,
-          { ...change, subjectId: settlement.id, amount: settlement.amount },
+          { ...change, subjectId: settlement.id, amount: settlement.settled_amount },
           at,
         );
       }
