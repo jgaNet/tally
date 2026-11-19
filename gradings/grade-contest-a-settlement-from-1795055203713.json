@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-3",
+  "ref": "e66ef98ff4c67c648c50418b17fcc28a91bccf16",
+  "commit": "e66ef98ff4c67c648c50418b17fcc28a91bccf16",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "remainder-to-the-first",
+      "M2": {
+        "pass": true,
+        "tests": "5 passed, 5 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "f84953edf2b2dc830743277eb1cf50715afaadcd",
+      "mechanical": false
+    },
+    {
+      "feature": "postgresql",
+      "M2": {
+        "pass": true,
+        "tests": "4 passed, 4 total",
+        "failed": []
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "d158b7c2f0486c8020680664cf3c7c3a3501f165",
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 476,
+  "workers": 1
+}

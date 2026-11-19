@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-3",
+  "ref": "85ad5e08c03ae7821e39002cd1dd4e600a6e3ebc",
+  "commit": "85ad5e08c03ae7821e39002cd1dd4e600a6e3ebc",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "remainder-to-the-first",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 4 passed, 5 total",
+        "failed": [
+          "the remainder goes to the first member of the split › keeps the shares of the expenses recorded before the change, on the same database"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● the remainder goes to the first member of the split › keeps the shares of the expenses recorded before the change, on the same database",
+          "Tests:       1 failed, 4 passed, 5 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "f84953edf2b2dc830743277eb1cf50715afaadcd",
+      "mechanical": false
+    },
+    {
+      "feature": "postgresql",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 3 passed, 4 total",
+        "failed": [
+          "storage on PostgreSQL › moves what the tree before it kept, and a payment waiting at the provider when it changed counts once"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● storage on PostgreSQL › moves what the tree before it kept, and a payment waiting at the provider when it changed counts once",
+          "    - Expected  - 2",
+          "    + Received  + 2",
+          "Tests:       1 failed, 3 passed, 4 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "previous": "d158b7c2f0486c8020680664cf3c7c3a3501f165",
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 457,
+  "workers": 1
+}
