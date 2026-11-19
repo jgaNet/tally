@@ -5,7 +5,7 @@ feature: notice-preferences
 intent: >-
   Each person turns each kind of notice on or off; a notice of a kind turned off is not made for them from then on, and a reminder not made does not count as made.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where are the preferences?

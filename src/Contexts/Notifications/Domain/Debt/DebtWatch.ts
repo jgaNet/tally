@@ -71,11 +71,12 @@ export class DebtWatch extends AggregateRoot {
   /**
    * One run of the sweep for this member and group, which owes `owed` now (0 when it owes nothing):
    *  - more than 2000 and not noted: noted from `now` (DebtNoted);
-   *  - more than 2000, noted for a period or more, and not reminded in the last period: reminded (ReminderIssued);
+   *  - more than 2000, noted for a period or more, not reminded in the last period, and reminders on: reminded (ReminderIssued);
    *  - 2000 or less and noted: no longer noted (DebtCleared).
-   * Anything else changes nothing, and answers `none`.
+   * Anything else changes nothing, and answers `none`. With reminders off (`reminding` false, request 36) a lasting debt stays noted and is
+   * not reminded: nothing is recorded as reminded, so the first run after they are on again reminds (request 18).
    */
-  sweep(owed: number, now: Date, periodMs: number): SweepOutcome {
+  sweep(owed: number, now: Date, periodMs: number, reminding: boolean): SweepOutcome {
     if (owed > REMINDED_ABOVE) {
       if (this._notedSince === undefined) {
         this._notedSince = now;
@@ -85,7 +86,7 @@ export class DebtWatch extends AggregateRoot {
       const lastedAPeriod = now.getTime() - this._notedSince.getTime() >= periodMs;
       const notRemindedThisPeriod =
         this._lastRemindedAt === undefined || now.getTime() - this._lastRemindedAt.getTime() >= periodMs;
-      if (lastedAPeriod && notRemindedThisPeriod) {
+      if (reminding && lastedAPeriod && notRemindedThisPeriod) {
         this._lastRemindedAt = now;
         this.record(ReminderIssuedEvent.set({ accountId: this.accountId, groupId: this.groupId, amount: owed }));
         return 'reminded';

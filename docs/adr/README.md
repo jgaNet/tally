@@ -40,6 +40,7 @@ why, what it costs, and when to revisit it.
 | [33](0033-a-contested-settlement-is-held-until-an-administrator-decides-it.md) | A contested settlement is held by Settlements until an administrator decides it, and the decision is logged by the context that made it |
 | [34](0034-a-suspended-account-is-refused-by-one-rule-and-logged-by-groups.md) | A suspended account is decided by Groups, refused by one rule in every context that starts a change, and logged by Groups |
 | [35](0035-a-deleted-account-is-erased-by-groups-and-stays-a-member.md) | A deleted account is decided by Groups and erased where it is named, and stays a member where its balance is |
+| [36](0036-a-person-turns-each-kind-of-notice-on-or-off-and-the-preference-is-read-when-a-notice-is-made.md) | A person turns each kind of notice on or off, kept by Notifications and read when a notice would be made |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

@@ -28,6 +28,7 @@ import { administrationRoutes } from '@Contexts/Groups/Presentation/administrati
 import { groupRoutes } from '@Contexts/Groups/Presentation/groups.routes';
 import { invitationRoutes } from '@Contexts/Groups/Presentation/invitations.routes';
 import { noticeRoutes } from '@Contexts/Notifications/Presentation/notices.routes';
+import { noticePreferenceRoutes } from '@Contexts/Notifications/Presentation/noticePreferences.routes';
 import { settlementRoutes } from '@Contexts/Settlements/Presentation/settlements.routes';
 import { nettingRoutes } from '@Contexts/Settlements/Presentation/nettings.routes';
 import { providerWebhookRoutes } from '@Contexts/Settlements/Presentation/providerWebhooks.routes';
@@ -100,6 +101,7 @@ export async function createApplication({
     .registerRoutes('/', nettingRoutes, { module: localSettlementsModule })
     .registerRoutes('/', providerWebhookRoutes, { module: localSettlementsModule })
     .registerRoutes('/', noticeRoutes, { module: localNotificationsModule })
+    .registerRoutes('/', noticePreferenceRoutes, { module: localNotificationsModule })
     .registerRoutes('/', operationRoutes, {});
 
   await app.startModules();

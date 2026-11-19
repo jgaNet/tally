@@ -8,6 +8,7 @@ import { IDebtWatchQueries, IDebtWatches } from '@Contexts/Notifications/Domain/
 import { IOutstandingDebts } from '@Contexts/Notifications/Domain/Debt/Ports/IOutstandingDebts';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 import { INotices } from '@Contexts/Notifications/Domain/Notice/Ports/INotices';
+import { INoticePreferences } from '@Contexts/Notifications/Domain/Preference/Ports/INoticePreferences';
 
 /** One member's debt in one group, as the sweep found it: `owed` is 0 when it owes nothing now (request 18). */
 export interface SweepInput {
@@ -19,16 +20,18 @@ export interface SweepInput {
 
 /**
  * The sweep's step for one member and group, in its own transaction (request 18, docs/adr/0018): the watch is read, decided at the
- * run's time, and saved with the reminder it makes, if it makes one. A watch another server saved first is read again and decided
+ * run's time, and saved with the reminder it makes, if it makes one. A reminder is made only while the member has reminders on (request 36). A watch another server saved first is read again and decided
  * again, so the member is reminded once a period whatever the servers.
  */
 export const sweepDebt = command(
   'SweepDebt',
-  (watches: IDebtWatches, notices: INotices, clock: Clock) =>
+  (watches: IDebtWatches, notices: INotices, preferences: INoticePreferences, clock: Clock) =>
     async ({ accountId, groupId, owed, periodMs }: SweepInput, context) => {
       const watch = await watches.get(accountId, groupId);
       const now = clock();
-      const outcome = watch.sweep(owed, now, periodMs);
+      // Reminders off (request 36): the debt is still noted, and not reminded; the reminder is made by the first run after they are on.
+      const reminding = (await preferences.get(accountId)).isOn('reminder');
+      const outcome = watch.sweep(owed, now, periodMs, reminding);
       if (outcome === 'none') return Result.ok(undefined);
       if (outcome === 'reminded') {
         const notice = Notice.remind({ accountId, groupId, amount: owed, at: now });

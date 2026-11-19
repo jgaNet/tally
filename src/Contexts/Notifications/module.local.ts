@@ -13,6 +13,11 @@ import { BudgetPassedIntegrationHandler } from '@Contexts/Notifications/Applicat
 import { PostgresNoticeQueries } from '@Contexts/Notifications/Infrastructure/PostgresNoticeQueries';
 import { PostgresNotices } from '@Contexts/Notifications/Infrastructure/PostgresNotices';
 import {
+  PostgresNoticePreferenceQueries,
+  PostgresNoticePreferences,
+} from '@Contexts/Notifications/Infrastructure/PostgresNoticePreferences';
+import { getNoticePreferences, setNoticePreference } from '@Contexts/Notifications/Application/Preferences';
+import {
   PostgresDebtWatchQueries,
   PostgresDebtWatches,
 } from '@Contexts/Notifications/Infrastructure/PostgresDebtWatches';
@@ -30,15 +35,29 @@ const noticeQueries = new PostgresNoticeQueries(sharedDatabase);
 const debtWatches = new PostgresDebtWatches(sharedDatabase);
 const debtWatchQueries = new PostgresDebtWatchQueries(sharedDatabase);
 const outstandingDebts = new OutstandingDebtsOfSettlements(outstandingDebtsReadModel);
-const sweep = sweepDebt(debtWatches, notices, systemClock);
+/** A person's notice preferences: read when a notice would be made, and set by the person (request 36, docs/adr/0036). */
+const preferences = new PostgresNoticePreferences(sharedDatabase);
+const preferenceQueries = new PostgresNoticePreferenceQueries(sharedDatabase);
+const sweep = sweepDebt(debtWatches, notices, preferences, systemClock);
 
 export const localNotificationsModule = new LiteModule({
   name: 'Notifications',
-  useCases: [getMyNotices(noticeQueries), sweep],
+  useCases: [
+    getMyNotices(noticeQueries),
+    sweep,
+    setNoticePreference(preferences),
+    getNoticePreferences(preferenceQueries),
+  ],
   integrationEvents: [
-    { event: ExpenseRecordedIntegrationEvent, handlers: [new ExpenseRecordedIntegrationHandler(notices, systemClock)] },
+    {
+      event: ExpenseRecordedIntegrationEvent,
+      handlers: [new ExpenseRecordedIntegrationHandler(notices, preferences, systemClock)],
+    },
     // A month passed a budget: one notice to each member, a budget's (request 24, docs/adr/0023).
-    { event: BudgetPassedIntegrationEvent, handlers: [new BudgetPassedIntegrationHandler(notices, systemClock)] },
+    {
+      event: BudgetPassedIntegrationEvent,
+      handlers: [new BudgetPassedIntegrationHandler(notices, preferences, systemClock)],
+    },
   ],
 });
 

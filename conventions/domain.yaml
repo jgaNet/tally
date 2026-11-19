@@ -109,6 +109,8 @@ contexts:
         meaning: a notice the sweep makes for a lasting debt, at most once a week per member and group.
       - term: DebtWatch
         meaning: the sweep's memory of one member's debt in one group, since which run it owes more than 2000 and when it was last reminded.
+      - term: NoticePreference
+        meaning: a person's choice, for each kind of notice, to receive it or not; on until they turn it off, and on again when they turn it on (request 36).
 relationships:
   - upstream: Groups
     downstream: Ledger
