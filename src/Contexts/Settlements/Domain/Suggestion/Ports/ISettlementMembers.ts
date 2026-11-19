@@ -38,4 +38,9 @@ export interface ISettlementMembers {
    * payment and asks no netting. Groups answers it.
    */
   isSuspended(accountId: string): Promise<boolean>;
+  /**
+   * Whether the account was deleted (request 35, docs/adr/0035): a deleted account is paid through no provider, is netted with by no one,
+   * and is told of no debt. Groups answers it.
+   */
+  isDeleted(accountId: string): Promise<boolean>;
 }

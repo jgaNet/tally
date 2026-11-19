@@ -43,6 +43,11 @@ export interface IGroupMembers {
    * while it is. Groups answers it; a change asks the caller's membership first, through `membersOf`.
    */
   isSuspended(accountId: string): Promise<boolean>;
+  /**
+   * Whether the account was deleted (request 35, docs/adr/0035): a deleted account stays a member, with its balance, and is in no new split,
+   * starts no recurring expense and is told of no budget. Groups answers it.
+   */
+  isDeleted(accountId: string): Promise<boolean>;
 }
 
 /** A member whose leaves passed a balance to the owner, as Ledger's balances count it (docs/adr/0019). */

@@ -7,4 +7,9 @@
 export interface IWaitingPayments {
   /** Whether a payment of the account, in the group, waits at the provider: pending or refunding (requests 13, 15). */
   paymentWaitingOf(groupId: string, accountId: string): Promise<boolean>;
+  /**
+   * Whether a payment of the account waits at the provider in any group: pending, refunding or contested (requests 13, 15, 33). An account
+   * is deleted only when none does (request 35, docs/adr/0035).
+   */
+  paymentWaitingOfAccount(accountId: string): Promise<boolean>;
 }

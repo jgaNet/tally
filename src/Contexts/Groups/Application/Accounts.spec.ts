@@ -47,7 +47,7 @@ function setUp() {
     context,
     register: signUp(accounts, passwords),
     logIn: signIn(accounts, passwords, tokens, () => []),
-    readMine: getMyAccount({ findAccount: async id => toView(id, accounts) }),
+    readMine: getMyAccount({ findAccount: async id => toView(id, accounts), isDeleted: async () => false }),
     tokens,
   };
 }

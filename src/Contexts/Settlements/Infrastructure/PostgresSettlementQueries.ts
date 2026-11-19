@@ -145,6 +145,16 @@ export class PostgresSettlementQueries implements ISettlementQueries {
     );
   }
 
+  async providerWaitingOfAccount(memberId: string): Promise<boolean> {
+    return this.database.exclusive(
+      async () =>
+        (await this.database.get(
+          "SELECT 1 FROM settlements WHERE method = 'provider' AND status IN ('pending', 'refunding', 'contested') AND (payer_id = ? OR payee_id = ?) LIMIT 1",
+          [memberId, memberId],
+        )) !== undefined,
+    );
+  }
+
   /** What each member is waiting to pay and receive: the pending settlements, and the contested ones, which count as paid (request 33). */
   async waitingOf(groupId: string): Promise<WaitingMember[]> {
     return this.database.exclusive(async () =>

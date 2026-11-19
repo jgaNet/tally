@@ -30,6 +30,10 @@ export class GroupMembersOfGroups implements IGroupMembers {
     return this.groups.isSuspended(accountId);
   }
 
+  async isDeleted(accountId: string): Promise<boolean> {
+    return this.groups.isDeleted(accountId);
+  }
+
   async passedBalancesOf(groupId: string): Promise<PassedBalances | undefined> {
     const passed = await this.groups.passedBalancesOf(groupId);
     return passed && { ownerId: passed.ownerId, members: passed.members.map(member => ({ ...member })) };

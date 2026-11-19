@@ -3,7 +3,7 @@ import { FastifyPluginCallback } from 'fastify';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 
-import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import { deleteAccount, getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 
 /** The bodies say their shape only (API-BODY-SHAPE): whether a value is allowed is the domain's to refuse. */
 const signUpBody = {
@@ -34,6 +34,11 @@ export const accountRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.get('/accounts/me', { schema: { tags: ['accounts'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getMyAccount), undefined),
+  );
+
+  // The caller deletes their own account (request 35, docs/adr/0035): nothing is answered but the fact, `204`.
+  fastify.delete('/accounts/me', { schema: { tags: ['accounts'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(deleteAccount), undefined),
   );
 
   done();

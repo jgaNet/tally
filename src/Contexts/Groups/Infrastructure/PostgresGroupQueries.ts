@@ -59,7 +59,8 @@ export class PostgresGroupQueries implements IGroupQueries {
       );
       if (!asks) return undefined;
       const rows = await this.database.all<MemberRow>(
-        'SELECT m.account_id AS member_id, a.name, m.role, m.joined_at FROM group_members m JOIN accounts a ON a.id = m.account_id WHERE m.group_id = ? AND m.left_at IS NULL ORDER BY m.position',
+        // A deleted account is listed as `Deleted account`, in its place, with its balance and its role (request 35, docs/adr/0035).
+        "SELECT m.account_id AS member_id, CASE WHEN a.deleted THEN 'Deleted account' ELSE a.name END AS name, m.role, m.joined_at FROM group_members m JOIN accounts a ON a.id = m.account_id WHERE m.group_id = ? AND m.left_at IS NULL ORDER BY m.position",
         [groupId],
       );
       return rows.map((row): MemberView => ({
@@ -126,6 +127,15 @@ export class PostgresGroupQueries implements IGroupQueries {
         accountId,
       ]);
       return row?.suspended === true;
+    });
+  }
+
+  async isDeleted(accountId: string): Promise<boolean> {
+    return this.database.exclusive(async () => {
+      const row = await this.database.get<{ deleted: boolean }>('SELECT deleted FROM accounts WHERE id = ?', [
+        accountId,
+      ]);
+      return row?.deleted === true;
     });
   }
 

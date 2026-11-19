@@ -4,6 +4,7 @@ import { callerOf, command, query, UseCase } from '@Architecture/Application/Lit
 import { IResult, NotFoundException, Result } from '@Architecture/Domain';
 
 import { dayOf } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { notDeletedAmong } from '@Contexts/Ledger/Application/NotDeleted';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 import { RecurringExpenseView } from '@Contexts/Ledger/Domain/RecurringExpense/DTOs';
@@ -45,7 +46,10 @@ export const setUpRecurringExpense = command(
         startsOn,
         split,
         category,
-        members: members.map(member => member.memberId),
+        members: await notDeletedAmong(
+          groupMembers,
+          members.map(member => member.memberId),
+        ),
         archived,
         suspended,
         at: clock(),
@@ -140,7 +144,9 @@ export const recordRecurringDay = command(
       // A suspended payer records nothing, and its day waits: the first run after the reinstatement records every day that has come (request 34).
       if (await groupMembers.isSuspended(stored.payer)) return Result.ok('idle');
 
-      const run = stored.runDay(await groupMembers.currentMemberIds(stored.groupId));
+      // A deleted payer or split member is not among the members the day is asked: the recurring expense ends on its day, as a member who left (request 35).
+      const present = await notDeletedAmong(groupMembers, await groupMembers.currentMemberIds(stored.groupId));
+      const run = stored.runDay(present);
       if (run.kind === 'ended') {
         const deleted = await recurring.delete(run.recurring);
         if (deleted.isFailure()) return deleted;

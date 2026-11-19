@@ -14,6 +14,11 @@ export interface IGroupRepository {
    * version it was read at; a conflict otherwise. Once removed it is not found, by anyone.
    */
   remove(group: Group): Promise<IResult<undefined>>;
+  /**
+   * Whether the account owns a group in which another person is a current member (request 35, docs/adr/0035): the fact the deletion of the
+   * account needs about the collection of groups.
+   */
+  ownsGroupWithOtherMembers(accountId: string): Promise<boolean>;
   /** Moves the balances that passed to the owner from a merged group to the group kept, as the group's audit keeps them (docs/adr/0031). */
   movePassedBalances(fromGroupId: string, intoGroupId: string): Promise<void>;
 }

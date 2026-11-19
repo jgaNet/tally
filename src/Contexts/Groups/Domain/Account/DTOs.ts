@@ -6,6 +6,11 @@ export interface AccountSnapshot {
   passwordHash: string;
   /** Whether an administrator has suspended the account (request 34): a suspended account changes nothing until it is reinstated. */
   suspended: boolean;
+  /**
+   * Whether the person deleted the account (request 35, docs/adr/0035): its name and email are erased, and it signs in and proves nothing
+   * any more. Its id stays where it is, in the groups, the expenses, the settlements and the audit.
+   */
+  deleted: boolean;
   /** The version the account was read at: the store stores version + 1 on every save (ADR 0008). */
   version: number;
 }

@@ -10,7 +10,7 @@ import {
   waitingPaymentsOfSettlements,
 } from '@Bootstrap/Fastify/readModels';
 
-import { getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import { deleteAccount, getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
 import { getAdministratorsLog, reinstateAccount, suspendAccount } from '@Contexts/Groups/Application/Administration';
 import {
   archiveGroup,
@@ -63,6 +63,7 @@ export const localGroupsModule = new LiteModule({
     signUp(accounts, passwords),
     signIn(accounts, passwords, tokens, administratorEmailsOf),
     getMyAccount(accountQueries),
+    deleteAccount(accounts, groups, waitingPaymentsOfSettlements),
     createGroup(groups, systemClock),
     getGroup(groupQueries),
     getMyGroups(groupQueries),
@@ -96,11 +97,14 @@ export function administratorEmailsOf(): string[] {
 
 /**
  * Who an `Authorization` header proves, for the transport: the account of a `Bearer` token it accepts and the role it had at sign-in, or
- * `undefined` when no token is given or the token proves nothing (docs/adr/0002, docs/adr/0033).
+ * `undefined` when no token is given or the token proves nothing (docs/adr/0002, docs/adr/0033). A token of a deleted account proves
+ * nothing (request 35, docs/adr/0035): the account it names is asked, and a deleted one is anonymous.
  */
-export function authenticatedCallerOf(
+export async function authenticatedCallerOf(
   authorization: string | undefined,
-): { subjectId: string; role: Role } | undefined {
+): Promise<{ subjectId: string; role: Role } | undefined> {
   const match = /^Bearer\s+(\S+)$/i.exec(authorization ?? '');
-  return match ? tokens.accountOf(match[1]) : undefined;
+  const caller = match ? tokens.accountOf(match[1]) : undefined;
+  if (!caller) return undefined;
+  return (await accountQueries.isDeleted(caller.subjectId)) ? undefined : caller;
 }

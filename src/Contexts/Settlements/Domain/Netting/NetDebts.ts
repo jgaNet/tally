@@ -1,5 +1,5 @@
 import { IResult, Result } from '@Architecture/Domain';
-import { AccountSuspendedException } from '@SharedKernel/Domain';
+import { AccountDeletedException, AccountSuspendedException } from '@SharedKernel/Domain';
 import { CURRENCIES } from '@SharedKernel/Domain/Currency';
 
 import { Netting } from '@Contexts/Settlements/Domain/Netting/Netting';
@@ -32,6 +32,8 @@ export interface NetDebtsCommand {
   groups: SharedGroupDebts[];
   /** Whether the caller, `by`, is suspended, as Groups says it now (request 34): a suspended account asks no netting. */
   suspended: boolean;
+  /** Whether the other member, `with`, is deleted, as Groups says it now (request 35): nothing is netted with a deleted account. */
+  withDeleted: boolean;
   at: Date;
 }
 
@@ -51,9 +53,10 @@ export interface NetDebtsCommand {
  * Refused, and nothing recorded: a netting with oneself, a currency that is not one of Tally's, and a netting that nets nothing.
  */
 export class NetDebts {
-  static decide({ by, with: other, currency, groups, suspended, at }: NetDebtsCommand): IResult<Netting> {
+  static decide({ by, with: other, currency, groups, suspended, withDeleted, at }: NetDebtsCommand): IResult<Netting> {
     if (by === other) return Result.fail(new NettingWithSelfException());
     if (suspended) return Result.fail(new AccountSuspendedException('Settlements'));
+    if (withDeleted) return Result.fail(new AccountDeletedException('Settlements'));
     if (!(CURRENCIES as readonly string[]).includes(currency)) {
       return Result.fail(new UnsupportedNettingCurrencyException());
     }

@@ -18,4 +18,11 @@ export class PostgresAccountQueries implements IAccountQueries {
       return row ? { id: String(row.id), email: String(row.email), name: String(row.name) } : undefined;
     });
   }
+
+  async isDeleted(id: string): Promise<boolean> {
+    return this.database.exclusive(async () => {
+      const row = await this.database.get<{ deleted: boolean }>('SELECT deleted FROM accounts WHERE id = ?', [id]);
+      return row?.deleted === true;
+    });
+  }
 }

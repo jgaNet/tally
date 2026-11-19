@@ -2,6 +2,7 @@ import { EventHandler, publishDomainEvents } from '@Architecture/Application';
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { Result } from '@Architecture/Domain';
 
+import { notDeletedAmong } from '@Contexts/Ledger/Application/NotDeleted';
 import { IBudgets } from '@Contexts/Ledger/Domain/Budget/Ports/IBudgets';
 import { IExpenseRepository } from '@Contexts/Ledger/Domain/Expense/Ports/IExpenseRepository';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
@@ -36,7 +37,11 @@ export class ExpenseBudgetHandler extends EventHandler<ExpenseRecordedEvent | Ex
     const spent = await this.spending.spentIn(expense.groupId, expense.category, month);
     if (spent <= budget.amount) return Result.ok(undefined);
 
-    const memberIds = await this.groupMembers.currentMemberIds(expense.groupId);
+    // A deleted account is told of nothing (request 35, docs/adr/0035): the members told are the current ones that are not deleted.
+    const memberIds = await notDeletedAmong(
+      this.groupMembers,
+      await this.groupMembers.currentMemberIds(expense.groupId),
+    );
     const decided = budget.pass({ month, spent, memberIds });
     if (decided === budget) return Result.ok(undefined);
 

@@ -10,6 +10,7 @@ import { IGroupCurrency } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupCurr
 import { IOfferedRates } from '@Contexts/Ledger/Application/Ports/IOfferedRates';
 import { AmountInput, OfferedRate, OriginalAmountInput } from '@Contexts/Ledger/Domain/Expense/ExpenseAmount';
 import { dayOf, Expense, isRealDay } from '@Contexts/Ledger/Domain/Expense/Expense';
+import { notDeletedAmong } from '@Contexts/Ledger/Application/NotDeleted';
 import { SplitInput } from '@Contexts/Ledger/Domain/Expense/Split';
 import { RateView, StatementView } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import { CURRENCIES, CurrencyCode } from '@SharedKernel/Domain/Currency';
@@ -96,7 +97,11 @@ export const recordExpense = command(
         paidBy,
         split: chosen.data,
         category,
-        members: members.map(member => member.memberId),
+        // A deleted account is in no new split: it is not among the members the split is checked against (request 35, docs/adr/0035).
+        members: await notDeletedAmong(
+          groupMembers,
+          members.map(member => member.memberId),
+        ),
         archived,
         suspended,
         at: clock(),

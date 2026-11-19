@@ -3,6 +3,7 @@ import { Email } from '@SharedKernel/Domain/Email';
 import { Account } from '@Contexts/Groups/Domain/Account/Account';
 import { AccountName } from '@Contexts/Groups/Domain/Account/AccountName';
 import {
+  AccountDeletedEvent,
   AccountRegisteredEvent,
   AccountReinstatedEvent,
   AccountSuspendedEvent,
@@ -103,5 +104,49 @@ describe('Account suspension (request 34)', () => {
     const suspended = Account.fromSnapshot({ ...newAccount().toSnapshot(), suspended: true });
     expect(suspended.isSuspended).toBe(true);
     expect(suspended.toSnapshot().suspended).toBe(true);
+  });
+
+  it('is refused while it owns a group with another member, or a payment of its waits, and nothing is erased', () => {
+    const account = newAccount();
+    account.pullDomainEvents();
+
+    expect(account.delete({ ownsGroupWithOtherMembers: true, paymentWaiting: false }).error?.type).toBe(
+      'OwnsGroupWithMembers',
+    );
+    expect(account.delete({ ownsGroupWithOtherMembers: false, paymentWaiting: true }).error?.type).toBe(
+      'AccountPaymentWaiting',
+    );
+    expect(account.isDeleted).toBe(false);
+    expect(account.name).toBe('Ada');
+    expect(account.pullDomainEvents()).toEqual([]);
+  });
+
+  it('erases its name, its email and its hash when it is deleted, keeps its id, and records AccountDeleted', () => {
+    const account = newAccount();
+    const [registered] = account.pullDomainEvents();
+    const id = account.id;
+
+    expect(account.delete({ ownsGroupWithOtherMembers: false, paymentWaiting: false }).isSuccess()).toBe(true);
+
+    expect(account.isDeleted).toBe(true);
+    expect(account.id).toBe(id);
+    expect(account.name).toBe('');
+    expect(account.email).toBe('');
+    expect(account.toSnapshot()).toMatchObject({
+      id,
+      email: `deleted:${id}`,
+      name: '',
+      passwordHash: '',
+      deleted: true,
+    });
+    expect(account.roleAmong(['ada@example.com'])).toBe('USER');
+    const [deleted] = account.pullDomainEvents();
+    expect(deleted).toBeInstanceOf(AccountDeletedEvent);
+    expect(registered).toBeInstanceOf(AccountRegisteredEvent);
+    expect(account.delete({ ownsGroupWithOtherMembers: false, paymentWaiting: false }).error?.type).toBe('NotFound');
+
+    const read = Account.fromSnapshot(account.toSnapshot());
+    expect(read.isDeleted).toBe(true);
+    expect(read.pullDomainEvents()).toEqual([]);
   });
 });

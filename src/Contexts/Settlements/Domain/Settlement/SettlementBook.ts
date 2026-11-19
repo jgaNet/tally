@@ -1,5 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, NotFoundException, Result } from '@Architecture/Domain';
-import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountDeletedException, AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { AdministratorDecisionEntry, SettlementView } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import {
@@ -55,6 +55,8 @@ export interface RequestProviderPaymentCommand {
   archived: boolean;
   /** Whether the payer, the caller, is suspended, as Groups says it now (request 34): a suspended account asks no provider payment. */
   suspended: boolean;
+  /** Whether the payee is deleted, as Groups says it now (request 35): a deleted account is paid through no provider. */
+  payeeDeleted: boolean;
   at: Date;
 }
 
@@ -600,9 +602,10 @@ export class SettlementBook extends AggregateRoot {
    * (request 16). Answers the payout account the provider is asked to pay.
    */
   #decideProvider(command: RequestProviderPaymentCommand): IResult<string> {
-    const { by, to, amount, members, balances, payoutAccount, archived, suspended } = command;
+    const { by, to, amount, members, balances, payoutAccount, archived, suspended, payeeDeleted } = command;
     const decided = this.#decide({ from: by, to, amount, members, balances, archived, suspended });
     if (decided.isFailure()) return decided;
+    if (payeeDeleted) return Result.fail(new AccountDeletedException('Settlements'));
     if (payoutAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccountException());
     return Result.ok(payoutAccount);
   }

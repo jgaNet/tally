@@ -8,6 +8,7 @@ const request = (overrides: Partial<RequestProviderPaymentCommand> = {}): Reques
   by: 'bob',
   to: 'ann',
   suspended: false,
+  payeeDeleted: false,
   amount: 30,
   members: ['ann', 'bob', 'cy'],
   balances: { payer: -30, payee: 30 },

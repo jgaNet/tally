@@ -10,6 +10,10 @@ import { EmailAlreadyUsedException } from '@Contexts/Groups/Domain/Account/Accou
 export const ACCOUNTS_SCHEMA =
   'CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password_hash TEXT NOT NULL, suspended BOOLEAN NOT NULL DEFAULT FALSE, version INTEGER NOT NULL)';
 
+/** Whether an account was deleted by its person (request 35, docs/adr/0035): its name, email and hash are erased, its id stays. */
+export const ACCOUNTS_DELETED_COLUMN =
+  'ALTER TABLE accounts ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT FALSE';
+
 /**
  * The administrators' log of the changes to accounts, one row each, never changed, written with the change (request 34, docs/adr/0034).
  * `seq` orders it, the oldest first.
@@ -20,6 +24,7 @@ export const ADMINISTRATOR_CHANGES_SCHEMA =
 /** The accounts' schema steps, run once when the database is prepared (docs/adr/0029). */
 export async function prepareAccountsSchema(database: PostgresDatabase): Promise<void> {
   await database.exec(ACCOUNTS_SCHEMA);
+  await database.exec(ACCOUNTS_DELETED_COLUMN);
   await database.exec(ADMINISTRATOR_CHANGES_SCHEMA);
 }
 
@@ -32,6 +37,7 @@ type AccountRow = {
   name: string;
   password_hash: string;
   suspended: boolean;
+  deleted: boolean;
   version: number;
 };
 
@@ -41,8 +47,28 @@ const toSnapshot = (row: AccountRow): AccountSnapshot => ({
   name: String(row.name),
   passwordHash: String(row.password_hash),
   suspended: row.suspended === true,
+  deleted: row.deleted === true,
   version: Number(row.version),
 });
+
+/**
+ * Erases what the outbox keeps of a deleted account's sign-up: its AccountRegistered entry carries the name, which is rewritten without it,
+ * in the same transaction as the deletion (request 35, docs/adr/0035). The entries of other events carry the id alone and are left as they are.
+ */
+async function eraseRegistrations(database: PostgresDatabase, accountId: string): Promise<void> {
+  const rows = await database.all<{ seq: number; payload: string }>(
+    'SELECT seq, payload FROM outbox WHERE POSITION(? IN payload) > 0',
+    [accountId],
+  );
+  for (const row of rows) {
+    const payload = JSON.parse(String(row.payload)) as { accountId?: unknown; name?: unknown };
+    if (payload.accountId !== accountId || !('name' in payload)) continue;
+    await database.run('UPDATE outbox SET payload = ? WHERE seq = ?', [
+      JSON.stringify({ ...payload, name: '' }),
+      Number(row.seq),
+    ]);
+  }
+}
 
 /** A unique violation (SQLSTATE 23505) on the accounts' email: the one error a sign-up of a used email raises. */
 function isEmailTaken(error: unknown): boolean {
@@ -70,17 +96,26 @@ export class PostgresAccountRepository implements IAccountRepository {
     try {
       if (snapshot.version === 0) {
         await this.database.run(
-          'INSERT INTO accounts (id, email, name, password_hash, suspended, version) VALUES (?, ?, ?, ?, ?, ?)',
-          [snapshot.id, snapshot.email, snapshot.name, snapshot.passwordHash, snapshot.suspended, snapshot.version + 1],
+          'INSERT INTO accounts (id, email, name, password_hash, suspended, deleted, version) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [
+            snapshot.id,
+            snapshot.email,
+            snapshot.name,
+            snapshot.passwordHash,
+            snapshot.suspended,
+            snapshot.deleted,
+            snapshot.version + 1,
+          ],
         );
       } else {
         const { changes } = await this.database.run(
-          'UPDATE accounts SET email = ?, name = ?, password_hash = ?, suspended = ?, version = ? WHERE id = ? AND version = ?',
+          'UPDATE accounts SET email = ?, name = ?, password_hash = ?, suspended = ?, deleted = ?, version = ? WHERE id = ? AND version = ?',
           [
             snapshot.email,
             snapshot.name,
             snapshot.passwordHash,
             snapshot.suspended,
+            snapshot.deleted,
             snapshot.version + 1,
             snapshot.id,
             snapshot.version,
@@ -94,6 +129,8 @@ export class PostgresAccountRepository implements IAccountRepository {
       if (isEmailTaken(error)) return Result.fail(new EmailAlreadyUsedException());
       throw error;
     }
+    // The deletion erases what the sign-up recorded of the account, in this transaction (request 35, docs/adr/0035).
+    if (snapshot.deleted) await eraseRegistrations(this.database, snapshot.id);
 
     // Each administrators' change the account made is an entry of the log, written with it in this transaction (request 34, docs/adr/0034).
     for (const change of account.changes) {
@@ -108,7 +145,7 @@ export class PostgresAccountRepository implements IAccountRepository {
   async #one(column: 'id' | 'email', value: string): Promise<Account | undefined> {
     this.database.assertInTransaction();
     const row = await this.database.get<AccountRow>(
-      `SELECT id, email, name, password_hash, suspended, version FROM accounts WHERE ${column} = ?`,
+      `SELECT id, email, name, password_hash, suspended, deleted, version FROM accounts WHERE ${column} = ?`,
       [value],
     );
     return row ? Account.fromSnapshot(toSnapshot(row)) : undefined;

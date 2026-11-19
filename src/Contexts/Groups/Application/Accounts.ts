@@ -11,6 +11,8 @@ import { EmailAlreadyUsedException } from '@Contexts/Groups/Domain/Account/Accou
 import { Password } from '@Contexts/Groups/Domain/Account/Password';
 import { IPasswordHasher } from '@Contexts/Groups/Application/Ports/IPasswordHasher';
 import { ISessionTokens } from '@Contexts/Groups/Application/Ports/ISessionTokens';
+import { IGroupRepository } from '@Contexts/Groups/Domain/Group/Ports/IGroupRepository';
+import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPayments';
 
 /** The one refusal of sign-in: the same for an email no account has and for a wrong password (the storm). */
 const WRONG_CREDENTIALS = 'The email or the password is wrong';
@@ -65,6 +67,32 @@ export const signIn = command(
       return Result.ok({ token: tokens.issue(account.id, account.roleAmong(administratorEmails())) });
     },
   { caller: 'anyone' },
+);
+
+/**
+ * The caller deletes their own account (request 35, docs/adr/0035). The account is refused while it owns a group with another current
+ * member, and while a payment of its waits at the provider in any group; the facts are read in the same transaction. When it is deleted its
+ * name and email are erased, nothing it held is removed (its balances, its id in the groups, the expenses, the settlements and the audit
+ * stay), and a token of it proves nothing from then on. Nothing is answered but the fact: `204`.
+ */
+export const deleteAccount = command(
+  'DeleteAccount',
+  (accounts: IAccountRepository, groups: IGroupRepository, waitingPayments: IWaitingPayments) =>
+    async (_input: void, context) => {
+      const account = await accounts.findById(callerOf(context));
+      if (!account) return Result.fail(new NotFoundException('Groups', 'There is no account for this caller'));
+
+      const deleted = account.delete({
+        ownsGroupWithOtherMembers: await groups.ownsGroupWithOtherMembers(account.id),
+        paymentWaiting: await waitingPayments.paymentWaitingOfAccount(account.id),
+      });
+      if (deleted.isFailure()) return deleted;
+
+      const saved = await accounts.save(account);
+      if (saved.isFailure()) return saved;
+      await publishDomainEvents(account, context);
+      return Result.ok(undefined);
+    },
 );
 
 /** Reads the caller's own account. Nobody reads another's: the caller's id is the only one asked for. */

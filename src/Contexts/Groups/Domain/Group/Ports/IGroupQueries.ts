@@ -30,6 +30,11 @@ export interface IGroupQueries {
    */
   isSuspended(accountId: string): Promise<boolean>;
   /**
+   * Whether the account was deleted (request 35, docs/adr/0035): its name and email are erased, it is still a member where it was, and no
+   * one may put it in a new split, pay it through the provider or net with it. False for an account that does not exist.
+   */
+  isDeleted(accountId: string): Promise<boolean>;
+  /**
    * Whether the group is archived (request 27, docs/adr/0026): nothing in it changes any more. False for a group that does not exist; a
    * change asks the caller's membership first, through `findGroupOf` or `listMembersOf`.
    */

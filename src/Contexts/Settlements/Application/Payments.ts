@@ -40,6 +40,7 @@ export const payThroughProvider = command(
       const group = await members.groupOf(by, groupId);
       if (!group) return Result.fail(new NotFoundException('Settlements', 'There is no such group'));
       const suspended = await members.isSuspended(by);
+      const payeeDeleted = await members.isDeleted(to);
 
       const book = await books.get(groupId);
       const owed = await balances.balancesOf(groupId);
@@ -55,6 +56,7 @@ export const payThroughProvider = command(
         payoutAccount: payee.providerAccountId,
         archived: group.archived,
         suspended,
+        payeeDeleted,
         at: clock(),
       };
       const reserved = book.reserveProviderPayment(request);

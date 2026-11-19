@@ -38,6 +38,11 @@ export interface ISettlementQueries {
    */
   providerWaitingOf(groupId: string, memberId: string): Promise<boolean>;
   /**
+   * Whether a settlement the account pays or receives through the provider, in any group, is pending, refunding or contested: an account
+   * with one may not be deleted (request 35, docs/adr/0035). Answered to Groups through its WaitingPayments port.
+   */
+  providerWaitingOfAccount(memberId: string): Promise<boolean>;
+  /**
    * The changes of money of the group's settlements, the oldest first, as the audit keeps them (request 28, docs/adr/0027): read by
    * Ledger's audit through its SettlementAudit port.
    */

@@ -29,3 +29,25 @@ export class EmailAlreadyUsedException extends AlreadyExistsException {
     this.type = 'EmailAlreadyUsed';
   }
 }
+
+/** An account that owns a group with another member is not deleted: the group would be left without its owner (request 35, docs/adr/0035). */
+export class OwnsGroupWithMembersException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'OwnsGroupWithMembers',
+      message: 'An account that owns a group with another member is deleted once it owns none',
+    });
+  }
+}
+
+/** An account is not deleted while a payment of its waits at the provider: pending, refunding or contested (request 35, docs/adr/0035). */
+export class AccountPaymentWaitingException extends Exception {
+  constructor() {
+    super({
+      service: 'Groups',
+      type: 'AccountPaymentWaiting',
+      message: 'An account is deleted once no payment of its waits at the provider',
+    });
+  }
+}

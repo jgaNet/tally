@@ -126,6 +126,7 @@ describe('an archived group takes no settlement (request 27)', () => {
       payoutAccount: 'ann-at-the-provider',
       archived: true,
       suspended: false,
+      payeeDeleted: false,
       at,
     };
     expect(empty.reserveProviderPayment(payment).error?.type).toBe('GroupArchived');

@@ -11,6 +11,7 @@ import { PassedBalancesOfGroups } from '@Contexts/Ledger/Infrastructure/PassedBa
 import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/PostgresSettlementQueries';
 import { GroupBalancesOfLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesOfLedger';
 import { OutstandingDebtsOfLedger } from '@Contexts/Settlements/Infrastructure/OutstandingDebtsOfLedger';
+import { SettlementMembersOfGroups } from '@Contexts/Settlements/Infrastructure/SettlementMembersOfGroups';
 
 /**
  * The read models one context asks of another while its own transaction is open (docs/adr/0004, docs/adr/0009). Each is
@@ -48,4 +49,5 @@ export const administratorDecisionsOfSettlements = new AdministratorDecisionsOfS
 export const outstandingDebtsReadModel = new OutstandingDebtsOfLedger(
   new GroupBalancesOfLedger(ledgerReadModel),
   settlementsReadModel,
+  new SettlementMembersOfGroups(groupsReadModel),
 );

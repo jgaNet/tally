@@ -136,6 +136,15 @@ export class PostgresGroupRepository implements IGroupRepository {
     return Result.ok(undefined);
   }
 
+  async ownsGroupWithOtherMembers(accountId: string): Promise<boolean> {
+    this.database.assertInTransaction();
+    const row = await this.database.get(
+      'SELECT 1 FROM groups g JOIN group_members m ON m.group_id = g.id WHERE g.owner_id = ? AND m.account_id <> ? AND m.left_at IS NULL LIMIT 1',
+      [accountId, accountId],
+    );
+    return row !== undefined;
+  }
+
   async movePassedBalances(fromGroupId: string, intoGroupId: string): Promise<void> {
     this.database.assertInTransaction();
     await this.database.run('UPDATE passed_balances SET group_id = ? WHERE group_id = ?', [intoGroupId, fromGroupId]);

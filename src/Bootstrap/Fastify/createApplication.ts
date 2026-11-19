@@ -71,7 +71,7 @@ export async function createApplication({
     unitOfWork: () => new PostgresUnitOfWork(sharedDatabase),
     // The token a request brings proves its account and the role it had at sign-in: the Groups context says which, and every other request is anonymous.
     authenticate: async request => {
-      const caller = authenticatedCallerOf(request.headers.authorization);
+      const caller = await authenticatedCallerOf(request.headers.authorization);
       if (caller) request.auth = caller;
     },
   })

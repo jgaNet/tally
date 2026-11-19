@@ -1,14 +1,22 @@
-import { AggregateRoot, Id } from '@Architecture/Domain';
+import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { Email } from '@SharedKernel/Domain/Email';
 import { Role } from '@SharedKernel/Domain';
 
 import { AccountSnapshot, AdministratorChange } from '@Contexts/Groups/Domain/Account/DTOs';
 import {
+  AccountDeletedEvent,
   AccountRegisteredEvent,
   AccountReinstatedEvent,
   AccountSuspendedEvent,
 } from '@Contexts/Groups/Domain/Account/Events/AccountEvents';
 import { AccountName } from '@Contexts/Groups/Domain/Account/AccountName';
+import {
+  AccountPaymentWaitingException,
+  OwnsGroupWithMembersException,
+} from '@Contexts/Groups/Domain/Account/AccountExceptions';
+
+/** The value the store keeps in place of an erased email: unique, never an email, so a new account may take the email (request 35). */
+export const erasedEmailOf = (id: string): string => `deleted:${id}`;
 
 /**
  * One signed-in person, known by an email (unique, whatever its case) and by one name in every group
@@ -24,19 +32,22 @@ import { AccountName } from '@Contexts/Groups/Domain/Account/AccountName';
  * answers whether it changed anything. A suspended account is refused by the other contexts, which ask `isSuspended`.
  */
 export class Account extends AggregateRoot {
-  readonly #email: Email;
-  readonly #name: AccountName;
-  readonly #passwordHash: string;
+  /** Undefined once the account is deleted: its name and email are erased (request 35). */
+  #email: Email | undefined;
+  #name: AccountName | undefined;
+  #passwordHash: string;
   #suspended: boolean;
+  #deleted: boolean;
   /** The administrators' log entries made since the account was read: the store writes each with the change (docs/adr/0034). */
   readonly #changes: AdministratorChange[] = [];
 
   private constructor(
     id: Id,
-    email: Email,
-    name: AccountName,
+    email: Email | undefined,
+    name: AccountName | undefined,
     passwordHash: string,
     suspended: boolean,
+    deleted: boolean,
     version: number,
   ) {
     super(id, version);
@@ -44,18 +55,26 @@ export class Account extends AggregateRoot {
     this.#name = name;
     this.#passwordHash = passwordHash;
     this.#suspended = suspended;
+    this.#deleted = deleted;
   }
 
   static create({ email, name, passwordHash }: { email: Email; name: AccountName; passwordHash: string }): Account {
-    const account = new Account(Id.generate(), email, name, passwordHash, false, 0);
+    const account = new Account(Id.generate(), email, name, passwordHash, false, false, 0);
     account.record(AccountRegisteredEvent.set({ accountId: account._id.value, name: name.value }));
     return account;
   }
 
   static fromSnapshot(snapshot: AccountSnapshot): Account {
+    if (typeof snapshot.suspended !== 'boolean' || typeof snapshot.deleted !== 'boolean') {
+      throw new Error(`The account ${snapshot.id} is corrupted in the store`);
+    }
+    // A deleted account keeps no name and no email: what the store keeps in their place is not read (request 35).
+    if (snapshot.deleted) {
+      return new Account(new Id(snapshot.id), undefined, undefined, '', snapshot.suspended, true, snapshot.version);
+    }
     const email = Email.create(snapshot.email);
     const name = AccountName.create(snapshot.name);
-    if (email.isFailure() || name.isFailure() || !snapshot.passwordHash || typeof snapshot.suspended !== 'boolean') {
+    if (email.isFailure() || name.isFailure() || !snapshot.passwordHash) {
       throw new Error(`The account ${snapshot.id} is corrupted in the store`);
     }
     return new Account(
@@ -64,6 +83,7 @@ export class Account extends AggregateRoot {
       name.data,
       snapshot.passwordHash,
       snapshot.suspended,
+      false,
       snapshot.version,
     );
   }
@@ -71,12 +91,38 @@ export class Account extends AggregateRoot {
   toSnapshot(): AccountSnapshot {
     return {
       id: this._id.value,
-      email: this.#email.value,
-      name: this.#name.value,
+      // Erased: the email is replaced by a value that is no email, and the name and the hash by nothing (request 35).
+      email: this.#deleted ? erasedEmailOf(this._id.value) : (this.#email?.value ?? ''),
+      name: this.#name?.value ?? '',
       passwordHash: this.#passwordHash,
       suspended: this.#suspended,
+      deleted: this.#deleted,
       version: this.version,
     };
+  }
+
+  /**
+   * Deletes the account, for the person it is (request 35, docs/adr/0035). Refused while the account owns a group in which another member is
+   * a current member (`ownsGroupWithOtherMembers`), and while a payment of the account waits at the provider in any group
+   * (`paymentWaiting`: pending, refunding or contested). When it is allowed, the name, the email and the password hash are erased here,
+   * the account keeps its id, and AccountDeleted is recorded. Deleting a deleted account is `NotFound`.
+   */
+  delete({
+    ownsGroupWithOtherMembers,
+    paymentWaiting,
+  }: {
+    ownsGroupWithOtherMembers: boolean;
+    paymentWaiting: boolean;
+  }): IResult<undefined> {
+    if (this.#deleted) return Result.fail(new NotFoundException('Groups', 'There is no such account'));
+    if (ownsGroupWithOtherMembers) return Result.fail(new OwnsGroupWithMembersException());
+    if (paymentWaiting) return Result.fail(new AccountPaymentWaitingException());
+    this.#deleted = true;
+    this.#email = undefined;
+    this.#name = undefined;
+    this.#passwordHash = '';
+    this.record(AccountDeletedEvent.set({ accountId: this._id.value }));
+    return Result.ok(undefined);
   }
 
   /**
@@ -85,7 +131,7 @@ export class Account extends AggregateRoot {
    */
   roleAmong(administratorEmails: readonly string[]): Role {
     const administrators = administratorEmails.map(each => each.trim().toLowerCase());
-    return administrators.includes(this.#email.value) ? Role.ADMIN : Role.USER;
+    return this.#email !== undefined && administrators.includes(this.#email.value) ? Role.ADMIN : Role.USER;
   }
 
   /**
@@ -132,11 +178,11 @@ export class Account extends AggregateRoot {
   }
 
   get email(): string {
-    return this.#email.value;
+    return this.#email?.value ?? '';
   }
 
   get name(): string {
-    return this.#name.value;
+    return this.#name?.value ?? '';
   }
 
   get passwordHash(): string {
@@ -145,5 +191,9 @@ export class Account extends AggregateRoot {
 
   get isSuspended(): boolean {
     return this.#suspended;
+  }
+
+  get isDeleted(): boolean {
+    return this.#deleted;
   }
 }

@@ -86,6 +86,11 @@ class MemoryMembers implements IGroupMembers {
   async isSuspended(accountId: string): Promise<boolean> {
     return this.suspended.has(accountId);
   }
+  /** The accounts deleted in the spec (request 35): none, unless the spec says so. */
+  deleted = new Set<string>();
+  async isDeleted(accountId: string): Promise<boolean> {
+    return this.deleted.has(accountId);
+  }
   async currentMemberIds(): Promise<string[]> {
     this.currentAsked += 1;
     return [...this.current];
