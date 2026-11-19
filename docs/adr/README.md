@@ -46,3 +46,4 @@ it from this table and from wherever the rule is stated.
 | [35](0035-spending-insights-a-query-of-ledger-over-the-shares-through-its-own-ports.md) | Spending insights: a query of Ledger over the shares, across the groups a person is in now, through its own ports |
 | [36](0036-provider-fee-the-owner-decides-who-bears-it-and-a-settlement-keeps-what-it-was-asked-with.md) | Provider fee: the owner decides who bears it, the book keeps the fee and what a settlement settles, as it was asked |
 | [37](0037-a-settlement-in-another-currency-takes-a-port-of-its-own-and-a-shared-rate-conversion.md) | A settlement in another currency: a rates port Settlements owns, and one rate conversion the contexts share |
+| [38](0038-currency-precision-each-currency-counts-in-its-own-minor-unit.md) | Currency precision: each currency counts in its own minor unit, held by the shared kernel, and conversions go by what one unit is worth |

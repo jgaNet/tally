@@ -341,8 +341,11 @@ export interface ProviderFeeGiven {
   /** The amount paid, in the currency the provider was asked for the payment in: the original amount when paid in another currency. */
   amount: number;
   borneBy: FeeBorne;
-  /** The settlement's rate, when it is paid in another currency: the fee is then converted to the group's currency at it (request 39). */
-  rate?: string;
+  /**
+   * The conversion of the fee, when the settlement is paid in another currency: the settlement's rate, and the currencies the fee is said in
+   * (the original's) and kept in (the group's). The fee is then converted at it, as the amount is (request 39, ADR 38).
+   */
+  conversion?: { rate: string; from: string; to: string };
 }
 
 /**
@@ -351,9 +354,12 @@ export interface ProviderFeeGiven {
  * refused, and nothing is kept. A fee said in another currency is converted at the settlement's rate, as its amount is, before the payer's
  * part is taken off (request 39): the fee is then in the group's currency, as the settlement's amount is.
  */
-export function decideProviderFee({ fee, amount, borneBy, rate }: ProviderFeeGiven): IResult<ProviderFee> {
+export function decideProviderFee({ fee, amount, borneBy, conversion }: ProviderFeeGiven): IResult<ProviderFee> {
   if (fee === undefined || !Number.isInteger(fee) || fee < 0 || fee >= amount) {
     return Result.fail(new ProviderFeeUnavailableException());
   }
-  return Result.ok({ amount: rate === undefined ? fee : convertAtRate(fee, rate), borneBy });
+  return Result.ok({
+    amount: conversion === undefined ? fee : convertAtRate(fee, conversion.rate, conversion.from, conversion.to),
+    borneBy,
+  });
 }

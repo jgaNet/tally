@@ -56,7 +56,7 @@ export class SettlementMembersOfGroups implements ISettlementMembers {
     return (await this.groups().groupOf(groupId, askedBy))?.currency;
   }
 
-  allMembers(): Promise<{ groupId: string; memberIds: string[] }[]> {
+  allMembers(): Promise<{ groupId: string; memberIds: string[]; currency: string }[]> {
     return this.groups().currentMembers();
   }
 }

@@ -21,10 +21,10 @@ const refusedBy = (decision: { error?: unknown }) => (decision.error as { type: 
 
 describe('the amount of a settlement in another currency (request 39)', () => {
   it('rounds the original amount times the rate to the nearest whole number, a half up, as an expense does', () => {
-    expect(convertAtRate(5, '0.5')).toBe(3);
-    expect(convertAtRate(4, '0.5')).toBe(2);
-    expect(convertAtRate(29, '1.03')).toBe(30);
-    expect(convertAtRate(1, '0.000001')).toBe(0);
+    expect(convertAtRate(5, '0.5', 'USD', 'EUR')).toBe(3);
+    expect(convertAtRate(4, '0.5', 'USD', 'EUR')).toBe(2);
+    expect(convertAtRate(29, '1.03', 'USD', 'EUR')).toBe(30);
+    expect(convertAtRate(1, '0.000001', 'USD', 'EUR')).toBe(0);
   });
 
   it('is decided at the offered rate, and keeps the rate and both amounts', () => {
@@ -71,7 +71,7 @@ describe('the amount of a settlement in another currency (request 39)', () => {
 
     const unknownCurrency = decideRecordCashSettlement(
       given(),
-      { payee: 'ada', from: 'grace', original: { currency: 'JPY', amount: 29 } },
+      { payee: 'ada', from: 'grace', original: { currency: 'CNY', amount: 29 } },
       at,
     );
     expect(refusedBy(unknownCurrency)).toBe('InvalidOriginalCurrency');
@@ -144,15 +144,28 @@ describe('a payment through the provider in another currency (request 39)', () =
 
 describe('the provider fee of a settlement in another currency (request 39)', () => {
   it('is converted at the settlement rate, as its amount is, and refused as the fee of the payment when it is not less than it', () => {
-    expect(decideProviderFee({ fee: 10, amount: 29, borneBy: 'payer', rate: '1.5' }).data).toEqual({
+    expect(
+      decideProviderFee({ fee: 10, amount: 29, borneBy: 'payer', conversion: { rate: '1.5', from: 'USD', to: 'EUR' } })
+        .data,
+    ).toEqual({
       amount: 15,
       borneBy: 'payer',
     });
-    expect(decideProviderFee({ fee: 2, amount: 29, borneBy: 'payee', rate: '1.03' }).data).toEqual({
+    expect(
+      decideProviderFee({ fee: 2, amount: 29, borneBy: 'payee', conversion: { rate: '1.03', from: 'USD', to: 'EUR' } })
+        .data,
+    ).toEqual({
       amount: 2,
       borneBy: 'payee',
     });
-    expect(decideProviderFee({ fee: 29, amount: 29, borneBy: 'payee', rate: '1.03' }).isFailure()).toBe(true);
+    expect(
+      decideProviderFee({
+        fee: 29,
+        amount: 29,
+        borneBy: 'payee',
+        conversion: { rate: '1.03', from: 'USD', to: 'EUR' },
+      }).isFailure(),
+    ).toBe(true);
   });
 
   it('keeps a fee in the group currency as it was said when there is no rate', () => {

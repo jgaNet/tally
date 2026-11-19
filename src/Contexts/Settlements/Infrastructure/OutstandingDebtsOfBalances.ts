@@ -18,13 +18,13 @@ export class OutstandingDebtsOfBalances implements IOutstandingDebtQueries {
 
   async outstandingDebts(): Promise<OutstandingDebt[]> {
     const debts: OutstandingDebt[] = [];
-    for (const { groupId, memberIds } of await this.members.allMembers()) {
+    for (const { groupId, memberIds, currency } of await this.members.allMembers()) {
       const owed = stillOwed(await this.balances.balancesOf(groupId), await this.settlements.pendingOf(groupId));
       for (const memberId of memberIds) {
         // A deleted member owes nothing that is reminded of (request 35): what is owed by them is not a debt Tally tells anyone about.
         if (await this.members.deletedOf(memberId)) continue;
         const balance = owed.get(memberId) ?? 0;
-        if (balance < 0) debts.push({ groupId, memberId, owed: -balance });
+        if (balance < 0) debts.push({ groupId, memberId, currency, owed: -balance });
       }
     }
     return debts;

@@ -1,7 +1,8 @@
-/** What a member still owes in a group, as the sweep needs it: a positive amount (request 18). */
+/** What a member still owes in a group, as the sweep needs it: a positive amount, in the group's currency's minor unit, and that currency (request 18, request 40). */
 export interface OutstandingDebt {
   groupId: string;
   memberId: string;
+  currency: string;
   owed: number;
 }
 

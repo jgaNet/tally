@@ -95,6 +95,6 @@ describe('Group.fromSnapshot', () => {
         members: [stored.members[0], stored.members[0]],
       }),
     ).toThrow(/corrupted/);
-    expect(() => Group.fromSnapshot({ ...stored, currency: 'JPY' as GroupSnapshot['currency'] })).toThrow(/corrupted/);
+    expect(() => Group.fromSnapshot({ ...stored, currency: 'CNY' as GroupSnapshot['currency'] })).toThrow(/corrupted/);
   });
 });

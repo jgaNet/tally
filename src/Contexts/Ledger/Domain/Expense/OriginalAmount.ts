@@ -46,10 +46,11 @@ const rateOf = (given: string | undefined, offered: RateOffer): IResult<string> 
 
 /**
  * An expense paid in another currency, as its payer states it (request 21, request 22): what was paid, in one of Tally's currencies other
- * than the group's, in its hundredths from 1 to 100 000 000, and the rate at which one of that currency is worth the group's currency,
+ * than the group's, in its currency's minor unit from 1 to 100 000 000, and the rate at which one of that currency is worth the group's currency,
  * kept as the decimal string it was given or, when none was given, as the one offered (request 22). Its amount in the group's currency
  * is the original amount times the rate, rounded to the nearest whole number, a half rounded up, computed in exact integer arithmetic and
- * never in floating point: the expense splits and counts that amount, and this value keeps both amounts and the rate.
+ * never in floating point, from the minor unit of its currency into the group's (ADR 38): the expense splits and counts that amount, and this
+ * value keeps both amounts and the rate.
  */
 export class OriginalAmount {
   static readonly MAX = 100_000_000;
@@ -89,16 +90,17 @@ export class OriginalAmount {
   }
 
   /**
-   * The amount in the group's currency: this amount times the rate, rounded to the nearest whole number, a half rounded up. Its
-   * result is checked by `ExpenseAmount` like any amount: 0 or more than 100 000 000 is refused there, by name.
+   * The amount in the group's currency's minor unit: this amount, in its own currency's minor unit, times the rate, rounded to the nearest
+   * whole number, a half rounded up (ADR 38). Its result is checked by `ExpenseAmount` like any amount: 0 or more than 100 000 000 is refused
+   * there, by name.
    */
-  groupAmount(): number {
-    return convertAtRate(this.amount, this.rate);
+  groupAmount(groupCurrency: string): number {
+    return convertAtRate(this.amount, this.rate, this.currency, groupCurrency);
   }
 
   /** The expense's amount in the group's currency, validated as any expense amount is. */
-  groupExpenseAmount(): IResult<ExpenseAmount> {
-    return ExpenseAmount.create(this.groupAmount());
+  groupExpenseAmount(groupCurrency: string): IResult<ExpenseAmount> {
+    return ExpenseAmount.create(this.groupAmount(groupCurrency));
   }
 
   toSnapshot(): OriginalSnapshot {

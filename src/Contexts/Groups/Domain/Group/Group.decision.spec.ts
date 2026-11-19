@@ -19,11 +19,14 @@ describe('decideCreateGroup', () => {
     expect(decision.data!.state.name.value).toBe('Climbing club');
   });
 
-  it.each(['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'])('accepts the currency %s', currency => {
-    expect(decideCreateGroup(undefined, createWith({ currency }), new Date()).isSuccess()).toBe(true);
-  });
+  it.each(['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD'])(
+    'accepts the currency %s',
+    currency => {
+      expect(decideCreateGroup(undefined, createWith({ currency }), new Date()).isSuccess()).toBe(true);
+    },
+  );
 
-  it.each(['JPY', 'eur', '', 'EURO'])('refuses the currency %j, which is not one of the six', currency => {
+  it.each(['CNY', 'eur', '', 'EURO'])('refuses the currency %j, which is not one of the ten', currency => {
     const decision = decideCreateGroup(undefined, createWith({ currency }), new Date());
     expect(decision.isFailure() && decision.error.type).toBe('InvalidCurrency');
   });

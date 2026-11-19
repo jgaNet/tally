@@ -193,7 +193,7 @@ function moneyOf(given: GivenAmount, groupCurrency: string, offered: RateOffer):
   }
   const original = OriginalAmount.create(given.original, groupCurrency, offered);
   if (original.isFailure()) return original;
-  const amount = original.data.groupExpenseAmount();
+  const amount = original.data.groupExpenseAmount(groupCurrency);
   if (amount.isFailure()) return amount;
   return Result.ok({ amount: amount.data, original: original.data });
 }

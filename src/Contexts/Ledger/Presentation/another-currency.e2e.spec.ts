@@ -164,7 +164,7 @@ describe('recording an expense in another currency', () => {
     const base = { description: 'Dinner', date: '2020-01-15', splitBetween: [ada.id] };
     const cases: [Record<string, unknown>, string][] = [
       [{ ...base, original: { currency: 'EUR', amount: 1000, rate: '1' } }, 'OriginalCurrencyIsGroupCurrency'],
-      [{ ...base, original: { currency: 'JPY', amount: 1000, rate: '1' } }, 'InvalidOriginalCurrency'],
+      [{ ...base, original: { currency: 'CNY', amount: 1000, rate: '1' } }, 'InvalidOriginalCurrency'],
       [{ ...base, original: { currency: 'CHF', amount: 1000, rate: '1.1234567' } }, 'InvalidExpenseRate'],
       [{ ...base, original: { currency: 'CHF', amount: 1000, rate: '0' } }, 'InvalidExpenseRate'],
       [{ ...base, original: { currency: 'CHF', amount: 0, rate: '1' } }, 'InvalidOriginalAmount'],

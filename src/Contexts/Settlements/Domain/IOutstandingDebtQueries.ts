@@ -1,7 +1,8 @@
-/** What a member still owes in a group: a positive amount, in the group's currency's smallest unit. */
+/** What a member still owes in a group: a positive amount, in the group's currency's minor unit, and that currency (request 40). */
 export interface OutstandingDebt {
   groupId: string;
   memberId: string;
+  currency: string;
   owed: number;
 }
 

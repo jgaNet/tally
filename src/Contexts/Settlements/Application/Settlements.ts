@@ -197,7 +197,10 @@ export const payThroughProvider = command(
           fee: link.fee,
           amount: paid.amount,
           borneBy: book.feeBorneBy,
-          rate: payment.original?.rate,
+          conversion:
+            payment.original === undefined
+              ? undefined
+              : { rate: payment.original.rate, from: payment.original.currency, to: currency },
         });
         if (fee.isFailure()) return fee;
 

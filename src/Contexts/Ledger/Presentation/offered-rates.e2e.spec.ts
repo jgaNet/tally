@@ -138,7 +138,7 @@ describe('the rate offered', () => {
     const groupId = await groupWith(ada, []);
 
     expect((await getRate(groupId, 'EUR', '?date=2026-11-16', ada.token)).status).toBe(404);
-    expect((await getRate(groupId, 'JPY', '?date=2026-11-16', ada.token)).status).toBe(404);
+    expect((await getRate(groupId, 'CNY', '?date=2026-11-16', ada.token)).status).toBe(404);
   });
 
   it('answers 404 when no rates service is configured', async () => {

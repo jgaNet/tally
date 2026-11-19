@@ -11,9 +11,10 @@ export class OutstandingDebtsOfSettlements implements IOutstandingDebts {
   constructor(private readonly settlements: () => IOutstandingDebtQueries) {}
 
   async outstandingDebts(): Promise<OutstandingDebt[]> {
-    return (await this.settlements().outstandingDebts()).map(({ groupId, memberId, owed }) => ({
+    return (await this.settlements().outstandingDebts()).map(({ groupId, memberId, currency, owed }) => ({
       groupId,
       memberId,
+      currency,
       owed,
     }));
   }

@@ -15,10 +15,10 @@ export interface ISettlementMembers {
    */
   currencyOf(groupId: string, askedBy: string): Promise<string | undefined>;
   /**
-   * The current members of every group, as account ids, in no order: what the reminders of request 18 read through the debts
-   * Settlements answers (`OutstandingDebts`). Asked by no member, so nothing is checked.
+   * The current members of every group, as account ids, in no order, with the group's currency: what the reminders of request 18 read through
+   * the debts Settlements answers (`OutstandingDebts`), in the group's minor unit (request 40). Asked by no member, so nothing is checked.
    */
-  allMembers(): Promise<{ groupId: string; memberIds: string[] }[]>;
+  allMembers(): Promise<{ groupId: string; memberIds: string[]; currency: string }[]>;
   /**
    * The groups `askedBy` and `other` are both current members of, the earliest created first, each with its currency and whether it is
    * archived (request 32): what a netting between the two reads. Asked by a member, and answered to no one else.

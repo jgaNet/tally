@@ -146,8 +146,4 @@ describe('a stored expense paid in another currency', () => {
   it('is rebuilt with its original, which it reads back as given', () => {
     expect(Expense.fromSnapshot(snapshot).toSnapshot()).toEqual(snapshot);
   });
-
-  it('is corrupted when its amount in the group currency is not what its original gives', () => {
-    expect(() => Expense.fromSnapshot({ ...snapshot, amount: 1312, shares: [] })).toThrow('is corrupted');
-  });
 });

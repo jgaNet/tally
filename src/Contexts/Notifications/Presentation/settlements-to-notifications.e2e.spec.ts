@@ -46,11 +46,11 @@ async function signedInPerson(name: string): Promise<{ token: string; id: string
 }
 
 /** A group of Ada and Grace, in which Ada paid `amount`, split equally: Grace owes half of it. */
-async function groupWhereGraceOwesHalfOf(amount: number) {
+async function groupWhereGraceOwesHalfOf(amount: number, currency = 'EUR') {
   const ada = await signedInPerson('Ada');
   const grace = await signedInPerson('Grace');
   const { id: groupId } = (
-    await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ada.token })
+    await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency }, token: ada.token })
   ).body as { id: string };
   const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
     .body as {
@@ -108,6 +108,16 @@ describe('Settlements → Notifications', () => {
     const count = (await remindersOf(grace)).length;
     await wait(PERIOD_MS * 2.5);
     expect(await remindersOf(grace)).toHaveLength(count);
+  }, 30_000);
+
+  it('reminds a member who owes more than 20 yen in a yen group, and nobody who owes 20 yen (request 40)', async () => {
+    const { grace } = await groupWhereGraceOwesHalfOf(100, 'JPY');
+    const [reminder] = await remindersUntil(grace, 1, 200);
+    expect(reminder).toEqual(expect.objectContaining({ kind: 'reminder', amount: 50 }));
+
+    const { grace: twenty } = await groupWhereGraceOwesHalfOf(40, 'JPY');
+    await wait(PERIOD_MS * 2.5);
+    expect(await remindersOf(twenty)).toEqual([]);
   }, 30_000);
 
   it('reminds nobody who owes 2000 or less', async () => {

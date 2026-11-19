@@ -179,13 +179,20 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
     return rows.map(viewOf);
   }
 
-  async currentMembers(): Promise<{ groupId: string; memberIds: string[] }[]> {
-    const rows = await this.database.rows<{ group_id: string; account_id: string }>(
-      'SELECT group_id, account_id FROM expense_group_members ORDER BY group_id, seq',
+  async currentMembers(): Promise<{ groupId: string; memberIds: string[]; currency: string }[]> {
+    const rows = await this.database.rows<{ group_id: string; account_id: string; currency: string }>(
+      `SELECT m.group_id, m.account_id, g.currency
+         FROM expense_group_members m
+         JOIN expense_groups g ON g.id = m.group_id
+        ORDER BY m.group_id, m.seq`,
     );
-    const groups = new Map<string, string[]>();
-    for (const { group_id, account_id } of rows) groups.set(group_id, [...(groups.get(group_id) ?? []), account_id]);
-    return [...groups].map(([groupId, memberIds]) => ({ groupId, memberIds }));
+    const groups = new Map<string, { currency: string; memberIds: string[] }>();
+    for (const { group_id, account_id, currency } of rows) {
+      const group = groups.get(group_id) ?? { currency, memberIds: [] };
+      group.memberIds.push(account_id);
+      groups.set(group_id, group);
+    }
+    return [...groups].map(([groupId, { currency, memberIds }]) => ({ groupId, memberIds, currency }));
   }
 
   async membersOf(id: string, memberId: string): Promise<MemberView[] | undefined> {

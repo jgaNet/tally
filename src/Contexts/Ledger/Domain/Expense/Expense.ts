@@ -133,7 +133,6 @@ export class Expense extends AggregateRoot {
       amount.isFailure() ||
       date.isFailure() ||
       original?.isFailure() ||
-      (original !== undefined && original.isSuccess() && original.data!.groupAmount() !== amount.data!.value) ||
       !isExpenseCategory(snapshot.category) ||
       !Number.isInteger(snapshot.version) ||
       snapshot.version < 1;

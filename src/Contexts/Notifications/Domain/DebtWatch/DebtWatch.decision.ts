@@ -1,7 +1,14 @@
 import { decided, Decision } from '@Architecture/Domain/Lite/Decision';
+import { minorUnitDecimals } from '@SharedKernel/Domain';
 
-/** More than this, in the smallest unit of the group's currency (20.00), is a debt that is worth a reminder (request 18). */
-export const REMINDER_THRESHOLD = 2000;
+/** More than this many units of the group's currency is a debt that is worth a reminder (request 18, request 40): 20. */
+export const REMINDER_UNITS = 20;
+
+/**
+ * The least a debt must be to be worth a reminder, in the minor unit of `currency` (ADR 38): more than 20 of it, so 2000 in a currency that
+ * counts in hundredths (request 18), 20 in one that has no minor unit, 20 000 in one that counts in thousandths (request 40).
+ */
+export const reminderThresholdOf = (currency: string): number => REMINDER_UNITS * 10 ** minorUnitDecimals(currency);
 
 /** What a run has seen of one member in one group: since which run they owe more than the threshold, and when they were last reminded. */
 export interface WatchState {
@@ -12,11 +19,13 @@ export interface WatchState {
 }
 
 /**
- * What one run sees: what the member still owes (0 when nothing, or when they are no longer a member), how long a period is, and whether
- * a reminder may be made to them now, which is whether they have reminders on (request 36, ADR 34).
+ * What one run sees: what the member still owes (0 when nothing, or when they are no longer a member), the amount above which a debt is
+ * worth a reminder (`reminderThresholdOf`), how long a period is, and whether a reminder may be made to them now, which is whether they
+ * have reminders on (request 36, ADR 34).
  */
 export interface SeeDebt {
   owed: number;
+  threshold: number;
   periodMs: number;
   remindable: boolean;
 }
@@ -33,11 +42,11 @@ const NEVER: WatchState = { notedSince: null, remindedAt: null };
  */
 export const decideSeeDebt: Decision<WatchState, SeeDebt, DebtFact, WatchState | undefined> = (
   kept,
-  { owed, periodMs, remindable },
+  { owed, threshold, periodMs, remindable },
   now,
 ) => {
   const state = kept ?? NEVER;
-  if (owed <= REMINDER_THRESHOLD) {
+  if (owed <= threshold) {
     return state.notedSince === null
       ? decided(state)
       : decided({ ...state, notedSince: null }, { type: 'DebtCleared' });

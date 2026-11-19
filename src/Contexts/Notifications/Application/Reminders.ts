@@ -3,7 +3,7 @@ import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { command } from '@Architecture/Application/Lite/UseCase';
 import { DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
-import { decideSeeDebt } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch.decision';
+import { decideSeeDebt, reminderThresholdOf } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch.decision';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 
 import { IDebtWatches } from './IDebtWatches';
@@ -32,7 +32,7 @@ export const sweepDebts = command(
     async (_input: void, context) => {
       const now = clock();
       const period = periodMs();
-      const owedBy = new Map<string, { groupId: string; memberId: string; owed: number }>();
+      const owedBy = new Map<string, { groupId: string; memberId: string; currency: string; owed: number }>();
       for (const debt of await debts.outstandingDebts()) owedBy.set(keyOf(debt.groupId, debt.memberId), debt);
       const kept = new Map<string, DebtWatch>();
       for (const watch of await watches.all()) kept.set(keyOf(watch.groupId, watch.memberId), watch);
@@ -44,9 +44,15 @@ export const sweepDebts = command(
         const debt = owedBy.get(key);
         let watch = kept.get(key);
         const memberId = debt?.memberId ?? watch!.memberId;
+        // A member who owes nothing here is no more than any threshold: nothing is more than 0, and the watch is cleared if noted.
         const decision = decideSeeDebt(
           watch?.state,
-          { owed: debt?.owed ?? 0, periodMs: period, remindable: !remindersOff.has(memberId) },
+          {
+            owed: debt?.owed ?? 0,
+            threshold: debt === undefined ? 0 : reminderThresholdOf(debt.currency),
+            periodMs: period,
+            remindable: !remindersOff.has(memberId),
+          },
           now,
         );
         if (decision.isFailure()) return decision;

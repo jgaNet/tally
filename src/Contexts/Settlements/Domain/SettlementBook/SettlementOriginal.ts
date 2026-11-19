@@ -8,11 +8,11 @@ import {
   OriginalCurrencyIsGroupCurrencyException,
 } from './SettlementExceptions';
 
-/** The most a settlement's original amount may be, in its currency's hundredths (request 39). */
+/** The most a settlement's original amount may be, in its currency's minor unit (request 39). */
 export const MAX_ORIGINAL_AMOUNT = 100_000_000;
 
 /**
- * What a settlement paid in another currency is kept as (request 39): the currency, its amount in that currency's hundredths, and the rate
+ * What a settlement paid in another currency is kept as (request 39): the currency, its amount in that currency's minor unit, and the rate
  * at which one of that currency is worth the group's, as the rates service wrote it when the settlement was decided. Kept as it was decided,
  * whatever the service says later.
  */
@@ -58,7 +58,7 @@ export function originalPaymentOf({
   }
   if (offeredRate === undefined || !isRate(offeredRate)) return Result.fail(new NoRateOfferedException());
   return Result.ok({
-    amount: convertAtRate(original.amount, offeredRate),
+    amount: convertAtRate(original.amount, offeredRate, original.currency, groupCurrency),
     original: { currency: original.currency, amount: original.amount, rate: offeredRate },
   });
 }

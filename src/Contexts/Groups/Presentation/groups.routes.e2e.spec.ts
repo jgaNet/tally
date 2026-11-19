@@ -56,13 +56,16 @@ describe('creating a group', () => {
     expect(answer.body).toEqual({ id, name: 'Trip to Lisbon', currency: 'GBP', ownerId: ada.id });
   });
 
-  it.each(['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'])('accepts the currency %s', async currency => {
-    const ada = await signedInPerson('Currency');
-    expect((await createGroup(ada.token, { name: 'Club', currency })).status).toBe(201);
-  });
+  it.each(['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD'])(
+    'accepts the currency %s',
+    async currency => {
+      const ada = await signedInPerson('Currency');
+      expect((await createGroup(ada.token, { name: 'Club', currency })).status).toBe(201);
+    },
+  );
 
   it.each([
-    ['a currency that is not one of the six', { currency: 'JPY' }],
+    ['a currency that is not one of the ten', { currency: 'CNY' }],
     ['a name only of spaces', { name: '   ' }],
     ['a name of 61 characters', { name: 'a'.repeat(61) }],
   ])('refuses %s with 400', async (_label, change) => {

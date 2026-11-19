@@ -40,7 +40,7 @@ export interface IGroupQueries {
    * The current members of every group, as account ids, one entry per group that has any, in no order. Not asked for a member: it is
    * what a job reads (the reminders of request 18, through Settlements), never what a screen shows.
    */
-  currentMembers(): Promise<{ groupId: string; memberIds: string[] }[]>;
+  currentMembers(): Promise<{ groupId: string; memberIds: string[]; currency: string }[]>;
   /**
    * The balances that passed to owners when members left the group, in the order they passed (request 20). Asked by no member: Ledger
    * reads it when it reads the balances, through its own `GroupMembers` port, so that a former member's balance is counted with the owner's.

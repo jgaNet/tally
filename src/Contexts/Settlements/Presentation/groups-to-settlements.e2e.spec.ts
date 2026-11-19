@@ -103,6 +103,30 @@ describe('Groups → Settlements', () => {
     expect(answer.body).toEqual([]);
   });
 
+  it('finds, by the id Groups answered, a group in yen, and suggests what is owed in its minor unit (request 40)', async () => {
+    const ada = await signedInPerson('Ada');
+    const grace = await signedInPerson('Grace');
+    const created = await http.request('POST', `${api}/groups`, {
+      body: { name: 'Trip', currency: 'JPY' },
+      token: ada.token,
+    });
+    expect(created.status).toBe(201);
+    const { id: groupId } = created.body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ada.token }))
+      .body as { id: string };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: grace.token });
+    const recorded = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Ramen', amount: 100, date: '2026-03-01', splitBetween: [ada.id, grace.id] },
+      token: ada.token,
+    });
+    expect(recorded.status).toBe(201);
+
+    // Grace owes half of 100 yen: 50 yen, which is what Settlements suggests, in the yen the group counts in.
+    const answer = await http.request('GET', `${api}/groups/${groupId}/settlements/suggested`, { token: grace.token });
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual([{ from: grace.id, to: ada.id, amount: 50 }]);
+  });
+
   it('answers a group to a non-member, and a group that is not there, as a group that does not exist', async () => {
     const ada = await signedInPerson('Ada');
     const outsider = await signedInPerson('Outsider');
