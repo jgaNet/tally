@@ -19,7 +19,7 @@ let serverToday: string;
 type Body = Record<string, unknown>;
 
 beforeAll(async () => {
-  provider = createServer((req, res) => {
+  provider = createServer((_req, res) => {
     res.writeHead(404).end();
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', () => resolve()));
