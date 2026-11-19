@@ -53,6 +53,7 @@ export const netDebts = command(
         }
 
         const now = clock();
+        const suspended = await members.suspendedOf(by);
         const decision = decideNetDebts(
           {
             groups: read.map(({ groupId, currency: groupCurrency, archived, balances }) => ({
@@ -61,6 +62,7 @@ export const netDebts = command(
               archived,
               balances,
             })),
+            suspended,
           },
           { by, with: other, currency },
           now,

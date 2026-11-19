@@ -93,6 +93,7 @@ export const recordExpense = command(
             groupCurrency: currency,
             offered,
             archived: await groupMembers.archivedOf(groupId),
+            suspended: await groupMembers.suspendedOf(payer),
           },
           { description, date, split: asked, payer, category, ...(given as GivenAmount) },
           clock(),

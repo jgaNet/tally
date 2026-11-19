@@ -2,7 +2,14 @@ import { FastifyPluginCallback } from 'fastify';
 
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
-import { getAdministratorsLog, getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import {
+  getAdministratorsLog,
+  getMyAccount,
+  reinstateAccount,
+  signIn,
+  signUp,
+  suspendAccount,
+} from '@Contexts/Groups/Application/Accounts';
 
 import { shapeOf } from './bodyShape';
 
@@ -48,6 +55,15 @@ export const accountRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
   // An administrator reads the log of their decisions, the oldest first; anyone else finds nothing (request 33).
   fastify.get('/admin/log', { schema: { tags: ['accounts'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getAdministratorsLog), undefined),
+  );
+
+  // An administrator suspends an account, or reinstates it: nothing in any group changes, and each is an entry of the log (request 34).
+  fastify.put('/admin/accounts/:id/suspension', { schema: { tags: ['accounts'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(suspendAccount), { id: (req.params as { id: string }).id }),
+  );
+
+  fastify.delete('/admin/accounts/:id/suspension', { schema: { tags: ['accounts'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(reinstateAccount), { id: (req.params as { id: string }).id }),
   );
 
   done();

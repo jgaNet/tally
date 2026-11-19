@@ -1,6 +1,6 @@
 import { Exception, Id, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import type { SettlementMethod, SettlementStatus } from './SettlementBook';
 import {
@@ -44,6 +44,8 @@ export interface SettlementGiven {
   balances: ReadonlyMap<string, number>;
   /** Whether the group is archived (request 27): then no settlement is recorded, asked for or refunded in it. */
   archived: boolean;
+  /** Whether the caller is suspended (request 34): the payee for a cash settlement, the payer for one through the provider. */
+  suspended: boolean;
 }
 
 /** The values of a settlement once they are allowed: who paid whom, how much. */
@@ -77,10 +79,11 @@ export interface NewProviderPaymentValues extends NewSettlementValues {
  * refusal, or none.
  */
 function refuseSettlement(
-  { memberIds, balances, archived }: SettlementGiven,
+  { memberIds, balances, archived, suspended }: SettlementGiven,
   { from, to, amount }: NewSettlementValues,
 ): Exception | undefined {
   if (archived) return new GroupArchivedException();
+  if (suspended) return new AccountSuspendedException();
   if (!memberIds.includes(from)) return new SettlementPayerNotMemberException();
   if (!memberIds.includes(to)) return new SettlementPayeeNotMemberException();
   if (from === to) return new SettlementToSelfException();

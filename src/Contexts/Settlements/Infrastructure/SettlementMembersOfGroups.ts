@@ -11,12 +11,16 @@ export class SettlementMembersOfGroups implements ISettlementMembers {
   constructor(
     private readonly groups: () => Pick<
       IGroupQueries,
-      'membersOf' | 'groupOf' | 'groupsOf' | 'currentMembers' | 'archivedOf'
+      'membersOf' | 'groupOf' | 'groupsOf' | 'currentMembers' | 'archivedOf' | 'suspendedOf'
     >,
   ) {}
 
   archivedOf(groupId: string): Promise<boolean> {
     return this.groups().archivedOf(groupId);
+  }
+
+  suspendedOf(accountId: string): Promise<boolean> {
+    return this.groups().suspendedOf(accountId);
   }
 
   /**

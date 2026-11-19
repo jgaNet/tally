@@ -127,6 +127,14 @@ export class SqliteGroups implements IGroupRepository, IGroupQueries {
     return Boolean(row?.archived_at);
   }
 
+  async suspendedOf(accountId: string): Promise<boolean> {
+    const row = await this.database.row<{ suspended_at: string | null }>(
+      'SELECT suspended_at FROM accounts WHERE id = $1',
+      [accountId],
+    );
+    return Boolean(row?.suspended_at);
+  }
+
   async passesOf(groupId: string): Promise<PassView[]> {
     const rows = await this.database.rows<{
       seq: number;

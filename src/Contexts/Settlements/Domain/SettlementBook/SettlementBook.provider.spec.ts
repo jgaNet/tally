@@ -11,7 +11,13 @@ const request = (
   payer: string,
   to: string,
   amount: number,
-  given: ProviderPaymentGiven = { archived: false, memberIds: members, balances, payeeAccount: 'acct_ada' },
+  given: ProviderPaymentGiven = {
+    archived: false,
+    suspended: false,
+    memberIds: members,
+    balances,
+    payeeAccount: 'acct_ada',
+  },
 ) => decideRequestProviderPayment(given, { payer, to, amount }, now);
 const typeOf = (decision: { error?: unknown }) => (decision.error as { type: string }).type;
 
@@ -39,6 +45,7 @@ describe('decideRequestProviderPayment (request 13)', () => {
       typeOf(
         request('grace', 'ada', 10, {
           archived: false,
+          suspended: false,
           memberIds: members,
           balances: thinPayee,
           payeeAccount: 'acct_ada',
@@ -64,6 +71,7 @@ describe("decideRequestProviderPayment, the payee's payout account (request 16)"
     });
     const none = request('grace', 'ada', 30, {
       archived: false,
+      suspended: false,
       memberIds: members,
       balances,
       payeeAccount: undefined,

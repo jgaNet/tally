@@ -303,3 +303,47 @@ describe('Groups → Settlements', () => {
     expect(members).toHaveLength(2);
   }, 30_000);
 });
+
+/** Request 34 across the link: an administrator suspends an account whose id Groups answered at sign-up, and Settlements refuses its cash settlement by name. */
+describe('Groups → Settlements, a suspended account (request 34)', () => {
+  it('refuses a cash settlement a suspended payee records, by its name, and changes nothing', async () => {
+    process.env.ADMIN_EMAILS = 'root@example.org';
+    await http.request('POST', `${api}/accounts`, {
+      body: { email: 'root@example.org', password: 'a long password', name: 'Root' },
+    });
+    const admin = (
+      await http.request('POST', `${api}/accounts/login`, {
+        body: { email: 'root@example.org', password: 'a long password' },
+      })
+    ).body as { token: string };
+    const ann = await signedInPerson('Ann');
+    const bob = await signedInPerson('Bob');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ann.token })
+    ).body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ann.token }))
+      .body as {
+      id: string;
+    };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: bob.token });
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Dinner', amount: 100, date: '2020-01-15', splitBetween: [ann.id, bob.id] },
+      token: bob.token,
+    });
+
+    expect(
+      (await http.request('PUT', `${api}/admin/accounts/${ann.id}/suspension`, { token: admin.token })).status,
+    ).toBe(204);
+
+    const refused = await http.request('POST', `${api}/groups/${groupId}/settlements/cash`, {
+      body: { from: bob.id, amount: 50 },
+      token: ann.token,
+    });
+    expect(refused.status).toBe(400);
+    expect((refused.body as { type: string }).type).toBe('AccountSuspended');
+    const suggested = (
+      await http.request('GET', `${api}/groups/${groupId}/settlements/suggested`, { token: bob.token })
+    ).body as { from: string; to: string; amount: number }[];
+    expect(suggested).toEqual([{ from: ann.id, to: bob.id, amount: 50 }]);
+  });
+});

@@ -29,4 +29,9 @@ export interface ISettlementMembers {
    * asks it after the member is checked, and the answer is only the flag (ADR 24).
    */
   archivedOf(groupId: string): Promise<boolean>;
+  /**
+   * Whether the account is suspended (request 34): then it records no settlement in cash, asks for none through the provider, and asks for no
+   * netting, in any group (ADR 32). Asked by no member: it is the answer about the account asking.
+   */
+  suspendedOf(accountId: string): Promise<boolean>;
 }

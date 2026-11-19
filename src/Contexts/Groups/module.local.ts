@@ -1,7 +1,14 @@
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { ledgerBalancesReadModel } from '@Contexts/Ledger/module.local';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
-import { getAdministratorsLog, getMyAccount, signIn, signUp } from '@Contexts/Groups/Application/Accounts';
+import {
+  getAdministratorsLog,
+  getMyAccount,
+  reinstateAccount,
+  signIn,
+  signUp,
+  suspendAccount,
+} from '@Contexts/Groups/Application/Accounts';
 import {
   archiveGroup,
   createGroup,
@@ -20,6 +27,7 @@ import { AdministratorDecisionsOfSettlements } from '@Contexts/Groups/Infrastruc
 import { WaitingPaymentsOfSettlements } from '@Contexts/Groups/Infrastructure/WaitingPaymentsOfSettlements';
 import { GroupsDatabase } from '@Contexts/Groups/Infrastructure/GroupsDatabase';
 import { SqliteAccounts } from '@Contexts/Groups/Infrastructure/SqliteAccounts';
+import { SqliteAdministratorLog } from '@Contexts/Groups/Infrastructure/SqliteAdministratorLog';
 import { SqliteGroups } from '@Contexts/Groups/Infrastructure/SqliteGroups';
 import { SqliteInvitations } from '@Contexts/Groups/Infrastructure/SqliteInvitations';
 import { ScryptPasswordHasher } from '@Contexts/Groups/Infrastructure/ScryptPasswordHasher';
@@ -32,6 +40,7 @@ import { SignedAccessTokens } from '@Contexts/Groups/Infrastructure/SignedAccess
  */
 export const database = new GroupsDatabase();
 const accounts = new SqliteAccounts(database);
+const administratorLog = new SqliteAdministratorLog(database);
 const groups = new SqliteGroups(database);
 const invitations = new SqliteInvitations(database);
 const passwords = new ScryptPasswordHasher();
@@ -57,7 +66,9 @@ export const localGroupsModule = new LiteModule({
   useCases: [
     signUp(accounts, passwords, systemClock),
     signIn(accounts, passwords, groupsAccessTokens, administratorEmails),
-    getAdministratorsLog(new AdministratorDecisionsOfSettlements(() => settlementsReadModel)),
+    getAdministratorsLog(new AdministratorDecisionsOfSettlements(() => settlementsReadModel), administratorLog),
+    suspendAccount(accounts, administratorLog, systemClock),
+    reinstateAccount(accounts, administratorLog, systemClock),
     getMyAccount(accounts),
     createGroup(groups, systemClock),
     getGroup(groups),

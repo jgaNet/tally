@@ -5,6 +5,7 @@ const balancesOf = (entries: [string, number][]) => new Map(entries);
 
 /** Ann owes Bob 300 in the flat and 200 in the trip, created later; Bob owes Ann 400 in the club (request 32). */
 const example: NetDebtsGiven = {
+  suspended: false,
   groups: [
     {
       groupId: 'flat',
@@ -65,6 +66,7 @@ describe('decideNetDebts (request 32)', () => {
 
   it('leaves out an archived group and a group in another currency', () => {
     const given: NetDebtsGiven = {
+      suspended: false,
       groups: [
         {
           groupId: 'old',
@@ -120,6 +122,7 @@ describe('decideNetDebts (request 32)', () => {
     expect((unknown.error as { type: string }).type).toBe('NettingCurrencyUnknown');
     const nothing = decideNetDebts(
       {
+        suspended: false,
         groups: [
           {
             groupId: 'flat',

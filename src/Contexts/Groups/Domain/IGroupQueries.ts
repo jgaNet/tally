@@ -51,4 +51,9 @@ export interface IGroupQueries {
    * own port, and refuses by `GroupArchived` if it is (ADR 24); nothing else of the group is read by it.
    */
   archivedOf(groupId: string): Promise<boolean>;
+  /**
+   * Whether the account is suspended (request 34). Asked by no member: a context asks it about the account that asks it, through its own port, and
+   * refuses by `AccountSuspended` if it is (ADR 32); nothing else of the account is read by it.
+   */
+  suspendedOf(accountId: string): Promise<boolean>;
 }

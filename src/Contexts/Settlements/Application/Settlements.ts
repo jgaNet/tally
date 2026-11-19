@@ -73,7 +73,12 @@ export const recordCashSettlement = command(
         const balances = book.stillOwed(await groupBalances.balancesOf(groupId));
         const now = clock();
         const archived = await members.archivedOf(groupId);
-        const decision = decideRecordCashSettlement({ memberIds, balances, archived }, { payee, from, amount }, now);
+        const suspended = await members.suspendedOf(payee);
+        const decision = decideRecordCashSettlement(
+          { memberIds, balances, archived, suspended },
+          { payee, from, amount },
+          now,
+        );
         if (decision.isFailure()) return decision;
 
         const settlementId = book.recordCash({ ...decision.data.state, at: now });
@@ -124,8 +129,9 @@ export const payThroughProvider = command(
         const payeeAccount = (await payoutAccounts.ofOwner(to))?.accountId;
         const now = clock();
         const archived = await members.archivedOf(groupId);
+        const suspended = await members.suspendedOf(payer);
         const decision = decideRequestProviderPayment(
-          { memberIds, balances, payeeAccount, archived },
+          { memberIds, balances, payeeAccount, archived, suspended },
           { payer, to, amount },
           now,
         );

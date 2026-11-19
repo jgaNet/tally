@@ -36,6 +36,8 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
     if (await this.expenses.get(expenseId)) return Result.ok(undefined);
     // A group archived since the sweep decided this day records nothing more (request 27): the day ends without an expense.
     if (await this.groupMembers.archivedOf(groupId)) return Result.ok(undefined);
+    // A payer suspended since the sweep decided this day records nothing for it (request 34): the day ends without an expense.
+    if (await this.groupMembers.suspendedOf(paidBy)) return Result.ok(undefined);
 
     const members = await this.groupMembers.membersOf(groupId, paidBy);
     if (!members) return Result.ok(undefined);

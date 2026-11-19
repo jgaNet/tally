@@ -40,3 +40,4 @@ it from this table and from wherever the rule is stated.
 | [29](0029-a-merged-group-is-closed-and-the-passes-it-holds-move-with-its-members.md) | A merged group is closed by its write, and what it holds moves in the merge or in the reactions to it |
 | [30](0030-a-netting-is-decided-across-the-books-it-touches-in-one-transaction.md) | A netting is decided across the books it touches, in one transaction, and is an aggregate of its own |
 | [31](0031-a-contested-settlement-waits-for-an-administrator-whose-role-is-given-at-sign-in.md) | A contested settlement waits for an administrator, whose role is given at sign-in |
+| [32](0032-suspending-an-account-groups-keeps-the-flag-and-each-context-refuses-by-its-port.md) | Suspending an account: Groups decides it and keeps the flag, each context asks through its port and refuses by `AccountSuspended` |

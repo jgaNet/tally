@@ -40,7 +40,11 @@ export const setUpRecurringExpense = command(
         if (!members) return Result.fail(new NotFoundException('Ledger', 'No group is found'));
 
         const decision = decideSetUpRecurringExpense(
-          { memberIds: memberIdsOf(members), archived: await groupMembers.archivedOf(groupId) },
+          {
+            memberIds: memberIdsOf(members),
+            archived: await groupMembers.archivedOf(groupId),
+            suspended: await groupMembers.suspendedOf(payer),
+          },
           { description, amount, startsOn, split, payer, category },
           clock(),
         );
@@ -146,6 +150,7 @@ export const sweepRecurringExpenses = command(
               recurring: snapshot,
               memberIds: members && memberIdsOf(members),
               archived: await groupMembers.archivedOf(snapshot.groupId),
+              suspended: await groupMembers.suspendedOf(snapshot.paidBy),
             },
             undefined,
             now,

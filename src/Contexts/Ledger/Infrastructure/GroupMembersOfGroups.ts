@@ -9,10 +9,16 @@ import { BalancePass, IGroupMembers, MemberOfGroup } from '@Contexts/Ledger/Appl
  */
 export class GroupMembersOfGroups implements IGroupMembers {
   /** Groups' read model is given as a function, read when a member is asked for and not when the modules are built (ADR 7). */
-  constructor(private readonly groups: () => Pick<IGroupQueries, 'membersOf' | 'passesOf' | 'archivedOf'>) {}
+  constructor(
+    private readonly groups: () => Pick<IGroupQueries, 'membersOf' | 'passesOf' | 'archivedOf' | 'suspendedOf'>,
+  ) {}
 
   async archivedOf(groupId: string): Promise<boolean> {
     return this.groups().archivedOf(groupId);
+  }
+
+  async suspendedOf(accountId: string): Promise<boolean> {
+    return this.groups().suspendedOf(accountId);
   }
 
   async membersOf(groupId: string, askedBy: string): Promise<MemberOfGroup[] | undefined> {

@@ -5,7 +5,13 @@ const ada = 'ada';
 const grace = 'grace';
 const now = new Date('2026-11-17T10:00:00Z');
 const offering = (rate: string): RateOffer => ({ kind: 'rate', rate });
-const facts = (offered: RateOffer) => ({ archived: false, memberIds: [ada, grace], groupCurrency: 'EUR', offered });
+const facts = (offered: RateOffer) => ({
+  archived: false,
+  suspended: false,
+  memberIds: [ada, grace],
+  groupCurrency: 'EUR',
+  offered,
+});
 
 /** A payment in CHF of 1000 hundredths, the rate left out unless given. */
 const paid = (original: { rate?: string } = {}): RecordExpenseCommand =>

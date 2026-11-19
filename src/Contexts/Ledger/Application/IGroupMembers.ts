@@ -36,4 +36,9 @@ export interface IGroupMembers {
    * by no member: a change asks it after the member is checked, as it asks the members, and the answer is only the flag.
    */
   archivedOf(groupId: string): Promise<boolean>;
+  /**
+   * Whether the account is suspended (request 34): then it may not record an expense or set up a recurring expense, in any group, and the
+   * background job records no expense for its recurring ones (ADR 32). Asked by no member: it is the answer about the account asking.
+   */
+  suspendedOf(accountId: string): Promise<boolean>;
 }

@@ -1,6 +1,6 @@
 import { IResult, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
-import { GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { ExpenseAmount } from './ExpenseAmount';
 import { categoryOf, ExpenseCategory } from './ExpenseCategory';
@@ -78,6 +78,11 @@ export interface GroupFacts {
   archived: boolean;
 }
 
+/** What a recording is given: the group's facts, and whether the caller, who would pay, is suspended (request 34): then it records no expense. */
+export interface RecordExpenseGiven extends GroupFacts {
+  suspended: boolean;
+}
+
 /**
  * What a decision on a stored expense is given (feature 6): the expense as it is stored, the members of its group (`memberIds`,
  * in the order they joined), its owner, and its currency (request 21). The caller is a member: the use case asked Groups before it decided.
@@ -100,12 +105,13 @@ const MAY_NOT_CHANGE = "Only the expense's payer or the group's owner may change
  * them. It answers the validated values, with the split's shares computed once; the use case makes the expense from them
  * with `Expense.register`.
  */
-export const decideRecordExpense: Decision<NewExpenseValues, RecordExpenseCommand, never, GroupFacts> = (
+export const decideRecordExpense: Decision<NewExpenseValues, RecordExpenseCommand, never, RecordExpenseGiven> = (
   facts,
   command,
   now,
 ) => {
   if (facts.archived) return Result.fail(new GroupArchivedException());
+  if (facts.suspended) return Result.fail(new AccountSuspendedException());
   return newValues(command, facts, now);
 };
 

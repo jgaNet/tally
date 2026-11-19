@@ -122,7 +122,10 @@ relationships:
       it decides, so that a member who has just joined can be in a split at once (T3). Since request 21 it also asks the
       group's currency, through a port beside it (GroupCurrency): an expense paid in another currency is counted in the
       group's, and the currency is fixed at creation, so the answer never changes (ADR 18). Since request 28 it also reads the balances
-      that passed when a member left, for the audit, through a port beside it (PassedBalances, ADR 25).
+      that passed when a member left, for the audit, through a port beside it (PassedBalances, ADR 25). Since request 34 it
+      also asks whether the account that records an expense or sets up a recurring expense is suspended, through the same
+      port (GroupMembers, `suspendedOf`): a suspended account records nothing in any group, and the background job records
+      no expense for a suspended payer, whose days wait (ADR 32).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]
@@ -143,7 +146,8 @@ relationships:
       (WaitingPayments) when it decides the leave, in the same transaction as the leave (ADR 16, ADR 17). Carried since
       request 20, which the leave storm declared before the code. Since request 33 a contested settlement waits too, and
       Groups answers the administrators' log through a port beside it (AdministratorDecisions): each decision of an
-      administrator is written by Settlements in the transaction of the decision, and Groups reads it (ADR 31).
+      administrator is written by Settlements in the transaction of the decision, and Groups reads it (ADR 31). Since
+      request 34 Groups writes its own entries of the log, the suspensions and reinstatements, beside them (ADR 32).
   - upstream: Ledger
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]
@@ -159,6 +163,8 @@ relationships:
     why: >-
       Only members of the group settle with each other, and only Groups knows who is a member. Settlements asks
       through a port it owns (SettlementMembers). Carried since feature 11 (ADR 10), for the suggested settlements.
+      Since request 34 it also asks whether the account that records a settlement in cash, asks to pay through the provider
+      or asks for a netting is suspended, through the same port (`suspendedOf`): a suspended account settles nothing (ADR 32).
   - upstream: Settlements
     downstream: Ledger
     patterns: [customer-supplier, anti-corruption-layer]

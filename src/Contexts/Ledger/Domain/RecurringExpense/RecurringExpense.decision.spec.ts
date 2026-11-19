@@ -40,7 +40,7 @@ describe('setting up', () => {
     const memberIds = ['ada'];
     expect(
       decideSetUpRecurringExpense(
-        { archived: false, memberIds },
+        { archived: false, suspended: false, memberIds },
         { ...base, startsOn: '2026-11-05' },
         at('2026-11-18'),
       ).isFailure(),
@@ -48,7 +48,7 @@ describe('setting up', () => {
     const leavesPayerOut = { ...base, startsOn: '2026-11-05', split: { kind: 'equal' as const, memberIds: ['grace'] } };
     expect(
       decideSetUpRecurringExpense(
-        { archived: false, memberIds: ['ada', 'grace'] },
+        { archived: false, suspended: false, memberIds: ['ada', 'grace'] },
         leavesPayerOut,
         at('2026-11-18'),
       ).isFailure(),
@@ -57,7 +57,7 @@ describe('setting up', () => {
 
   it('keeps the split as given, and its first day is its start', () => {
     const decision = decideSetUpRecurringExpense(
-      { archived: false, memberIds: ['ada', 'grace'] },
+      { archived: false, suspended: false, memberIds: ['ada', 'grace'] },
       { ...base, startsOn: '2026-11-05' },
       at('2026-11-18'),
     );
@@ -90,20 +90,23 @@ describe('a run over a recurring expense', () => {
 
   it('records each day that came, and ends when a member it concerns is not in the group', () => {
     const due = decideSweepRecurringExpense(
-      { archived: false, recurring, memberIds: ['ada', 'grace'] },
+      { archived: false, suspended: false, recurring, memberIds: ['ada', 'grace'] },
       undefined,
       at('2026-11-18'),
     );
     expect(due.data!.state).toEqual({ kind: 'due', days: ['2026-09-05', '2026-10-05', '2026-11-05'] });
     const ended = decideSweepRecurringExpense(
-      { archived: false, recurring, memberIds: ['ada'] },
+      { archived: false, suspended: false, recurring, memberIds: ['ada'] },
       undefined,
       at('2026-11-18'),
     );
     expect(ended.data!.state).toEqual({ kind: 'ended' });
     expect(
-      decideSweepRecurringExpense({ archived: false, recurring, memberIds: undefined }, undefined, at('2026-11-18'))
-        .data!.state,
+      decideSweepRecurringExpense(
+        { archived: false, suspended: false, recurring, memberIds: undefined },
+        undefined,
+        at('2026-11-18'),
+      ).data!.state,
     ).toEqual({ kind: 'ended' });
   });
 

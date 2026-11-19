@@ -474,3 +474,44 @@ describe('Groups → Ledger', () => {
     });
   });
 });
+
+/** Request 34 across the link: an administrator suspends an account whose id Groups answered at sign-up, and Ledger refuses that account's expense by name. */
+describe('Groups → Ledger, a suspended account (request 34)', () => {
+  it('refuses an expense the suspended account records in a group Ledger reads, and lets the other members go on', async () => {
+    process.env.ADMIN_EMAILS = 'root@example.org';
+    await http.request('POST', `${api}/accounts`, {
+      body: { email: 'root@example.org', password: 'a long password', name: 'Root' },
+    });
+    const admin = (
+      await http.request('POST', `${api}/accounts/login`, {
+        body: { email: 'root@example.org', password: 'a long password' },
+      })
+    ).body as { token: string };
+    const ann = await signedInPerson('Ann');
+    const bob = await signedInPerson('Bob');
+    const { id: groupId } = (
+      await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: ann.token })
+    ).body as { id: string };
+    const invitation = (await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: ann.token }))
+      .body as {
+      id: string;
+    };
+    await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: bob.token });
+
+    expect(
+      (await http.request('PUT', `${api}/admin/accounts/${ann.id}/suspension`, { token: admin.token })).status,
+    ).toBe(204);
+
+    const refused = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Taxi', amount: 10, date: '2020-01-16', splitBetween: [ann.id, bob.id] },
+      token: ann.token,
+    });
+    expect(refused.status).toBe(400);
+    expect((refused.body as { type: string }).type).toBe('AccountSuspended');
+    const bobs = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Bus', amount: 20, date: '2020-01-17', splitBetween: [ann.id, bob.id] },
+      token: bob.token,
+    });
+    expect(bobs.status).toBe(201);
+  });
+});

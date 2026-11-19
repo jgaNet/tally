@@ -1,9 +1,12 @@
-/** An entry of the administrators' log, in Groups' words (request 33, request 34): which administrator decided what about what, and when. */
+/**
+ * An entry of the administrators' log, in Groups' words (request 33, request 34): which administrator did what about what, and when. The
+ * decisions on settlements come from Settlements; the suspensions and reinstatements are written by Groups.
+ */
 export interface AdministratorDecision {
   id: string;
   at: string;
   by: string;
-  action: 'decided-paid' | 'decided-annulled';
+  action: 'decided-paid' | 'decided-annulled' | 'suspended' | 'reinstated';
   subjectId: string;
 }
 
