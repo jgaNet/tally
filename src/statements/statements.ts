@@ -51,12 +51,19 @@ interface ExpenseRow {
   seq: number;
 }
 
+/** How a settlement the balances count is described in a statement, by its method. */
+const DESCRIPTIONS: Record<'cash' | 'provider' | 'net', string> = {
+  cash: 'Settlement in cash',
+  provider: 'Settlement through the provider',
+  net: 'Settlement by netting',
+};
+
 interface SettlementRow {
   id: string;
   payer_id: string;
   payee_id: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   counted_at: string;
   seq: number;
 }
@@ -141,7 +148,7 @@ export async function statementOf(db: Database, groupId: string, memberId: strin
         kind: 'settlement',
         settlementId: row.id,
         date: row.counted_at.slice(0, 10),
-        description: row.method === 'cash' ? 'Settlement in cash' : 'Settlement through the provider',
+        description: DESCRIPTIONS[row.method],
         paid: row.payer_id === memberId ? row.amount : 0,
         share: row.payee_id === memberId ? row.amount : 0,
         balance: 0,

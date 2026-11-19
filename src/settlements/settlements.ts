@@ -16,7 +16,7 @@ export interface Settlement {
   to: string;
   /** In hundredths of the group's currency. */
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   /**
    * `pending` only while the provider has not said the payment ended; a cash settlement is `paid`.
    * `refunding` once Tally has asked the provider to refund a paid one, `refunded` once the provider said so.
@@ -107,7 +107,7 @@ interface SettlementRow {
   payer_id: string;
   payee_id: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
   pay_url: string | null;
   created_at: string;

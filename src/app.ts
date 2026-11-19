@@ -8,6 +8,7 @@ import { openDatabase } from './database';
 import { registerExpenseRoutes } from './expenses/routes';
 import { registerGroupRoutes } from './groups/routes';
 import { registerInvitationRoutes } from './invitations/routes';
+import { registerNettingRoutes } from './nettings/routes';
 import { registerNoticeRoutes } from './notices/routes';
 import { registerOperationRoutes } from './operations/routes';
 import { registerPayoutAccountRoutes } from './payouts/routes';
@@ -134,6 +135,7 @@ export async function createApplication({
       registerStatementRoutes(routes, db);
       registerPayoutAccountRoutes(routes, db, provider);
       registerSettlementRoutes(routes, db, provider);
+      registerNettingRoutes(routes, db);
       registerOperationRoutes(routes, db);
     },
     { prefix: `/${apiPrefix}` },

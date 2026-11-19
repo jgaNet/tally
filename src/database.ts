@@ -265,6 +265,27 @@ const migrations: readonly string[] = [
     RAISE EXCEPTION 'an audit entry is never changed';
   END $$;
   `,
+  `
+  -- A netting: what two members owe each other, netted across their groups in one currency, as settlements of method
+  -- net, which count at once. The amount is in hundredths of the currency. Its settlements are kept in the order made.
+  ALTER TABLE settlements DROP CONSTRAINT settlements_method_check;
+  ALTER TABLE settlements ADD CONSTRAINT settlements_method_check CHECK (method IN ('cash', 'provider', 'net'));
+  CREATE TABLE nettings (
+    id         TEXT PRIMARY KEY,
+    by_id      TEXT NOT NULL REFERENCES accounts (id),
+    with_id    TEXT NOT NULL REFERENCES accounts (id),
+    currency   TEXT NOT NULL CHECK (currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD')),
+    amount     INTEGER NOT NULL CHECK (amount >= 1),
+    created_at TEXT NOT NULL,
+    CHECK (by_id <> with_id)
+  );
+  CREATE TABLE netting_settlements (
+    netting_id    TEXT NOT NULL REFERENCES nettings (id),
+    position      INTEGER NOT NULL,
+    settlement_id TEXT NOT NULL REFERENCES settlements (id),
+    PRIMARY KEY (netting_id, position)
+  );
+  `,
 ];
 
 /** The database: every read and write Tally makes goes through it, to the PostgreSQL database it was opened on. */
