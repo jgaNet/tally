@@ -3,9 +3,12 @@ import { Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { PayThroughProviderCommandEvent } from '@Contexts/Settlements/Application/Commands/PayThroughProvider/PayThroughProviderCommandEvent';
+import { paidInOf } from '@Contexts/Settlements/Application/Commands/PaidIn';
 import { IGroupBalances } from '@Contexts/Settlements/Application/Ports/IGroupBalances';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
 import { ISettlementMembers } from '@Contexts/Settlements/Application/Ports/ISettlementMembers';
+import { ISettlementRates } from '@Contexts/Settlements/Application/Ports/ISettlementRates';
+import { PaidIn } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
 import { Decision, SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
 import { IPayoutAccountRepository } from '@Contexts/Settlements/Domain/PayoutAccount/Ports/IPayoutAccountRepository';
@@ -13,10 +16,12 @@ import { IPayoutAccountRepository } from '@Contexts/Settlements/Domain/PayoutAcc
 /**
  * A signed-in member of a group asks to pay another member through the provider: the caller is the payer, and the operation answers
  * the settlement's id. The book decides the rules first, and the payee must have a payout account (request 16), so that a payment the
- * rules refuse never reaches the provider; then the provider is asked for a link, with the settlement's id as its reference and the
- * payee's payout account as the payee; then the book decides again, on the balances read after the provider answered, and keeps the
- * payment pending with the link. A provider that does not answer with a link refuses the request, and nothing is kept. For anyone who
- * is not a member the group does not exist.
+ * rules refuse never reaches the provider; then the provider is asked for a link, with the settlement's id as its reference, the amount
+ * and currency the payment is made in (in another currency, the original amount and its currency, request 39), and the payee's payout
+ * account as the payee; then the book decides again, on the balances read after the provider answered, and keeps the payment pending
+ * with the link. A payment in another currency is decided at the rate the rates service offers on the day, asked before the provider, so
+ * that a rate nobody offers refuses the request and the provider is not asked. A provider that does not answer with a link refuses the
+ * request, and nothing is kept. For anyone who is not a member the group does not exist.
  */
 export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughProviderCommandEvent> {
   constructor(
@@ -26,6 +31,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     private balances: IGroupBalances,
     private provider: IPaymentProvider,
     private clock: Clock,
+    private rates: ISettlementRates,
   ) {
     super();
   }
@@ -43,12 +49,14 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     const suspended = await this.members.suspendedOf(caller.data.value);
     const payeeDeleted = await this.members.deletedOf(payload.to);
 
+    const now = this.clock();
+    const paid = await paidInOf(payload.money, currency, this.rates, now);
     const book = (await this.books.findByGroupId(groupId)) ?? SettlementBook.open(groupId);
     const decision = await this.decide(
       payload.groupId,
       caller.data.value,
       payload.to,
-      payload.amount,
+      paid,
       members,
       archived,
       suspended,
@@ -56,13 +64,15 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     );
     const payee = await this.payoutAccounts.findByOwner(new Id(payload.to));
 
-    const planned = book.planPayment({ ...decision, now: this.clock(), payeeAccount: payee?.accountId ?? null });
+    const planned = book.planPayment({ ...decision, now, payeeAccount: payee?.accountId ?? null });
     if (planned.isFailure()) return planned;
 
+    // The provider is asked for what is paid: the original amount in its currency, or the group's amount in the group's currency.
+    const original = planned.data.original;
     const link = await this.provider.requestPaymentLink({
       reference: planned.data.id.value,
-      amount: payload.amount,
-      currency,
+      amount: original ? original.amount : planned.data.amount,
+      currency: original ? original.currency : currency,
       payee: planned.data.payeeAccount,
     });
 
@@ -73,7 +83,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
         payload.groupId,
         caller.data.value,
         payload.to,
-        payload.amount,
+        paid,
         members,
         archived,
         suspended,
@@ -94,7 +104,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     groupId: string,
     payer: string,
     payee: string,
-    amount: number,
+    paid: PaidIn,
     members: string[],
     archived: boolean,
     suspended: boolean,
@@ -103,7 +113,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
     return {
       payer: new Id(payer),
       payee: new Id(payee),
-      amount,
+      paid,
       payerIsMember: members.includes(payer),
       payeeIsMember: members.includes(payee),
       payerBalance: await this.balances.balanceOf(groupId, payer),

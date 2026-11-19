@@ -43,6 +43,7 @@ import {
   SettlementFee,
   SettlementLine,
 } from '@Contexts/Settlements/Domain/Settlement/Settlement';
+import { OriginalAmount, PaidIn } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
 
 /**
  * A line of a settlement's history that Tally learned in this book, and where it stands in that history (its position, from 1): the
@@ -61,7 +62,8 @@ export interface LearnedLine extends SettlementLine {
 export interface Decision {
   payer: Id;
   payee: Id;
-  amount: number;
+  /** What is paid: the group's amount, or what was paid in another currency with the rate offered now (request 39). */
+  paid: PaidIn;
   payerIsMember: boolean;
   payeeIsMember: boolean;
   payerBalance: number;
@@ -87,9 +89,18 @@ export interface PlannedPayment {
   readonly groupId: Id;
   readonly payer: Id;
   readonly payee: Id;
+  /** The amount in the group's currency: what the settlement counts. */
   readonly amount: number;
   readonly at: Date;
   readonly payeeAccount: string;
+  /** What was paid in another currency and at which rate, or null in the group's currency (request 39). */
+  readonly original: OriginalAmount | null;
+}
+
+/** A decision's money, priced: the amount in the group's currency, and the original payment when there is one (request 39). */
+export interface Priced {
+  readonly amount: number;
+  readonly original: OriginalAmount | null;
 }
 
 /** A refund decided and named, not yet recorded: the provider's id for the payment it refunds, and the settlement it is for. */
@@ -278,7 +289,7 @@ export class SettlementBook extends AggregateRoot {
     const decided = this.decide(decision);
     if (decided.isFailure()) return decided;
 
-    const settlement = paidAtOnce(this.groupId, 'cash', decision, now);
+    const settlement = paidAtOnce(this.groupId, 'cash', decision, decided.data, now);
     this.keep(settlement);
     this.moneyMoved.push({ action: 'settlement-paid', by: decision.payee, settlement });
     this.record(
@@ -287,7 +298,7 @@ export class SettlementBook extends AggregateRoot {
         groupId: this.groupId.value,
         payer: decision.payer.value,
         payee: decision.payee.value,
-        amount: decision.amount,
+        amount: settlement.amount,
       }),
     );
     return Result.ok(settlement);
@@ -302,7 +313,7 @@ export class SettlementBook extends AggregateRoot {
     const decided = this.decide(decision);
     if (decided.isFailure()) return decided;
 
-    const settlement = paidAtOnce(this.groupId, 'net', decision, now);
+    const settlement = paidAtOnce(this.groupId, 'net', decision, decided.data, now);
     this.keep(settlement);
     this.moneyMoved.push({ action: 'settlement-paid', by, settlement });
     this.record(
@@ -311,7 +322,7 @@ export class SettlementBook extends AggregateRoot {
         groupId: this.groupId.value,
         payer: decision.payer.value,
         payee: decision.payee.value,
-        amount: decision.amount,
+        amount: settlement.amount,
       }),
     );
     return Result.ok(settlement);
@@ -344,9 +355,10 @@ export class SettlementBook extends AggregateRoot {
       groupId: this.groupId,
       payer: decision.payer,
       payee: decision.payee,
-      amount: decision.amount,
+      amount: decided.data.amount,
       at: now,
       payeeAccount,
+      original: decided.data.original,
     });
   }
 
@@ -356,14 +368,20 @@ export class SettlementBook extends AggregateRoot {
    */
   recordPayment(planned: PlannedPayment, link: PaymentLink | null, decision: Decision): IResult<Settlement> {
     if (!link) return Result.fail(new ProviderUnavailable());
-    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= planned.amount) {
+    // The provider's fee is in the payment's currency: a whole number, 0 or more, less than what was asked in that currency (request 38).
+    const asked = planned.original ? planned.original.amount : planned.amount;
+    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= asked) {
       return Result.fail(new ProviderFeeInvalid());
     }
     const decided = this.decide(decision);
     if (decided.isFailure()) return decided;
 
+    // A fee in another currency is converted at the rate the payment was decided at, the same way as the amount (request 39).
+    const feeAmount = planned.original ? planned.original.inGroupCurrency(link.fee) : link.fee;
+    if (feeAmount >= planned.amount) return Result.fail(new ProviderFeeInvalid());
+
     // The fee is fixed now, with who bears it as the owner last said: changing the policy later changes no payment asked for before.
-    const fee: SettlementFee = { amount: link.fee, borneBy: this.policy };
+    const fee: SettlementFee = { amount: feeAmount, borneBy: this.policy };
     const settlement = new Settlement(
       planned.id,
       this.groupId,
@@ -376,6 +394,7 @@ export class SettlementBook extends AggregateRoot {
       { paymentId: link.paymentId, payUrl: link.payUrl },
       [{ status: 'pending', at: planned.at }],
       fee,
+      planned.original,
     );
     this.keep(settlement);
     this.record(
@@ -561,11 +580,11 @@ export class SettlementBook extends AggregateRoot {
    * The rules a settlement is decided by, on what is owed now: the balances as Ledger counts them, less what is waiting at the
    * provider (a waiting payment from the payer lowers what they owe; one to the payee lowers what they are owed).
    */
-  private decide(decision: Decision): IResult<void> {
+  private decide(decision: Decision): IResult<Priced> {
     const {
       payer,
       payee,
-      amount,
+      paid,
       payerIsMember,
       payeeIsMember,
       payerBalance,
@@ -577,6 +596,9 @@ export class SettlementBook extends AggregateRoot {
     if (archived) return Result.fail(new GroupArchived('Settlements'));
     if (suspended) return Result.fail(new AccountSuspended('Settlements'));
     if (counterpartyDeleted) return Result.fail(new AccountDeleted('Settlements'));
+    const priced = priceOf(paid);
+    if (priced.isFailure()) return priced;
+    const { amount } = priced.data;
     if (!Number.isInteger(amount) || amount < 1) return Result.fail(new InvalidSettlementAmount());
     if (!payerIsMember) return Result.fail(new PayerNotAMember());
     if (!payeeIsMember) return Result.fail(new PayeeNotAMember());
@@ -585,7 +607,7 @@ export class SettlementBook extends AggregateRoot {
       return Result.fail(new ExceedsWhatIsOwed());
     if (amount > Math.max(0, payeeBalance + this.waitingEffectOn(payee)))
       return Result.fail(new ExceedsWhatIsOwedToPayee());
-    return Result.ok();
+    return Result.ok(priced.data);
   }
 
   /** What the payments waiting at the provider do to a member's balance: up for a payer, down for a payee. */
@@ -621,10 +643,32 @@ export class SettlementBook extends AggregateRoot {
 }
 
 /** A settlement paid at once, in cash or by netting: `paid` from the moment it is recorded, and its history starts there. */
-const paidAtOnce = (groupId: Id, method: 'cash' | 'net', decision: Decision, now: Date): Settlement =>
-  new Settlement(Id.generate(), groupId, decision.payer, decision.payee, decision.amount, method, 'paid', now, null, [
-    { status: 'paid', at: now },
-  ]);
+const paidAtOnce = (groupId: Id, method: 'cash' | 'net', decision: Decision, priced: Priced, now: Date): Settlement =>
+  new Settlement(
+    Id.generate(),
+    groupId,
+    decision.payer,
+    decision.payee,
+    priced.amount,
+    method,
+    'paid',
+    now,
+    null,
+    [{ status: 'paid', at: now }],
+    null,
+    priced.original,
+  );
+
+/**
+ * What a payment is paid in, priced on the rate the book is given (request 39): the amount as it is in the group's currency, and the
+ * original payment with its rate. A payment in another currency with no rate is refused, as it is in no other way.
+ */
+const priceOf = (paid: PaidIn): IResult<Priced> => {
+  if (!('original' in paid)) return Result.ok({ amount: paid.amount, original: null });
+  const original = OriginalAmount.create(paid.original, paid.groupCurrency, paid.rate);
+  if (original.isFailure()) return original;
+  return Result.ok({ amount: original.data.inGroupCurrency(original.data.amount), original: original.data });
+};
 
 /** The outcome a provider's webhook status names for a payment, or `null` for a status Tally does not know or waits on. */
 const outcomeOf = (status: string): PaymentOutcome | null => {

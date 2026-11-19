@@ -2,6 +2,7 @@ import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
+import { OriginalAmount } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import {
   FeeBorne,
@@ -35,6 +36,9 @@ export interface SettlementRow {
   settled_amount: number | null;
   fee_amount: number | null;
   fee_borne_by: FeeBorne | null;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 }
 
 /**
@@ -57,7 +61,7 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
     const history = await historyOfGroup(this.database, groupId.value);
     const settlements = (
       await this.database.all<SettlementRow>(
-        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
+        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by, original_currency, original_amount, original_rate
          FROM settlements WHERE group_id = ? ORDER BY recorded_at, id`,
         groupId.value,
       )
@@ -120,8 +124,8 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
     }
     for (const settlement of book.created) {
       await this.database.run(
-        `INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO settlements (id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by, original_currency, original_amount, original_rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         settlement.id.value,
         settlement.groupId.value,
         settlement.payer.value,
@@ -135,6 +139,9 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
         settlement.fee ? settlement.settledAmount : null,
         settlement.fee?.amount ?? null,
         settlement.fee?.borneBy ?? null,
+        settlement.original?.currency ?? null,
+        settlement.original?.amount ?? null,
+        settlement.original?.rate ?? null,
       );
     }
     for (const settlement of book.statusChangedSinceRead) {
@@ -194,7 +201,14 @@ export const toSettlement = (row: SettlementRow, history: readonly SettlementLin
     row.provider_payment_id && row.pay_url ? { paymentId: row.provider_payment_id, payUrl: row.pay_url } : null,
     history,
     feeOf(row),
+    originalOf(row),
   );
+
+/** What a settlement row keeps of its payment in another currency, or null in the group's currency (request 39). */
+export const originalOf = (row: SettlementRow): OriginalAmount | null =>
+  row.original_currency !== null && row.original_amount !== null && row.original_rate !== null
+    ? OriginalAmount.restore({ currency: row.original_currency, amount: row.original_amount, rate: row.original_rate })
+    : null;
 
 /** The fee a settlement row keeps, or null when it keeps none (a settlement in cash, or one asked before request 38). */
 export const feeOf = (row: SettlementRow): SettlementFee | null =>

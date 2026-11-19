@@ -16,11 +16,25 @@ export const GetSuggestedSettlementsResSchema = {
   404: RefusedSchema,
 } as const;
 
+/**
+ * What was paid in another currency, as a body gives it (request 39): its currency and its amount in that currency's hundredths. Whether the
+ * currency is one of Tally's and the amount is in its range is the settlement's, behind the 202; a body without both is of the wrong shape.
+ */
+const OriginalBodySchema = {
+  type: 'object',
+  required: ['currency', 'amount'],
+  properties: { currency: { type: 'string' }, amount: { type: 'integer' } },
+} as const;
+
+/** Exactly one of the two ways to give the money: neither, or both, is a body of the wrong shape (400, request 39). */
+const ExactlyOneMoney = { oneOf: [{ required: ['amount'] }, { required: ['original'] }] } as const;
+
 /** The shape of a body only: whether the amount is allowed (at least 1, never more than is owed) is the book's, behind the 202. */
 export const RecordCashSettlementBodySchema = {
   type: 'object',
-  required: ['from', 'amount'],
-  properties: { from: { type: 'string' }, amount: { type: 'integer' } },
+  required: ['from'],
+  properties: { from: { type: 'string' }, amount: { type: 'integer' }, original: OriginalBodySchema },
+  ...ExactlyOneMoney,
 } as const;
 
 /** Answered at once with an operation, or refused at the transport for a caller who is not signed in (request 1). */
@@ -46,6 +60,15 @@ const SettlementSchema = {
       type: 'object',
       required: ['amount', 'borneBy'],
       properties: { amount: { type: 'integer', minimum: 0 }, borneBy: { enum: ['payer', 'payee', 'shared'] } },
+    },
+    original: {
+      type: 'object',
+      required: ['currency', 'amount', 'rate'],
+      properties: {
+        currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+        amount: { type: 'integer', minimum: 1 },
+        rate: { type: 'string', pattern: '^\\d+(\\.\\d{1,6})?$' },
+      },
     },
     history: {
       type: 'array',
@@ -93,8 +116,9 @@ export const GetContestsResSchema = {
 /** The shape of a body only: a payment through the provider asks for a whole amount to a member; whether it is allowed is the book's. */
 export const PayThroughProviderBodySchema = {
   type: 'object',
-  required: ['to', 'amount'],
-  properties: { to: { type: 'string' }, amount: { type: 'integer' } },
+  required: ['to'],
+  properties: { to: { type: 'string' }, amount: { type: 'integer' }, original: OriginalBodySchema },
+  ...ExactlyOneMoney,
 } as const;
 
 /** The shape of a body only: who bears the fee is one of three, whether it is allowed is the book's, behind the 202 (request 38). */

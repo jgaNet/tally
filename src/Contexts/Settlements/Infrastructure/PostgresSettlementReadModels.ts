@@ -14,6 +14,7 @@ import { createSettlementsTables } from '@Contexts/Settlements/Infrastructure/Se
 import {
   feeOf,
   historyOfGroup,
+  originalOf,
   SettlementRow,
 } from '@Contexts/Settlements/Infrastructure/PostgresSettlementBookRepository';
 
@@ -34,7 +35,7 @@ export class PostgresSettlementReadModels
   async findById(id: string): Promise<SettlementReadModel | null> {
     return this.database.exclusive(async () => {
       const row = await this.database.get<SettlementRow>(
-        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
+        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by, original_currency, original_amount, original_rate
          FROM settlements WHERE id = ?`,
         id,
       );
@@ -50,7 +51,7 @@ export class PostgresSettlementReadModels
       const history = await historyOfGroup(this.database, groupId);
       return (
         await this.database.all<SettlementRow>(
-          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
+          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by, original_currency, original_amount, original_rate
            FROM settlements WHERE group_id = ? ORDER BY seq`,
           groupId,
         )
@@ -73,7 +74,7 @@ export class PostgresSettlementReadModels
       const history = await historyOfGroup(this.database, groupId);
       return (
         await this.database.all<SettlementRow>(
-          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
+          `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by, original_currency, original_amount, original_rate
            FROM settlements
            WHERE group_id = ? AND status IN ('paid', 'refunding') AND (payer = ? OR payee = ?)
            ORDER BY recorded_at, seq`,
@@ -138,7 +139,7 @@ export class PostgresSettlementReadModels
   async contested(): Promise<SettlementReadModel[]> {
     return this.database.exclusive(async () => {
       const rows = await this.database.all<SettlementRow>(
-        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by
+        `SELECT id, group_id, payer, payee, amount, method, status, recorded_at, provider_payment_id, pay_url, settled_amount, fee_amount, fee_borne_by, original_currency, original_amount, original_rate
          FROM settlements WHERE status = 'contested' ORDER BY seq`,
       );
       const historyByGroup = new Map<string, Map<string, SettlementLine[]>>();
@@ -201,6 +202,7 @@ export class PostgresSettlementReadModels
 
 const toReadModel = (row: SettlementRow, history: readonly SettlementLine[]): SettlementReadModel => {
   const fee = feeOf(row);
+  const original = originalOf(row);
   return {
     id: row.id,
     groupId: row.group_id,
@@ -212,6 +214,7 @@ const toReadModel = (row: SettlementRow, history: readonly SettlementLine[]): Se
     at: row.recorded_at,
     ...(row.pay_url ? { payUrl: row.pay_url } : {}),
     ...(fee ? { fee } : {}),
+    ...(original ? { original: { currency: original.currency, amount: original.amount, rate: original.rate } } : {}),
     history: history.map(line => ({ status: line.status, at: line.at.toISOString() })),
   };
 };

@@ -26,5 +26,7 @@ export interface SettlementReadModel {
   payUrl?: string;
   /** The provider's fee and who bore it, for a settlement through the provider asked for from request 38 on (no other has one). */
   fee?: { amount: number; borneBy: FeeBorne };
+  /** What was paid in another currency, and the rate it was decided at (request 39); a settlement in the group's currency has none. */
+  original?: { currency: string; amount: number; rate: string };
   history: SettlementHistoryLine[];
 }

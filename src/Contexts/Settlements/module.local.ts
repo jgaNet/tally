@@ -44,6 +44,7 @@ import { OutstandingDebtsReadModel } from '@Contexts/Settlements/Application/Rea
 import { GroupBalancesFromLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesFromLedger';
 import { HmacWebhookSignatures } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignatures';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
+import { HttpSettlementRates } from '@Contexts/Settlements/Infrastructure/HttpSettlementRates';
 import { SettlementMembersFromGroups } from '@Contexts/Settlements/Infrastructure/SettlementMembersFromGroups';
 import { PostgresPayoutAccountReadModels } from '@Contexts/Settlements/Infrastructure/PostgresPayoutAccountReadModels';
 import { PostgresPayoutAccountRepository } from '@Contexts/Settlements/Infrastructure/PostgresPayoutAccountRepository';
@@ -104,6 +105,8 @@ export const webhookSignatures: IWebhookSignatures = new HmacWebhookSignatures()
 const balances = new GroupBalancesFromLedger(() => ledgerMemberBalances);
 const members = new SettlementMembersFromGroups(() => groupsMembers);
 const provider = new HttpPaymentProvider();
+/** The rates a settlement in another currency is decided at (request 39), read through the port Settlements owns: the rates service over its HTTP API. */
+const rates = new HttpSettlementRates();
 
 /**
  * What every current member of every group still owes, read by Notifications' sweep (ADR 10): Settlements' read model, exported.
@@ -126,7 +129,7 @@ export const localSettlementsModule = new Module({
   commands: [
     {
       event: RecordCashSettlementCommandEvent,
-      handlers: [new RecordCashSettlementCommandHandler(books, members, balances, systemClock, audit)],
+      handlers: [new RecordCashSettlementCommandHandler(books, members, balances, systemClock, audit, rates)],
     },
     {
       event: NetDebtsCommandEvent,
@@ -134,7 +137,9 @@ export const localSettlementsModule = new Module({
     },
     {
       event: PayThroughProviderCommandEvent,
-      handlers: [new PayThroughProviderCommandHandler(books, payoutAccounts, members, balances, provider, systemClock)],
+      handlers: [
+        new PayThroughProviderCommandHandler(books, payoutAccounts, members, balances, provider, systemClock, rates),
+      ],
     },
     {
       event: RefundSettlementCommandEvent,

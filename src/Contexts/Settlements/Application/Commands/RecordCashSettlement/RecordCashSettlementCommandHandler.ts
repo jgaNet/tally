@@ -3,15 +3,18 @@ import { Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 
 import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RecordCashSettlement/RecordCashSettlementCommandEvent';
+import { paidInOf } from '@Contexts/Settlements/Application/Commands/PaidIn';
 import { IGroupBalances } from '@Contexts/Settlements/Application/Ports/IGroupBalances';
 import { ISettlementMembers } from '@Contexts/Settlements/Application/Ports/ISettlementMembers';
 import { ISettlementAuditLog } from '@Contexts/Settlements/Application/Ports/ISettlementAuditLog';
+import { ISettlementRates } from '@Contexts/Settlements/Application/Ports/ISettlementRates';
 import { ISettlementBookRepository } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBookRepository';
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 
 /**
- * A signed-in member of a group records a payment in cash they received from another member: the caller is the payee, and the
- * operation answers the settlement's id. For anyone who is not a member the group does not exist. The book decides the rule, on
+ * A signed-in member of a group records a payment in cash they received from another member: the caller is the payee, and the operation
+ * answers the settlement's id. For anyone who is not a member the group does not exist. A payment in another currency is decided at the
+ * rate the rates service offers on the day, asked here and taken by the book; with none, nothing is kept. The book decides the rule, on
  * the payer's and the payee's balances as they are read inside this transaction (which holds the file, so a settlement recorded
  * at the same moment is read as the other left it). The settlement is stored with the book's new version, in the same transaction,
  * and its event is published after the commit. Its money is audited in that transaction too, by the payee who recorded it (request 28).
@@ -23,6 +26,7 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
     private balances: IGroupBalances,
     private clock: Clock,
     private audit: ISettlementAuditLog,
+    private rates: ISettlementRates,
   ) {
     super();
   }
@@ -36,13 +40,16 @@ export class RecordCashSettlementCommandHandler extends CommandHandler<RecordCas
     if (!members.includes(caller.data.value)) {
       return Result.fail(new NotFoundException('Settlements', 'Group not found', { id: payload.groupId }));
     }
+    const currency = await this.members.currencyOf(payload.groupId);
+    if (currency === null)
+      return Result.fail(new NotFoundException('Settlements', 'Group not found', { id: payload.groupId }));
 
     const book = (await this.books.findByGroupId(groupId)) ?? SettlementBook.open(groupId);
     const now = this.clock();
     const recorded = book.recordCash({
       payer: new Id(payload.from),
       payee: caller.data,
-      amount: payload.amount,
+      paid: await paidInOf(payload.money, currency, this.rates, now),
       payerIsMember: members.includes(payload.from),
       payeeIsMember: true,
       payerBalance: await this.balances.balanceOf(payload.groupId, payload.from),

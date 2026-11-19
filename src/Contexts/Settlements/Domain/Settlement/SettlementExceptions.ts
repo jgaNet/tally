@@ -143,3 +143,37 @@ export class ProviderFeeInvalid extends SettlementsException {
     super('ProviderFeeInvalid', "The payment provider's fee is a whole number, 0 or more, less than the amount");
   }
 }
+
+/** A payment in another currency is in one of Tally's currencies: EUR, USD, GBP, CHF, CAD or AUD (request 39). */
+export class InvalidOriginalCurrency extends SettlementsException {
+  constructor() {
+    super('InvalidOriginalCurrency', 'A currency is one of EUR, USD, GBP, CHF, CAD or AUD');
+  }
+}
+
+/** A payment in another currency is in a currency other than its group's: the group's own is paid as an amount (request 39). */
+export class SameCurrencyAsTheGroup extends SettlementsException {
+  constructor() {
+    super(
+      'SameCurrencyAsTheGroup',
+      'A payment in another currency is in a currency other than the currency of the group',
+    );
+  }
+}
+
+/** A payment in another currency is a whole number of its hundredths, from 1 to 100 000 000 (request 39). */
+export class InvalidOriginalAmount extends SettlementsException {
+  constructor() {
+    super(
+      'InvalidOriginalAmount',
+      'An amount in another currency is a whole number of its hundredths, from 1 to 100 000 000',
+    );
+  }
+}
+
+/** A payment in another currency is decided at the rate the rates service offers that day; when it offers none, nothing is kept (request 39). */
+export class NoRateOffered extends SettlementsException {
+  constructor() {
+    super('NoRateOffered', 'The rates service offers no rate for that currency on that day');
+  }
+}

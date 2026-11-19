@@ -82,7 +82,7 @@ export class NetDebtsCommandHandler extends CommandHandler<NetDebtsCommandEvent>
         by,
         payer: planned.payer,
         payee: planned.payee,
-        amount: planned.amount,
+        paid: { amount: planned.amount },
         payerIsMember: true,
         payeeIsMember: true,
         payerBalance: payerIsCaller ? callerBalance : otherBalance,

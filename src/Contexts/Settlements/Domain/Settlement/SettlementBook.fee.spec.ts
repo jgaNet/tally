@@ -11,7 +11,7 @@ const payee = new Id('ann');
 const decision = (amount: number, owed = 300): Decision => ({
   payer,
   payee,
-  amount,
+  paid: { amount },
   payerIsMember: true,
   payeeIsMember: true,
   payerBalance: -owed,

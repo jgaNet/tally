@@ -8,6 +8,7 @@ import { PayThroughProviderCommandEvent } from '@Contexts/Settlements/Applicatio
 import { ReceivePaymentWebhookCommandEvent } from '@Contexts/Settlements/Application/Commands/ReceivePaymentWebhook';
 import { NetDebtsCommandEvent } from '@Contexts/Settlements/Application/Commands/NetDebts';
 import { RecordCashSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RecordCashSettlement';
+import { MoneyPayload } from '@Contexts/Settlements/Application/Commands/PaidIn';
 import { RefundSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/RefundSettlement';
 import { ContestSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/ContestSettlement';
 import { DecideContestCommandEvent } from '@Contexts/Settlements/Application/Commands/DecideContest';
@@ -20,6 +21,12 @@ import {
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
+
+/** The money a body gives: an amount in the group's currency, or what is paid in another currency (request 39). The transport has refused neither, nor both. */
+type MoneyBody = { amount: number } | { original: { currency: string; amount: number } };
+
+const moneyOf = (body: MoneyBody): MoneyPayload =>
+  'original' in body ? { original: body.original } : { amount: body.amount };
 
 export class FastifySettlementController {
   #module: Module;
@@ -37,28 +44,28 @@ export class FastifySettlementController {
   }
 
   async recordCash(
-    req: FastifyRequest<{ Params: { id: string }; Body: { from: string; amount: number } }>,
+    req: FastifyRequest<{ Params: { id: string }; Body: { from: string } & MoneyBody }>,
     reply: FastifyReply,
   ) {
-    const { from, amount } = req.body;
+    const { from } = req.body;
     return acceptCommand(
       req,
       reply,
       this.#module,
-      RecordCashSettlementCommandEvent.set({ groupId: req.params.id, from, amount }),
+      RecordCashSettlementCommandEvent.set({ groupId: req.params.id, from, money: moneyOf(req.body) }),
     );
   }
 
   async payThroughProvider(
-    req: FastifyRequest<{ Params: { id: string }; Body: { to: string; amount: number } }>,
+    req: FastifyRequest<{ Params: { id: string }; Body: { to: string } & MoneyBody }>,
     reply: FastifyReply,
   ) {
-    const { to, amount } = req.body;
+    const { to } = req.body;
     return acceptCommand(
       req,
       reply,
       this.#module,
-      PayThroughProviderCommandEvent.set({ groupId: req.params.id, to, amount }),
+      PayThroughProviderCommandEvent.set({ groupId: req.params.id, to, money: moneyOf(req.body) }),
     );
   }
 

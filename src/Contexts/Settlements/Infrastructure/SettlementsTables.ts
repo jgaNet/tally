@@ -91,4 +91,9 @@ export function createSettlementsTables(database: PostgresDatabase): void {
   database.declare('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS settled_amount INTEGER');
   database.declare('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_amount INTEGER');
   database.declare('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_borne_by TEXT');
+  // What a settlement was paid in, when it was paid in another currency (request 39): the currency, its amount in that currency's hundredths,
+  // and the rate it was decided at, as the rates service wrote it. A settlement in the group's currency keeps none of the three.
+  database.declare('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_currency TEXT');
+  database.declare('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_amount INTEGER');
+  database.declare('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_rate TEXT');
 }

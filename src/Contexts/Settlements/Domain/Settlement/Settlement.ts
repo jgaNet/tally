@@ -1,5 +1,7 @@
 import { Id } from '@Architecture/Domain';
 
+import { OriginalAmount } from '@Contexts/Settlements/Domain/Settlement/OriginalAmount';
+
 /** How a settlement is paid: in cash, recorded by its payee, through the payment provider, or by netting what two people owe each other across their groups (request 32). */
 export type SettlementMethod = 'cash' | 'provider' | 'net';
 
@@ -75,6 +77,8 @@ export class Settlement {
     history: readonly SettlementLine[],
     /** The provider's fee and who bore it, fixed when the payment was asked for; null for a settlement with no fee (a cash one, or one asked before request 38). */
     readonly fee: SettlementFee | null = null,
+    /** What the settlement was paid in, when it was paid in another currency, with the rate it was decided at (request 39); null in the group's currency. */
+    readonly original: OriginalAmount | null = null,
   ) {
     this.currentStatus = status;
     this.lines = [...history];
