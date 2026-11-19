@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeleted } from '../accounts/accounts';
 import { requireNotSuspended } from '../admin/suspensions';
 import { recordAudit } from '../audit/audit';
 import { balancesWithPendingOf } from '../balances/balances';
@@ -48,9 +49,9 @@ interface Planned {
  * other left.
  *
  * A suspended `byId` is refused with `AccountSuspended` before anything else. It is refused with `422` when `withId`
- * is the caller or `currency` is not one of Tally's, and with `409` when nothing can be netted, in which case nothing
- * changes. Each settlement is `net`, `paid` at once, and audited as a
- * `settlement-paid` by `byId`; it is never refunded.
+ * is the caller or `currency` is not one of Tally's, and with `409` when `withId` is a deleted account
+ * (`AccountDeleted`) or when nothing can be netted, in which case nothing changes. Each settlement is `net`, `paid` at
+ * once, and audited as a `settlement-paid` by `byId`; it is never refunded.
  */
 export function netAcross(db: Database, byId: string, withId: string, currency: string): Promise<string> {
   return inTransaction(db, async () => {
@@ -60,6 +61,13 @@ export function netAcross(db: Database, byId: string, withId: string, currency: 
     }
     if (!(CURRENCIES as readonly string[]).includes(currency)) {
       throw new Refusal(422, 'InvalidCurrency', `The currency must be one of ${CURRENCIES.join(', ')}.`);
+    }
+    if (await isDeleted(db, withId)) {
+      throw new Refusal(
+        409,
+        'AccountDeleted',
+        'The other member has deleted their account: nothing is netted with it.',
+      );
     }
     const shares = await sharesAcross(db, byId, withId, currency as Currency);
     const byTotal = sum(shares.map(share => share.byCanPay));

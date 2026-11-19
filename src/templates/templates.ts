@@ -64,11 +64,13 @@ function validateTemplate(input: TemplateInput, groupMembers: ReadonlySet<string
   };
 }
 
-/** The account ids of the members of `groupId`. */
+/** The account ids of the members of `groupId` a split may name: not those of a deleted account. */
 async function membersOfGroup(db: Database, groupId: string): Promise<Set<string>> {
-  const rows = await db.rows<{ account_id: string }>('SELECT account_id FROM memberships WHERE group_id = ?', [
-    groupId,
-  ]);
+  const rows = await db.rows<{ account_id: string }>(
+    `SELECT memberships.account_id FROM memberships JOIN accounts ON accounts.id = memberships.account_id
+      WHERE memberships.group_id = ? AND accounts.deleted_at IS NULL`,
+    [groupId],
+  );
   return new Set(rows.map(row => row.account_id));
 }
 

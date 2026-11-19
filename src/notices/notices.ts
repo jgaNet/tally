@@ -72,9 +72,12 @@ export interface BudgetPassing {
  * records or edits the expense that passed the budget, and only once for the group, category and month.
  */
 export async function recordBudgetNotices(db: Database, passing: BudgetPassing, at: string): Promise<void> {
-  const members = await db.rows<{ account_id: string }>('SELECT account_id FROM memberships WHERE group_id = ?', [
-    passing.groupId,
-  ]);
+  // A deleted account is told nothing: it is no longer a person Tally writes to.
+  const members = await db.rows<{ account_id: string }>(
+    `SELECT memberships.account_id FROM memberships JOIN accounts ON accounts.id = memberships.account_id
+      WHERE memberships.group_id = ? AND accounts.deleted_at IS NULL`,
+    [passing.groupId],
+  );
   for (const { account_id } of members) {
     await db.execute(
       `INSERT INTO notices (id, account_id, kind, group_id, expense_id, category, month, budget, amount, created_at)

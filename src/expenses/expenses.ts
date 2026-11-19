@@ -194,11 +194,16 @@ export async function insertExpense(
   return id;
 }
 
-/** The account ids of the members of `groupId`. */
+/**
+ * The account ids of the members of `groupId` a new split may name: not those of a deleted account, which stay members
+ * of the group but cannot be put in a new expense, nor in a recurring one.
+ */
 export async function memberIdsOf(db: Database, groupId: string): Promise<Set<string>> {
-  const rows = await db.rows<{ account_id: string }>('SELECT account_id FROM memberships WHERE group_id = ?', [
-    groupId,
-  ]);
+  const rows = await db.rows<{ account_id: string }>(
+    `SELECT memberships.account_id FROM memberships JOIN accounts ON accounts.id = memberships.account_id
+      WHERE memberships.group_id = ? AND accounts.deleted_at IS NULL`,
+    [groupId],
+  );
   return new Set(rows.map(row => row.account_id));
 }
 
@@ -381,9 +386,14 @@ export async function updateExpense(
     if (current.version !== version) {
       throw staleVersion();
     }
+    // An edit keeps the members the expense already names, deleted accounts included: only a new split may not name them.
+    const members = await memberIdsOf(db, current.groupId);
+    for (const memberId of [current.paidBy, ...current.shares.map(share => share.memberId)]) {
+      members.add(memberId);
+    }
     const expense = validateExpense(
       { ...input, split: await splitFor(db, current.groupId, input.split) },
-      await memberIdsOf(db, current.groupId),
+      members,
       current.paidBy,
       await currencyOfGroup(db, current.groupId),
       offer,

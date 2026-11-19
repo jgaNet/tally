@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { isDeleted } from '../accounts/accounts';
 import { recordAudit } from '../audit/audit';
 import { type Database, inTransaction } from '../database';
 import { requireNotSuspended } from '../admin/suspensions';
@@ -22,10 +23,10 @@ export interface ProviderConfig {
  * Asks the provider for a payment of `amount` in `groupId`'s currency, `payerId` paying `payeeId`, and
  * answers the settlement's id. The settlement is kept `pending` with the provider's `payUrl`.
  *
- * The rules are those of a cash settlement, with a payment waiting at the provider counting as paid. The
- * payee must have a payout account, which the provider is told: a payee with none is refused before the
- * provider is asked. The settlement is first held in a transaction, so a second request sees it; the
- * provider is then asked outside the transaction. When the provider does not answer `201 { id, payUrl }`
+ * The rules are those of a cash settlement, with a payment waiting at the provider counting as paid. A payee whose
+ * account is deleted is refused with `AccountDeleted`. The payee must have a payout account, which the provider is
+ * told: a payee with none is refused before the provider is asked. The settlement is first held in a transaction, so
+ * a second request sees it; the provider is then asked outside the transaction. When the provider does not answer `201 { id, payUrl }`
  * in time, the hold is removed and the request is refused: nothing is kept.
  */
 export async function requestProviderSettlement(
@@ -42,6 +43,13 @@ export async function requestProviderSettlement(
     await requireNotArchived(db, groupId);
     if (provider.url === '') {
       throw new Refusal(409, 'ProviderNotConfigured', 'Payment through the provider is not set up on this server.');
+    }
+    if (await isDeleted(db, payeeId)) {
+      throw new Refusal(
+        409,
+        'AccountDeleted',
+        'The payee has deleted their account: nothing is paid to it through the provider.',
+      );
     }
     await checkNewSettlement(db, groupId, payerId, payeeId, amount);
     // The payee's account as it is now: a payment asked for goes to the account set at that moment.

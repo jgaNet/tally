@@ -328,6 +328,12 @@ const migrations: readonly string[] = [
   ALTER TABLE admin_log ADD CONSTRAINT admin_log_action_check
     CHECK (action IN ('decided-paid', 'decided-annulled', 'suspended', 'reinstated'));
   `,
+  `
+  -- A deleted account keeps its id, where it stands in the groups, the expenses, the settlements, the audit and the
+  -- administrators' log. Its name and email are erased and its password gone, so nobody signs in as it: \`deleted_at\`
+  -- is when it was deleted, and the account is then no account for signing in or for a new split.
+  ALTER TABLE accounts ADD COLUMN deleted_at TEXT;
+  `,
 ];
 
 /** The database: every read and write Tally makes goes through it, to the PostgreSQL database it was opened on. */

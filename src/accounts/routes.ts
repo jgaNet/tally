@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireAccount } from '../auth';
 import type { Database } from '../database';
-import { createAccount, login } from './accounts';
+import { createAccount, deleteAccount, login } from './accounts';
 
 const credentialsBody = {
   type: 'object',
@@ -57,4 +57,10 @@ export function registerAccountRoutes(app: FastifyInstance, db: Database): void 
       return { id, email, name };
     },
   );
+
+  app.delete('/accounts/me', async (request, reply) => {
+    const account = await requireAccount(db, request);
+    await deleteAccount(db, account.id, new Date());
+    return reply.code(204).send();
+  });
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeleted } from '../accounts/accounts';
 import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
 
@@ -27,6 +28,10 @@ export async function sweepDebts(db: Database, at: Date, reminderPeriodMs: numbe
     const groupIds = (await db.rows<{ id: string }>('SELECT id FROM groups')).map(row => row.id);
     for (const groupId of groupIds) {
       for (const { memberId, balance } of await balancesWithPendingOf(db, groupId)) {
+        // A deleted account keeps its balance, and is told nothing of it.
+        if (await isDeleted(db, memberId)) {
+          continue;
+        }
         const owed = -balance;
         if (owed <= REMINDED_ABOVE) {
           await db.execute('DELETE FROM noted_debts WHERE group_id = ? AND account_id = ?', [groupId, memberId]);
