@@ -1,6 +1,12 @@
 import { IResult, Result } from '@Architecture/Domain';
 
-import { CURRENCIES, CurrencyCode } from '@SharedKernel/Domain/Currency';
+import {
+  CURRENCIES,
+  convertMinorUnits,
+  CurrencyCode,
+  RATE_SHAPE,
+  rateInMillionths,
+} from '@SharedKernel/Domain/Currency';
 
 import { OriginalAmountSnapshot } from '@Contexts/Ledger/Domain/Expense/DTOs';
 import {
@@ -13,7 +19,7 @@ import {
   UnknownCurrencyException,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 
-/** The largest amount of an expense, in whole units of the group's currency. */
+/** The largest amount of an expense, in whole minor units of the group's currency (docs/adr/0039). */
 export const MAX_EXPENSE_AMOUNT = 100_000_000;
 
 /**
@@ -24,8 +30,8 @@ export const MAX_EXPENSE_AMOUNT = 100_000_000;
 export type OfferedRate = { kind: 'offered'; rate: string } | { kind: 'none' } | { kind: 'unavailable' };
 
 /**
- * What was paid in another currency, as the payer gives it (request 21, request 22): its currency, its amount in hundredths, and its
- * rate as a string. The rate is left out when the expense takes the rate offered on its date (request 22).
+ * What was paid in another currency, as the payer gives it (request 21, request 22): its currency, its amount in that currency's minor
+ * unit, and its rate as a string. The rate is left out when the expense takes the rate offered on its date (request 22).
  */
 export interface OriginalAmountInput {
   currency: string;
@@ -46,18 +52,15 @@ export interface AmountInput {
   offered?: OfferedRate;
 }
 
-/** A rate, as a payer states it or a service offers it: a decimal number written as a string, with at most 6 digits after the point. */
-const RATE_SHAPE = /^\d+(\.\d{1,6})?$/;
-/** A rate is kept as an integer of millionths, so that its product with an amount is exact. */
-const MILLIONTHS = 1_000_000n;
 /** A rate may differ from the one offered by 2 % of the offered rate, at most (request 22). */
 const BAND_PERCENT = 2n;
 
 /**
- * What an expense was paid in when that was not the group's currency (request 21, the storm's hot spot 1, docs/adr/0020). It keeps
- * the currency, the amount in that currency's hundredths and the rate the expense is recorded at, the string. The expense's amount in
- * the group's currency is the amount times the rate, rounded to the nearest whole number, a half up: computed in integers, never in
- * floating point, so that `1000` at `"0.9545"` is `954.5`, which is `955`.
+ * What an expense was paid in when that was not the group's currency (request 21, the storm's hot spot 1, docs/adr/0020, docs/adr/0039).
+ * It keeps the currency, the amount in that currency's minor unit and the rate the expense is recorded at, the string. The expense's
+ * amount in the group's currency is the amount read in its currency's units, times the rate, written in the group's minor unit, rounded to
+ * the nearest whole number, a half up: computed in integers, never in floating point (`convertMinorUnits`), so that `1000` at `"0.9545"`
+ * is `955` in cents, and 10 000 yen at `"0.0062"` is `6200` in cents.
  *
  * `create()` decides the rate (request 22, docs/adr/0021) against the offer, and refuses a currency that is not one of Tally's, the
  * group's own, an amount that is not 1 to 100 000 000, and a rate that is not one the offer allows (`recordedRate`). `read()` checks
@@ -96,10 +99,9 @@ export class OriginalAmount {
     return Result.ok(new OriginalAmount(input.currency as CurrencyCode, input.amount, input.rate));
   }
 
-  /** The amount in the group's currency: the amount times the rate, rounded to the nearest whole number, a half rounded up. */
-  toGroupAmount(): number {
-    const scaled = BigInt(this.amount) * rateInMillionths(this.rate);
-    return Number((scaled + MILLIONTHS / 2n) / MILLIONTHS);
+  /** The amount in the group's currency's minor unit: the amount converted at the rate, rounded to the nearest whole number, a half up. */
+  toGroupAmount(groupCurrency: CurrencyCode): number {
+    return convertMinorUnits(this.amount, this.currency, this.rate, groupCurrency);
   }
 
   toSnapshot(): OriginalAmountSnapshot {
@@ -144,10 +146,4 @@ function withinBand(stated: string, offered: string): boolean {
   const b = rateInMillionths(offered);
   const difference = a > b ? a - b : b - a;
   return difference * 100n <= b * BAND_PERCENT;
-}
-
-/** The rate in millionths: `"12.5"` is 12 500 000. The rate is checked to be a decimal of at most 6 digits before this is read. */
-function rateInMillionths(rate: string): bigint {
-  const [whole, fraction = ''] = rate.split('.');
-  return BigInt(whole + fraction.padEnd(6, '0'));
 }

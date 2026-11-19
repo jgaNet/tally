@@ -1,3 +1,5 @@
+import { CurrencyCode } from '@SharedKernel/Domain/Currency';
+
 import { stillBalance } from '@Contexts/Settlements/Domain/Settlement/StillOwed';
 import { OutstandingDebt } from '@Contexts/Settlements/Domain/Settlement/DTOs';
 import { ISettlementQueries } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementQueries';
@@ -26,7 +28,11 @@ export class OutstandingDebtsOfLedger implements IOutstandingDebtQueries {
         const pending = waiting.find(member => member.memberId === memberId) ?? { memberId, paid: 0, received: 0 };
         const still = stillBalance(balance, pending);
         if (still >= 0 || (await this.members.isDeleted(memberId))) continue;
-        debts.push({ groupId, memberId, amount: -still });
+        // The group's currency is asked as the debtor, a current member of the group it owes in (docs/adr/0039): the group is answered to
+        // its members only, and a debt is owed by one of them. A member with no group answered is no debtor of it.
+        const group = await this.members.groupOf(memberId, groupId);
+        if (!group) continue;
+        debts.push({ groupId, memberId, amount: -still, currency: group.currency as CurrencyCode });
       }
     }
     return debts;

@@ -55,7 +55,7 @@ const splitOrTemplateBody = {
 };
 
 /**
- * What was paid in another currency, as a body gives it (request 21): its currency, its amount in hundredths and its rate as a
+ * What was paid in another currency, as a body gives it (request 21): its currency, its amount in its currency's minor unit and its rate as a
  * string. The rate may be left out, and the expense then takes the rate offered on its date (request 22). The shape only: whether
  * the currency is one of Tally's, the amount in range and the rate a decimal are the domain's.
  */

@@ -10,7 +10,7 @@ export interface ShareSnapshot {
 export type SplitKind = 'equal' | 'exact' | 'shares';
 
 /**
- * What an expense was paid in, when that was not the group's currency (request 21): the currency, the amount in its hundredths and the
+ * What an expense was paid in, when that was not the group's currency (request 21): the currency, the amount in its currency's minor unit and the
  * rate as the payer gave it, the string. The expense's `amount` is the group's, computed from these (docs/adr/0020).
  */
 export interface OriginalAmountSnapshot {

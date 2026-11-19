@@ -11,13 +11,13 @@ export class InvalidGroupNameException extends Exception {
   }
 }
 
-/** The currency is not one of the six a group may be in. */
+/** The currency is not one of the ten a group may be in (request 40). */
 export class InvalidCurrencyException extends Exception {
   constructor() {
     super({
       service: 'Groups',
       type: 'InvalidCurrency',
-      message: 'A group is in one of EUR, USD, GBP, CHF, CAD or AUD',
+      message: 'A group is in one of EUR, USD, GBP, CHF, CAD, AUD, JPY, KRW, KWD or BHD',
     });
   }
 }

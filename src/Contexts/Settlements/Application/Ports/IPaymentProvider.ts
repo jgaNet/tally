@@ -2,7 +2,7 @@ import { IResult } from '@Architecture/Domain';
 
 /**
  * The payment link the provider gave for a settlement: its id for the payment, the link where the payer pays (request 13), and the fee it
- * takes of the payment, a whole amount of 0 or more in the hundredths of the payment's currency (request 38).
+ * takes of the payment, a whole amount of 0 or more in the minor units of the payment's currency (request 38).
  */
 export interface PaymentLink {
   id: string;

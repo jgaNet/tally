@@ -7,7 +7,7 @@ describe("what a settlement is paid in, another currency than the group's (reque
     const original = OriginalPayment.decide({ currency: 'USD', amount: 1000 }, 'EUR', offered('0.9545'));
     expect(original.isSuccess()).toBe(true);
     // 1000 at 0.9545 is 954.5, which is 955: the half is rounded up, computed in integers.
-    expect(original.isSuccess() && original.data.groupAmountOf(1000)).toBe(955);
+    expect(original.isSuccess() && original.data.groupAmountOf(1000, 'EUR')).toBe(955);
     expect(original.isSuccess() && original.data.toSnapshot()).toEqual({
       currency: 'USD',
       amount: 1000,
@@ -18,12 +18,12 @@ describe("what a settlement is paid in, another currency than the group's (reque
   it('converts a fee at the same rate, the same way', () => {
     const original = OriginalPayment.decide({ currency: 'CHF', amount: 10000 }, 'EUR', offered('0.95'));
     if (original.isFailure()) throw original.error;
-    expect(original.data.groupAmountOf(300)).toBe(285);
-    expect(original.data.groupAmountOf(0)).toBe(0);
+    expect(original.data.groupAmountOf(300, 'EUR')).toBe(285);
+    expect(original.data.groupAmountOf(0, 'EUR')).toBe(0);
     // A rate of a whole number of 6 digits after the point is exact.
     const whole = OriginalPayment.decide({ currency: 'GBP', amount: 7 }, 'EUR', offered('2'));
     if (whole.isFailure()) throw whole.error;
-    expect(whole.data.groupAmountOf(7)).toBe(14);
+    expect(whole.data.groupAmountOf(7, 'EUR')).toBe(14);
   });
 
   it('refuses a currency that is not one of Tally', () => {

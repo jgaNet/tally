@@ -1,6 +1,12 @@
 import { IResult, Result } from '@Architecture/Domain';
 
-import { CURRENCIES, CurrencyCode } from '@SharedKernel/Domain/Currency';
+import {
+  convertMinorUnits,
+  CURRENCIES,
+  CurrencyCode,
+  RATE_SHAPE,
+  rateInMillionths,
+} from '@SharedKernel/Domain/Currency';
 
 import {
   InvalidOriginalAmountException,
@@ -9,7 +15,7 @@ import {
   UnknownOriginalCurrencyException,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 
-/** The largest amount paid in another currency, in the hundredths of that currency (request 39). */
+/** The largest amount paid in another currency, in the minor units of that currency (request 39, docs/adr/0039). */
 export const MAX_ORIGINAL_AMOUNT = 100_000_000;
 
 /**
@@ -19,29 +25,25 @@ export const MAX_ORIGINAL_AMOUNT = 100_000_000;
  */
 export type OfferedRate = { kind: 'offered'; rate: string } | { kind: 'none' };
 
-/** What a settlement is paid in, as a member asks for it (request 39): its currency and its amount in that currency's hundredths. */
+/** What a settlement is paid in, as a member asks for it (request 39): its currency and its amount in that currency's minor unit. */
 export interface OriginalPaymentInput {
   currency: string;
   amount: number;
 }
 
-/** What a settlement in another currency keeps (request 39): its currency, its amount in that currency's hundredths, and the rate it was decided at. */
+/** What a settlement in another currency keeps (request 39): its currency, its amount in that currency's minor unit, and the rate it was decided at. */
 export interface OriginalPaymentSnapshot {
   currency: string;
   amount: number;
   rate: string;
 }
 
-/** A rate, as a service offers it: a decimal number written as a string, with at most 6 digits after the point, greater than 0. */
-const RATE_SHAPE = /^\d+(\.\d{1,6})?$/;
-/** A rate is kept as an integer of millionths, so that its product with an amount is exact. */
-const MILLIONTHS = 1_000_000n;
-
 /**
  * What a settlement is paid in when that is not the group's currency (request 39, docs/adr/0038). It keeps the currency, the amount in that
- * currency's hundredths and the rate it was decided at, as the string the rates service wrote. An amount in the group's currency is the
- * amount times the rate, rounded to the nearest whole number, a half up, in integers: the same conversion as an expense in another currency
- * (request 21). The same value converts a provider's fee in the payment's currency (request 38).
+ * currency's minor unit and the rate it was decided at, as the string the rates service wrote. An amount in the group's currency is the
+ * amount read in its currency's units, times the rate, in the group's minor unit, rounded to the nearest whole number, a half up, in
+ * integers: the same conversion as an expense in another currency (request 21, docs/adr/0039). The same value converts a provider's fee in
+ * the payment's currency (request 38).
  *
  * `decide()` takes the rate as an input of the decision (DOMAIN-NON-DETERMINISM): the book asks for it before it decides, and refuses what
  * is not a currency of Tally, the group's own, an amount that is not 1 to 100 000 000, and a missing rate.
@@ -71,19 +73,15 @@ export class OriginalPayment {
     return Result.ok(new OriginalPayment(input.currency as CurrencyCode, input.amount, offered.rate));
   }
 
-  /** The amount in the group's currency for `hundredths` of this one: the amount times the rate, a half up, in the hundredths. */
-  groupAmountOf(hundredths: number): number {
-    const scaled = BigInt(hundredths) * rateInMillionths(this.rate);
-    return Number((scaled + MILLIONTHS / 2n) / MILLIONTHS);
+  /**
+   * The amount in the group's currency for `units` of this one, in its minor unit: the units times the rate, a half up, in the group's
+   * minor unit (docs/adr/0039).
+   */
+  groupAmountOf(units: number, groupCurrency: string): number {
+    return convertMinorUnits(units, this.currency, this.rate, groupCurrency as CurrencyCode);
   }
 
   toSnapshot(): OriginalPaymentSnapshot {
     return { currency: this.currency, amount: this.amount, rate: this.rate };
   }
-}
-
-/** The rate in millionths: `"12.5"` is 12 500 000. Only read once the rate is checked to be a decimal of at most 6 digits. */
-function rateInMillionths(rate: string): bigint {
-  const [whole, fraction = ''] = rate.split('.');
-  return BigInt(whole + fraction.padEnd(6, '0'));
 }

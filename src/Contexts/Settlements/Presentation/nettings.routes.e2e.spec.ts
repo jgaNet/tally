@@ -181,7 +181,7 @@ describe('a netting across groups', () => {
     await groupWith(ann, [bob]);
 
     expect((await net(ann.token, { with: ann.id, currency: 'EUR' })).body).toMatchObject({ type: 'NettingWithSelf' });
-    expect((await net(ann.token, { with: bob.id, currency: 'JPY' })).body).toMatchObject({
+    expect((await net(ann.token, { with: bob.id, currency: 'XXX' })).body).toMatchObject({
       type: 'UnsupportedNettingCurrency',
     });
     expect((await net(ann.token, { with: dan.id, currency: 'EUR' })).body).toMatchObject({ type: 'NothingToNet' });

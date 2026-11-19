@@ -22,13 +22,13 @@ export class InvalidAmountException extends Exception {
   }
 }
 
-/** What was paid in another currency is not an amount of 1 to 100 000 000 in that currency's hundredths (request 21). */
+/** What was paid in another currency is not an amount of 1 to 100 000 000 in that currency's minor unit (request 21). */
 export class InvalidOriginalAmountException extends Exception {
   constructor() {
     super({
       service: 'Ledger',
       type: 'InvalidOriginalAmount',
-      message: 'What was paid in another currency is an amount of 1 to 100000000, in hundredths of that currency',
+      message: 'What was paid in another currency is an amount of 1 to 100000000, in the minor unit of that currency',
     });
   }
 }

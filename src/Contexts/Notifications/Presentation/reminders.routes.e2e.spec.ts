@@ -58,6 +58,17 @@ async function remindersWhen(token: string, ready: (list: Notice[]) => boolean):
   return list;
 }
 
+/** A group in `currency`, the id it answers, with the joiner invited by the owner. */
+async function groupIn(currency: string, owner: { token: string }, joiner: { token: string }): Promise<string> {
+  const group = await http.request('POST', `${api}/groups`, { body: { name: 'Trip', currency }, token: owner.token });
+  const groupId = (group.body as { id: string }).id;
+  const invitation = await http.request('POST', `${api}/groups/${groupId}/invitations`, { token: owner.token });
+  await http.request('POST', `${api}/invitations/${(invitation.body as { id: string }).id}/accept`, {
+    token: joiner.token,
+  });
+  return groupId;
+}
+
 /** Ann paid `amount` split equally with Bob, so Bob owes half of it. */
 async function owedBy(ann: { token: string; id: string }, bob: { id: string }, groupId: string, amount: number) {
   await http.request('POST', `${api}/groups/${groupId}/expenses`, {
@@ -113,4 +124,33 @@ describe('Settlements → Notifications (OutstandingDebts)', () => {
     await new Promise(resolve => setTimeout(resolve, 1600));
     expect(await reminders(bob.token)).toEqual([]);
   }, 15000);
+});
+
+describe('Settlements → Notifications (OutstandingDebts), in the currency of the group (request 40)', () => {
+  it('reminds a member who owes more than 20 yen, with what is owed in yen', async () => {
+    const ann = await signedIn('reminders-yen-ann@example.com', 'Ann');
+    const bob = await signedIn('reminders-yen-bob@example.com', 'Bob');
+    const groupId = await groupIn('JPY', ann, bob);
+
+    // Bob owes half of 50 yen: 25 yen, more than 20 of the group's currency.
+    await owedBy(ann, bob, groupId, 50);
+
+    const list = await remindersWhen(bob.token, found => found.some(notice => notice.groupId === groupId));
+    expect(list.filter(notice => notice.groupId === groupId)).toEqual([
+      { id: expect.any(String), kind: 'reminder', groupId, amount: 25, at: expect.any(String) },
+    ]);
+  });
+
+  it("does not remind a member who owes 15 dinars, which is not more than 20 of the group's currency", async () => {
+    const ann = await signedIn('reminders-kwd-ann@example.com', 'Ann');
+    const bob = await signedIn('reminders-kwd-bob@example.com', 'Bob');
+    const groupId = await groupIn('KWD', ann, bob);
+
+    // Bob owes half of 30 dinars: 15.000 dinars, which is 15 000 thousandths, not more than 20 000.
+    await owedBy(ann, bob, groupId, 30000);
+
+    // Two periods and more of the job: a reminder would have been made by now.
+    await new Promise(resolve => setTimeout(resolve, 2500));
+    expect((await reminders(bob.token)).filter(notice => notice.groupId === groupId)).toEqual([]);
+  });
 });

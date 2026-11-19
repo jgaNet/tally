@@ -141,7 +141,7 @@ export interface PaidSettlement extends PendingSettlement {
 
 /**
  * What the provider answered for a reserved settlement: the link where the payer pays, the id the provider gave the payment, and the fee it
- * takes of the payment (request 38): a whole amount, 0 or more, in the hundredths of the payment's currency.
+ * takes of the payment (request 38): a whole amount, 0 or more, in the minor units of the payment's currency.
  */
 export interface ProviderPaymentLink {
   settlementId: string;
@@ -506,7 +506,7 @@ export class SettlementBook extends AggregateRoot {
     if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= paid) {
       return Result.fail(new ProviderFeeNotAcceptedException());
     }
-    const feeAmount = original ? original.groupAmountOf(link.fee) : link.fee;
+    const feeAmount = original ? original.groupAmountOf(link.fee, command.groupCurrency) : link.fee;
     if (feeAmount >= amount) return Result.fail(new ProviderFeeNotAcceptedException());
 
     const fee: SettlementFee = { amount: feeAmount, borneBy: this.#feeBorne };
@@ -750,7 +750,7 @@ export class SettlementBook extends AggregateRoot {
     if (amount !== undefined) return Result.fail(new InvalidSettlementAmountException());
     const decided = OriginalPayment.decide(original, groupCurrency, offered ?? { kind: 'none' });
     if (decided.isFailure()) return decided;
-    return Result.ok({ amount: decided.data.groupAmountOf(original.amount), original: decided.data });
+    return Result.ok({ amount: decided.data.groupAmountOf(original.amount, groupCurrency), original: decided.data });
   }
 
   /**

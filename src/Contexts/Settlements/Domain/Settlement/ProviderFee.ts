@@ -13,14 +13,14 @@ export const isFeeBorne = (value: unknown): value is FeeBorne => (FEE_BORNE as r
 
 /** What a settlement through the provider keeps of the provider's fee, asked for once: who bore it, and its amount (request 38). */
 export interface SettlementFee {
-  /** The fee the provider said, in the hundredths of the payment's currency. */
+  /** The fee the provider said, in the minor units of the payment's currency (docs/adr/0039). */
   amount: number;
   borneBy: FeeBorne;
 }
 
 /**
  * The part of the provider's fee its payer bears: all of it when the payer bears it, none when the payee does, and half of it when both
- * share it, rounded down: the payee bears the extra hundredth when the fee is odd (request 38).
+ * share it, rounded down: the payee bears the extra minor unit when the fee is odd (request 38).
  */
 export function payerShareOfFee(fee: number, borneBy: FeeBorne): number {
   switch (borneBy) {

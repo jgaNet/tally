@@ -3,18 +3,22 @@ import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { command, UseCase } from '@Architecture/Application/Lite/UseCase';
 import { Result } from '@Architecture/Domain';
 
-import { REMINDED_ABOVE } from '@Contexts/Notifications/Domain/Debt/DebtWatch';
+import { reminderAbove } from '@Contexts/Notifications/Domain/Debt/DebtWatch';
 import { IDebtWatchQueries, IDebtWatches } from '@Contexts/Notifications/Domain/Debt/Ports/IDebtWatches';
 import { IOutstandingDebts } from '@Contexts/Notifications/Domain/Debt/Ports/IOutstandingDebts';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 import { INotices } from '@Contexts/Notifications/Domain/Notice/Ports/INotices';
 import { INoticePreferences } from '@Contexts/Notifications/Domain/Preference/Ports/INoticePreferences';
 
-/** One member's debt in one group, as the sweep found it: `owed` is 0 when it owes nothing now (request 18). */
+/**
+ * One member's debt in one group, as the sweep found it: `owed` is 0 when it owes nothing now (request 18), and `above` is the amount the
+ * reminder is made above, in the group's currency's minor units (request 40), 0 for a member who owes nothing.
+ */
 export interface SweepInput {
   accountId: string;
   groupId: string;
   owed: number;
+  above: number;
   periodMs: number;
 }
 
@@ -26,12 +30,12 @@ export interface SweepInput {
 export const sweepDebt = command(
   'SweepDebt',
   (watches: IDebtWatches, notices: INotices, preferences: INoticePreferences, clock: Clock) =>
-    async ({ accountId, groupId, owed, periodMs }: SweepInput, context) => {
+    async ({ accountId, groupId, owed, above, periodMs }: SweepInput, context) => {
       const watch = await watches.get(accountId, groupId);
       const now = clock();
       // Reminders off (request 36): the debt is still noted, and not reminded; the reminder is made by the first run after they are on.
       const reminding = (await preferences.get(accountId)).isOn('reminder');
-      const outcome = watch.sweep(owed, now, periodMs, reminding);
+      const outcome = watch.sweep(owed, above, now, periodMs, reminding);
       if (outcome === 'none') return Result.ok(undefined);
       if (outcome === 'reminded') {
         const notice = Notice.remind({ accountId, groupId, amount: owed, at: now });
@@ -56,8 +60,9 @@ export interface DebtSweepPorts {
 const keyOf = (accountId: string, groupId: string) => `${groupId}\u0000${accountId}`;
 
 /**
- * One run of the background sweep (request 18, docs/adr/0018): every member who owes more than 2000 now, and every member whose debt
- * is noted (so that one which cleared is cleared, even when it owes nothing now), is decided on by `SweepDebt` in its own transaction.
+ * One run of the background sweep (request 18, docs/adr/0018): every member who owes more than the reminder's amount in its group's
+ * currency now (request 40), and every member whose debt is noted (so that one which cleared is cleared, even when it owes nothing now),
+ * is decided on by `SweepDebt` in its own transaction.
  * A member that fails is logged and the others go on; nothing is noted or reminded by a read.
  */
 export async function sweepDebts(
@@ -65,16 +70,20 @@ export async function sweepDebts(
   context: ExecutionContext,
 ): Promise<void> {
   const owing = await debts.outstandingDebts();
-  const owedBy = new Map(owing.map(debt => [keyOf(debt.memberId, debt.groupId), debt.amount]));
+  const owedBy = new Map(owing.map(debt => [keyOf(debt.memberId, debt.groupId), debt]));
   const members = new Map<string, { accountId: string; groupId: string }>();
   for (const debt of owing) {
-    if (debt.amount > REMINDED_ABOVE)
+    if (debt.amount > reminderAbove(debt.currency))
       members.set(keyOf(debt.memberId, debt.groupId), { accountId: debt.memberId, groupId: debt.groupId });
   }
   for (const watch of await watchQueries.noted()) members.set(keyOf(watch.accountId, watch.groupId), watch);
 
   for (const [key, { accountId, groupId }] of members) {
-    const result = await sweep.run({ accountId, groupId, owed: owedBy.get(key) ?? 0, periodMs }, context);
+    const debt = owedBy.get(key);
+    const owed = debt?.amount ?? 0;
+    // A member who owes nothing is cleared whatever the threshold, so none is read for it.
+    const above = debt === undefined ? 0 : reminderAbove(debt.currency);
+    const result = await sweep.run({ accountId, groupId, owed, above, periodMs }, context);
     if (result.isFailure())
       context.logger?.error(`The sweep of a debt failed for ${accountId} in ${groupId}`, result.error);
   }

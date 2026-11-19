@@ -149,7 +149,7 @@ export class OriginalCurrencyIsGroupCurrencyException extends Exception {
   }
 }
 
-/** The amount paid in another currency is not a whole number of 1 to 100 000 000 hundredths (request 39), `422`. */
+/** The amount paid in another currency is not a whole number of 1 to 100 000 000 minor units of its currency (request 39), `422`. */
 export class InvalidOriginalAmountException extends Exception {
   constructor() {
     super({

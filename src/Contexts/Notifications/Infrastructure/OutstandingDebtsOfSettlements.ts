@@ -11,6 +11,6 @@ export class OutstandingDebtsOfSettlements implements IOutstandingDebts {
 
   async outstandingDebts(): Promise<OutstandingDebt[]> {
     const debts = await this.settlements.outstandingDebts();
-    return debts.map(({ groupId, memberId, amount }) => ({ groupId, memberId, amount }));
+    return debts.map(({ groupId, memberId, amount, currency }) => ({ groupId, memberId, amount, currency }));
   }
 }

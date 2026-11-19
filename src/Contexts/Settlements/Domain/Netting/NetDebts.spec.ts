@@ -84,7 +84,7 @@ describe('a netting between two members', () => {
   it('refuses a netting with oneself, and a currency that is not one of Tally', () => {
     const flat = group('flat', { ann: -100, bob: 100 });
     expect(refusedBy(netting([flat], { with: 'ann' }))).toBe('NettingWithSelf');
-    expect(refusedBy(netting([flat], { currency: 'JPY' }))).toBe('UnsupportedNettingCurrency');
+    expect(refusedBy(netting([flat], { currency: 'XXX' }))).toBe('UnsupportedNettingCurrency');
     expect(flat.book.recorded).toEqual([]);
   });
 

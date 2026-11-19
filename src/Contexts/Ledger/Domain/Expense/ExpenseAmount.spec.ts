@@ -11,7 +11,7 @@ const offer = (rate: string): OfferedRate => ({ kind: 'offered', rate });
 
 describe('OriginalAmount.toGroupAmount, the amount in the group currency (request 21)', () => {
   const converted = (amount: number, rate: string) =>
-    OriginalAmount.create({ currency: 'CHF', amount, rate }, 'EUR', UNAVAILABLE).data?.toGroupAmount();
+    OriginalAmount.create({ currency: 'CHF', amount, rate }, 'EUR', UNAVAILABLE).data?.toGroupAmount('EUR');
 
   it('is the amount times the rate, rounded to the nearest whole number', () => {
     expect(converted(1234, '1.0625')).toBe(1311); // 1311.125
@@ -87,7 +87,7 @@ describe('the rate an expense in another currency is recorded at (request 22, do
     expect(recordedRate(undefined, offer('0.95')).data).toBe('0.95');
     const paid = OriginalAmount.create({ currency: 'USD', amount: 1000 }, 'EUR', offer('0.9545'));
     expect(paid.data?.rate).toBe('0.9545');
-    expect(paid.data?.toGroupAmount()).toBe(955);
+    expect(paid.data?.toGroupAmount('EUR')).toBe(955);
   });
 
   it('refuses a rate left out with no rate offered, by name: an expense is never recorded at no rate', () => {

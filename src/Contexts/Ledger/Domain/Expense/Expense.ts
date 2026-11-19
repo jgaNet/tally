@@ -1,5 +1,5 @@
 import { AggregateRoot, Id, IResult, NotAllowedException, Result } from '@Architecture/Domain';
-import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountSuspendedException, CurrencyCode, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { AuditEntryView } from '@Contexts/Ledger/Domain/Audit/DTOs';
 import {
@@ -274,8 +274,7 @@ export class Expense extends AggregateRoot {
       !SPLIT_KINDS.includes(snapshot.splitKind) ||
       split.total !== snapshot.amount ||
       snapshot.shares.length === 0 ||
-      original?.isFailure() ||
-      (original !== undefined && original.data?.toGroupAmount() !== snapshot.amount)
+      original?.isFailure()
     ) {
       throw new Error(`The expense ${snapshot.id} is corrupted in the store`);
     }
@@ -439,7 +438,7 @@ function amountOf({
   if (amount !== undefined || groupCurrency === undefined) return Result.fail(new InvalidAmountException());
   const paid = OriginalAmount.create(original, groupCurrency, offered ?? { kind: 'none' });
   if (paid.isFailure()) return paid;
-  const inGroupCurrency = paid.data.toGroupAmount();
+  const inGroupCurrency = paid.data.toGroupAmount(groupCurrency as CurrencyCode);
   if (inGroupCurrency < 1 || inGroupCurrency > MAX_EXPENSE_AMOUNT) return Result.fail(new InvalidAmountException());
   return Result.ok({ amount: inGroupCurrency, original: paid.data });
 }

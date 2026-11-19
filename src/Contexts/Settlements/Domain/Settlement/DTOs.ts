@@ -1,3 +1,5 @@
+import { CurrencyCode } from '@SharedKernel/Domain/Currency';
+
 import { SettlementFee } from '@Contexts/Settlements/Domain/Settlement/ProviderFee';
 
 /**
@@ -81,12 +83,13 @@ export interface WaitingMember {
 
 /**
  * What a member of a group still owes, counting the payments waiting at the provider as paid (request 18, docs/adr/0018): `amount`
- * is positive, and a member who owes nothing is not listed.
+ * is positive, in the minor units of the group's `currency` (docs/adr/0039), and a member who owes nothing is not listed.
  */
 export interface OutstandingDebt {
   groupId: string;
   memberId: string;
   amount: number;
+  currency: CurrencyCode;
 }
 
 /**

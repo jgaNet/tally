@@ -6,7 +6,7 @@ feature: currency-precision
 intent: >-
   Ten currencies, each with its own minor unit — none, hundredths or thousandths; every amount in its currency's minor unit, conversions by what one unit of each is worth, and every amount kept before read as it was.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where is a currency's minor unit?

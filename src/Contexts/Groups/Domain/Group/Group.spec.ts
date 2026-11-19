@@ -29,10 +29,10 @@ describe('GroupName', () => {
 });
 
 describe('Currency', () => {
-  it('is one of the six currencies, and nothing else', () => {
+  it('is one of the ten currencies, and nothing else (request 40)', () => {
     for (const code of CURRENCIES) expect(Currency.create(code).data?.value).toBe(code);
-    expect(CURRENCIES).toEqual(['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD']);
-    expect(Currency.create('JPY').error).toBeInstanceOf(InvalidCurrencyException);
+    expect(CURRENCIES).toEqual(['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD']);
+    expect(Currency.create('XYZ').error).toBeInstanceOf(InvalidCurrencyException);
     expect(Currency.create('eur').error).toBeInstanceOf(InvalidCurrencyException);
   });
 });
@@ -54,7 +54,7 @@ describe('Group', () => {
 
   it('refuses a name or a currency the rules refuse, and records nothing', () => {
     const badName = Group.register({ name: '  ', currency: 'EUR', ownerId: 'ada', at: AT });
-    const badCurrency = Group.register({ name: 'Lisbon', currency: 'JPY', ownerId: 'ada', at: AT });
+    const badCurrency = Group.register({ name: 'Lisbon', currency: 'XYZ', ownerId: 'ada', at: AT });
 
     expect(badName.error).toBeInstanceOf(InvalidGroupNameException);
     expect(badCurrency.error).toBeInstanceOf(InvalidCurrencyException);

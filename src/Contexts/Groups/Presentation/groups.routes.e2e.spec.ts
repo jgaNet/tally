@@ -54,7 +54,7 @@ describe('groups', () => {
       status: 422,
       body: { type: 'InvalidGroupName' },
     });
-    expect(await createGroup(ada.token, { name: 'Flat', currency: 'JPY' })).toMatchObject({
+    expect(await createGroup(ada.token, { name: 'Flat', currency: 'XYZ' })).toMatchObject({
       status: 422,
       body: { type: 'InvalidCurrency' },
     });
