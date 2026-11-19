@@ -5,7 +5,7 @@ feature: settle-in-another-currency
 intent: >-
   A settlement in cash or through the provider is paid in another currency, at the rate the rates service offers when it is decided, kept on it; it counts its amount in the group's currency, whatever the rate later.
 
-done: false
+done: true
 
 hotSpots:
   - question: Who asks the rates service, for Settlements?
