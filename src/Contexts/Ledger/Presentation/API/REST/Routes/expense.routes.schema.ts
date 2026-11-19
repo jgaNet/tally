@@ -1,3 +1,4 @@
+import { CURRENCY_CODES } from '@SharedKernel/Domain';
 /** What an expense is filed under (request 24): a string here; whether it is one of the list is the domain's to decide. */
 const CategoryField = { type: 'string' } as const;
 
@@ -38,7 +39,7 @@ const OriginalSchema = {
   type: 'object',
   required: ['currency', 'amount', 'rate'],
   properties: {
-    currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+    currency: { enum: [...CURRENCY_CODES] },
     amount: { type: 'integer', minimum: 1 },
     rate: { type: 'string', pattern: '^\\d+(\\.\\d{1,6})?$' },
   },

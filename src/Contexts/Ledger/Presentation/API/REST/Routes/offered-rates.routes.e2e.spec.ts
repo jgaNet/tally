@@ -164,7 +164,7 @@ describe('the rate offered', () => {
 
   it.each([
     ['the group’s own currency', 'EUR'],
-    ['a currency that is not Tally’s', 'JPY'],
+    ['a currency that is not Tally’s', 'XXX'],
     ['a currency with no rate offered', 'CAD'],
     ['a rate of 0', 'GBP'],
     ['a service that fails', 'AUD'],

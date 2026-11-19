@@ -66,7 +66,7 @@ describe('creating a group', () => {
     ['an empty name', { name: '', currency: 'EUR' }, 'InvalidGroupName'],
     ['a name of spaces', { name: '   ', currency: 'EUR' }, 'InvalidGroupName'],
     ['a name of 61 characters', { name: 'a'.repeat(61), currency: 'EUR' }, 'InvalidGroupName'],
-    ['a currency not in the list', { name: 'Trip', currency: 'JPY' }, 'InvalidCurrency'],
+    ['a currency not in the list', { name: 'Trip', currency: 'XXX' }, 'InvalidCurrency'],
     ['a currency in lower case', { name: 'Trip', currency: 'eur' }, 'InvalidCurrency'],
   ])('refuses %s, behind the 202', async (_, body, type) => {
     const alice = await person('Refused');

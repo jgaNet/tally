@@ -123,6 +123,13 @@ export interface SettlementDecision {
   members: readonly string[];
 }
 
+/** What a settlement is priced at: its amount in the group's currency, and, when it was paid in another, what it was paid in. */
+interface PricedSettlement {
+  readonly amount: number;
+  readonly original?: OriginalAmountSnapshot;
+  readonly groupCurrency?: string;
+}
+
 /** A payment through the provider the book checked and will keep once the provider has given its link (ADR 8). */
 export interface PaymentProposal extends SettlementDecision {
   /** The settlement's id, which is the reference the provider is asked with. */
@@ -131,6 +138,8 @@ export interface PaymentProposal extends SettlementDecision {
   readonly payeeAccount: string;
   /** What the payment is asked in, when it is another currency than the group's, with the rate decided on (request 39). */
   readonly original?: OriginalAmountSnapshot;
+  /** The group's currency, when the payment is in another one: the provider's fee, in the payment's minor unit, is converted into it. */
+  readonly groupCurrency?: string;
 }
 
 /** A refund the book checked, to ask the provider for: the settlement it refunds, and the payment's id at the provider. */
@@ -341,7 +350,7 @@ export class SettlementBook extends AggregateRoot {
       amount: priced.data.amount,
       id: Id.generate(),
       payeeAccount,
-      ...(priced.data.original && { original: priced.data.original }),
+      ...(priced.data.original && { original: priced.data.original, groupCurrency: priced.data.groupCurrency }),
     });
   }
 
@@ -364,7 +373,11 @@ export class SettlementBook extends AggregateRoot {
     if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= paid) {
       return Result.fail(new ProviderFeeOutOfRange());
     }
-    const groupFee = proposal.original ? OriginalAmount.fromSnapshot(proposal.original).convert(link.fee) : link.fee;
+    let groupFee = link.fee;
+    if (proposal.original) {
+      if (proposal.groupCurrency === undefined) throw new Error('A payment in another currency has no group currency');
+      groupFee = OriginalAmount.fromSnapshot(proposal.original).convert(link.fee, proposal.groupCurrency);
+    }
     if (groupFee >= proposal.amount) return Result.fail(new ProviderFeeOutOfRange());
     const fee: SettlementFee = { amount: groupFee, borneBy: this.#feePolicy };
     const settlement = this.#keep({
@@ -592,14 +605,18 @@ export class SettlementBook extends AggregateRoot {
    * another currency, decided on the rate the rates service offered for its day (none, or no service, is refused by name). Its
    * amount in the group's currency is the original amount times that rate, a half rounded up; the rate is kept with it.
    */
-  #price({ amount, original }: SettlementPriceInput): IResult<{ amount: number; original?: OriginalAmountSnapshot }> {
+  #price({ amount, original }: SettlementPriceInput): IResult<PricedSettlement> {
     if (original === undefined) {
       if (amount === undefined) return Result.fail(new InvalidSettlementAmount());
       return Result.ok({ amount });
     }
     const decided = OriginalAmount.decide(original);
     if (decided.isFailure()) return decided;
-    return Result.ok({ amount: decided.data.amountInGroupCurrency(), original: decided.data.snapshot() });
+    return Result.ok({
+      amount: decided.data.amountInGroupCurrency(original.groupCurrency),
+      original: decided.data.snapshot(),
+      groupCurrency: original.groupCurrency,
+    });
   }
 
   /** The refusal of a settlement on these balances, or none: the rules of a settlement, on what is still owed. */

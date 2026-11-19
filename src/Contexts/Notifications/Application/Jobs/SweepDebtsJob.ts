@@ -1,9 +1,9 @@
 import { Clock, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture/Domain';
 import { DebtWatch } from '@Contexts/Notifications/Domain/Debt/DebtWatch';
-import { DEBT_THRESHOLD } from '@Contexts/Notifications/Domain/Debt/Threshold';
+import { debtThresholdOf } from '@Contexts/Notifications/Domain/Debt/Threshold';
 import { IDebtWatchRepository } from '@Contexts/Notifications/Domain/Debt/Ports/IDebtWatchRepository';
-import { IOutstandingDebts, OutstandingDebt } from '@Contexts/Notifications/Domain/Debt/Ports/IOutstandingDebts';
+import { IOutstandingDebts } from '@Contexts/Notifications/Domain/Debt/Ports/IOutstandingDebts';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 import { INoticeRepository } from '@Contexts/Notifications/Domain/Notice/Ports/INoticeRepository';
 import { INoticePreferenceRepository } from '@Contexts/Notifications/Domain/Preference/Ports/INoticePreferenceRepository';
@@ -22,6 +22,14 @@ import { NoticePreferences } from '@Contexts/Notifications/Domain/Preference/Not
  * A reminder is made only to a member who turned reminders on (request 36, ADR 27). Turned off, the watch keeps the noting and
  * no reminder is counted as made, so the first run after they are on again reminds a member who still owes.
  */
+/** A debt the run decides on: what the member owes, and the threshold of the group's currency it is over (request 40). */
+interface WatchedDebt {
+  groupId: string;
+  memberId: string;
+  owed: number;
+  threshold: number;
+}
+
 export class SweepDebtsJob {
   static readonly CONFLICT_ATTEMPTS = 3;
 
@@ -36,11 +44,15 @@ export class SweepDebtsJob {
 
   async run(context: ExecutionContext): Promise<IResult<unknown>> {
     const at = this.clock();
-    const seen = new Map<string, OutstandingDebt>();
-    for (const debt of await this.debts.outstandingDebts()) seen.set(keyOf(debt), debt);
-    // A member noted but owing nothing any more is seen at 0, so that the noting is cleared (a member who left, too).
+    const seen = new Map<string, WatchedDebt>();
+    for (const debt of await this.debts.outstandingDebts()) {
+      const { groupId, memberId, owed, currency } = debt;
+      seen.set(keyOf(debt), { groupId, memberId, owed, threshold: debtThresholdOf(currency) });
+    }
+    // A member noted but owing nothing any more is seen at 0, so that the noting is cleared (a member who left, too). Owing
+    // nothing is under every threshold, so the threshold given is 0: it does not depend on a currency this run does not read.
     for (const noted of await this.watches.notedMembers()) {
-      if (!seen.has(keyOf(noted))) seen.set(keyOf(noted), { ...noted, owed: 0 });
+      if (!seen.has(keyOf(noted))) seen.set(keyOf(noted), { ...noted, owed: 0, threshold: 0 });
     }
 
     for (const debt of seen.values()) {
@@ -58,7 +70,7 @@ export class SweepDebtsJob {
   }
 
   /** One member, decided in a transaction of its own, again from a fresh read when another run lost the race. */
-  private async decide(debt: OutstandingDebt, at: Date, context: ExecutionContext): Promise<IResult<unknown>> {
+  private async decide(debt: WatchedDebt, at: Date, context: ExecutionContext): Promise<IResult<unknown>> {
     for (let attempt = 1; ; attempt++) {
       const result = await context.withTransaction(() => this.decideInTransaction(debt, at, context));
       const conflict = result.isFailure() && result.error instanceof ConcurrencyConflictException;
@@ -66,30 +78,32 @@ export class SweepDebtsJob {
     }
   }
 
-  private async decideInTransaction(
-    debt: OutstandingDebt,
-    at: Date,
-    context: ExecutionContext,
-  ): Promise<IResult<unknown>> {
+  private async decideInTransaction(debt: WatchedDebt, at: Date, context: ExecutionContext): Promise<IResult<unknown>> {
     const groupId = new Id(debt.groupId);
     const memberId = new Id(debt.memberId);
     const watch = await this.watches.findByMember(groupId, memberId);
 
     if (watch === null) {
       // Nothing noted and nothing over the threshold: nothing to keep.
-      if (debt.owed <= DEBT_THRESHOLD) return Result.ok();
-      const created = DebtWatch.create({ groupId, memberId, owed: debt.owed, at });
+      if (debt.owed <= debt.threshold) return Result.ok();
+      const created = DebtWatch.create({ groupId, memberId, owed: debt.owed, at, threshold: debt.threshold });
       if (created.isFailure()) return created;
       return this.save(created.data, context);
     }
 
     const remind = NoticePreferences.wants(await this.preferences.findByMember(memberId), 'reminder');
-    const step = watch.observe({ owed: debt.owed, at, period: this.reminderPeriodMs, remind });
+    const step = watch.observe({
+      owed: debt.owed,
+      at,
+      period: this.reminderPeriodMs,
+      remind,
+      threshold: debt.threshold,
+    });
     if (step === 'unchanged') return Result.ok();
     const saved = await this.save(watch, context);
     if (saved.isFailure() || step === 'changed') return saved;
 
-    const notice = Notice.createReminder({ memberId, groupId, amount: debt.owed, at });
+    const notice = Notice.createReminder({ memberId, groupId, amount: debt.owed, at, threshold: debt.threshold });
     if (notice.isFailure()) return notice;
     const stored = await this.notices.save(notice.data);
     if (stored.isFailure()) return stored;

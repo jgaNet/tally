@@ -5,7 +5,6 @@ import {
   ReminderIssuedEvent,
 } from '@Contexts/Notifications/Domain/Debt/Events/DebtEvents';
 import { DebtNotOverThreshold } from '@Contexts/Notifications/Domain/Debt/DebtExceptions';
-import { DEBT_THRESHOLD } from '@Contexts/Notifications/Domain/Debt/Threshold';
 
 /** What one run of the sweep did to a member's watch: nothing, a change of its noting, or a reminder to make now. */
 export type WatchStep = 'unchanged' | 'changed' | 'reminded';
@@ -37,19 +36,24 @@ export class DebtWatch extends AggregateRoot {
     super(id, version);
   }
 
-  /** A member seen over the threshold for the first time: noted from this run, and DebtNoted recorded. */
+  /**
+   * A member seen over the threshold (`threshold`, the group's currency's, request 40) for the first time: noted from this run, and
+   * DebtNoted recorded.
+   */
   static create({
     groupId,
     memberId,
     owed,
     at,
+    threshold,
   }: {
     groupId: Id;
     memberId: Id;
     owed: number;
     at: Date;
+    threshold: number;
   }): IResult<DebtWatch> {
-    if (owed <= DEBT_THRESHOLD) return Result.fail(new DebtNotOverThreshold());
+    if (owed <= threshold) return Result.fail(new DebtNotOverThreshold());
     const id = Id.generate();
     const watch = new DebtWatch(id, 0, groupId, memberId, at, null);
     watch.record(
@@ -88,8 +92,20 @@ export class DebtWatch extends AggregateRoot {
    * due but not wanted (`remind` false: the member turned reminders off) is not made, and counts as made by no one, so it is
    * still due at the first run that finds reminders on.
    */
-  observe({ owed, at, period, remind }: { owed: number; at: Date; period: number; remind: boolean }): WatchStep {
-    if (owed <= DEBT_THRESHOLD) {
+  observe({
+    owed,
+    at,
+    period,
+    remind,
+    threshold,
+  }: {
+    owed: number;
+    at: Date;
+    period: number;
+    remind: boolean;
+    threshold: number;
+  }): WatchStep {
+    if (owed <= threshold) {
       if (this.notedSince === null) return 'unchanged';
       this.notedSince = null;
       this.record(

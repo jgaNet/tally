@@ -24,7 +24,7 @@ describe('Currency', () => {
     expect(currency(value).isFailure()).toBe(false);
   });
 
-  it.each(['JPY', 'eur', ''])('refuses %j with InvalidCurrency', value => {
+  it.each(['XXX', 'eur', ''])('refuses %j with InvalidCurrency', value => {
     const result = currency(value);
     expect(result.isFailure() && result.error.type).toBe('InvalidCurrency');
   });
@@ -65,7 +65,7 @@ describe('Group', () => {
 
   it('refuses corrupted data by throwing', () => {
     const snapshot = create().toSnapshot();
-    expect(() => Group.fromSnapshot({ ...snapshot, currency: 'JPY' })).toThrow('Corrupted group');
+    expect(() => Group.fromSnapshot({ ...snapshot, currency: 'XXX' })).toThrow('Corrupted group');
     expect(() => Group.fromSnapshot({ ...snapshot, members: [] })).toThrow('Corrupted group');
   });
 

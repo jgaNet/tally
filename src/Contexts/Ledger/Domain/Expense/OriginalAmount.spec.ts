@@ -7,7 +7,7 @@ const paid = (amount: number, rate: string, currency = 'USD') =>
 /** The amount in the group's currency, as a number, of an expense that is accepted. */
 const converted = (amount: number, rate: string, currency = 'USD') => {
   const original = paid(amount, rate, currency).data!;
-  return original.amountInGroupCurrency().data!.value;
+  return original.amountInGroupCurrency('EUR').data!.value;
 };
 
 describe('OriginalAmount: the amount in the group currency', () => {
@@ -24,7 +24,7 @@ describe('OriginalAmount: the amount in the group currency', () => {
 
   it('rounds down what is below a half', () => {
     expect(converted(1000, '0.9544')).toBe(954);
-    expect(paid(1, '0.49999').data!.amountInGroupCurrency().error?.type).toBe('InvalidAmount');
+    expect(paid(1, '0.49999').data!.amountInGroupCurrency('EUR').error?.type).toBe('InvalidAmount');
   });
 
   it('is exact where a float would not be: 7 at 0.142857 is 0.999999, so 1', () => {
@@ -39,9 +39,9 @@ describe('OriginalAmount: the amount in the group currency', () => {
 
   it('refuses a converted amount that is not from 1 to 100 000 000, as any amount is', () => {
     const big = paid(100_000_000, '2').data!;
-    expect(big.amountInGroupCurrency().isFailure()).toBe(true);
-    expect(big.amountInGroupCurrency().error?.type).toBe('InvalidAmount');
-    expect(paid(1, '0.4').data!.amountInGroupCurrency().isFailure()).toBe(true);
+    expect(big.amountInGroupCurrency('EUR').isFailure()).toBe(true);
+    expect(big.amountInGroupCurrency('EUR').error?.type).toBe('InvalidAmount');
+    expect(paid(1, '0.4').data!.amountInGroupCurrency('EUR').isFailure()).toBe(true);
   });
 
   it('keeps the rate as the string it was given', () => {
@@ -66,7 +66,7 @@ describe('OriginalAmount: what is refused, by name', () => {
   });
 
   it('refuses a currency that is not one of Tally’s as InvalidOriginalCurrency', () => {
-    expect(paid(10, '1', 'JPY').error?.type).toBe('InvalidOriginalCurrency');
+    expect(paid(10, '1', 'XXX').error?.type).toBe('InvalidOriginalCurrency');
   });
 
   it.each([0, -5, 100_000_001, 1.5])('refuses the amount %p as InvalidOriginalAmount', amount => {
@@ -74,7 +74,7 @@ describe('OriginalAmount: what is refused, by name', () => {
   });
 
   it('accepts each of Tally’s currencies other than the group’s', () => {
-    for (const currency of ['USD', 'GBP', 'CHF', 'CAD', 'AUD']) {
+    for (const currency of ['USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD']) {
       expect(paid(10, '1', currency).isFailure()).toBe(false);
     }
   });
@@ -124,5 +124,35 @@ describe('OriginalAmount.takeRate (request 22)', () => {
     expect(OriginalAmount.takeRate({ rate: '1e3', offer: { kind: 'unconfigured' } }).error).toMatchObject({
       type: 'InvalidRate',
     });
+  });
+});
+
+describe('OriginalAmount: currencies of another precision (request 40)', () => {
+  const inGroup = (amount: number, rate: string, currency: string, groupCurrency: string) => {
+    const original = OriginalAmount.create({ currency, amount, rate, groupCurrency }).data!;
+    return original.amountInGroupCurrency(groupCurrency).data!.value;
+  };
+
+  it('is what one unit of each is worth, in the minor unit of the group’s currency', () => {
+    // 12.50 euros at 161.5 yen to the euro: 2018.75 yen, so 2019 (a yen has no minor unit).
+    expect(inGroup(1250, '161.5', 'EUR', 'JPY')).toBe(2019);
+    // 10 dollars at 0.3075 dinars to the dollar: 3.075 dinars, so 3075 thousandths.
+    expect(inGroup(1000, '0.3075', 'USD', 'KWD')).toBe(3075);
+    // 10 000 yen at 0.0062 euros to the yen: 62 euros, so 6200 hundredths.
+    expect(inGroup(10000, '0.0062', 'JPY', 'EUR')).toBe(6200);
+  });
+
+  it('rounds a half up in the group’s minor unit', () => {
+    // 50 hundredths of a euro at 1 yen to the euro: half a yen, so 1 yen.
+    expect(inGroup(50, '1', 'EUR', 'JPY')).toBe(1);
+  });
+
+  it('accepts an expense in a currency of another precision, and keeps its amount in its own minor unit', () => {
+    const yen = OriginalAmount.create({ currency: 'JPY', amount: 10000, rate: '0.0062', groupCurrency: 'EUR' });
+    expect(yen.isFailure()).toBe(false);
+    expect(yen.data!.amount).toBe(10000);
+    expect(OriginalAmount.create({ currency: 'KWD', amount: 1, rate: '1', groupCurrency: 'EUR' }).isFailure()).toBe(
+      false,
+    );
   });
 });

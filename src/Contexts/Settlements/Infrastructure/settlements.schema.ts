@@ -132,4 +132,16 @@ export const SETTLEMENT_STATEMENTS = [
   `ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_currency TEXT CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'))`,
   `ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_amount BIGINT`,
   `ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_rate TEXT`,
+  // A payment in a currency with no minor unit or with three decimals (request 40): the CHECK on the original's currency is widened
+  // when it does not hold the four values it adds, the same as the other CHECKs an earlier version made.
+  `DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'settlements_original_currency_check'
+                AND pg_get_constraintdef(oid) NOT LIKE '%''BHD''%') THEN
+       ALTER TABLE settlements DROP CONSTRAINT settlements_original_currency_check;
+       ALTER TABLE settlements ADD CONSTRAINT settlements_original_currency_check
+         CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD'));
+     END IF;
+   END
+   $$`,
 ];

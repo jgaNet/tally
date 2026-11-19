@@ -1,5 +1,4 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
-import { DEBT_THRESHOLD } from '@Contexts/Notifications/Domain/Debt/Threshold';
 import { InvalidNoticeAmount, InvalidReminderAmount } from '@Contexts/Notifications/Domain/Notice/NoticeExceptions';
 import { NoticeIssuedEvent } from '@Contexts/Notifications/Domain/Notice/Events/NoticeEvents';
 
@@ -68,19 +67,21 @@ export class Notice extends AggregateRoot {
     return Result.ok(notice);
   }
 
-  /** A reminder: what the member still owes, more than the threshold (request 18). */
+  /** A reminder: what the member still owes, more than the threshold of its group's currency (requests 18, 40). */
   static createReminder({
     memberId,
     groupId,
     amount,
     at,
+    threshold,
   }: {
     memberId: Id;
     groupId: Id;
     amount: number;
     at: Date;
+    threshold: number;
   }): IResult<Notice> {
-    if (!Number.isSafeInteger(amount) || amount <= DEBT_THRESHOLD) return Result.fail(new InvalidReminderAmount());
+    if (!Number.isSafeInteger(amount) || amount <= threshold) return Result.fail(new InvalidReminderAmount());
 
     const notice = new Notice(Id.generate(), 0, 'reminder', memberId, groupId, null, amount, at);
     notice.record(

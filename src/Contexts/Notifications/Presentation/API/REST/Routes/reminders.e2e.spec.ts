@@ -46,10 +46,10 @@ async function person(name: string) {
   return { token, id: (me.body as { id: string }).id };
 }
 
-/** Creates a group and answers its id. */
-async function createGroup(owner: { token: string }) {
+/** Creates a group in `currency` and answers its id. */
+async function createGroup(owner: { token: string }, currency = 'EUR') {
   const answer = await http.request('POST', `${api}/groups`, {
-    body: { name: 'Flat', currency: 'EUR' },
+    body: { name: 'Flat', currency },
     token: owner.token,
   });
   const done = await outcome((answer.body as Body).operationId as string, owner.token);
@@ -179,5 +179,34 @@ describe('Settlements → Notifications (OutstandingDebts): the debt a settlemen
     now = new Date(now.getTime() + WEEK);
     await app.runJobs();
     expect(await reminders(cy.token)).toEqual([expect.objectContaining({ kind: 'reminder', groupId, amount: 2100 })]);
+  });
+
+  it('reminds a debt over 20 yen in a group in yen, in yen, and never a debt of 20 yen (request 40)', async () => {
+    const bob = await person('Bob');
+    const cy = await person('Cy');
+    const yen = await createGroup(bob, 'JPY');
+    await join(yen, bob, cy);
+    // Bob paid 4002 yen for the two of them: Cy owes 2001 yen, over the 20 yen a debt must be over in yen.
+    await record(bob.token, yen, {
+      description: 'Sushi',
+      amount: 4002,
+      date: '2025-06-01',
+      splitBetween: [bob.id, cy.id],
+    });
+    // Cy owes exactly 20 yen in a second group in yen: not over it, so it is never noted nor reminded.
+    const small = await createGroup(bob, 'JPY');
+    await join(small, bob, cy);
+    await record(bob.token, small, {
+      description: 'Tea',
+      amount: 40,
+      date: '2025-06-01',
+      splitBetween: [bob.id, cy.id],
+    });
+    await app.runJobs();
+
+    now = new Date(now.getTime() + WEEK);
+    await app.runJobs();
+    const notices = (await reminders(cy.token)).filter(notice => notice.groupId === yen || notice.groupId === small);
+    expect(notices).toEqual([expect.objectContaining({ kind: 'reminder', groupId: yen, amount: 2001 })]);
   });
 });

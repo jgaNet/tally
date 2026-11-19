@@ -3,7 +3,12 @@ import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/Integrat
 import { GroupsMergedSettlementsHandler } from '@Contexts/Settlements/Application/Events/GroupsMergedSettlementsHandler';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
-import { groupCurrencyInCommand, groupMembership, groupMembershipInCommand } from '@Contexts/Groups/module.local';
+import {
+  groupCurrencyForQueries,
+  groupCurrencyInCommand,
+  groupMembership,
+  groupMembershipInCommand,
+} from '@Contexts/Groups/module.local';
 import { ISettlementEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementEffects';
 import { ICountedSettlements } from '@Contexts/Settlements/Domain/Settlement/Ports/ICountedSettlements';
 import { PostgresCountedSettlements } from '@Contexts/Settlements/Infrastructure/PostgresCountedSettlements';
@@ -117,7 +122,12 @@ export const administratorDecisionEntries: IAdministratorDecisionEntries = new P
  * (outside any transaction). Exported for the composition root to hand Notifications; this wiring does not import it.
  */
 export function memberDebtsWith(balances: IGroupBalances): IMemberDebts {
-  return new SettlementsMemberDebts(balances, waitingEffects, new GroupsSettlementMembers(groupMembership));
+  return new SettlementsMemberDebts(
+    balances,
+    waitingEffects,
+    new GroupsSettlementMembers(groupMembership),
+    new GroupsGroupCurrency(groupCurrencyForQueries),
+  );
 }
 
 /**

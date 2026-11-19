@@ -1,4 +1,5 @@
 import { IResult, Result, ValueObject } from '@Architecture/Domain';
+import { CURRENCY_CODES, convertMinorUnits } from '@SharedKernel/Domain';
 import {
   InvalidOriginalAmount,
   InvalidOriginalCurrency,
@@ -14,7 +15,7 @@ import {
  */
 export type RateOffer = { kind: 'offered'; rate: string } | { kind: 'none' } | { kind: 'unconfigured' };
 
-/** What a settlement was paid in, when it was another currency than its group's: its currency, its hundredths, and the rate. */
+/** What a settlement was paid in, when it was another currency than its group's: its currency, its minor units, and the rate. */
 export interface OriginalAmountSnapshot {
   readonly currency: string;
   readonly amount: number;
@@ -22,7 +23,7 @@ export interface OriginalAmountSnapshot {
   readonly rate: string;
 }
 
-/** A payment in another currency as a command gives it: the currency and the hundredths, the group's currency, and the offer of the day. */
+/** A payment in another currency as a command gives it: the currency and its minor units, the group's currency, and the offer of the day. */
 export interface OtherCurrencyPayment {
   readonly currency: string;
   readonly amount: number;
@@ -31,21 +32,20 @@ export interface OtherCurrencyPayment {
 }
 
 /**
- * A settlement paid in another currency than its group's (request 39): the currency, the amount in its hundredths, and the rate
- * at which it was decided, what one of that currency is worth in the group's. The rate is taken from the rates service's offer
- * when the settlement is decided, and never given by the payer; with no offer, the settlement is refused. The amount in the
- * group's currency is the original amount times the rate, rounded to the nearest whole number, a half rounded up, in exact
- * integer arithmetic: the rate is read as a whole number of millionths. The provider's fee is converted by the same rate.
+ * A settlement paid in another currency than its group's (request 39): the currency, the amount in its minor unit, and the rate
+ * at which it was decided, what one unit of that currency is worth in the group's. The rate is taken from the rates service's
+ * offer when the settlement is decided, and never given by the payer; with no offer, the settlement is refused. The amount in
+ * the group's currency is the original amount, read in its currency's units, times that rate, written in the group's minor
+ * unit, rounded to the nearest whole number, a half rounded up, in exact integer arithmetic (request 40, ADR 30): the rate is
+ * read as a whole number of millionths. The provider's fee is converted by the same rate.
  */
 export class OriginalAmount extends ValueObject<OriginalAmountSnapshot> {
-  /** Tally's currencies, as Groups has them (request 2): the group's own is not one a settlement is paid in other than. */
-  static readonly CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
-  /** The largest amount in another currency, in its hundredths (request 39). */
-  static readonly MAX_HUNDREDTHS = 100_000_000;
+  /** Tally's currencies (request 2, request 40): the group's own is not one a settlement is paid in other than. */
+  static readonly CURRENCIES = CURRENCY_CODES;
+  /** The largest amount in another currency, in its minor units (request 39): 1 to 100 000 000 of it. */
+  static readonly MAX_AMOUNT = 100_000_000;
 
   private static readonly RATE = /^\d+(\.\d{1,6})?$/;
-  private static readonly MILLION = 1_000_000n;
-  private static readonly HALF = 500_000n;
 
   private constructor(value: OriginalAmountSnapshot) {
     super(value);
@@ -76,8 +76,8 @@ export class OriginalAmount extends ValueObject<OriginalAmountSnapshot> {
   static decide({ currency, amount, groupCurrency, offer }: OtherCurrencyPayment): IResult<OriginalAmount> {
     const inCurrency = OriginalAmount.checkCurrency(currency, groupCurrency);
     if (inCurrency.isFailure()) return inCurrency;
-    if (!Number.isInteger(amount) || amount < 1 || amount > OriginalAmount.MAX_HUNDREDTHS) {
-      return Result.fail(new InvalidOriginalAmount(OriginalAmount.MAX_HUNDREDTHS));
+    if (!Number.isInteger(amount) || amount < 1 || amount > OriginalAmount.MAX_AMOUNT) {
+      return Result.fail(new InvalidOriginalAmount(OriginalAmount.MAX_AMOUNT));
     }
     const rate = OriginalAmount.takeRate(offer);
     if (rate.isFailure()) return rate;
@@ -90,7 +90,7 @@ export class OriginalAmount extends ValueObject<OriginalAmountSnapshot> {
       !(OriginalAmount.CURRENCIES as readonly string[]).includes(snapshot.currency) ||
       !Number.isInteger(snapshot.amount) ||
       snapshot.amount < 1 ||
-      snapshot.amount > OriginalAmount.MAX_HUNDREDTHS ||
+      snapshot.amount > OriginalAmount.MAX_AMOUNT ||
       !OriginalAmount.RATE.test(snapshot.rate) ||
       OriginalAmount.scaledRate(snapshot.rate) === 0n
     ) {
@@ -111,23 +111,25 @@ export class OriginalAmount extends ValueObject<OriginalAmountSnapshot> {
     return this.value.rate;
   }
 
-  /** The snapshot a settlement keeps: its currency, its hundredths and its rate. */
+  /** The snapshot a settlement keeps: its currency, its minor units and its rate. */
   snapshot(): OriginalAmountSnapshot {
     return { ...this.value };
   }
 
-  /** The amount in the group's currency: the original amount times the rate, a half rounded up. Its range is the settlement's. */
-  amountInGroupCurrency(): number {
-    return this.convert(this.value.amount);
+  /**
+   * The amount in the group's currency (`groupCurrency`): the original amount times the rate, in the group's minor unit, a half
+   * rounded up. Its range is the settlement's.
+   */
+  amountInGroupCurrency(groupCurrency: string): number {
+    return this.convert(this.value.amount, groupCurrency);
   }
 
   /**
-   * An amount of `hundredths` in the original currency, converted at this rate into the group's currency, a half rounded up
-   * (request 39): the provider's fee is converted so (0 is a fee of nothing).
+   * An amount in the original currency's minor unit, converted at this rate into the group's currency's minor unit, a half
+   * rounded up (request 39, request 40): the provider's fee is converted so (0 is a fee of nothing).
    */
-  convert(hundredths: number): number {
-    const product = BigInt(hundredths) * OriginalAmount.scaledRate(this.value.rate);
-    return Number((product + OriginalAmount.HALF) / OriginalAmount.MILLION);
+  convert(amount: number, groupCurrency: string): number {
+    return convertMinorUnits({ amount, from: this.value.currency, to: groupCurrency, rate: this.value.rate });
   }
 
   /** The rate as a whole number of millionths: "0.9542" is 954200, "12.5" is 12500000. */

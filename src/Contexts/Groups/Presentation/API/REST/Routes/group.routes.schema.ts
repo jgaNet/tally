@@ -1,3 +1,4 @@
+import { CURRENCY_CODES } from '@SharedKernel/Domain';
 const RefusedSchema = {
   type: 'object',
   properties: { message: { type: 'string' } },
@@ -9,7 +10,7 @@ const GroupSchema = {
   properties: {
     id: { type: 'string' },
     name: { type: 'string' },
-    currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+    currency: { enum: [...CURRENCY_CODES] },
     ownerId: { type: 'string' },
     archivedAt: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]00:?00)$' },
   },

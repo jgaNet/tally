@@ -1,8 +1,12 @@
-/** What one current member of a group still owes in it, as a positive amount (OutstandingDebts, ADR 12). */
+/**
+ * What one current member of a group still owes in it, as a positive amount in the group's currency's minor unit (OutstandingDebts,
+ * ADR 12, request 40), and that currency.
+ */
 export interface OutstandingDebt {
   groupId: string;
   memberId: string;
   owed: number;
+  currency: string;
 }
 
 /**

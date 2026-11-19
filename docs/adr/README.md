@@ -34,6 +34,7 @@ why, what it costs, and when to revisit it.
 | [27](0027-notice-preferences.md) | Notice preferences: each person turns each kind of notice on or off, held by Notifications, read when a notice would be made |
 | [28](0028-spending-insights.md) | Spending insights: Ledger reads a person's shares across their groups, through its own ports on Groups |
 | [29](0029-the-provider-fee.md) | The provider's fee: the SettlementBook holds the group's policy and fixes each settlement's fee when it is asked for |
+| [30](0030-currency-precision.md) | Currencies with no minor unit or with three decimals: the shared kernel says each currency's decimals, and a conversion is by what one unit of each is worth |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

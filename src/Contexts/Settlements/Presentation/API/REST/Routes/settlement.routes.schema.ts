@@ -1,3 +1,4 @@
+import { CURRENCY_CODES } from '@SharedKernel/Domain';
 const RefusedSchema = {
   type: 'object',
   properties: { message: { type: 'string' } },
@@ -158,7 +159,7 @@ const SettlementSchema = {
       type: 'object',
       required: ['currency', 'amount', 'rate'],
       properties: {
-        currency: { enum: ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] },
+        currency: { enum: [...CURRENCY_CODES] },
         amount: { type: 'integer', minimum: 1 },
         rate: { type: 'string', pattern: '^\\d+(\\.\\d{1,6})?$' },
       },

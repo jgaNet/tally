@@ -52,7 +52,7 @@ export async function priceExpense(
     groupCurrency,
   });
   if (paid.isFailure()) return paid;
-  const converted = paid.data.amountInGroupCurrency();
+  const converted = paid.data.amountInGroupCurrency(groupCurrency);
   if (converted.isFailure()) return converted;
   return Result.ok({ amount: converted.data, original: paid.data, rateSource: taken.data.source });
 }

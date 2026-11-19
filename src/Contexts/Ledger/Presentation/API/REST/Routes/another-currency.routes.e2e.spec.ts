@@ -185,7 +185,7 @@ describe('recording an expense in another currency', () => {
 
   it.each([
     ['the group’s own currency', { currency: 'EUR', amount: 10, rate: '1' }, 'SameCurrencyAsGroup'],
-    ['a currency that is not Tally’s', { currency: 'JPY', amount: 10, rate: '1' }, 'InvalidOriginalCurrency'],
+    ['a currency that is not Tally’s', { currency: 'XXX', amount: 10, rate: '1' }, 'InvalidOriginalCurrency'],
     ['a rate of 0', { currency: 'USD', amount: 10, rate: '0' }, 'InvalidRate'],
     ['a rate with seven digits after the point', { currency: 'USD', amount: 10, rate: '1.0000001' }, 'InvalidRate'],
     ['a rate that is not a decimal number', { currency: 'USD', amount: 10, rate: '1e3' }, 'InvalidRate'],

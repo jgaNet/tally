@@ -1,4 +1,5 @@
 import { IResult, Result, ValueObject } from '@Architecture/Domain';
+import { CURRENCY_CODES, convertMinorUnits } from '@SharedKernel/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { RateOffer, RateSource } from '@Contexts/Ledger/Domain/Expense/RateOffer';
 import {
@@ -11,7 +12,7 @@ import {
   SameCurrencyAsGroup,
 } from '@Contexts/Ledger/Domain/Expense/ExpenseExceptions';
 
-/** What an expense was paid in, when it was not paid in the group's currency: its currency, its amount in hundredths, and the rate. */
+/** What an expense was paid in, when it was not paid in the group's currency: its currency, its amount in its minor unit, and the rate. */
 export interface OriginalSnapshot {
   currency: string;
   amount: number;
@@ -20,17 +21,18 @@ export interface OriginalSnapshot {
 }
 
 /**
- * What an expense was paid in another currency than its group's (request 21): the currency, the amount in its hundredths,
- * and the rate, what one of that currency is worth in the group's currency. The amount in the group's currency is the
- * original amount times the rate, rounded to the nearest whole number, a half rounded up, in exact decimal arithmetic:
- * the rate is read as a whole number of millionths, never a floating point number.
+ * What an expense was paid in another currency than its group's (request 21): the currency, the amount in its minor unit, and
+ * the rate, what one unit of that currency is worth in the group's currency. The amount in the group's currency is the
+ * original amount, read in its currency's units, times the rate, written in the group's minor unit, rounded to the nearest
+ * whole number, a half rounded up, in exact arithmetic (request 40, ADR 30): the rate is read as a whole number of millionths,
+ * never a floating point number.
  *
  * The rate is taken by `takeRate()` (request 22, ADR 15): left out, it is the rate offered for the day; given, it is kept
  * when no rates service is configured, and otherwise refused by name unless it is within 2 % of the offer.
  */
 export class OriginalAmount extends ValueObject<OriginalSnapshot> {
-  /** Tally's currencies, as Groups has them (request 2): the group's own is not one an expense is paid in other than. */
-  static readonly CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
+  /** Tally's currencies (request 2, request 40): the group's own is not one an expense is paid in other than. */
+  static readonly CURRENCIES = CURRENCY_CODES;
 
   /** A rate is a decimal number of at most six digits after the point, written as a string. */
   private static readonly RATE = /^\d+(\.\d{1,6})?$/;
@@ -77,7 +79,7 @@ export class OriginalAmount extends ValueObject<OriginalSnapshot> {
 
   /**
    * An amount paid in `currency`, when the group is in `groupCurrency`. The currency must be one of Tally's and not the
-   * group's; the amount a whole number of hundredths from 1 to 100 000 000; the rate a decimal number greater than 0 with
+   * group's; the amount a whole number of its minor unit from 1 to 100 000 000; the rate a decimal number greater than 0 with
    * at most six digits after the point. The rate is the one `takeRate()` decided.
    */
   static create({
@@ -130,18 +132,20 @@ export class OriginalAmount extends ValueObject<OriginalSnapshot> {
   }
 
   /**
-   * The amount in the group's currency: the original amount times the rate, rounded to the nearest whole number, a half
-   * rounded up. Refused (InvalidAmount) when it is not from 1 to 100 000 000, as any amount is.
+   * The amount in the group's currency (`groupCurrency`): the original amount times the rate, in the group's minor unit, rounded
+   * to the nearest whole number, a half rounded up (request 40). Refused (InvalidAmount) when it is not from 1 to 100 000 000,
+   * as any amount is.
    */
-  amountInGroupCurrency(): IResult<Amount> {
-    const product = BigInt(this.value.amount) * OriginalAmount.scaledRate(this.value.rate);
-    const rounded = (product + OriginalAmount.HALF) / OriginalAmount.MILLION;
-    if (rounded < 1n || rounded > BigInt(Amount.MAX)) return Result.fail(new InvalidAmount(Amount.MAX));
-    return Amount.create(Number(rounded));
+  amountInGroupCurrency(groupCurrency: string): IResult<Amount> {
+    const converted = convertMinorUnits({
+      amount: this.value.amount,
+      from: this.value.currency,
+      to: groupCurrency,
+      rate: this.value.rate,
+    });
+    if (converted < 1 || converted > Amount.MAX) return Result.fail(new InvalidAmount(Amount.MAX));
+    return Amount.create(converted);
   }
-
-  private static readonly MILLION = 1_000_000n;
-  private static readonly HALF = 500_000n;
 
   /** The rate as a whole number of millionths: "0.9542" is 954200, "12.5" is 12500000. */
   private static scaledRate(rate: string): bigint {

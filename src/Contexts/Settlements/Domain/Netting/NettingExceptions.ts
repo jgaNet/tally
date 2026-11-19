@@ -1,7 +1,8 @@
+import { CURRENCY_CODES } from '@SharedKernel/Domain';
 import { SettlementException } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 
-/** The currencies Tally keeps money in (request 2): a netting is made in one of them and in no other (request 32). */
-export const NETTING_CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
+/** The currencies Tally keeps money in (request 2, request 40): a netting is made in one of them and in no other (request 32). */
+export const NETTING_CURRENCIES = CURRENCY_CODES;
 
 /** A netting is between two different members: a member does not net with themselves (request 32). */
 export class NettingWithOneself extends SettlementException {

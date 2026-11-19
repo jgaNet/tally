@@ -110,7 +110,7 @@ export class InvalidOriginalAmount extends ExpenseException {
   constructor(max: number) {
     super(
       'InvalidOriginalAmount',
-      `The amount paid in another currency must be a whole number of hundredths from 1 to ${max}`,
+      `The amount paid in another currency must be a whole number of its currency's minor unit from 1 to ${max}`,
     );
   }
 }
