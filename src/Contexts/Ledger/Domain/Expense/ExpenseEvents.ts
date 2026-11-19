@@ -18,6 +18,8 @@ export class ExpenseRecordedEvent extends DomainEvent<{
   /** What it was for and the day it was for (request 24), which the budget of its month is checked with. */
   category: ExpenseCategory;
   date: string;
+  /** When the expense was recorded: a budget set after it does not count it (request 24). */
+  recordedAt: Date;
 }> {}
 
 /**

@@ -6,7 +6,14 @@ import { IBudgetRepository } from '@Contexts/Ledger/Application/IBudgetRepositor
 
 import { LedgerDatabase } from './LedgerDatabase';
 
-type BudgetRow = { id: string; group_id: string; category: ExpenseCategory; amount: number | null; version: number };
+type BudgetRow = {
+  id: string;
+  group_id: string;
+  category: ExpenseCategory;
+  amount: number | null;
+  version: number;
+  set_at: string | null;
+};
 
 /**
  * The budgets in PostgreSQL (request 24): the repository the budget use cases and the policy on an expense load and write, and the read side
@@ -19,7 +26,7 @@ export class SqliteBudgets implements IBudgetRepository, IBudgetQueries {
 
   async get(groupId: string, category: ExpenseCategory): Promise<Budget | undefined> {
     const row = await this.database.row<BudgetRow>(
-      'SELECT id, group_id, category, amount, version FROM ledger_budgets WHERE group_id = $1 AND category = $2',
+      'SELECT id, group_id, category, amount, version, set_at FROM ledger_budgets WHERE group_id = $1 AND category = $2',
       [groupId, category],
     );
     if (!row) return undefined;
@@ -33,23 +40,24 @@ export class SqliteBudgets implements IBudgetRepository, IBudgetQueries {
       category: row.category,
       amount: row.amount ?? undefined,
       passedMonths: months.map(({ month }) => month),
+      setAt: row.set_at ?? undefined,
       version: row.version,
     });
   }
 
   async insert(budget: Budget): Promise<void> {
-    const { id, groupId, category, amount, passedMonths, version } = budget.toSnapshot();
+    const { id, groupId, category, amount, passedMonths, version, setAt } = budget.toSnapshot();
     await this.database.transaction(async () => {
       await this.database.execute(
-        'INSERT INTO ledger_budgets (id, group_id, category, amount, version) VALUES ($1, $2, $3, $4, $5)',
-        [id, groupId, category, amount ?? null, version + 1],
+        'INSERT INTO ledger_budgets (id, group_id, category, amount, version, set_at) VALUES ($1, $2, $3, $4, $5, $6)',
+        [id, groupId, category, amount ?? null, version + 1, setAt ?? null],
       );
       await this.#writeMonths(id, passedMonths);
     });
   }
 
   async save(budget: Budget): Promise<void> {
-    const { id, amount, passedMonths, version } = budget.toSnapshot();
+    const { id, amount, passedMonths, version, setAt } = budget.toSnapshot();
     await this.database.transaction(async () => {
       const stored = await this.database.row<{ version: number }>('SELECT version FROM ledger_budgets WHERE id = $1', [
         id,
@@ -57,9 +65,10 @@ export class SqliteBudgets implements IBudgetRepository, IBudgetQueries {
       if (!stored || stored.version !== version) {
         throw new ConcurrencyConflictException('Ledger', 'The budget changed since it was read');
       }
-      await this.database.execute('UPDATE ledger_budgets SET amount = $1, version = $2 WHERE id = $3', [
+      await this.database.execute('UPDATE ledger_budgets SET amount = $1, version = $2, set_at = $3 WHERE id = $4', [
         amount ?? null,
         version + 1,
+        setAt ?? null,
         id,
       ]);
       await this.#writeMonths(id, passedMonths);

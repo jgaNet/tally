@@ -16,6 +16,8 @@ export interface BudgetSnapshot {
   amount: number | undefined;
   passedMonths: string[];
   version: number;
+  /** When its amount was last set (by its owner); absent before it is set. */
+  setAt?: string;
 }
 
 /**
@@ -29,6 +31,7 @@ export class Budget extends AggregateRoot {
   readonly #category: ExpenseCategory;
   #amount: number | undefined;
   #passedMonths: string[];
+  #setAt: Date | undefined;
 
   private constructor(
     id: Id,
@@ -37,12 +40,14 @@ export class Budget extends AggregateRoot {
     category: ExpenseCategory,
     amount: number | undefined,
     passedMonths: string[],
+    setAt: Date | undefined,
   ) {
     super(id, version);
     this.#groupId = groupId;
     this.#category = category;
     this.#amount = amount;
     this.#passedMonths = passedMonths;
+    this.#setAt = setAt;
   }
 
   /** The first budget of a category of a group, its id generated here. Records `BudgetSet`. */
@@ -50,13 +55,15 @@ export class Budget extends AggregateRoot {
     groupId,
     category,
     amount,
+    at,
   }: {
     groupId: string;
     category: ExpenseCategory;
     amount: BudgetAmount;
+    at: Date;
   }): Budget {
-    const budget = new Budget(Id.generate(), 0, groupId, category, undefined, []);
-    budget.setAmount(amount);
+    const budget = new Budget(Id.generate(), 0, groupId, category, undefined, [], undefined);
+    budget.setAmount(amount, at);
     return budget;
   }
 
@@ -66,14 +73,22 @@ export class Budget extends AggregateRoot {
     if (amount?.isFailure() || !Number.isInteger(snapshot.version) || snapshot.version < 1) {
       throw new Error(`The stored budget ${snapshot.id} is corrupted`);
     }
-    return new Budget(new Id(snapshot.id), snapshot.version, snapshot.groupId, snapshot.category, amount?.data?.value, [
-      ...snapshot.passedMonths,
-    ]);
+    const setAt = snapshot.setAt === undefined ? undefined : new Date(snapshot.setAt);
+    return new Budget(
+      new Id(snapshot.id),
+      snapshot.version,
+      snapshot.groupId,
+      snapshot.category,
+      amount?.data?.value,
+      [...snapshot.passedMonths],
+      setAt,
+    );
   }
 
   /** The budget is this amount from now on, whatever it was. Records `BudgetSet`; makes no notice by itself. */
-  setAmount(amount: BudgetAmount): void {
+  setAmount(amount: BudgetAmount, at: Date): void {
     this.#amount = amount.value;
+    this.#setAt = at;
     this.record(
       BudgetSetEvent.set({
         budgetId: this._id.value,
@@ -112,6 +127,11 @@ export class Budget extends AggregateRoot {
     );
   }
 
+  /** When the amount was last set, `undefined` before it is set: an expense recorded before then does not pass a budget set after it. */
+  get setAt(): Date | undefined {
+    return this.#setAt;
+  }
+
   toSnapshot(): BudgetSnapshot {
     return {
       id: this._id.value,
@@ -120,6 +140,7 @@ export class Budget extends AggregateRoot {
       amount: this.#amount,
       passedMonths: [...this.#passedMonths],
       version: this.version,
+      ...(this.#setAt === undefined ? {} : { setAt: this.#setAt.toISOString() }),
     };
   }
 }

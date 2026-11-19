@@ -70,6 +70,7 @@ async function setUp(database: PostgresDatabase): Promise<void> {
       version INTEGER NOT NULL,
       UNIQUE (group_id, category)
     );
+    ALTER TABLE ledger_budgets ADD COLUMN IF NOT EXISTS set_at TEXT;
     CREATE TABLE IF NOT EXISTS ledger_budget_passed_months (
       budget_id TEXT NOT NULL REFERENCES ledger_budgets (id) DEFERRABLE INITIALLY DEFERRED,
       month TEXT NOT NULL,

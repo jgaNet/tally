@@ -79,6 +79,7 @@ export class Expense extends AggregateRoot {
     date,
     split,
     category = DEFAULT_CATEGORY,
+    recordedAt,
   }: {
     id?: string;
     groupId: string;
@@ -88,6 +89,8 @@ export class Expense extends AggregateRoot {
     date: ExpenseDate;
     split: Split;
     category?: ExpenseCategory;
+    /** When it is recorded, which is the time the expense is recorded at (request 24). */
+    recordedAt: Date;
   }): Expense {
     const expense = new Expense(
       id === undefined ? Id.generate() : new Id(id),
@@ -102,6 +105,7 @@ export class Expense extends AggregateRoot {
     );
     expense.record(
       ExpenseRecordedEvent.set({
+        recordedAt,
         expenseId: expense._id.value,
         groupId,
         paidBy: split.payer,

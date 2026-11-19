@@ -36,6 +36,10 @@ export class ExpenseBudgetHandler extends EventHandler<ExpenseRecordedEvent | Ex
       const month = date.slice(0, 7);
       const budget = await this.budgets.get(groupId, category);
       if (!budget) return Result.ok(undefined);
+      // An expense recorded before the budget was set is not what the budget was set against: setting a budget makes no notice (request 24).
+      if ('recordedAt' in event.payload && budget.setAt !== undefined && event.payload.recordedAt < budget.setAt) {
+        return Result.ok(undefined);
+      }
       const members = await this.groupMembers.membersOf(groupId, paidBy);
       if (!members) return Result.ok(undefined);
 

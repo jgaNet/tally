@@ -105,8 +105,13 @@ describe('the budget', () => {
   const amount = (value: number) => BudgetAmount.create(value).data!;
 
   it('records BudgetSet when it is set, and again when it is replaced, and BudgetRemoved when it is removed', () => {
-    const budget = Budget.create({ groupId: 'group-1', category: 'rent', amount: amount(100) });
-    budget.setAmount(amount(200));
+    const budget = Budget.create({
+      groupId: 'group-1',
+      category: 'rent',
+      amount: amount(100),
+      at: new Date('2026-11-01T00:00:00Z'),
+    });
+    budget.setAmount(amount(200), new Date('2026-11-02T00:00:00Z'));
     budget.retire();
     expect(budget.pullDomainEvents().map(event => event.name)).toEqual([
       'BudgetSetEvent',
@@ -122,7 +127,7 @@ describe('the budget', () => {
     expect(budget.pullDomainEvents().map(event => event.name)).toEqual(['BudgetPassedEvent']);
     expect(() => budget.pass({ month: '2026-11', spent: 600, memberIds: ['ada'] })).toThrow();
     budget.retire();
-    budget.setAmount(amount(400));
+    budget.setAmount(amount(400), new Date('2026-11-03T00:00:00Z'));
     expect(budget.toSnapshot().passedMonths).toEqual(['2026-11']);
   });
 

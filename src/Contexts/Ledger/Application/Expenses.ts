@@ -99,8 +99,9 @@ export const recordExpense = command(
         );
         if (decision.isFailure()) return decision;
 
-        const expense = Expense.register({ groupId, ...decision.data.state });
-        await expenses.insert(expense, clock().toISOString());
+        const recordedAt = clock();
+        const expense = Expense.register({ groupId, ...decision.data.state, recordedAt });
+        await expenses.insert(expense, recordedAt.toISOString());
         await audit.add(
           groupId,
           auditEntryOf(

@@ -34,11 +34,11 @@ export const setBudget = command(
 
         const stored = await budgets.get(groupId, decision.data.state.category);
         if (stored) {
-          stored.setAmount(decision.data.state.amount);
+          stored.setAmount(decision.data.state.amount, clock());
           await budgets.save(stored);
           await publishDomainEvents(stored, context);
         } else {
-          const created = Budget.create({ groupId, ...decision.data.state });
+          const created = Budget.create({ groupId, ...decision.data.state, at: clock() });
           await budgets.insert(created);
           await publishDomainEvents(created, context);
         }

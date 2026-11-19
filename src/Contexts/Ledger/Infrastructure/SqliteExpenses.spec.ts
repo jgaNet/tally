@@ -39,7 +39,7 @@ function recorded(): Expense {
     },
     now,
   );
-  return Expense.register({ groupId, ...decision.data!.state });
+  return Expense.register({ groupId, ...decision.data!.state, recordedAt: new Date('2020-01-15T10:00:00Z') });
 }
 
 /**
