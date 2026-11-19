@@ -1,5 +1,6 @@
 import { PendingTransfer } from '@Contexts/Settlements/Domain/SettlementBook/StillOwed';
 import { FeeBorne } from '@Contexts/Settlements/Domain/SettlementBook/ProviderFee';
+import type { OriginalPayment } from '@Contexts/Settlements/Domain/SettlementBook/SettlementOriginal';
 
 /** One status a settlement has had, and when Tally learned it (request 19). */
 export interface SettlementHistoryLine {
@@ -24,6 +25,8 @@ export interface SettlementView {
   payUrl?: string;
   /** Through the provider, asked for from request 38 on: the fee the provider said and who bore it (request 38). */
   fee?: { amount: number; borneBy: FeeBorne };
+  /** Paid in another currency (request 39): the original payment, with the rate decided then; its `amount` is in the group's currency. */
+  original?: OriginalPayment;
   history: SettlementHistoryLine[];
 }
 

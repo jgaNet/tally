@@ -35,6 +35,10 @@ type SettlementRow = {
   pay_url: string | null;
   fee_amount: number | null;
   fee_borne_by: string | null;
+  /** What was paid in another currency (request 39): all three are null for a settlement in the group's currency. */
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 };
 type CountedRow = {
   id: string;
@@ -82,7 +86,8 @@ type LiveRow = {
 const LIVE_COLUMNS =
   'id, payer, payee, amount, COALESCE(settled, amount) AS settled, provider_payment_id, pay_url, status';
 /** The columns a settlement is read with, its fee included (request 38). */
-const VIEW_COLUMNS = 'id, group_id, payer, payee, amount, method, status, at, pay_url, fee_amount, fee_borne_by';
+const VIEW_COLUMNS =
+  'id, group_id, payer, payee, amount, method, status, at, pay_url, fee_amount, fee_borne_by, original_currency, original_amount, original_rate';
 /** The statuses a provider payment is held in the book in: waiting, paid, being refunded (request 15), or contested (request 33). */
 const LIVE_STATUSES = "('pending', 'paid', 'refunding', 'contested')";
 /** The statuses the balances count: paid, and being refunded, as the money has not gone back yet (request 15). */
@@ -164,8 +169,9 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
       // Each status a settlement has is a line of its history, written with the fact that moved it (request 19).
       for (const settlement of book.recorded()) {
         await this.database.execute(
-          'INSERT INTO settlements (id, group_id, payer, payee, amount, settled, method, status, at, provider_payment_id, pay_url, fee_amount, fee_borne_by) ' +
-            'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+          'INSERT INTO settlements (id, group_id, payer, payee, amount, settled, method, status, at, provider_payment_id, pay_url, fee_amount, fee_borne_by, ' +
+            'original_currency, original_amount, original_rate) ' +
+            'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)',
           [
             settlement.id,
             settlement.groupId,
@@ -180,6 +186,9 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
             settlement.payUrl ?? null,
             settlement.fee?.amount ?? null,
             settlement.fee?.borneBy ?? null,
+            settlement.original?.currency ?? null,
+            settlement.original?.amount ?? null,
+            settlement.original?.rate ?? null,
           ],
         );
         await this.#history(settlement.id, settlement.status, settlement.at);
@@ -373,7 +382,8 @@ export class SqliteSettlements implements ISettlementBooks, ISettlementQueries {
 
   async contestedNow(): Promise<SettlementView[]> {
     const rows = await this.database.rows<SettlementRow>(
-      `SELECT s.id, s.group_id, s.payer, s.payee, s.amount, s.method, s.status, s.at, s.pay_url, s.fee_amount, s.fee_borne_by FROM settlements s
+      `SELECT s.id, s.group_id, s.payer, s.payee, s.amount, s.method, s.status, s.at, s.pay_url, s.fee_amount, s.fee_borne_by,
+              s.original_currency, s.original_amount, s.original_rate FROM settlements s
         WHERE s.status = 'contested'
         ORDER BY (SELECT MAX(h.seq) FROM settlement_history h WHERE h.settlement_id = s.id AND h.status = 'contested')`,
     );
@@ -433,6 +443,11 @@ const toView = (row: SettlementRow, history: HistoryRow[]): SettlementView => ({
   ...(row.pay_url !== null && { payUrl: row.pay_url }),
   ...(row.fee_amount !== null &&
     row.fee_borne_by !== null && { fee: { amount: row.fee_amount, borneBy: toFeeBorne(row.fee_borne_by) } }),
+  ...(row.original_currency !== null &&
+    row.original_amount !== null &&
+    row.original_rate !== null && {
+      original: { currency: row.original_currency, amount: row.original_amount, rate: row.original_rate },
+    }),
   history: history.map(({ status, at }) => ({ status, at })),
 });
 

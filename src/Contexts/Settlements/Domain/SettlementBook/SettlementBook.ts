@@ -14,6 +14,7 @@ import {
 } from './SettlementEvents';
 import { PendingTransfer, stillOwed } from './StillOwed';
 import { DEFAULT_FEE_BORNE, FeeBorne, ProviderFee, settledAmountOf } from './ProviderFee';
+import type { OriginalPayment } from './SettlementOriginal';
 
 /**
  * How a settlement is paid: in cash, recorded by its payee; through the payment provider (request 13); or by netting, which moves no money
@@ -45,7 +46,7 @@ export interface SettlementSnapshot {
   groupId: string;
   from: string;
   to: string;
-  /** The amount asked for. */
+  /** The amount, in the group's currency (request 39: the original amount converted at the rate kept below). */
   amount: number;
   /** What the settlement settles: its amount, less the part of the provider's fee its payer bears (request 38). */
   settled: number;
@@ -56,6 +57,8 @@ export interface SettlementSnapshot {
   providerPaymentId?: string;
   payUrl?: string;
   fee?: ProviderFee;
+  /** What was paid in another currency, with the rate decided then; absent for a settlement in the group's currency (request 39). */
+  original?: OriginalPayment;
 }
 
 /**
@@ -199,9 +202,21 @@ export class SettlementBook extends AggregateRoot {
    * Records a settlement paid in cash by `from` to `to`, at `at`, whose values the decision has allowed. Generates the
    * settlement's id and records `SettlementRecorded`, published once the book is saved. Answers the new settlement's id.
    */
-  recordCash({ from, to, amount, at }: { from: string; to: string; amount: number; at: Date }): string {
+  recordCash({
+    from,
+    to,
+    amount,
+    at,
+    original,
+  }: {
+    from: string;
+    to: string;
+    amount: number;
+    at: Date;
+    original?: OriginalPayment;
+  }): string {
     const id = Id.generate().value;
-    this.#recorded = [...this.#recorded, this.#paidSnapshot(id, 'cash', { from, to, amount, at })];
+    this.#recorded = [...this.#recorded, this.#paidSnapshot(id, 'cash', { from, to, amount, at, original })];
     this.record(
       SettlementRecordedEvent.set({ settlementId: id, groupId: this.#groupId, payer: from, payee: to, amount }),
     );
@@ -225,7 +240,13 @@ export class SettlementBook extends AggregateRoot {
   #paidSnapshot(
     id: string,
     method: 'cash' | 'net',
-    { from, to, amount, at }: { from: string; to: string; amount: number; at: Date },
+    {
+      from,
+      to,
+      amount,
+      at,
+      original,
+    }: { from: string; to: string; amount: number; at: Date; original?: OriginalPayment },
   ): SettlementSnapshot {
     return {
       id,
@@ -237,6 +258,7 @@ export class SettlementBook extends AggregateRoot {
       method,
       status: 'paid',
       at: at.toISOString(),
+      ...(original !== undefined && { original }),
     };
   }
 
@@ -254,6 +276,7 @@ export class SettlementBook extends AggregateRoot {
     providerPaymentId,
     payUrl,
     fee,
+    original,
   }: {
     id: string;
     from: string;
@@ -263,6 +286,7 @@ export class SettlementBook extends AggregateRoot {
     providerPaymentId: string;
     payUrl: string;
     fee: ProviderFee;
+    original?: OriginalPayment;
   }): void {
     if (!providerPaymentId || !payUrl) throw new Error('A payment through the provider needs its id and its link');
     // What it settles is decided now, with the fee it was asked with and who bears it (request 38).
@@ -286,6 +310,7 @@ export class SettlementBook extends AggregateRoot {
         providerPaymentId,
         payUrl,
         fee,
+        ...(original !== undefined && { original }),
       },
     ];
     this.record(

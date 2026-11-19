@@ -8,4 +8,5 @@ export * from './AccountSuspended';
 export * from './Currency';
 export * from './Email';
 export * from './GroupArchived';
+export * from './Rate';
 export * from './Role';

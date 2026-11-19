@@ -14,6 +14,8 @@ const request = (
   given: ProviderPaymentGiven = {
     archived: false,
     suspended: false,
+    groupCurrency: 'EUR',
+    offeredRate: undefined,
     deleted: false,
     memberIds: members,
     balances,
@@ -47,6 +49,8 @@ describe('decideRequestProviderPayment (request 13)', () => {
         request('grace', 'ada', 10, {
           archived: false,
           suspended: false,
+          groupCurrency: 'EUR',
+          offeredRate: undefined,
           deleted: false,
           memberIds: members,
           balances: thinPayee,
@@ -74,6 +78,8 @@ describe("decideRequestProviderPayment, the payee's payout account (request 16)"
     const none = request('grace', 'ada', 30, {
       archived: false,
       suspended: false,
+      groupCurrency: 'EUR',
+      offeredRate: undefined,
       deleted: false,
       memberIds: members,
       balances,

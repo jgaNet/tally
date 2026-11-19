@@ -189,3 +189,47 @@ export class InvalidFeePolicyException extends Exception {
     });
   }
 }
+
+/** The original currency is one of Tally's currencies (request 39). */
+export class InvalidOriginalCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'InvalidOriginalCurrency',
+      message: 'The original currency must be one of the currencies Tally knows',
+    });
+  }
+}
+
+/** The original currency is not the group's: a settlement in the group's own currency is given as `amount` (request 39). */
+export class OriginalCurrencyIsGroupCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'OriginalCurrencyIsGroupCurrency',
+      message: 'The original currency must be another one than the group currency',
+    });
+  }
+}
+
+/** The original amount is a whole number of hundredths from 1 to 100 000 000 (request 39). */
+export class InvalidOriginalAmountException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'InvalidOriginalAmount',
+      message: 'The original amount must be a whole number from 1 to 100000000',
+    });
+  }
+}
+
+/** No rate is offered for the original currency on the day the settlement is decided: it is refused, nothing kept (request 39). */
+export class NoRateOfferedException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'NoRateOffered',
+      message: 'No rate is offered for this currency on this day, so the settlement cannot be counted at one',
+    });
+  }
+}

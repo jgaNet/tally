@@ -1,5 +1,5 @@
 import { IResult, Result } from '@Architecture/Domain';
-import { CurrencyCode, isCurrencyCode } from '@SharedKernel/Domain';
+import { convertAtRate, CurrencyCode, isCurrencyCode } from '@SharedKernel/Domain';
 
 import { ExpenseAmount } from './ExpenseAmount';
 import {
@@ -9,7 +9,7 @@ import {
   InvalidExpenseRateException,
 } from './ExpenseExceptions';
 import { NoRateOfferedException, RateOutsideBandException } from './RateExceptions';
-import { isRate, RateOffer, rateInMillionths, withinBand } from './Rate';
+import { isRate, RateOffer, withinBand } from './Rate';
 
 /** What an expense paid in another currency is kept as: its currency, its amount in that currency's hundredths, and its rate as given. */
 export interface OriginalSnapshot {
@@ -93,10 +93,7 @@ export class OriginalAmount {
    * result is checked by `ExpenseAmount` like any amount: 0 or more than 100 000 000 is refused there, by name.
    */
   groupAmount(): number {
-    const product = BigInt(this.amount) * rateInMillionths(this.rate);
-    const scale = 1_000_000n;
-    // round(product / 10^6) with a half rounded up, in integers: floor((2 * product + 10^6) / (2 * 10^6)).
-    return Number((2n * product + scale) / (2n * scale));
+    return convertAtRate(this.amount, this.rate);
   }
 
   /** The expense's amount in the group's currency, validated as any expense amount is. */

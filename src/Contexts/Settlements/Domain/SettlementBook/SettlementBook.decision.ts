@@ -1,9 +1,15 @@
 import { Exception, IResult, Id, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
-import { AccountDeletedException, AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
+import {
+  AccountDeletedException,
+  AccountSuspendedException,
+  convertAtRate,
+  GroupArchivedException,
+} from '@SharedKernel/Domain';
 
 import type { SettlementMethod, SettlementStatus } from './SettlementBook';
 import { FeeBorne, isFeeBorne, ProviderFee } from './ProviderFee';
+import { OriginalGiven, OriginalPayment, originalPaymentOf } from './SettlementOriginal';
 import {
   ContestPartyNotMemberException,
   InvalidFeePolicyException,
@@ -22,18 +28,25 @@ import {
   SettlementToSelfException,
 } from './SettlementExceptions';
 
-/** What a cash settlement says: the payee (the caller, who received the money), the payer, and the amount. */
-export interface RecordCashSettlementCommand {
-  payee: string;
-  from: string;
-  amount: number;
+/**
+ * How much a settlement is: either its amount in the group's currency, or `original`, what is paid in another currency (request 39). A body
+ * gives one of the two, never both nor neither: the transport refuses the shape, and the decision refuses it too.
+ */
+export interface SettlementAmountCommand {
+  amount?: number;
+  original?: OriginalGiven;
 }
 
-/** What a payment through the provider says: the payer (the caller, who pays), the payee, and the amount (request 13). */
-export interface RequestProviderPaymentCommand {
+/** What a cash settlement says: the payee (the caller, who received the money), the payer, and how much (request 39). */
+export interface RecordCashSettlementCommand extends SettlementAmountCommand {
+  payee: string;
+  from: string;
+}
+
+/** What a payment through the provider says: the payer (the caller, who pays), the payee, and how much (request 13, request 39). */
+export interface RequestProviderPaymentCommand extends SettlementAmountCommand {
   payer: string;
   to: string;
-  amount: number;
 }
 
 /**
@@ -49,13 +62,21 @@ export interface SettlementGiven {
   archived: boolean;
   /** Whether the caller is suspended (request 34): the payee for a cash settlement, the payer for one through the provider. */
   suspended: boolean;
+  /** The group's currency (request 39): what an amount paid in another currency is converted to. */
+  groupCurrency: string;
+  /**
+   * The rate the rates service offers for the original currency to the group's on the day decided, as the use case asked it (request 39);
+   * `undefined` when none is offered, or when no other currency is given, which the decision then refuses or does not read.
+   */
+  offeredRate: string | undefined;
 }
 
-/** The values of a settlement once they are allowed: who paid whom, how much. */
+/** The values of a settlement once they are allowed: who paid whom, how much in the group's currency, and its original payment, if any. */
 export interface NewSettlementValues {
   from: string;
   to: string;
   amount: number;
+  original?: OriginalPayment;
 }
 
 /**
@@ -83,12 +104,38 @@ export interface NewProviderPaymentValues extends NewSettlementValues {
  * opposite of their balance) and no more than what the payee is owed (their balance), both at the balances given. Answers the first
  * refusal, or none.
  */
-function refuseSettlement(
-  { memberIds, balances, archived, suspended }: SettlementGiven,
-  { from, to, amount }: NewSettlementValues,
-): Exception | undefined {
+function refuseStanding({ archived, suspended }: SettlementGiven): Exception | undefined {
   if (archived) return new GroupArchivedException();
   if (suspended) return new AccountSuspendedException();
+  return undefined;
+}
+
+/**
+ * The amount a settlement is decided in (request 39): the amount given in the group's currency, or the original amount converted at the rate
+ * offered for its currency on the day decided, which the settlement keeps. Refused when it gives both or neither, or when the original payment
+ * is not allowed (its currency, its amount, or no rate offered), by the name of that rule.
+ */
+function amountOf(
+  given: SettlementGiven,
+  { amount, original }: SettlementAmountCommand,
+): IResult<{ amount: number; original?: OriginalPayment }> {
+  if ((amount === undefined) === (original === undefined)) return Result.fail(new InvalidSettlementAmountException());
+  if (original === undefined) return Result.ok({ amount: amount as number });
+  const paid = originalPaymentOf({ original, groupCurrency: given.groupCurrency, offeredRate: given.offeredRate });
+  if (paid.isFailure()) return paid;
+  return Result.ok(paid.data);
+}
+
+/**
+ * The rules every settlement is held to, in cash or through the provider (request 12, request 13, ADR 11, ADR 12): the payer and the
+ * payee are members of the group and not the same one; the amount is a whole number from 1; it is no more than what the payer owes (the
+ * opposite of their balance) and no more than what the payee is owed (their balance), both at the balances given. Answers the first
+ * refusal, or none.
+ */
+function refuseSettlement(given: SettlementGiven, { from, to, amount }: NewSettlementValues): Exception | undefined {
+  const { memberIds, balances } = given;
+  const standing = refuseStanding(given);
+  if (standing) return standing;
   if (!memberIds.includes(from)) return new SettlementPayerNotMemberException();
   if (!memberIds.includes(to)) return new SettlementPayeeNotMemberException();
   if (from === to) return new SettlementToSelfException();
@@ -107,10 +154,14 @@ export const decideRecordCashSettlement: Decision<
   RecordCashSettlementCommand,
   never,
   SettlementGiven
-> = (given, { payee, from, amount }) => {
-  const refusal = refuseSettlement(given, { from, to: payee, amount });
+> = (given, { payee, from, ...amountCommand }) => {
+  const standing = refuseStanding(given);
+  if (standing) return Result.fail(standing);
+  const paid = amountOf(given, amountCommand);
+  if (paid.isFailure()) return paid;
+  const refusal = refuseSettlement(given, { from, to: payee, amount: paid.data.amount });
   if (refusal) return Result.fail(refusal);
-  return decided({ from, to: payee, amount });
+  return decided({ from, to: payee, ...paid.data });
 };
 
 /**
@@ -125,12 +176,22 @@ export const decideRequestProviderPayment: Decision<
   RequestProviderPaymentCommand,
   never,
   ProviderPaymentGiven
-> = (given, { payer, to, amount }) => {
-  const refusal = refuseSettlement(given, { from: payer, to, amount });
+> = (given, { payer, to, ...amountCommand }) => {
+  const standing = refuseStanding(given);
+  if (standing) return Result.fail(standing);
+  const paid = amountOf(given, amountCommand);
+  if (paid.isFailure()) return paid;
+  const refusal = refuseSettlement(given, { from: payer, to, amount: paid.data.amount });
   if (refusal) return Result.fail(refusal);
   if (given.deleted) return Result.fail(new AccountDeletedException());
   if (!given.payeeAccount) return Result.fail(new PayeeHasNoPayoutAccountException());
-  return decided({ id: Id.generate().value, from: payer, to, amount, payeeAccount: given.payeeAccount });
+  return decided({
+    id: Id.generate().value,
+    from: payer,
+    to,
+    ...paid.data,
+    payeeAccount: given.payeeAccount,
+  });
 };
 
 /** What the provider's webhook says a payment is, once it has moved: paid, failed, or refunded (request 15). */
@@ -277,18 +338,22 @@ export const decideSetFeePolicy: Decision<{ borneBy: FeeBorne }, SetFeePolicyCom
 /** The provider's fee for a payment once it has answered: the fee it said, if it said one, the amount, and who bears the fee by the policy. */
 export interface ProviderFeeGiven {
   fee: number | undefined;
+  /** The amount paid, in the currency the provider was asked for the payment in: the original amount when paid in another currency. */
   amount: number;
   borneBy: FeeBorne;
+  /** The settlement's rate, when it is paid in another currency: the fee is then converted to the group's currency at it (request 39). */
+  rate?: string;
 }
 
 /**
  * Taking the fee the provider said for a payment (request 38, DOMAIN-NON-DETERMINISM): the fee is kept only when it is a whole number of at
  * least 0 and less than the amount, which the provider gives and the book then keeps with who bears it. A payment without such a fee is
- * refused, and nothing is kept.
+ * refused, and nothing is kept. A fee said in another currency is converted at the settlement's rate, as its amount is, before the payer's
+ * part is taken off (request 39): the fee is then in the group's currency, as the settlement's amount is.
  */
-export function decideProviderFee({ fee, amount, borneBy }: ProviderFeeGiven): IResult<ProviderFee> {
+export function decideProviderFee({ fee, amount, borneBy, rate }: ProviderFeeGiven): IResult<ProviderFee> {
   if (fee === undefined || !Number.isInteger(fee) || fee < 0 || fee >= amount) {
     return Result.fail(new ProviderFeeUnavailableException());
   }
-  return Result.ok({ amount: fee, borneBy });
+  return Result.ok({ amount: rate === undefined ? fee : convertAtRate(fee, rate), borneBy });
 }

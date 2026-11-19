@@ -45,3 +45,4 @@ it from this table and from wherever the rule is stated.
 | [34](0034-notice-preferences-one-choice-per-person-read-when-a-notice-would-be-made.md) | Notice preferences: one choice per person, read when a notice would be made, and a reminder not made is not made |
 | [35](0035-spending-insights-a-query-of-ledger-over-the-shares-through-its-own-ports.md) | Spending insights: a query of Ledger over the shares, across the groups a person is in now, through its own ports |
 | [36](0036-provider-fee-the-owner-decides-who-bears-it-and-a-settlement-keeps-what-it-was-asked-with.md) | Provider fee: the owner decides who bears it, the book keeps the fee and what a settlement settles, as it was asked |
+| [37](0037-a-settlement-in-another-currency-takes-a-port-of-its-own-and-a-shared-rate-conversion.md) | A settlement in another currency: a rates port Settlements owns, and one rate conversion the contexts share |

@@ -27,8 +27,10 @@ import {
   SetPayoutAccountInput,
 } from '@Contexts/Settlements/Application/PayoutAccounts';
 
-const SHAPE_REFUSAL = 'The body must have from (the payer account id, a string) and amount (a whole number)';
-const PROVIDER_SHAPE_REFUSAL = 'The body must have to (the payee account id, a string) and amount (a whole number)';
+const SHAPE_REFUSAL =
+  'The body must have from (the payer account id, a string) and either amount (a whole number, in the group currency) or original (currency and amount, paid in another currency)';
+const PROVIDER_SHAPE_REFUSAL =
+  'The body must have to (the payee account id, a string) and either amount (a whole number, in the group currency) or original (currency and amount, paid in another currency)';
 const DECISION_SHAPE_REFUSAL = 'The body must have paid, a boolean';
 const WEBHOOK_SHAPE_REFUSAL = 'The body must have id, paymentId, status and at, each a string';
 const PAYOUT_ACCOUNT_SHAPE_REFUSAL = 'The body must have accountId, the provider id of the payout account, a string';
@@ -41,18 +43,39 @@ export type ProviderSignatureCheck = (body: Buffer, header: string | undefined) 
 
 const SIGNATURE_REFUSAL = 'The webhook must be signed by the payment provider';
 
-/** A cash settlement's body: the payer's account id and the amount, each of the type the domain takes (API-BODY-SHAPE). */
-const hasShape = (body: unknown): boolean => {
-  if (typeof body !== 'object' || body === null) return false;
-  const { from, amount } = body as Record<string, unknown>;
-  return typeof from === 'string' && Number.isInteger(amount);
+/** An original payment as a body gives it: its currency (a string) and its amount (a whole number), of the types the domain takes (request 39). */
+const isOriginalShape = (raw: unknown): boolean => {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const { currency, amount } = raw as Record<string, unknown>;
+  return typeof currency === 'string' && Number.isInteger(amount);
 };
 
-/** A provider settlement's body: the payee's account id and the amount, each of the type the domain takes (API-BODY-SHAPE). */
+/**
+ * A settlement's amount is given one way only (request 39): `amount`, a whole number in the group's currency, or `original`, the payment in
+ * another currency; a body with neither, or with both, is of the wrong shape (API-BODY-SHAPE).
+ */
+const hasAmountShape = (body: Record<string, unknown>): boolean => {
+  const { amount, original } = body;
+  if ((amount === undefined) === (original === undefined)) return false;
+  return amount !== undefined ? Number.isInteger(amount) : isOriginalShape(original);
+};
+
+/** The payment `original` a body gives, as the domain takes it: its currency and its amount. */
+const originalOf = (body: { original?: { currency: string; amount: number } }) =>
+  body.original === undefined ? undefined : { currency: body.original.currency, amount: body.original.amount };
+
+/** A cash settlement's body: the payer's account id, and its amount or its original payment, each of the type the domain takes (API-BODY-SHAPE). */
+const hasShape = (body: unknown): boolean => {
+  if (typeof body !== 'object' || body === null) return false;
+  const { from } = body as Record<string, unknown>;
+  return typeof from === 'string' && hasAmountShape(body as Record<string, unknown>);
+};
+
+/** A provider settlement's body: the payee's account id, and its amount or its original payment (request 13, request 39). */
 const hasProviderShape = (body: unknown): boolean => {
   if (typeof body !== 'object' || body === null) return false;
-  const { to, amount } = body as Record<string, unknown>;
-  return typeof to === 'string' && Number.isInteger(amount);
+  const { to } = body as Record<string, unknown>;
+  return typeof to === 'string' && hasAmountShape(body as Record<string, unknown>);
 };
 
 /** A netting's body: the other member's account id and the currency, each a string; whether the currency is Tally's is the domain's (request 32). */
@@ -141,12 +164,12 @@ export const settlementRoutes: FastifyPluginCallback<{
     },
     (req, reply) => {
       const { id } = req.params as { id: string };
-      const body = req.body as { from: string; amount: number };
+      const body = req.body as { from: string; amount?: number; original?: { currency: string; amount: number } };
       return answerAtOnce(
         req,
         reply,
         module.useCase(recordCashSettlement),
-        { groupId: id, from: body.from, amount: body.amount } as RecordCashSettlementInput,
+        { groupId: id, from: body.from, amount: body.amount, original: originalOf(body) } as RecordCashSettlementInput,
         { created: true },
       );
     },
@@ -163,12 +186,12 @@ export const settlementRoutes: FastifyPluginCallback<{
     },
     (req, reply) => {
       const { id } = req.params as { id: string };
-      const body = req.body as { to: string; amount: number };
+      const body = req.body as { to: string; amount?: number; original?: { currency: string; amount: number } };
       return answerAtOnce(
         req,
         reply,
         module.useCase(payThroughProvider),
-        { groupId: id, to: body.to, amount: body.amount } as PayThroughProviderInput,
+        { groupId: id, to: body.to, amount: body.amount, original: originalOf(body) } as PayThroughProviderInput,
         { created: true },
       );
     },

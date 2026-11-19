@@ -29,6 +29,7 @@ import { SqliteSettlements } from '@Contexts/Settlements/Infrastructure/SqliteSe
 import { SqliteNettings } from '@Contexts/Settlements/Infrastructure/SqliteNettings';
 import { getNetting, netDebts } from '@Contexts/Settlements/Application/Nettings';
 import { SqlitePayoutAccounts } from '@Contexts/Settlements/Infrastructure/SqlitePayoutAccounts';
+import { SettlementRatesOverHttp } from '@Contexts/Settlements/Infrastructure/SettlementRatesOverHttp';
 
 /**
  * The Settlements context, as data (ADR 9, ADR 10, ADR 11, ADR 12). Its settlement books and settlements are in SQLite at
@@ -56,6 +57,8 @@ export const outstandingDebtsReadModel = new OutstandingDebtsOfBalances(
   settlementsReadModel,
 );
 const paymentProvider = new PaymentProviderOverHttp(() => process.env.PROVIDER_URL);
+/** The rates a settlement paid in another currency takes, from the rates service at `RATES_URL` (request 39, ADR 37), read at a request. */
+const settlementRates = new SettlementRatesOverHttp(() => process.env.RATES_URL);
 const payoutAccounts = new SqlitePayoutAccounts(database);
 
 /**
@@ -69,7 +72,7 @@ export const localSettlementsModule = new LiteModule({
   name: 'Settlements',
   useCases: [
     getSuggestedSettlements(groupBalances, settlementMembers, settlementsReadModel),
-    recordCashSettlement(settlementsReadModel, groupBalances, settlementMembers, systemClock),
+    recordCashSettlement(settlementsReadModel, groupBalances, settlementMembers, settlementRates, systemClock),
     setPayoutAccount(payoutAccounts, paymentProvider, systemClock),
     getPayoutAccount(payoutAccounts),
     payThroughProvider(
@@ -78,6 +81,7 @@ export const localSettlementsModule = new LiteModule({
       settlementMembers,
       payoutAccounts,
       paymentProvider,
+      settlementRates,
       systemClock,
     ),
     refundSettlement(settlementsReadModel, settlementsReadModel, settlementMembers, paymentProvider, systemClock),

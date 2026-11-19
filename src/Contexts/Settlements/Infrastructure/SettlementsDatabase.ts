@@ -51,6 +51,9 @@ export async function setUp(database: PostgresDatabase): Promise<void> {
     ALTER TABLE settlements ADD COLUMN IF NOT EXISTS settled INTEGER;
     ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_amount INTEGER;
     ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_borne_by TEXT;
+    ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_currency TEXT;
+    ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_amount INTEGER;
+    ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_rate TEXT;
     ALTER TABLE settlement_books ADD COLUMN IF NOT EXISTS fee_borne_by TEXT NOT NULL DEFAULT 'payee';
     ALTER TABLE settlement_history ADD COLUMN IF NOT EXISTS by_account TEXT;
     CREATE TABLE IF NOT EXISTS administrator_log (

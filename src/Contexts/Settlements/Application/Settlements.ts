@@ -6,6 +6,7 @@ import { suggestTransfers, SuggestedTransfer } from '@Contexts/Settlements/Domai
 import { Role } from '@SharedKernel/Domain';
 import { ISettlementQueries, SettlementView } from '@Contexts/Settlements/Domain/ISettlementQueries';
 import { stillOwed } from '@Contexts/Settlements/Domain/SettlementBook/StillOwed';
+import { needsOfferedRate, OriginalGiven } from '@Contexts/Settlements/Domain/SettlementBook/SettlementOriginal';
 import {
   decideContestSettlement,
   decideDecideContest,
@@ -26,6 +27,22 @@ import { IPaymentProvider } from './IPaymentProvider';
 import { IPayoutAccounts } from './IPayoutAccounts';
 import { ISettlementBooks } from './ISettlementBooks';
 import { ISettlementMembers } from './ISettlementMembers';
+import { ISettlementRates } from './ISettlementRates';
+
+/**
+ * The rate the rates service offers for a settlement paid in another currency, on the day it is decided, in UTC (request 39): asked only for
+ * one of Tally's currencies other than the group's, before the decision, which takes it as a plain value. `undefined` when no rate is asked
+ * for, or none is offered; the decision then refuses the settlement by its name.
+ */
+async function offeredRateOf(
+  rates: ISettlementRates,
+  original: OriginalGiven | undefined,
+  groupCurrency: string,
+  now: Date,
+): Promise<string | undefined> {
+  if (original === undefined || !needsOfferedRate(original, groupCurrency)) return undefined;
+  return rates.rateFor({ from: original.currency, to: groupCurrency, date: now.toISOString().slice(0, 10) });
+}
 
 /**
  * A member of a group reads the transfers that would bring every balance of the group to 0 (request 11), made by the stated
@@ -46,11 +63,15 @@ export const getSuggestedSettlements = query(
     },
 );
 
-/** What a member records: the group, the payer (its account id), and the amount paid in cash to the caller. */
+/**
+ * What a member records: the group, the payer (its account id), and what was paid in cash to the caller: its amount in the group's currency, or
+ * the original payment in another currency (request 39).
+ */
 export interface RecordCashSettlementInput {
   groupId: string;
   from: string;
-  amount: number;
+  amount?: number;
+  original?: OriginalGiven;
 }
 
 /**
@@ -62,12 +83,20 @@ export interface RecordCashSettlementInput {
  */
 export const recordCashSettlement = command(
   'RecordCashSettlement',
-  (books: ISettlementBooks, groupBalances: IGroupBalances, members: ISettlementMembers, clock: Clock) =>
-    async ({ groupId, from, amount }: RecordCashSettlementInput, context) => {
+  (
+    books: ISettlementBooks,
+    groupBalances: IGroupBalances,
+    members: ISettlementMembers,
+    rates: ISettlementRates,
+    clock: Clock,
+  ) =>
+    async ({ groupId, from, amount, original }: RecordCashSettlementInput, context) => {
       return books.inTransaction(async () => {
         const payee = callerOf(context);
         const memberIds = await members.membersOf(groupId, payee);
         if (!memberIds) return Result.fail(new NotFoundException('Settlements', 'No group is found'));
+        const groupCurrency = await members.currencyOf(groupId, payee);
+        if (groupCurrency === undefined) return Result.fail(new NotFoundException('Settlements', 'No group is found'));
 
         // The book is read before the balances: a settlement recorded after this read moves the version, so the save refuses this
         // decision and the retry reads the balances again; a settlement recorded before it is in the balances read below.
@@ -76,9 +105,11 @@ export const recordCashSettlement = command(
         const now = clock();
         const archived = await members.archivedOf(groupId);
         const suspended = await members.suspendedOf(payee);
+        // A payment in another currency takes the rate offered for the day it is decided, before the decision (request 39).
+        const offeredRate = await offeredRateOf(rates, original, groupCurrency, now);
         const decision = decideRecordCashSettlement(
-          { memberIds, balances, archived, suspended },
-          { payee, from, amount },
+          { memberIds, balances, archived, suspended, groupCurrency, offeredRate },
+          { payee, from, amount, original },
           now,
         );
         if (decision.isFailure()) return decision;
@@ -91,11 +122,15 @@ export const recordCashSettlement = command(
     },
 );
 
-/** What a member asks to pay through the provider: the group, the payee (its account id), and the amount (request 13). */
+/**
+ * What a member asks to pay through the provider: the group, the payee (its account id), and the amount in the group's currency, or the
+ * original payment in another currency (request 13, request 39).
+ */
 export interface PayThroughProviderInput {
   groupId: string;
   to: string;
-  amount: number;
+  amount?: number;
+  original?: OriginalGiven;
 }
 
 /**
@@ -115,9 +150,10 @@ export const payThroughProvider = command(
     members: ISettlementMembers,
     payoutAccounts: IPayoutAccounts,
     provider: IPaymentProvider,
+    rates: ISettlementRates,
     clock: Clock,
   ) =>
-    async ({ groupId, to, amount }: PayThroughProviderInput, context) => {
+    async ({ groupId, to, amount, original }: PayThroughProviderInput, context) => {
       return books.inTransaction(async () => {
         const payer = callerOf(context);
         const memberIds = await members.membersOf(groupId, payer);
@@ -134,19 +170,35 @@ export const payThroughProvider = command(
         const suspended = await members.suspendedOf(payer);
         // A payment through the provider is between two accounts neither of which is deleted (request 35): the payer, the caller, and the payee.
         const deleted = (await members.deletedOf(payer)) || (await members.deletedOf(to));
+        // A payment in another currency takes the rate offered for the day it is decided, before the decision (request 39).
+        const offeredRate = await offeredRateOf(rates, original, currency, now);
         const decision = decideRequestProviderPayment(
-          { memberIds, balances, payeeAccount, archived, suspended, deleted },
-          { payer, to, amount },
+          { memberIds, balances, payeeAccount, archived, suspended, deleted, groupCurrency: currency, offeredRate },
+          { payer, to, amount, original },
           now,
         );
         if (decision.isFailure()) return decision;
 
         const { payeeAccount: payee, ...payment } = decision.data.state;
-        const link = await provider.paymentLinkFor({ reference: payment.id, amount: payment.amount, currency, payee });
+        // The provider is asked for what is paid: the original amount in its currency when it is paid in another one (request 39).
+        const paid = payment.original
+          ? { amount: payment.original.amount, currency: payment.original.currency }
+          : { amount: payment.amount, currency };
+        const link = await provider.paymentLinkFor({
+          reference: payment.id,
+          amount: paid.amount,
+          currency: paid.currency,
+          payee,
+        });
         if (!link) return Result.fail(new ProviderUnavailableException());
-        // The fee the provider keeps is taken with who bears it by the group's policy, as it is now (request 38); a payment without a usable
-        // fee is refused, and nothing is kept.
-        const fee = decideProviderFee({ fee: link.fee, amount: payment.amount, borneBy: book.feeBorneBy });
+        // The fee the provider keeps is taken with who bears it by the group's policy, as it is now (request 38), converted at the rate the
+        // payment keeps when it is paid in another currency (request 39); a payment without a usable fee is refused, and nothing is kept.
+        const fee = decideProviderFee({
+          fee: link.fee,
+          amount: paid.amount,
+          borneBy: book.feeBorneBy,
+          rate: payment.original?.rate,
+        });
         if (fee.isFailure()) return fee;
 
         // The book records the payment with the link in hand; the save refuses it if the book moved since it was read.

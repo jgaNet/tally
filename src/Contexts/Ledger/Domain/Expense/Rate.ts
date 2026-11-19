@@ -1,19 +1,7 @@
-/**
- * A rate: a decimal number written as a string, greater than 0, with at most 6 digits after the point (request 21). It is held
- * in millionths, so a rate of six digits after the point is a whole number of them.
- */
-const RATE_FORMAT = /^\d+(\.\d{1,6})?$/;
-const RATE_SCALE = 1_000_000n;
+import { rateInMillionths } from '@SharedKernel/Domain';
 
-/** Whether `raw` is a rate as the API writes one: a decimal number in a string, greater than 0, at most 6 digits after the point. */
-export const isRate = (raw: unknown): raw is string =>
-  typeof raw === 'string' && RATE_FORMAT.test(raw) && rateInMillionths(raw) > 0n;
-
-/** The rate as a whole number of millionths: "12.5" is 12 500 000. Only called on a rate `isRate` accepts. */
-export const rateInMillionths = (rate: string): bigint => {
-  const [whole, fraction = ''] = rate.split('.');
-  return BigInt(whole) * RATE_SCALE + BigInt(fraction.padEnd(6, '0'));
-};
+/** A rate, and its arithmetic, are the shared kernel's: an expense and a settlement convert at one the same way (ADR 37). */
+export { isRate, rateInMillionths } from '@SharedKernel/Domain';
 
 /**
  * The band a payer's rate must stay in, around the offered one (request 22): 2 % of the offered rate, in either direction, both
