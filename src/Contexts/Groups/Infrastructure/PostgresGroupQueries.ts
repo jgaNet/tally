@@ -47,6 +47,16 @@ export class PostgresGroupQueries implements IGroupQueries, IGroupMembership {
     return (rows as (GroupReadModel & { archivedAt: string | null })[]).map(groupOf);
   }
 
+  async groupIdsOf(accountId: string): Promise<string[]> {
+    const rows = await this.database.exclusive(connection =>
+      connection.rows<{ groupId: string }>(
+        'SELECT m.group_id AS "groupId" FROM group_members m WHERE m.account_id = ? AND m.left_at IS NULL',
+        accountId,
+      ),
+    );
+    return rows.map(row => row.groupId);
+  }
+
   async listMemberIds(groupId: string): Promise<string[]> {
     const members = await this.listMembers(groupId);
     return members.map(member => member.memberId);

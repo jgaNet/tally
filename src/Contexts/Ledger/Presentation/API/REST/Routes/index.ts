@@ -16,3 +16,5 @@ export * from './receipt.routes';
 export * from './receipt.routes.schema';
 export * from './audit.routes';
 export * from './audit.routes.schema';
+export * from './insight.routes';
+export * from './insight.routes.schema';

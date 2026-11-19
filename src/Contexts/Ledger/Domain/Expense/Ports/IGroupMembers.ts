@@ -12,6 +12,8 @@ export type MemberRole = 'owner' | 'member';
  */
 export interface IGroupMembers {
   currentMembers(groupId: Id): Promise<Id[]>;
+  /** The groups this account is a member of now, in any currency and archived or not, for its spending insights (request 37); empty for none. */
+  groupsOf(accountId: Id): Promise<Id[]>;
   roleOf(groupId: Id, accountId: Id): Promise<MemberRole | null>;
   hasBeenMember(groupId: Id, accountId: Id): Promise<boolean>;
   /**

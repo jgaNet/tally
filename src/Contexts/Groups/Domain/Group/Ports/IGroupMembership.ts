@@ -11,6 +11,8 @@ export interface IGroupMembership {
   roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null>;
   /** The groups both accounts are members of now, the earliest created first, each with its currency and whether it is archived (request 32). */
   groupsShared(first: string, second: string): Promise<{ groupId: string; currency: string; archived: boolean }[]>;
+  /** The groups this account is a member of now, of any currency and archived or not (request 37); empty for an account in none. */
+  groupIdsOf(accountId: string): Promise<string[]>;
   /** Whether the group is archived (request 27, ADR 20): every other context refuses a change in it once it is, by GroupArchived. */
   isArchived(groupId: string): Promise<boolean>;
   /** Whether an administrator has suspended the account (request 34, ADR 25): every expense or settlement it starts is refused by AccountSuspended. */

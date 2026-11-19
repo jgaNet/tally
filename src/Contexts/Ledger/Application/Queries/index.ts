@@ -10,3 +10,4 @@ export * from '@Contexts/Ledger/Application/Queries/GetGroupBudgets/GetGroupBudg
 export * from '@Contexts/Ledger/Application/Queries/GetGroupTemplates/GetGroupTemplatesQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetReceipt/GetReceiptQueryHandler';
 export * from '@Contexts/Ledger/Application/Queries/GetGroupAudit/GetGroupAuditQueryHandler';
+export * from '@Contexts/Ledger/Application/Queries/GetMyInsights/GetMyInsightsQueryHandler';

@@ -99,9 +99,11 @@ import { PostgresReceiptRepository } from '@Contexts/Ledger/Infrastructure/Postg
 import { PostgresReceiptQueries } from '@Contexts/Ledger/Infrastructure/PostgresReceiptQueries';
 import { PostgresAuditTrail } from '@Contexts/Ledger/Infrastructure/PostgresAuditTrail';
 import { PostgresAuditQueries } from '@Contexts/Ledger/Infrastructure/PostgresAuditQueries';
+import { PostgresInsightQueries } from '@Contexts/Ledger/Infrastructure/PostgresInsightQueries';
 import { SettlementsSettlementAudit } from '@Contexts/Ledger/Infrastructure/SettlementsSettlementAudit';
 import { GroupsPassedBalances } from '@Contexts/Ledger/Infrastructure/GroupsPassedBalances';
 import { GetGroupAuditQueryHandler } from '@Contexts/Ledger/Application/Queries/GetGroupAudit/GetGroupAuditQueryHandler';
+import { GetMyInsightsQueryHandler } from '@Contexts/Ledger/Application/Queries/GetMyInsights/GetMyInsightsQueryHandler';
 
 import { GroupsMergedIntegrationEvent } from '@SharedKernel/Application/IntegrationEvents/GroupsIntegrationEvents';
 import { GroupsMergedLedgerHandler } from '@Contexts/Ledger/Application/Events/GroupsMergedLedgerHandler';
@@ -390,6 +392,11 @@ export function ledgerModuleWith(rates: IOfferedRates, receipts: IReceiptStore, 
         new SettlementsSettlementAudit(settlementAuditEntries),
         new GroupsPassedBalances(passedBalanceEntries),
         new GroupsMembers(groupMembership),
+      ),
+      new GetMyInsightsQueryHandler(
+        new PostgresInsightQueries(database),
+        new GroupsMembers(groupMembership),
+        new GroupsGroupCurrency(groupCurrencyForQueries),
       ),
       new GetOfferedRateQueryHandler(
         rates,

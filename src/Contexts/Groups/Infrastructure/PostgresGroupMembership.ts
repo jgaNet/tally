@@ -29,6 +29,14 @@ export class PostgresGroupMembership implements IGroupMembership {
     return rows.map(row => row.account_id);
   }
 
+  async groupIdsOf(accountId: string): Promise<string[]> {
+    const rows = await this.database.connection.rows<{ groupId: string }>(
+      'SELECT group_id AS "groupId" FROM group_members WHERE account_id = ? AND left_at IS NULL',
+      accountId,
+    );
+    return rows.map(row => row.groupId);
+  }
+
   async roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null> {
     const row = await this.database.connection.row<{ role: 'owner' | 'member' }>(
       `SELECT CASE WHEN m.account_id = g.owner_id THEN 'owner' ELSE 'member' END AS role

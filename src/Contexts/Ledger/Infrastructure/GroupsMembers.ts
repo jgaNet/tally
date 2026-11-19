@@ -11,6 +11,11 @@ export class GroupsMembers implements IGroupMembers {
     return members.map(member => new Id(member));
   }
 
+  async groupsOf(accountId: Id): Promise<Id[]> {
+    const groups = await this.groups.groupIdsOf(accountId.value);
+    return groups.map(group => new Id(group));
+  }
+
   async roleOf(groupId: Id, accountId: Id): Promise<MemberRole | null> {
     return this.groups.roleOf(groupId.value, accountId.value);
   }
