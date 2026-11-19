@@ -163,3 +163,33 @@ describe('Ledger → Notifications (BudgetPassed)', () => {
     ]);
   });
 });
+
+describe('Ledger → Notifications (ExpenseRecorded and the preference in force when it is recorded)', () => {
+  it('tells a member who kept expense notices on by the expense id its recording answered, and tells no one who turned them off', async () => {
+    const hal = await person('Hal');
+    const ivy = await person('Ivy');
+    const jon = await person('Jon');
+    const groupId = await createGroup(hal);
+    await join(groupId, hal, ivy);
+    await join(groupId, hal, jon);
+    const off = await http.request('PUT', `${api}/accounts/me/notice-preferences/expense`, {
+      body: { enabled: false },
+      token: jon.token,
+    });
+    await outcome((off.body as Body).operationId as string, jon.token);
+
+    const expenseId = await record(hal.token, groupId, {
+      description: 'Tea',
+      amount: 900,
+      date: today(),
+      splitBetween: [hal.id, ivy.id, jon.id],
+    });
+
+    const forIvy = await noticesUntil(ivy.token, 1);
+    expect(forIvy).toEqual([
+      { id: expect.any(String), kind: 'expense', groupId, expenseId, amount: 300, at: expect.any(String) },
+    ]);
+    const forJon = await http.get(`${api}/notices`, { token: jon.token });
+    expect(forJon.body).toEqual([]);
+  });
+});

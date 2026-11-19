@@ -20,6 +20,32 @@ const NoticeSchema = {
   },
 } as const;
 
+/** A person's notice preferences, the three kinds in the order they are read (request 36). */
+export const GetNoticePreferencesResSchema = {
+  200: {
+    type: 'array',
+    items: {
+      type: 'object',
+      required: ['kind', 'enabled'],
+      properties: { kind: { enum: ['expense', 'reminder', 'budget'] }, enabled: { type: 'boolean' } },
+    },
+  },
+  401: RefusedSchema,
+} as const;
+
+/** A person turns a kind of notice on or off: asked at once, answered later as an operation (request 36). */
+export const SetNoticePreferenceResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  401: RefusedSchema,
+} as const;
+
+/** The body of a change: whether the kind is on (request 36). */
+export const SetNoticePreferenceBodySchema = {
+  type: 'object',
+  required: ['enabled'],
+  properties: { enabled: { type: 'boolean' } },
+} as const;
+
 /** A person's notices, the most recent first. */
 export const GetMyNoticesResSchema = {
   200: { type: 'array', items: NoticeSchema },

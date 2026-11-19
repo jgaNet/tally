@@ -84,9 +84,11 @@ export class DebtWatch extends AggregateRoot {
 
   /**
    * One run of the sweep sees what the member owes now. Returns what the run did: `reminded` when a reminder is due (the
-   * caller makes the notice in the same transaction), `changed` when the noting moved, `unchanged` otherwise.
+   * caller makes the notice in the same transaction), `changed` when the noting moved, `unchanged` otherwise. A reminder that is
+   * due but not wanted (`remind` false: the member turned reminders off) is not made, and counts as made by no one, so it is
+   * still due at the first run that finds reminders on.
    */
-  observe({ owed, at, period }: { owed: number; at: Date; period: number }): WatchStep {
+  observe({ owed, at, period, remind }: { owed: number; at: Date; period: number; remind: boolean }): WatchStep {
     if (owed <= DEBT_THRESHOLD) {
       if (this.notedSince === null) return 'unchanged';
       this.notedSince = null;
@@ -115,7 +117,7 @@ export class DebtWatch extends AggregateRoot {
     }
     const lasted = at.getTime() - this.notedSince.getTime() >= period;
     const quiet = this.lastReminded === null || at.getTime() - this.lastReminded.getTime() >= period;
-    if (!lasted || !quiet) return 'unchanged';
+    if (!lasted || !quiet || !remind) return 'unchanged';
     this.lastReminded = at;
     this.record(
       ReminderIssuedEvent.set({

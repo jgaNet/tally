@@ -6,6 +6,8 @@ import { IDebtWatchRepository } from '@Contexts/Notifications/Domain/Debt/Ports/
 import { IOutstandingDebts, OutstandingDebt } from '@Contexts/Notifications/Domain/Debt/Ports/IOutstandingDebts';
 import { Notice } from '@Contexts/Notifications/Domain/Notice/Notice';
 import { INoticeRepository } from '@Contexts/Notifications/Domain/Notice/Ports/INoticeRepository';
+import { INoticePreferenceRepository } from '@Contexts/Notifications/Domain/Preference/Ports/INoticePreferenceRepository';
+import { NoticePreferences } from '@Contexts/Notifications/Domain/Preference/NoticePreferences';
 
 /**
  * The background job that keeps the debt watches and makes the reminders (request 18, ADR 12). Each run reads what every
@@ -16,6 +18,9 @@ import { INoticeRepository } from '@Contexts/Notifications/Domain/Notice/Ports/I
  * A member is decided in a transaction of their own; a conflict with another server's run re-reads and re-decides, up to
  * three times (CONFLICT_ATTEMPTS), so a reminder is made once a period whatever the number of servers. The time is the
  * clock's, given once by the wiring, and the period is the wiring's: nothing here reads the machine's time.
+ *
+ * A reminder is made only to a member who turned reminders on (request 36, ADR 27). Turned off, the watch keeps the noting and
+ * no reminder is counted as made, so the first run after they are on again reminds a member who still owes.
  */
 export class SweepDebtsJob {
   static readonly CONFLICT_ATTEMPTS = 3;
@@ -24,6 +29,7 @@ export class SweepDebtsJob {
     private readonly debts: IOutstandingDebts,
     private readonly watches: IDebtWatchRepository,
     private readonly notices: INoticeRepository,
+    private readonly preferences: INoticePreferenceRepository,
     private readonly clock: Clock,
     private readonly reminderPeriodMs: number,
   ) {}
@@ -77,7 +83,8 @@ export class SweepDebtsJob {
       return this.save(created.data, context);
     }
 
-    const step = watch.observe({ owed: debt.owed, at, period: this.reminderPeriodMs });
+    const remind = NoticePreferences.wants(await this.preferences.findByMember(memberId), 'reminder');
+    const step = watch.observe({ owed: debt.owed, at, period: this.reminderPeriodMs, remind });
     if (step === 'unchanged') return Result.ok();
     const saved = await this.save(watch, context);
     if (saved.isFailure() || step === 'changed') return saved;
