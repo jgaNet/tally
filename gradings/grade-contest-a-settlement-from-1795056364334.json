@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "control": null,
+  "project": "/var/tmp/j6/trees/lite-3",
+  "ref": "e66ef98ff4c67c648c50418b17fcc28a91bccf16",
+  "commit": "e66ef98ff4c67c648c50418b17fcc28a91bccf16",
+  "base": "4d3a85c465709aba0fb4fc0e1eefa057134b6bf6",
+  "M1": {
+    "verdict": "skipped",
+    "failing": []
+  },
+  "features": [
+    {
+      "feature": "notices",
+      "M2": {
+        "pass": false,
+        "tests": "1 failed, 2 passed, 3 total",
+        "failed": [
+          "notices › makes one notice per member and expense, even when the server is killed and started again"
+        ],
+        "exitCode": 1,
+        "said": [
+          "  ● notices › makes one notice per member and expense, even when the server is killed and started again",
+          "    - Expected  - 2",
+          "    + Received  + 2",
+          "Tests:       1 failed, 2 passed, 3 total"
+        ]
+      },
+      "M3": {
+        "pass": true,
+        "owed": []
+      },
+      "mechanical": false
+    }
+  ],
+  "gradedInMs": 214,
+  "workers": 1
+}
