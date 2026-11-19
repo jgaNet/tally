@@ -3,6 +3,7 @@ import { recordAudit } from '../audit/audit';
 import { noticeIfPassed } from '../budgets/budgets';
 import type { Category } from '../budgets/categories';
 import { type Database, inTransaction } from '../database';
+import { requireNotSuspended } from '../admin/suspensions';
 import { currencyOfGroup, leftMembersAmong, requireMembership, requireNotArchived } from '../groups/groups';
 import type { Currency } from '../groups/validation';
 import { recordExpenseNotices } from '../notices/notices';
@@ -124,9 +125,9 @@ export async function rateOfferFor(
 
 /**
  * Records an expense of `groupId` that `payerId` paid, split as its input says. `payerId` must be a member of
- * the group, or the group is refused as not there. An expense in another currency that states no rate is
- * recorded at the rate offered for its currency on its date (see `rateOfferFor`). The expense and its shares
- * are written together, or not at all.
+ * the group, or the group is refused as not there, and a payer who is suspended is refused with `AccountSuspended`.
+ * An expense in another currency that states no rate is recorded at the rate offered for its currency on its date
+ * (see `rateOfferFor`). The expense and its shares are written together, or not at all.
  */
 export async function createExpense(
   db: Database,
@@ -136,10 +137,12 @@ export async function createExpense(
   input: ExpenseRequest,
 ): Promise<string> {
   const { currency } = await requireMembership(db, groupId, payerId);
+  await requireNotSuspended(db, payerId);
   await requireNotArchived(db, groupId);
   const offer = await rateOfferFor(rates, currency, input.money, input.date);
   return inTransaction(db, async () => {
     const group = await requireMembership(db, groupId, payerId);
+    await requireNotSuspended(db, payerId);
     await requireNotArchived(db, groupId);
     const expense = validateExpense(
       { ...input, split: await splitFor(db, groupId, input.split) },

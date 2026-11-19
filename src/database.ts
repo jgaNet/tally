@@ -315,6 +315,19 @@ const migrations: readonly string[] = [
   CREATE TRIGGER admin_log_never_removed BEFORE DELETE ON admin_log
     FOR EACH ROW EXECUTE FUNCTION admin_log_never_changed();
   `,
+  `
+  -- An account an administrator suspended: one row while it is suspended, deleted when it is reinstated. A suspension
+  -- changes nothing in any group; it only refuses the account the requests that record money.
+  CREATE TABLE suspensions (
+    account_id   TEXT PRIMARY KEY REFERENCES accounts (id),
+    suspended_at TEXT NOT NULL
+  );
+  -- The administrators' log also holds suspensions and reinstatements, whose subject is an account, not a settlement.
+  ALTER TABLE admin_log DROP CONSTRAINT admin_log_subject_id_fkey;
+  ALTER TABLE admin_log DROP CONSTRAINT admin_log_action_check;
+  ALTER TABLE admin_log ADD CONSTRAINT admin_log_action_check
+    CHECK (action IN ('decided-paid', 'decided-annulled', 'suspended', 'reinstated'));
+  `,
 ];
 
 /** The database: every read and write Tally makes goes through it, to the PostgreSQL database it was opened on. */

@@ -9,6 +9,7 @@ import {
   todayInUtc,
   validateExpense,
 } from '../expenses/validation';
+import { isSuspended, requireNotSuspended } from '../admin/suspensions';
 import { isArchived, requireMembership, requireNotArchived } from '../groups/groups';
 import { Refusal } from '../refusal';
 
@@ -112,6 +113,7 @@ export function createRecurring(
 ): Promise<string> {
   return inTransaction(db, async () => {
     const group = await requireMembership(db, groupId, payerId);
+    await requireNotSuspended(db, payerId);
     await requireNotArchived(db, groupId);
     // The same rules as an expense's description, amount and split; the day is checked as startsOn below.
     const checked = validateExpense(
@@ -197,7 +199,7 @@ export function stopRecurring(db: Database, id: string, accountId: string): Prom
  * earlier days first. Each recurring expense is handled in its own transaction that records an expense and
  * moves `next` a month on together, so a day is recorded once, however many servers run and wherever one is
  * stopped. When its payer or a member of its split is no longer a member, the day is not recorded and the
- * recurring expense is deleted.
+ * recurring expense is deleted. While its payer is suspended, no day is recorded and none moves: they wait.
  */
 export async function recordRecurring(db: Database, at: Date): Promise<void> {
   const today = at.toISOString().slice(0, 10);
@@ -222,6 +224,11 @@ async function recordNextDay(db: Database, id: string, today: string, at: Date):
   }
   // The group may have been archived since the run began: an archived group records nothing.
   if (await isArchived(db, row.group_id)) {
+    return false;
+  }
+  // The payer may have been suspended since the run began: the day waits, and is recorded at the first run after the
+  // payer is reinstated, `next` not moved.
+  if (await isSuspended(db, row.paid_by)) {
     return false;
   }
   const recurring = toRecurring(row);

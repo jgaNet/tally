@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { recordAudit } from '../audit/audit';
 import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
+import { requireNotSuspended } from '../admin/suspensions';
 import { requireMembership, requireNotArchived } from '../groups/groups';
 import { Refusal } from '../refusal';
 import { type SettlementStatus, type StatusEntry, historyOf, recordStatus } from './history';
@@ -88,6 +89,8 @@ export function recordCashSettlement(
   input: { from: string; amount: number },
 ): Promise<string> {
   return inTransaction(db, async () => {
+    await requireMembership(db, groupId, payeeId);
+    await requireNotSuspended(db, payeeId);
     await checkNewSettlement(db, groupId, input.from, payeeId, input.amount);
     const id = randomUUID();
     const at = new Date().toISOString();

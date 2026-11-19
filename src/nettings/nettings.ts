@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { requireNotSuspended } from '../admin/suspensions';
 import { recordAudit } from '../audit/audit';
 import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
@@ -46,12 +47,14 @@ interface Planned {
  * lock, after the balances are read, so a netting or a settlement made at the same moment is decided on what the
  * other left.
  *
- * It is refused with `422` when `withId` is the caller or `currency` is not one of Tally's, and with `409` when nothing
- * can be netted, in which case nothing changes. Each settlement is `net`, `paid` at once, and audited as a
+ * A suspended `byId` is refused with `AccountSuspended` before anything else. It is refused with `422` when `withId`
+ * is the caller or `currency` is not one of Tally's, and with `409` when nothing can be netted, in which case nothing
+ * changes. Each settlement is `net`, `paid` at once, and audited as a
  * `settlement-paid` by `byId`; it is never refunded.
  */
 export function netAcross(db: Database, byId: string, withId: string, currency: string): Promise<string> {
   return inTransaction(db, async () => {
+    await requireNotSuspended(db, byId);
     if (withId === byId) {
       throw new Refusal(422, 'NettingWithSelf', 'A netting is between two members, not one with oneself.');
     }

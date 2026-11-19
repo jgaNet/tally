@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { recordAudit } from '../audit/audit';
 import { type Database, inTransaction } from '../database';
+import { requireNotSuspended } from '../admin/suspensions';
 import { requireMembership, requireNotArchived } from '../groups/groups';
 import { payoutAccountOf } from '../payouts/payout-accounts';
 import { Refusal } from '../refusal';
@@ -37,6 +38,7 @@ export async function requestProviderSettlement(
 ): Promise<string> {
   const held = await inTransaction(db, async () => {
     const group = await requireMembership(db, groupId, payerId);
+    await requireNotSuspended(db, payerId);
     await requireNotArchived(db, groupId);
     if (provider.url === '') {
       throw new Refusal(409, 'ProviderNotConfigured', 'Payment through the provider is not set up on this server.');

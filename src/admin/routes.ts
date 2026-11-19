@@ -7,6 +7,7 @@ import { contestedSettlements } from '../settlements/settlements';
 import { settlementSchema } from '../settlements/routes';
 import { administratorLog } from './log';
 import { isAdministrator } from './administrators';
+import { reinstateAccount, suspendAccount } from './suspensions';
 
 const adminLogEntrySchema = {
   type: 'object',
@@ -15,10 +16,12 @@ const adminLogEntrySchema = {
     id: { type: 'string' },
     at: { type: 'string' },
     by: { type: 'string' },
-    action: { type: 'string', enum: ['decided-paid', 'decided-annulled'] },
+    action: { type: 'string', enum: ['decided-paid', 'decided-annulled', 'suspended', 'reinstated'] },
     subjectId: { type: 'string' },
   },
 };
+
+const accountParams = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } };
 
 /**
  * The administrators' routes. What only an administrator reads does not exist for anyone else: it is `404` to a
@@ -60,6 +63,32 @@ export function registerAdminRoutes(app: FastifyInstance, db: Database, administ
         throw new Refusal(403, 'NotAdministrator', 'Only an administrator may decide a contested settlement.');
       }
       await decideContest(db, request.params.id, account.id, request.body.paid);
+      return reply.code(204).send();
+    },
+  );
+
+  app.put<{ Params: { id: string } }>(
+    '/admin/accounts/:id/suspension',
+    { schema: { params: accountParams } },
+    async (request, reply) => {
+      const account = await requireAccount(db, request);
+      if (!isAdministrator(administrators, account)) {
+        throw new Refusal(403, 'NotAdministrator', 'Only an administrator may suspend an account.');
+      }
+      await suspendAccount(db, account.id, request.params.id);
+      return reply.code(204).send();
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/admin/accounts/:id/suspension',
+    { schema: { params: accountParams } },
+    async (request, reply) => {
+      const account = await requireAccount(db, request);
+      if (!isAdministrator(administrators, account)) {
+        throw new Refusal(403, 'NotAdministrator', 'Only an administrator may reinstate an account.');
+      }
+      await reinstateAccount(db, account.id, request.params.id);
       return reply.code(204).send();
     },
   );

@@ -1,7 +1,7 @@
 import { recordAudit } from '../audit/audit';
 import { type Database, inTransaction } from '../database';
 import { leftMembersAmong, requireNotArchived } from '../groups/groups';
-import { recordAdministratorDecision } from '../admin/log';
+import { recordAdministratorEntry } from '../admin/log';
 import { Refusal } from '../refusal';
 import { recordStatus } from './history';
 import { requireSettlement } from './settlements';
@@ -88,12 +88,6 @@ export async function decideContest(
         at,
       );
     }
-    await recordAdministratorDecision(
-      db,
-      administratorId,
-      paid ? 'decided-paid' : 'decided-annulled',
-      settlementId,
-      at,
-    );
+    await recordAdministratorEntry(db, administratorId, paid ? 'decided-paid' : 'decided-annulled', settlementId, at);
   });
 }

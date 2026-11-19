@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Database } from '../database';
 
-/** What an administrator decided about a contested settlement. */
-export type AdministratorAction = 'decided-paid' | 'decided-annulled';
+/** What an administrator did: decided a contested settlement, or suspended or reinstated an account. */
+export type AdministratorAction = 'decided-paid' | 'decided-annulled' | 'suspended' | 'reinstated';
 
 /** An entry of the administrators' log, as the administrators read it. */
 export interface AdministratorLogEntry {
@@ -12,7 +12,7 @@ export interface AdministratorLogEntry {
   /** The account id of the administrator who decided. */
   by: string;
   action: AdministratorAction;
-  /** The settlement decided. */
+  /** The settlement decided, or the account suspended or reinstated. */
   subjectId: string;
 }
 
@@ -25,10 +25,10 @@ interface AdministratorLogRow {
 }
 
 /**
- * Writes the entry of a decision of an administrator. It is called only inside the transaction of the decision, after
- * the decision is written, so the entry is there exactly when the decision is. Nothing else writes an entry.
+ * Writes the entry of an act of an administrator. It is called only inside the transaction of the act, after the act
+ * is written, so the entry is there exactly when the act is. Nothing else writes an entry.
  */
-export async function recordAdministratorDecision(
+export async function recordAdministratorEntry(
   db: Database,
   administratorId: string,
   action: AdministratorAction,
