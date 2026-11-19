@@ -21,10 +21,12 @@ export class OutstandingDebtsReadModel implements IOutstandingDebtsQueries {
   async outstanding(): Promise<OutstandingDebt[]> {
     const debts: OutstandingDebt[] = [];
     for (const { groupId, memberIds } of await this.members.groupsWithMembers()) {
+      const currency = await this.members.currencyOf(groupId);
+      if (currency === null) continue;
       const waiting = new Map((await this.pending.pendingEffectOf(groupId)).map(row => [row.memberId, row.amount]));
       for (const memberId of memberIds) {
         const balance = (await this.balances.balanceOf(groupId, memberId)) + (waiting.get(memberId) ?? 0);
-        if (balance < 0) debts.push({ groupId, memberId, owed: -balance });
+        if (balance < 0) debts.push({ groupId, memberId, owed: -balance, currency });
       }
     }
     return debts;

@@ -100,7 +100,7 @@ export class NotThePayerOrTheOwner extends LedgerException {
 /** A currency is one of Tally's (request 2): an expense paid in another currency names one of them. */
 export class InvalidOriginalCurrency extends LedgerException {
   constructor() {
-    super('InvalidOriginalCurrency', 'A currency is one of EUR, USD, GBP, CHF, CAD or AUD');
+    super('InvalidOriginalCurrency', 'A currency is one of EUR, USD, GBP, CHF, CAD, AUD, JPY, KRW, KWD or BHD');
   }
 }
 

@@ -51,7 +51,7 @@ describe('CreateGroup', () => {
   it.each([
     ['a name of only spaces', { name: '   ' }, 'InvalidGroupName'],
     ['a name over 60 characters', { name: 'x'.repeat(61) }, 'InvalidGroupName'],
-    ['a currency not on the list', { currency: 'JPY' }, 'InvalidCurrency'],
+    ['a currency not on the list', { currency: 'XXX' }, 'InvalidCurrency'],
   ])('refuses %s', async (_, payload, type) => {
     const result = await setup().handler.execute(createGroup(payload), signedInAs('alice'));
 

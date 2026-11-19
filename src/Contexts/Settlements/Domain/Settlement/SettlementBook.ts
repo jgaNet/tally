@@ -1,4 +1,4 @@
-import { AccountDeleted, AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
+import { AccountDeleted, AccountSuspended, GroupArchived, isCurrencyCode } from '@SharedKernel/Domain';
 import { SettlementBookMergedEvent } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
 import { AggregateRoot, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 
@@ -377,7 +377,10 @@ export class SettlementBook extends AggregateRoot {
     if (decided.isFailure()) return decided;
 
     // A fee in another currency is converted at the rate the payment was decided at, the same way as the amount (request 39).
-    const feeAmount = planned.original ? planned.original.inGroupCurrency(link.fee) : link.fee;
+    const feeAmount =
+      planned.original && 'original' in decision.paid && isCurrencyCode(decision.paid.groupCurrency)
+        ? planned.original.inGroupCurrency(link.fee, decision.paid.groupCurrency)
+        : link.fee;
     if (feeAmount >= planned.amount) return Result.fail(new ProviderFeeInvalid());
 
     // The fee is fixed now, with who bears it as the owner last said: changing the policy later changes no payment asked for before.
@@ -667,7 +670,13 @@ const priceOf = (paid: PaidIn): IResult<Priced> => {
   if (!('original' in paid)) return Result.ok({ amount: paid.amount, original: null });
   const original = OriginalAmount.create(paid.original, paid.groupCurrency, paid.rate);
   if (original.isFailure()) return original;
-  return Result.ok({ amount: original.data.inGroupCurrency(original.data.amount), original: original.data });
+  // OriginalAmount.create refused a currency that is not Tally's, but the group's is a string: a group of a currency Tally does not know is corrupted.
+  if (!isCurrencyCode(paid.groupCurrency))
+    throw new Error(`The group's currency ${paid.groupCurrency} is not one of Tally's`);
+  return Result.ok({
+    amount: original.data.inGroupCurrency(original.data.amount, paid.groupCurrency),
+    original: original.data,
+  });
 };
 
 /** The outcome a provider's webhook status names for a payment, or `null` for a status Tally does not know or waits on. */

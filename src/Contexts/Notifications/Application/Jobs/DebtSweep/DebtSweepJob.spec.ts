@@ -56,7 +56,7 @@ describe('DebtSweepJob (ADR 10)', () => {
 
   it('notes a debt above 2000 from the sweep that first sees it, and reminds it a week later, and again each week it lasts', async () => {
     const { debts, sweep, published } = setUp();
-    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2500 }];
+    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2500, currency: 'EUR' }];
 
     await sweep(day(0));
     expect(published()).toEqual(['DebtNotedEvent']);
@@ -76,11 +76,11 @@ describe('DebtSweepJob (ADR 10)', () => {
 
   it('notes nothing for a debt of 2000 or less, and clears a noted debt the sweep sees gone', async () => {
     const { debts, sweep, published } = setUp();
-    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2000 }];
+    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2000, currency: 'EUR' }];
     await sweep(day(0));
     expect(published()).toEqual([]);
 
-    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2001 }];
+    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2001, currency: 'EUR' }];
     await sweep(day(1));
     expect(published()).toEqual(['DebtNotedEvent']);
 
@@ -91,7 +91,7 @@ describe('DebtSweepJob (ADR 10)', () => {
 
   it('waits a period from the sweep that sees a debt come back, after its last reminder', async () => {
     const { debts, sweep, published } = setUp();
-    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2500 }];
+    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2500, currency: 'EUR' }];
     await sweep(day(0));
     await sweep(day(7));
     expect(published()).toEqual(['DebtNotedEvent', 'ReminderIssuedEvent']);
@@ -100,7 +100,7 @@ describe('DebtSweepJob (ADR 10)', () => {
     await sweep(day(8));
     expect(published()).toEqual(['DebtClearedEvent']);
 
-    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2500 }];
+    debts.owing = [{ groupId: 'flat', memberId: 'cy', owed: 2500, currency: 'EUR' }];
     await sweep(day(9));
     expect(published()).toEqual(['DebtNotedEvent']);
 
@@ -114,9 +114,9 @@ describe('DebtSweepJob (ADR 10)', () => {
   it('keeps each member of each group apart', async () => {
     const { debts, sweep, published } = setUp();
     debts.owing = [
-      { groupId: 'flat', memberId: 'cy', owed: 2500 },
-      { groupId: 'flat', memberId: 'dee', owed: 100 },
-      { groupId: 'trip', memberId: 'cy', owed: 9000 },
+      { groupId: 'flat', memberId: 'cy', owed: 2500, currency: 'EUR' },
+      { groupId: 'flat', memberId: 'dee', owed: 100, currency: 'EUR' },
+      { groupId: 'trip', memberId: 'cy', owed: 9000, currency: 'EUR' },
     ];
     await sweep(day(0));
     expect(published()).toEqual(['DebtNotedEvent', 'DebtNotedEvent']);
@@ -128,7 +128,7 @@ describe('PostgresDebtWatchRepository (ADR 10)', () => {
     const { database, watches } = setUp();
     await database.prepare();
     const opened = DebtWatch.open({ groupId: new Id('flat'), memberId: new Id('cy') });
-    opened.see({ owed: 2500, now: day(0) });
+    opened.see({ currency: 'EUR', owed: 2500, now: day(0) });
     expect((await watches.save(opened)).isFailure()).toBe(false);
 
     const first = (await watches.find('flat', 'cy')) as DebtWatch;
@@ -136,7 +136,7 @@ describe('PostgresDebtWatchRepository (ADR 10)', () => {
     first.remindIfDue({ owed: 2500, now: day(7), period: WEEK_SECONDS * 1000, remindable: true });
     expect((await watches.save(first)).isFailure()).toBe(false);
 
-    second.see({ owed: 0, now: day(8) });
+    second.see({ currency: 'EUR', owed: 0, now: day(8) });
     const refused = await watches.save(second);
     expect(refused.isFailure()).toBe(true);
     expect(refused.isFailure() && refused.error).toBeInstanceOf(ConcurrencyConflictException);

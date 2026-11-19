@@ -1,5 +1,5 @@
 import { IResult, Result, ValueObject } from '@Architecture/Domain';
-import { CurrencyCode, isCurrencyCode } from '@SharedKernel/Domain/Currency';
+import { convertMinorUnits, CurrencyCode, isCurrencyCode, scaleRate } from '@SharedKernel/Domain/Currency';
 
 import {
   InvalidOriginalAmount,
@@ -8,7 +8,7 @@ import {
   SameCurrencyAsTheGroup,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 
-/** What a payment is paid in, as the payer gives it: a currency of Tally's and an amount in its hundredths (request 39). */
+/** What a payment is paid in, as the payer gives it: a currency of Tally's and an amount in its minor unit (requests 39, 40). */
 export interface OriginalPayment {
   currency: string;
   amount: number;
@@ -23,8 +23,6 @@ export type PaidIn = { amount: number } | { original: OriginalPayment; groupCurr
 
 /** The rate as Tally keeps it: a decimal number in a string, above 0, at most 6 digits after the point (request 22). */
 const RATE = /^\d+(\.\d{1,6})?$/;
-const RATE_DIGITS = 6;
-const RATE_SCALE = 10n ** BigInt(RATE_DIGITS);
 
 interface Original {
   currency: CurrencyCode;
@@ -33,7 +31,7 @@ interface Original {
 }
 
 /**
- * What a settlement was paid in, in a currency other than its group's: the currency, the amount in that currency's hundredths (1 to
+ * What a settlement was paid in, in a currency other than its group's: the currency, the amount in that currency's minor unit (1 to
  * 100 000 000), and the rate it was decided at, what one unit of that currency is worth in the group's currency. The rate is kept as the
  * string the rates service wrote it, and the group's amount is computed here once, in exact integer arithmetic, the same way as an
  * expense's (request 21): a half rounded up, never a floating-point half.
@@ -80,7 +78,7 @@ export class OriginalAmount extends ValueObject<Original> {
     return this.value.currency;
   }
 
-  /** The amount in the original currency's hundredths. */
+  /** The amount in the original currency's minor unit. */
   get amount(): number {
     return this.value.amount;
   }
@@ -94,9 +92,8 @@ export class OriginalAmount extends ValueObject<Original> {
    * A whole amount in the original currency, in the group's currency at this rate: the amount times the rate, to the nearest whole
    * number, a half up. It is used for the payment's amount and for the provider's fee, which is in the payment's currency.
    */
-  inGroupCurrency(hundredths: number): number {
-    const product = BigInt(hundredths) * rateScaled(this.value.rate);
-    return Number((product + RATE_SCALE / 2n) / RATE_SCALE);
+  inGroupCurrency(minorUnits: number, groupCurrency: CurrencyCode): number {
+    return convertMinorUnits(minorUnits, this.value.currency, groupCurrency, this.value.rate);
   }
 
   protected equalsValue(a: Original, b: Original): boolean {
@@ -108,10 +105,4 @@ const validAmount = (amount: number): boolean =>
   Number.isInteger(amount) && amount >= OriginalAmount.MIN && amount <= OriginalAmount.MAX;
 
 /** Matches the form, and is above 0. */
-const validRate = (rate: string): boolean => RATE.test(rate) && rateScaled(rate) > 0n;
-
-/** The rate times 10^6, as an integer: `"12.5"` is 12 500 000. Only a rate that matches the form is read this way. */
-const rateScaled = (rate: string): bigint => {
-  const [whole, fraction = ''] = rate.split('.');
-  return BigInt(whole + fraction.padEnd(RATE_DIGITS, '0'));
-};
+const validRate = (rate: string): boolean => RATE.test(rate) && scaleRate(rate) > 0n;

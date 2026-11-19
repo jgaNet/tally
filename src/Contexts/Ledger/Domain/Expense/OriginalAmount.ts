@@ -1,5 +1,5 @@
 import { IResult, Result, ValueObject } from '@Architecture/Domain';
-import { CurrencyCode, isCurrencyCode } from '@SharedKernel/Domain/Currency';
+import { convertMinorUnits, CurrencyCode, isCurrencyCode, scaleRate } from '@SharedKernel/Domain/Currency';
 
 import {
   InvalidOriginalAmount,
@@ -29,9 +29,6 @@ export type RateSource = 'stated' | 'offered';
 
 /** A decimal number above 0 with at most 6 digits after the point, written as the payer gave it: `"0.9542"`, `"1"`, `"12.5"`. */
 const RATE = /^\d+(\.\d{1,6})?$/;
-/** A rate is kept to 6 digits after the point: the exact arithmetic multiplies by 10^6. */
-const RATE_DIGITS = 6;
-const RATE_SCALE = 10n ** BigInt(RATE_DIGITS);
 /** The band a stated rate may differ from the offered one by: 2 %, as the fraction 1/50 of the offered rate (request 22). */
 const BAND_DIVISOR = 50n;
 
@@ -98,13 +95,13 @@ export class OriginalAmount extends ValueObject<Original> {
   }
 
   /**
-   * The amount in the group's currency: the amount times the rate, rounded to the nearest whole number, a half rounded up. It is
-   * an exact integer computation, so 1000 at "0.9545" is 954.5 and so 955, and 1234 at "1.0625" is 1311.125 and so 1311. It is
-   * refused as an amount by the caller when it is out of range, as any amount is.
+   * The amount in the group's currency: the amount read in its currency's units, times the rate, written in the group's minor unit,
+   * rounded to the nearest whole number, a half rounded up (request 40). It is an exact integer computation, so 1000 at "0.9545"
+   * between two currencies of hundredths is 954.5 and so 955, and 1234 at "1.0625" is 1311.125 and so 1311. It is refused as an
+   * amount by the caller when it is out of range, as any amount is.
    */
-  groupAmount(): number {
-    const product = BigInt(this.value.amount) * rateScaled(this.value.rate);
-    return Number((product + RATE_SCALE / 2n) / RATE_SCALE);
+  groupAmount(groupCurrency: CurrencyCode): number {
+    return convertMinorUnits(this.value.amount, this.value.currency, groupCurrency, this.value.rate);
   }
 
   protected equalsValue(a: Original, b: Original): boolean {
@@ -129,8 +126,8 @@ const settleRate = (
 
 /** Whether a stated rate differs from the offered one by at most 2 % of the offered one, exactly: |stated − offered| × 50 ≤ offered. */
 const withinBand = (stated: string, offered: string): boolean => {
-  const given = rateScaled(stated);
-  const reference = rateScaled(offered);
+  const given = scaleRate(stated);
+  const reference = scaleRate(offered);
   const difference = given > reference ? given - reference : reference - given;
   return difference * BAND_DIVISOR <= reference;
 };
@@ -139,13 +136,7 @@ const validAmount = (amount: number): boolean =>
   Number.isInteger(amount) && amount >= OriginalAmount.MIN && amount <= OriginalAmount.MAX;
 
 /** Matches the form, and is above 0 (`0` and `0.000` are not a rate). */
-const validRate = (rate: string): boolean => RATE.test(rate) && rateScaled(rate) > 0n;
+const validRate = (rate: string): boolean => RATE.test(rate) && scaleRate(rate) > 0n;
 
 /** Whether a text is a rate: the form above, above 0. A rates service's rate is held to the same rule (request 22). */
 export const isValidRate = (text: string): boolean => validRate(text);
-
-/** The rate times 10^6, as an integer: `"12.5"` is 12 500 000. Only a rate that matches the form is read this way. */
-const rateScaled = (rate: string): bigint => {
-  const [whole, fraction = ''] = rate.split('.');
-  return BigInt(whole + fraction.padEnd(RATE_DIGITS, '0'));
-};

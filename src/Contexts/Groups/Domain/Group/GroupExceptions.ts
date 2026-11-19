@@ -15,7 +15,7 @@ export class InvalidGroupName extends GroupException {
 
 export class InvalidCurrency extends GroupException {
   constructor() {
-    super('InvalidCurrency', 'A currency is one of EUR, USD, GBP, CHF, CAD or AUD');
+    super('InvalidCurrency', 'A currency is one of EUR, USD, GBP, CHF, CAD, AUD, JPY, KRW, KWD or BHD');
   }
 }
 

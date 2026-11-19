@@ -252,12 +252,12 @@ describe('Settlement in another currency (request 39)', () => {
       await recordCash(ann.token, groupId, { from: bob.id, original: { currency: 'EUR', amount: 100 } }),
     ).toMatchObject({ status: 'ERROR', error: { type: 'SameCurrencyAsTheGroup' } });
     expect(
-      await recordCash(ann.token, groupId, { from: bob.id, original: { currency: 'JPY', amount: 100 } }),
+      await recordCash(ann.token, groupId, { from: bob.id, original: { currency: 'XXX', amount: 100 } }),
     ).toMatchObject({ status: 'ERROR', error: { type: 'InvalidOriginalCurrency' } });
     expect(
       await recordCash(ann.token, groupId, { from: bob.id, original: { currency: 'CHF', amount: 0 } }),
     ).toMatchObject({ status: 'ERROR', error: { type: 'InvalidOriginalAmount' } });
-    expect(asked.some(ask => ask.from === 'EUR' || ask.from === 'JPY')).toBe(false);
+    expect(asked.some(ask => ask.from === 'EUR' || ask.from === 'XXX')).toBe(false);
   });
 
   it('answers a body with both ways to give the money, or with neither, as a wrong shape (400)', async () => {

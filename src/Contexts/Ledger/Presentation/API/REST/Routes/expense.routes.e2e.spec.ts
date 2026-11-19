@@ -713,7 +713,7 @@ describe('an expense in another currency', () => {
     });
     const unknownCurrency = await record(alice.token, groupId, {
       ...fields,
-      original: { currency: 'JPY', amount: 100, rate: '1' },
+      original: { currency: 'XXX', amount: 100, rate: '1' },
     });
     const badRate = await record(alice.token, groupId, {
       ...fields,

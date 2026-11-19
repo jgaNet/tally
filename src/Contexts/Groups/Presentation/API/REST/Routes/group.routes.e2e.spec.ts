@@ -67,7 +67,7 @@ describe('groups', () => {
     const refusals: [string, string, string][] = [
       ['   ', 'EUR', 'InvalidGroupName'],
       ['x'.repeat(61), 'EUR', 'InvalidGroupName'],
-      ['Flat', 'JPY', 'InvalidCurrency'],
+      ['Flat', 'XXX', 'InvalidCurrency'],
     ];
     for (const [name, currency, type] of refusals) {
       const operation = await createGroup(alice.token, name, currency);

@@ -11,13 +11,13 @@ const paid = (currency: string, amount: number, rate: string, offer: RateOffer |
 
 describe('OriginalAmount, converted into the group currency', () => {
   it('computes the amount times the rate, rounded to the nearest whole number, a half up, in exact arithmetic', () => {
-    expect((paid('CHF', 1234, '1.0625').data as OriginalAmount).groupAmount()).toBe(1311);
-    expect((paid('CHF', 1000, '0.9545').data as OriginalAmount).groupAmount()).toBe(955);
-    expect((paid('USD', 1000, '0.9542').data as OriginalAmount).groupAmount()).toBe(954);
-    expect((paid('USD', 5, '0.5').data as OriginalAmount).groupAmount()).toBe(3);
-    expect((paid('USD', 1, '0.5').data as OriginalAmount).groupAmount()).toBe(1);
-    expect((paid('GBP', 100, '12.5').data as OriginalAmount).groupAmount()).toBe(1250);
-    expect((paid('GBP', 3, '0.333333').data as OriginalAmount).groupAmount()).toBe(1);
+    expect((paid('CHF', 1234, '1.0625').data as OriginalAmount).groupAmount('EUR')).toBe(1311);
+    expect((paid('CHF', 1000, '0.9545').data as OriginalAmount).groupAmount('EUR')).toBe(955);
+    expect((paid('USD', 1000, '0.9542').data as OriginalAmount).groupAmount('EUR')).toBe(954);
+    expect((paid('USD', 5, '0.5').data as OriginalAmount).groupAmount('EUR')).toBe(3);
+    expect((paid('USD', 1, '0.5').data as OriginalAmount).groupAmount('EUR')).toBe(1);
+    expect((paid('GBP', 100, '12.5').data as OriginalAmount).groupAmount('EUR')).toBe(1250);
+    expect((paid('GBP', 3, '0.333333').data as OriginalAmount).groupAmount('EUR')).toBe(1);
   });
 
   it('keeps the currency, the amount and the rate exactly as given, the rate as its string', () => {
@@ -26,7 +26,7 @@ describe('OriginalAmount, converted into the group currency', () => {
   });
 
   it('refuses a currency that is not Tally’s, or the group’s own, an amount out of range, and a rate that is not valid', () => {
-    expect(paid('JPY', 100, '1')).toMatchObject({ error: { type: 'InvalidOriginalCurrency' } });
+    expect(paid('XXX', 100, '1')).toMatchObject({ error: { type: 'InvalidOriginalCurrency' } });
     expect(paid('EUR', 100, '1')).toMatchObject({ error: { type: 'SameCurrencyAsTheGroup' } });
     expect(paid('USD', 0, '1')).toMatchObject({ error: { type: 'InvalidOriginalAmount' } });
     expect(paid('USD', 100_000_001, '1')).toMatchObject({ error: { type: 'InvalidOriginalAmount' } });
@@ -48,7 +48,7 @@ describe('OriginalAmount, its rate settled against the offer (request 22)', () =
       rate: '0.95',
       rateSource: 'offered',
     });
-    expect((taken.data as OriginalAmount).groupAmount()).toBe(950);
+    expect((taken.data as OriginalAmount).groupAmount('EUR')).toBe(950);
   });
 
   it('refuses a rate left out when no rate is offered, or the service is not there to offer one', () => {

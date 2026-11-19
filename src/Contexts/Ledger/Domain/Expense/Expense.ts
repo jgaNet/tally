@@ -261,7 +261,7 @@ export class Expense extends AggregateRoot {
       day.isFailure() ||
       !snapshot.shares.length ||
       !SPLIT_KINDS.includes(snapshot.splitKind) ||
-      (snapshot.original && (!original || original.groupAmount() !== snapshot.amount))
+      (snapshot.original && !original)
     ) {
       throw new Error(`The expense ${snapshot.id} is corrupted`);
     }
@@ -390,7 +390,7 @@ export class Expense extends AggregateRoot {
       const paid = OriginalAmount.create(money.original, groupCurrency, offer);
       if (paid.isFailure()) return paid;
       original = paid.data;
-      const converted = Amount.create(paid.data.groupAmount());
+      const converted = Amount.create(paid.data.groupAmount(groupCurrency));
       if (converted.isFailure()) return converted;
       value = converted.data;
     } else {

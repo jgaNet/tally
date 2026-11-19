@@ -1,4 +1,5 @@
 import { AggregateRoot, Id } from '@Architecture/Domain';
+import { isCurrencyCode, minorUnitsPerUnit } from '@SharedKernel/Domain/Currency';
 
 import {
   DebtClearedEvent,
@@ -6,8 +7,12 @@ import {
   ReminderIssuedEvent,
 } from '@Contexts/Notifications/Domain/DebtWatch/Events/DebtWatchEvents';
 
-/** A debt is noticed above this many minor units (2000 is 20.00 in the group's currency): a member who owes this much or less is not. */
-export const DEBT_THRESHOLD = 2000;
+/**
+ * A debt is noticed above 20 of the group's currency, in its minor unit (request 40): 2000 in the currencies that count in hundredths,
+ * 20 in JPY and KRW, 20 000 in KWD and BHD. A member who owes this much or less is not noticed.
+ */
+export const debtThreshold = (currency: string): number =>
+  20 * (isCurrencyCode(currency) ? minorUnitsPerUnit(currency) : 100);
 
 /**
  * What the sweep has seen of one member's debt in one group (ADR 10): since which sweep they have owed more than the threshold
@@ -72,8 +77,8 @@ export class DebtWatch extends AggregateRoot {
    * The sweep at `now` sees the member owe `owed` in the group. Above the threshold the debt is noted, from this sweep when it was not
    * noted before; at the threshold or below it is no longer noted.
    */
-  see({ owed, now }: { owed: number; now: Date }): void {
-    const owing = owed > DEBT_THRESHOLD;
+  see({ owed, currency, now }: { owed: number; currency: string; now: Date }): void {
+    const owing = owed > debtThreshold(currency);
     if (owing && this.since === null) {
       this.since = now;
       this.record(

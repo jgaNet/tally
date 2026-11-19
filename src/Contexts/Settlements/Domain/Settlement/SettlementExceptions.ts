@@ -144,10 +144,10 @@ export class ProviderFeeInvalid extends SettlementsException {
   }
 }
 
-/** A payment in another currency is in one of Tally's currencies: EUR, USD, GBP, CHF, CAD or AUD (request 39). */
+/** A payment in another currency is in one of Tally's currencies: EUR, USD, GBP, CHF, CAD, AUD, JPY, KRW, KWD or BHD (request 39). */
 export class InvalidOriginalCurrency extends SettlementsException {
   constructor() {
-    super('InvalidOriginalCurrency', 'A currency is one of EUR, USD, GBP, CHF, CAD or AUD');
+    super('InvalidOriginalCurrency', 'A currency is one of EUR, USD, GBP, CHF, CAD, AUD, JPY, KRW, KWD or BHD');
   }
 }
 

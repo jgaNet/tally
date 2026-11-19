@@ -3,6 +3,8 @@ export interface OutstandingDebt {
   groupId: string;
   memberId: string;
   owed: number;
+  /** The group's currency: `owed` is a whole number of its minor unit (request 40). */
+  currency: string;
 }
 
 /**

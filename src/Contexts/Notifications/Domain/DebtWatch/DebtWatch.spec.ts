@@ -1,6 +1,6 @@
 import { Id } from '@Architecture/Domain';
 
-import { DEBT_THRESHOLD, DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
+import { debtThreshold, DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 import {
   DebtClearedEvent,
   DebtNotedEvent,
@@ -15,11 +15,11 @@ const opened = () => DebtWatch.open({ groupId: new Id('flat'), memberId: new Id(
 describe('DebtWatch', () => {
   it('notes a debt above the threshold from the sweep that first sees it, and nothing at the threshold', () => {
     const watch = opened();
-    watch.see({ owed: DEBT_THRESHOLD, now: day(0) });
+    watch.see({ currency: 'EUR', owed: debtThreshold('EUR'), now: day(0) });
     expect(watch.notedSince).toBeNull();
     expect(watch.pullDomainEvents()).toEqual([]);
 
-    watch.see({ owed: DEBT_THRESHOLD + 1, now: day(1) });
+    watch.see({ currency: 'EUR', owed: debtThreshold('EUR') + 1, now: day(1) });
     expect(watch.notedSince).toEqual(day(1));
     expect(watch.pullDomainEvents()).toEqual([
       DebtNotedEvent.set({
@@ -33,12 +33,12 @@ describe('DebtWatch', () => {
 
   it('clears the noted debt when a sweep sees it at or below the threshold, and keeps the last reminder', () => {
     const watch = opened();
-    watch.see({ owed: 2500, now: day(0) });
+    watch.see({ currency: 'EUR', owed: 2500, now: day(0) });
     watch.remindIfDue({ owed: 2500, now: day(0.5), period: WEEK, remindable: true });
     expect(watch.lastReminded).toBeNull();
     watch.pullDomainEvents();
 
-    watch.see({ owed: 0, now: day(1) });
+    watch.see({ currency: 'EUR', owed: 0, now: day(1) });
     expect(watch.notedSince).toBeNull();
     expect(watch.pullDomainEvents()).toEqual([
       DebtClearedEvent.set({ watchId: watch._id.value, groupId: 'flat', memberId: 'cy', at: day(1).toISOString() }),
@@ -47,7 +47,7 @@ describe('DebtWatch', () => {
 
   it('reminds a member noted for a period, and again each period while the debt lasts, not twice in one', () => {
     const watch = opened();
-    watch.see({ owed: 2500, now: day(0) });
+    watch.see({ currency: 'EUR', owed: 2500, now: day(0) });
     watch.pullDomainEvents();
 
     expect(watch.remindIfDue({ owed: 2500, now: day(6), period: WEEK, remindable: true })).toBe(false);
@@ -69,10 +69,10 @@ describe('DebtWatch', () => {
 
   it('waits a period from the sweep that sees a debt come back, after its last reminder', () => {
     const watch = opened();
-    watch.see({ owed: 2500, now: day(0) });
+    watch.see({ currency: 'EUR', owed: 2500, now: day(0) });
     watch.remindIfDue({ owed: 2500, now: day(7), period: WEEK, remindable: true });
-    watch.see({ owed: 0, now: day(9) });
-    watch.see({ owed: 2500, now: day(10) });
+    watch.see({ currency: 'EUR', owed: 0, now: day(9) });
+    watch.see({ currency: 'EUR', owed: 2500, now: day(10) });
 
     expect(watch.notedSince).toEqual(day(10));
     expect(watch.remindIfDue({ owed: 2500, now: day(16), period: WEEK, remindable: true })).toBe(false);
@@ -95,7 +95,7 @@ describe('DebtWatch', () => {
   });
   it('does not remind a member who turned reminders off, and records nothing, so the first run on again reminds them', () => {
     const watch = opened();
-    watch.see({ owed: 2500, now: day(0) });
+    watch.see({ currency: 'EUR', owed: 2500, now: day(0) });
     watch.pullDomainEvents();
 
     expect(watch.remindIfDue({ owed: 2500, now: day(7), period: WEEK, remindable: false })).toBe(false);

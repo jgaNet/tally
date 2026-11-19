@@ -163,7 +163,7 @@ describe('the rate offered (request 22)', () => {
     expect((await http.get(`${api}/groups/${groupId}/rates/EUR?date=${PAST_DAY}`, { token: alice.token })).status).toBe(
       404,
     );
-    expect((await http.get(`${api}/groups/${groupId}/rates/JPY?date=${PAST_DAY}`, { token: alice.token })).status).toBe(
+    expect((await http.get(`${api}/groups/${groupId}/rates/XXX?date=${PAST_DAY}`, { token: alice.token })).status).toBe(
       404,
     );
     expect((await http.get(`${api}/groups/${groupId}/rates/USD?date=${PAST_DAY}`, { token: bob.token })).status).toBe(

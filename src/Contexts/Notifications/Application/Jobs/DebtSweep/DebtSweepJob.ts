@@ -1,8 +1,8 @@
 import { Clock, ExecutionContext, publishDomainEvents } from '@Architecture/Application';
 import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture/Domain';
 
-import { IOutstandingDebts } from '@Contexts/Notifications/Application/Ports/IOutstandingDebts';
-import { DEBT_THRESHOLD, DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
+import { IOutstandingDebts, OutstandingDebt } from '@Contexts/Notifications/Application/Ports/IOutstandingDebts';
+import { debtThreshold, DebtWatch } from '@Contexts/Notifications/Domain/DebtWatch/DebtWatch';
 import { IDebtWatchRepository } from '@Contexts/Notifications/Domain/DebtWatch/Ports/IDebtWatchRepository';
 import { INoticePreferencesRepository } from '@Contexts/Notifications/Domain/NoticePreferences/Ports/INoticePreferencesRepository';
 
@@ -29,15 +29,16 @@ export class DebtSweepJob {
   /** One run of the sweep, in the context the process gives it (a unit of work of its own, as a request has). */
   async run(context: ExecutionContext): Promise<void> {
     const now = this.clock();
-    const seen = new Map<string, { groupId: string; memberId: string; owed: number }>();
+    const seen = new Map<string, OutstandingDebt>();
     for (const debt of await this.debts.outstanding()) seen.set(keyOf(debt.groupId, debt.memberId), debt);
     for (const watch of await this.watches.findNoted()) {
       const key = keyOf(watch.groupId.value, watch.memberId.value);
-      if (!seen.has(key)) seen.set(key, { groupId: watch.groupId.value, memberId: watch.memberId.value, owed: 0 });
+      if (!seen.has(key))
+        seen.set(key, { groupId: watch.groupId.value, memberId: watch.memberId.value, owed: 0, currency: '' });
     }
 
-    for (const { groupId, memberId, owed } of seen.values()) {
-      await this.decide(groupId, memberId, owed, now, context);
+    for (const { groupId, memberId, owed, currency } of seen.values()) {
+      await this.decide(groupId, memberId, owed, currency, now, context);
     }
   }
 
@@ -46,12 +47,13 @@ export class DebtSweepJob {
     groupId: string,
     memberId: string,
     owed: number,
+    currency: string,
     now: Date,
     context: ExecutionContext,
   ): Promise<void> {
     for (let attempt = 1; ; attempt++) {
       const result = await context.withTransaction(() =>
-        this.decideInTransaction(groupId, memberId, owed, now, context),
+        this.decideInTransaction(groupId, memberId, owed, currency, now, context),
       );
       if (!result.isFailure()) return;
 
@@ -68,16 +70,17 @@ export class DebtSweepJob {
     groupId: string,
     memberId: string,
     owed: number,
+    currency: string,
     now: Date,
     context: ExecutionContext,
   ): Promise<IResult<unknown>> {
     let watch = await this.watches.find(groupId, memberId);
     if (!watch) {
-      if (owed <= DEBT_THRESHOLD) return Result.ok();
+      if (owed <= debtThreshold(currency)) return Result.ok();
       watch = DebtWatch.open({ groupId: new Id(groupId), memberId: new Id(memberId) });
     }
 
-    watch.see({ owed, now });
+    watch.see({ owed, currency, now });
     const preferences = await this.preferences.findByOwner(memberId);
     watch.remindIfDue({
       owed,
