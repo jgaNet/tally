@@ -8,7 +8,8 @@ export const PROVIDER_TIMEOUT_MS = 5000;
 
 /**
  * The payment provider over its HTTP API (request 13, request 15, request 16, docs/adr/0014, docs/adr/0015, docs/adr/0016):
- * `POST {PROVIDER_URL}/payments` with `{ reference, amount, currency, payee }`, answered `201 { id, payUrl }`;
+ * `POST {PROVIDER_URL}/payments` with `{ reference, amount, currency, payee }`, answered `201 { id, payUrl, fee }` (request 38: the fee is a whole
+ * amount of 0 or more, and an answer without one is refused);
  * `POST {PROVIDER_URL}/payments/{paymentId}/refunds` with `{ reference }`, answered `201 { id }`; and
  * `GET {PROVIDER_URL}/accounts/{id}`, answered `200 { id }` when it knows the payout account, `404` when it does not. Any other answer, a body
  * that is not that, a failure to reach it, or no answer within 5 seconds, is the refusal ProviderUnavailable, and nothing is kept. The base is
@@ -28,7 +29,7 @@ export class HttpPaymentProvider implements IPaymentProvider {
   }): Promise<IResult<PaymentLink>> {
     const answer = await this.#call('POST', '/payments', request);
     if (answer?.status !== 201 || !isPaymentLink(answer.body)) return Result.fail(new ProviderUnavailableException());
-    return Result.ok({ id: answer.body.id, payUrl: answer.body.payUrl });
+    return Result.ok({ id: answer.body.id, payUrl: answer.body.payUrl, fee: answer.body.fee });
   }
 
   async refundPayment({ paymentId, reference }: { paymentId: string; reference: string }): Promise<IResult<undefined>> {
@@ -86,8 +87,9 @@ const hasId = (body: unknown): body is { id: string } =>
   typeof (body as { id?: unknown }).id === 'string' &&
   (body as { id: string }).id.length > 0;
 
+/** A payment link answer: an id, a link, and the fee the provider takes, a whole amount of 0 or more; an answer without a fee is not one (request 38). */
 const isPaymentLink = (body: unknown): body is PaymentLink => {
   if (!hasId(body)) return false;
-  const { payUrl } = body as unknown as Record<string, unknown>;
-  return typeof payUrl === 'string' && payUrl.length > 0;
+  const { payUrl, fee } = body as unknown as Record<string, unknown>;
+  return typeof payUrl === 'string' && payUrl.length > 0 && Number.isInteger(fee) && (fee as number) >= 0;
 };

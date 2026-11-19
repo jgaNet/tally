@@ -43,7 +43,7 @@ beforeAll(async () => {
     if (request.method === 'POST' && url === '/payments') {
       paymentCount += 1;
       lastPaymentId = `pay-${paymentCount}`;
-      return answer(response, 201, { id: lastPaymentId, payUrl: `https://pay.example/${lastPaymentId}` });
+      return answer(response, 201, { id: lastPaymentId, payUrl: `https://pay.example/${lastPaymentId}`, fee: 0 });
     }
     if (request.method === 'POST' && /^\/payments\/[^/]+\/refunds$/.test(url)) {
       return answer(response, 201, { id: `refund-${randomUUID()}` });

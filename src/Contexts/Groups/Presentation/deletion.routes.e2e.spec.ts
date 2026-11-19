@@ -28,7 +28,7 @@ beforeAll(async () => {
         paymentCount += 1;
         const id = `pay-${paymentCount}`;
         response.writeHead(201, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ id, payUrl: `https://pay.example/${id}` }));
+        response.end(JSON.stringify({ id, payUrl: `https://pay.example/${id}`, fee: 0 }));
       } else if (request.method === 'GET' && /^\/accounts\/[^/]+$/.test(url)) {
         // A payout account is known to the provider: the one a member sets is found here (request 16).
         response.writeHead(200, { 'content-type': 'application/json' });

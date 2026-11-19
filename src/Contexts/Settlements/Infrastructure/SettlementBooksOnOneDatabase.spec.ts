@@ -93,7 +93,7 @@ async function recordPending(database: PostgresDatabase): Promise<void> {
       payoutAccount: PAYEE,
       at: new Date('2026-11-17T10:00:00Z'),
     },
-    { settlementId: SETTLEMENT, providerPaymentId: PAYMENT, payUrl: `https://pay.example/${PAYMENT}` },
+    { settlementId: SETTLEMENT, providerPaymentId: PAYMENT, payUrl: `https://pay.example/${PAYMENT}`, fee: 0 },
   );
   expect(recorded.isSuccess()).toBe(true);
   const unitOfWork = new PostgresUnitOfWork(database);

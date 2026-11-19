@@ -12,6 +12,7 @@ import { payThroughProvider, refundSettlement } from '@Contexts/Settlements/Appl
 import { getSuggestedSettlements } from '@Contexts/Settlements/Application/Suggestions';
 import { getPayoutAccount, setPayoutAccount } from '@Contexts/Settlements/Application/PayoutAccounts';
 import { contestSettlement, decideContest, getContests } from '@Contexts/Settlements/Application/Contests';
+import { getFeePolicy, setFeePolicy } from '@Contexts/Settlements/Application/FeePolicies';
 
 /**
  * The settlements' routes, at the API's root with their full path (docs/adr/0003): each answers its use case at once. A body says
@@ -126,6 +127,28 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
 
   fastify.get('/accounts/me/payout-account', { schema: { tags: ['payout accounts'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getPayoutAccount), undefined),
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    '/groups/:id/fee-policy',
+    { schema: { tags: ['settlements'] } },
+    (req, reply) => answerAtOnce(req, reply, module.useCase(getFeePolicy), { groupId: req.params.id }),
+  );
+
+  fastify.put<{ Params: { id: string }; Body: { borneBy: string } }>(
+    '/groups/:id/fee-policy',
+    {
+      schema: {
+        tags: ['settlements'],
+        body: {
+          type: 'object',
+          required: ['borneBy'],
+          properties: { borneBy: { type: 'string' } },
+        },
+      },
+    },
+    (req, reply) =>
+      answerAtOnce(req, reply, module.useCase(setFeePolicy), { groupId: req.params.id, borneBy: req.body.borneBy }),
   );
 
   done();

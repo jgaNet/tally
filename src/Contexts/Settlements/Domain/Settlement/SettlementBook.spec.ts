@@ -41,6 +41,7 @@ describe('a settlement book', () => {
       method: 'cash',
       status: 'paid',
       at: '2026-11-17T10:00:00.000Z',
+      settled: 30,
     });
   });
 

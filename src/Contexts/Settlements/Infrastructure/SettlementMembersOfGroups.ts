@@ -20,6 +20,7 @@ export class SettlementMembersOfGroups implements ISettlementMembers {
     if (!members) return undefined;
     return {
       currency: group.currency,
+      ownerId: group.ownerId,
       members: members.map(({ memberId }) => ({ memberId })),
       archived: group.archivedAt !== undefined,
     };
@@ -44,6 +45,7 @@ export class SettlementMembersOfGroups implements ISettlementMembers {
       shared.push({
         groupId: group.id,
         currency: group.currency,
+        ownerId: group.ownerId,
         archived: group.archivedAt !== undefined,
         members: members.map(({ memberId }) => ({ memberId })),
       });

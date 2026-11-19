@@ -6,6 +6,7 @@ import {
   SettlementWithHistory,
   WaitingMember,
 } from '@Contexts/Settlements/Domain/Settlement/DTOs';
+import { FeeBorne } from '@Contexts/Settlements/Domain/Settlement/ProviderFee';
 
 /** The read side of the settlements: what the queries answer, and what Ledger reads of what was settled (docs/adr/0013, docs/adr/0014). */
 export interface ISettlementQueries {
@@ -42,6 +43,10 @@ export interface ISettlementQueries {
    * with one may not be deleted (request 35, docs/adr/0035). Answered to Groups through its WaitingPayments port.
    */
   providerWaitingOfAccount(memberId: string): Promise<boolean>;
+  /**
+   * Who bears the provider's fee in the group, as the owner decided it: the payee's until a decision is made (request 38, docs/adr/0037).
+   */
+  feePolicyOf(groupId: string): Promise<FeeBorne>;
   /**
    * The changes of money of the group's settlements, the oldest first, as the audit keeps them (request 28, docs/adr/0027): read by
    * Ledger's audit through its SettlementAudit port.

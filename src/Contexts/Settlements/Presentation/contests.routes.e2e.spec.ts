@@ -38,7 +38,9 @@ beforeAll(async () => {
     if (request.method === 'POST' && path === '/payments') {
       paymentCount += 1;
       response.writeHead(201, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ id: `pay-${paymentCount}`, payUrl: `https://pay.example/pay-${paymentCount}` }));
+      response.end(
+        JSON.stringify({ id: `pay-${paymentCount}`, payUrl: `https://pay.example/pay-${paymentCount}`, fee: 0 }),
+      );
       return;
     }
     if (request.method === 'GET' && /^\/accounts\/[^/]+$/.test(path)) {

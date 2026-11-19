@@ -67,11 +67,11 @@ describe('the payment provider over HTTP', () => {
   it('asks POST /payments for the reference, amount and currency, and takes the link it answers 201 with', async () => {
     const provider = await providerAt(() => ({
       status: 201,
-      body: '{"id":"pay-1","payUrl":"https://pay.example/pay-1"}',
+      body: '{"id":"pay-1","payUrl":"https://pay.example/pay-1","fee":0}',
     }));
     try {
       const link = await new HttpPaymentProvider(() => `${provider.origin}/`).requestPayment(REQUEST);
-      expect(link.isSuccess() && link.data).toEqual({ id: 'pay-1', payUrl: 'https://pay.example/pay-1' });
+      expect(link.isSuccess() && link.data).toEqual({ id: 'pay-1', payUrl: 'https://pay.example/pay-1', fee: 0 });
       expect(provider.requests).toEqual([{ url: '/payments', method: 'POST', body: JSON.stringify(REQUEST) }]);
     } finally {
       await provider.close();
@@ -81,7 +81,7 @@ describe('the payment provider over HTTP', () => {
   it('refuses any other answer, or a body that is not a link, as ProviderUnavailable', async () => {
     const other = await providerAt(() => ({
       status: 200,
-      body: '{"id":"pay-1","payUrl":"https://pay.example/pay-1"}',
+      body: '{"id":"pay-1","payUrl":"https://pay.example/pay-1","fee":0}',
     }));
     const broken = await providerAt(() => ({ status: 201, body: '{"id":"pay-1"}' }));
     try {

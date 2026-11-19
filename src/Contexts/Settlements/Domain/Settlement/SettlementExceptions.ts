@@ -11,6 +11,31 @@ export class InvalidSettlementAmountException extends Exception {
   }
 }
 
+/** Who bears the fee is not one of payer, payee or shared (request 38): a value the domain does not allow, `422`. */
+export class InvalidFeePolicyException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'InvalidFeePolicy',
+      message: 'The provider fee is borne by the payer, the payee or both, shared',
+    });
+  }
+}
+
+/**
+ * The provider's fee is not a whole amount of 0 or more less than the payment's amount (request 38): the payment is refused, and nothing is
+ * kept, as for a provider that gives no link. `422`.
+ */
+export class ProviderFeeNotAcceptedException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'ProviderFeeNotAccepted',
+      message: 'The payment provider gave a fee that is not less than the payment, or not a whole amount',
+    });
+  }
+}
+
 /** The payer is the payee: a member does not pay itself (request 12), `422`. */
 export class SettlementToSelfException extends Exception {
   constructor() {

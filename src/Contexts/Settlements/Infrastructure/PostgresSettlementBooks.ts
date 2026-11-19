@@ -8,6 +8,7 @@ import {
   SettlementBook,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
 import { ISettlementBooks } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementBooks';
+import { FeeBorne } from '@Contexts/Settlements/Domain/Settlement/ProviderFee';
 
 /**
  * The tables of the settlements: a group's book is a row holding its version, and each settlement is a row of its own. The
@@ -25,6 +26,13 @@ export const prepareSettlementSchema: Setup = async database => {
   await database.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS settlements_by_provider_payment ON settlements (provider_payment_id)',
   );
+  // Who bears the provider's fee, as the owner decided it, on the group's book (request 38, docs/adr/0037): none until it is decided.
+  await database.exec('ALTER TABLE settlement_books ADD COLUMN IF NOT EXISTS fee_borne_by TEXT');
+  // What a settlement settles, and the fee it was asked with and who bore it (request 38): all null for one from before, which settles its
+  // amount and has no fee.
+  await database.exec('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS settled INTEGER');
+  await database.exec('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_amount INTEGER');
+  await database.exec('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_borne_by TEXT');
   // Each status a settlement has had, in the order the book recorded it, and when Tally learned it (request 19). Written by the book's
   // save, in its transaction.
   await database.exec(
@@ -56,18 +64,18 @@ export class PostgresSettlementBooks implements ISettlementBooks {
 
   async get(groupId: string): Promise<SettlementBook> {
     this.database.assertInTransaction();
-    const row = await this.database.get<{ version: number }>(
-      'SELECT version FROM settlement_books WHERE group_id = ?',
+    const row = await this.database.get<{ version: number; fee_borne_by: string | null }>(
+      'SELECT version, fee_borne_by FROM settlement_books WHERE group_id = ?',
       [groupId],
     );
     const pending = await this.database.all<PendingRow>(
-      'SELECT id, payer_id, payee_id, amount, provider_payment_id FROM settlements WHERE group_id = ? AND status = \'pending\' ORDER BY recorded_at COLLATE "C", seq',
+      'SELECT id, payer_id, payee_id, amount, COALESCE(settled, amount) AS settled, provider_payment_id FROM settlements WHERE group_id = ? AND status = \'pending\' ORDER BY recorded_at COLLATE "C", seq',
       [groupId],
     );
     // A contested settlement is held in the book, as paid by the provider, until an administrator decides it (request 33): whether it was
     // contested before is read from its history, so that it is contested once.
     const paid = await this.database.all<PaidRow>(
-      `SELECT id, payer_id, payee_id, amount, provider_payment_id, status,
+      `SELECT id, payer_id, payee_id, amount, COALESCE(settled, amount) AS settled, provider_payment_id, status,
            EXISTS (SELECT 1 FROM settlement_statuses l WHERE l.settlement_id = settlements.id AND l.status = 'contested') AS was_contested
          FROM settlements WHERE group_id = ? AND method = 'provider' AND status IN ('paid', 'refunding', 'contested') ORDER BY recorded_at COLLATE "C", seq`,
       [groupId],
@@ -77,6 +85,7 @@ export class PostgresSettlementBooks implements ISettlementBooks {
       version: row ? Number(row.version) : 0,
       pending: pending.map(pendingOf),
       paid: paid.map(paidOf),
+      feeBorne: row?.fee_borne_by ? (String(row.fee_borne_by) as FeeBorne) : undefined,
     });
   }
 
@@ -122,10 +131,18 @@ export class PostgresSettlementBooks implements ISettlementBooks {
       if (changes === 0) return Result.fail(changedSinceRead());
     }
 
+    // The owner's decision on the provider's fee is written with the book's version, in this transaction (request 38).
+    if (book.feeBorneChanged !== undefined) {
+      await this.database.run('UPDATE settlement_books SET fee_borne_by = ? WHERE group_id = ?', [
+        book.feeBorneChanged,
+        groupId,
+      ]);
+    }
+
     // Each status the book records is a line of the history, written with the fact, in this transaction (request 19).
     for (const settlement of book.recorded) {
       await this.database.run(
-        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, provider_payment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, provider_payment_id, settled, fee_amount, fee_borne_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           settlement.id,
           settlement.groupId,
@@ -137,6 +154,9 @@ export class PostgresSettlementBooks implements ISettlementBooks {
           settlement.at,
           settlement.payUrl ?? null,
           settlement.providerPaymentId ?? null,
+          settlement.settled,
+          settlement.fee?.amount ?? null,
+          settlement.fee?.borneBy ?? null,
         ],
       );
       await this.learn(settlement.id, settlement.status, settlement.at);
@@ -177,7 +197,14 @@ export class PostgresSettlementBooks implements ISettlementBooks {
 const changedSinceRead = () =>
   new ConcurrencyConflictException('Settlements', 'The settlements of the group changed since they were read');
 
-type PendingRow = { id: string; payer_id: string; payee_id: string; amount: number; provider_payment_id: string };
+type PendingRow = {
+  id: string;
+  payer_id: string;
+  payee_id: string;
+  amount: number;
+  settled: number;
+  provider_payment_id: string;
+};
 type PaidRow = PendingRow & { status: string; was_contested: boolean };
 
 const pendingOf = (row: PendingRow): PendingSettlement => ({
@@ -185,6 +212,7 @@ const pendingOf = (row: PendingRow): PendingSettlement => ({
   from: String(row.payer_id),
   to: String(row.payee_id),
   amount: Number(row.amount),
+  settled: Number(row.settled),
   providerPaymentId: String(row.provider_payment_id),
 });
 
@@ -205,6 +233,8 @@ export type SettlementRow = {
   status: string;
   recorded_at: string;
   pay_url: string | null;
+  fee_amount: number | null;
+  fee_borne_by: string | null;
 };
 
 export function settlementView(row: SettlementRow): SettlementView {
@@ -220,5 +250,9 @@ export function settlementView(row: SettlementRow): SettlementView {
   };
   // A settlement through the provider has its payUrl; a cash one has none, and the answer does not say so (request 13).
   if (row.pay_url) view.payUrl = String(row.pay_url);
+  // A settlement through the provider asked since request 38 keeps the fee it was asked with; one from before has none (request 38).
+  if (row.fee_amount !== null && row.fee_borne_by !== null) {
+    view.fee = { amount: Number(row.fee_amount), borneBy: String(row.fee_borne_by) as FeeBorne };
+  }
   return view;
 }

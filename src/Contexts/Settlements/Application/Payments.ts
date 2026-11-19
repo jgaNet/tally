@@ -74,6 +74,7 @@ export const payThroughProvider = command(
         settlementId: reserved.data.settlementId,
         providerPaymentId: link.data.id,
         payUrl: link.data.payUrl,
+        fee: link.data.fee,
       });
       if (recorded.isFailure()) return recorded;
 

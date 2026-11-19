@@ -1,3 +1,5 @@
+import { SettlementFee } from '@Contexts/Settlements/Domain/Settlement/ProviderFee';
+
 /**
  * How a settlement is paid: in cash, handed over between the two members (request 12), through the provider (request 13), or by
  * netting what two members owe each other across their groups (request 32): no money moves, and it counts at once.
@@ -14,7 +16,8 @@ export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 're
 
 /**
  * A settlement as it is recorded and as `GetSettlement` answers it (requests 12 and 13). `from` pays `to`, `at` when it was
- * recorded. A settlement through the provider has its `payUrl`: the link where the payer pays; a cash one has none.
+ * recorded. A settlement through the provider has its `payUrl`: the link where the payer pays; a cash one has none. A settlement
+ * through the provider asked for since request 38 has its `fee`: what the provider said and who bore it (request 38).
  */
 export interface SettlementView {
   id: string;
@@ -26,6 +29,7 @@ export interface SettlementView {
   status: SettlementStatus;
   at: string;
   payUrl?: string;
+  fee?: SettlementFee;
 }
 
 /** One status a settlement has had, and when Tally learned it (request 19). */

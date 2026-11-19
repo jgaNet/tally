@@ -41,7 +41,7 @@ beforeAll(async () => {
       paymentCount += 1;
       const answer = providerAnswer ?? {
         status: 201,
-        body: { id: `pay-${paymentCount}`, payUrl: `https://pay.example/pay-${paymentCount}` },
+        body: { id: `pay-${paymentCount}`, payUrl: `https://pay.example/pay-${paymentCount}`, fee: 0 },
       };
       response.writeHead(answer.status, { 'content-type': 'application/json' });
       response.end(answer.body === undefined ? '' : JSON.stringify(answer.body));

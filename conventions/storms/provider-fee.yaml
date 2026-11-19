@@ -5,7 +5,7 @@ feature: provider-fee
 intent: >-
   A group's owner decides who bears the provider's fee — payer, payee or shared, the payee until then; a payment through the provider settles its amount less its payer's part, fixed when it is asked for.
 
-done: false
+done: true
 
 hotSpots:
   - question: Where is the policy?

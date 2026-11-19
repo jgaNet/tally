@@ -40,7 +40,11 @@ beforeAll(async () => {
     const url = request.url ?? '';
     if (request.method === 'POST' && url === '/payments') {
       paymentCount += 1;
-      return answer(response, 201, { id: `pay-${paymentCount}`, payUrl: `https://pay.example/pay-${paymentCount}` });
+      return answer(response, 201, {
+        id: `pay-${paymentCount}`,
+        payUrl: `https://pay.example/pay-${paymentCount}`,
+        fee: 0,
+      });
     }
     if (request.method === 'GET' && /^\/accounts\/[^/]+$/.test(url)) {
       return answer(response, 200, { id: decodeURIComponent(url.slice('/accounts/'.length)) });

@@ -13,6 +13,15 @@ export class SettlementRecordedEvent extends DomainEvent<{
 }> {}
 
 /**
+ * The owner of a group decided who bears the provider's fee in it (request 38, docs/adr/0037). Recorded by `SettlementBook.setFeePolicy()`,
+ * and published once the book is stored. No settlement asked for before changes: each keeps the fee it was asked with.
+ */
+export class FeePolicySetEvent extends DomainEvent<{
+  groupId: string;
+  borneBy: 'payer' | 'payee' | 'shared';
+}> {}
+
+/**
  * A settlement through the provider was requested: its payment is pending until the provider's webhook says it ended (request 13,
  * docs/adr/0014). Recorded by `SettlementBook.recordProviderPayment()`, and published once the book is stored.
  */

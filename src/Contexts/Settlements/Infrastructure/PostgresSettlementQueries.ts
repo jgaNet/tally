@@ -16,6 +16,7 @@ import {
   SettlementRow,
   settlementView,
 } from '@Contexts/Settlements/Infrastructure/PostgresSettlementBooks';
+import { DEFAULT_FEE_BORNE, FeeBorne } from '@Contexts/Settlements/Domain/Settlement/ProviderFee';
 
 type HistoryRow = { settlement_id: string; status: string; learned_at: string };
 
@@ -41,11 +42,12 @@ async function totalsOf(
 ): Promise<Array<{ memberId: string; paid: number; received: number }>> {
   // One statement, so one snapshot: what each member paid and what they received, over the group's settlements of those statuses.
   const marks = statuses.map(() => '?').join(', ');
+  // What a settlement counts is what it settles, less the part of the provider's fee its payer bears (request 38).
   const rows = await database.all<{ member_id: string; paid: number; received: number }>(
     `SELECT member_id, SUM(paid) AS paid, SUM(received) AS received FROM (
-         SELECT payer_id AS member_id, amount AS paid, 0 AS received FROM settlements WHERE group_id = ? AND status IN (${marks})
+         SELECT payer_id AS member_id, COALESCE(settled, amount) AS paid, 0 AS received FROM settlements WHERE group_id = ? AND status IN (${marks})
          UNION ALL
-         SELECT payee_id, 0, amount FROM settlements WHERE group_id = ? AND status IN (${marks})
+         SELECT payee_id, 0, COALESCE(settled, amount) FROM settlements WHERE group_id = ? AND status IN (${marks})
        ) totals GROUP BY member_id`,
     [groupId, ...statuses, groupId, ...statuses],
   );
@@ -61,7 +63,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
   async findSettlement(settlementId: string): Promise<SettlementWithHistory | undefined> {
     return this.database.exclusive(async () => {
       const row = await this.database.get<SettlementRow>(
-        'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url FROM settlements WHERE id = ?',
+        'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, fee_amount, fee_borne_by FROM settlements WHERE id = ?',
         [settlementId],
       );
       if (!row) return undefined;
@@ -80,7 +82,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
   async listSettlementsOf(groupId: string): Promise<SettlementWithHistory[]> {
     return this.database.exclusive(async () => {
       const rows = await this.database.all<SettlementRow>(
-        'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url FROM settlements WHERE group_id = ? ORDER BY recorded_at COLLATE "C" DESC, seq DESC',
+        'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, fee_amount, fee_borne_by FROM settlements WHERE group_id = ? ORDER BY recorded_at COLLATE "C" DESC, seq DESC',
         [groupId],
       );
       const lines = await this.database.all<HistoryRow>(
@@ -119,7 +121,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
           method: string;
           counted_from: string;
         }>(
-          `SELECT s.id, s.payer_id, s.payee_id, s.amount, s.method,
+          `SELECT s.id, s.payer_id, s.payee_id, COALESCE(s.settled, s.amount) AS amount, s.method,
                COALESCE((SELECT MIN(l.learned_at COLLATE "C") FROM settlement_statuses l WHERE l.settlement_id = s.id AND l.status = 'paid'), s.recorded_at) AS counted_from
              FROM settlements s WHERE s.group_id = ? AND s.status IN ('paid', 'refunding')`,
           [groupId],
@@ -168,7 +170,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
   async contestedSettlements(): Promise<SettlementWithHistory[]> {
     return this.database.exclusive(async () => {
       const rows = await this.database.all<SettlementRow>(
-        `SELECT s.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.recorded_at, s.pay_url FROM settlements s
+        `SELECT s.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.recorded_at, s.pay_url, s.fee_amount, s.fee_borne_by FROM settlements s
            WHERE s.status = 'contested'
            ORDER BY (SELECT MIN(l.learned_at COLLATE "C") FROM settlement_statuses l WHERE l.settlement_id = s.id AND l.status = 'contested') COLLATE "C", s.seq`,
         [],
@@ -202,6 +204,17 @@ export class PostgresSettlementQueries implements ISettlementQueries {
         subjectId: String(row.subject_id),
       })),
     );
+  }
+
+  /** Who bears the provider's fee in the group: the owner's decision, or the payee's until it is made (request 38). */
+  async feePolicyOf(groupId: string): Promise<FeeBorne> {
+    return this.database.exclusive(async () => {
+      const row = await this.database.get<{ fee_borne_by: string | null }>(
+        'SELECT fee_borne_by FROM settlement_books WHERE group_id = ?',
+        [groupId],
+      );
+      return row?.fee_borne_by ? (String(row.fee_borne_by) as FeeBorne) : DEFAULT_FEE_BORNE;
+    });
   }
 
   async auditOf(groupId: string): Promise<SettlementAuditEntry[]> {

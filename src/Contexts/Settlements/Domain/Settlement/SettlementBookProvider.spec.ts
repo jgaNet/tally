@@ -34,6 +34,7 @@ function requested(book: SettlementBook, command: RequestProviderPaymentCommand 
     settlementId: reserved.data.settlementId,
     providerPaymentId: 'pay-1',
     payUrl: 'https://pay.example/pay-1',
+    fee: 0,
   });
   if (recorded.isFailure()) throw recorded.error;
   return { settlementId: reserved.data.settlementId, settlement: recorded.data };
@@ -64,10 +65,12 @@ describe('a settlement through the payment provider', () => {
       at: at.toISOString(),
       payUrl: 'https://pay.example/pay-1',
       providerPaymentId: 'pay-1',
+      settled: 30,
+      fee: { amount: 0, borneBy: 'payee' },
     });
     expect(book.recorded).toEqual([settlement]);
     expect(book.pending).toEqual([
-      { id: settlementId, from: 'bob', to: 'ann', amount: 30, providerPaymentId: 'pay-1' },
+      { id: settlementId, from: 'bob', to: 'ann', amount: 30, settled: 30, providerPaymentId: 'pay-1' },
     ]);
     expect(book.pullDomainEvents()).toHaveLength(1);
   });
