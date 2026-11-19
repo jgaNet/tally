@@ -102,3 +102,24 @@ export class ProviderAccountUnavailable extends SettlementException {
     );
   }
 }
+
+/** Only a settlement paid through the provider, and still `paid`, is contested (request 33). */
+export class SettlementNotContestable extends SettlementException {
+  constructor() {
+    super('SettlementNotContestable', 'Only a settlement paid through the provider can be contested');
+  }
+}
+
+/** A settlement is contested once only (request 33, ADR 24). */
+export class SettlementAlreadyContested extends SettlementException {
+  constructor() {
+    super('SettlementAlreadyContested', 'A settlement is contested once only');
+  }
+}
+
+/** Only a contested settlement is decided by an administrator, once (request 33). */
+export class SettlementNotContested extends SettlementException {
+  constructor() {
+    super('SettlementNotContested', 'Only a contested settlement is decided');
+  }
+}

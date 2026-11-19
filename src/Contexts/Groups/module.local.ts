@@ -41,6 +41,8 @@ import { ArchiveGroupCommandEvent, ArchiveGroupCommandHandler } from '@Contexts/
 import { MergeGroupsCommandEvent, MergeGroupsCommandHandler } from '@Contexts/Groups/Application/Commands';
 import { GroupsMergedEventHandler } from '@Contexts/Groups/Application/Events/GroupsMergedEventHandler';
 import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
+import { IAdministratorDecisions } from '@Contexts/Groups/Application/Ports/IAdministratorDecisions';
+import { GetAdministratorsLogQueryHandler } from '@Contexts/Groups/Application/Queries';
 
 /**
  * The Groups context (conventions/domain.yaml, ADR 1): accounts (signing up, signing in, reading one's own account)
@@ -81,10 +83,16 @@ export const authenticate = authenticateWith(tokens);
 
 /**
  * The Groups module, given the ports it asks when a member leaves: the balance it asks of Ledger (MemberBalances, ADR 4), and
- * whether a payment of the member waits at the provider (WaitingPayments, ADR 13). The composition root gives it both reads:
+ * whether a payment of the member waits at the provider (WaitingPayments, ADR 13), the administrators' log (AdministratorDecisions,
+ * request 33, ADR 24), and the emails the administrators sign in with (ADMIN_EMAILS). The composition root gives it these reads:
  * this wiring does not import Ledger's or Settlements', which import this one (ADR 3).
  */
-export function groupsModuleWith(memberBalances: IMemberBalances, waitingPayments: IWaitingPayments): Module {
+export function groupsModuleWith(
+  memberBalances: IMemberBalances,
+  waitingPayments: IWaitingPayments,
+  administratorDecisions: IAdministratorDecisions,
+  administratorEmails: readonly string[],
+): Module {
   return new Module({
     name: 'Groups',
     commands: [
@@ -146,11 +154,12 @@ export function groupsModuleWith(memberBalances: IMemberBalances, waitingPayment
     domainEvents: [{ event: GroupsMergedEvent, handlers: [new GroupsMergedEventHandler()] }],
     queries: [
       new GetMyAccountQueryHandler(accountQueries),
-      new LoginQueryHandler(accountQueries, hasher, tokens),
+      new LoginQueryHandler(accountQueries, hasher, tokens, administratorEmails),
       new GetGroupQueryHandler(groupQueries),
       new GetMyGroupsQueryHandler(groupQueries),
       new GetInvitationQueryHandler(invitationQueries),
       new GetGroupMembersQueryHandler(groupQueries),
+      new GetAdministratorsLogQueryHandler(administratorDecisions),
     ],
   });
 }

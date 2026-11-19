@@ -2,6 +2,8 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { Module } from '@Architecture/Application';
 import { acceptCommand } from '@Architecture/Presentation/AcceptCommand';
 import {
+  ContestSettlementCommandEvent,
+  DecideContestCommandEvent,
   NetDebtsCommandEvent,
   PayThroughProviderCommandEvent,
   ReceivePaymentWebhookCommandEvent,
@@ -10,6 +12,7 @@ import {
   SetPayoutAccountCommandEvent,
 } from '@Contexts/Settlements/Application/Commands';
 import {
+  GetContestsQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetPayoutAccountQueryHandler,
@@ -83,6 +86,27 @@ export class FastifySettlementController {
   /** The payee asks the provider to refund a settlement paid through it: answered at once, its outcome read later (request 15). */
   refundSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
     return acceptCommand(req, reply, this.#module, RefundSettlementCommandEvent.set({ settlementId: req.params.id }));
+  }
+
+  /** The payee says the money of a settlement paid through the provider did not reach them: answered at once, its outcome read later (request 33). */
+  contestSettlement(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, ContestSettlementCommandEvent.set({ settlementId: req.params.id }));
+  }
+
+  /** An administrator decides a contested settlement: answered at once, its outcome read later (request 33). */
+  decideContest(req: FastifyRequest<{ Params: { id: string }; Body: { paid: boolean } }>, reply: FastifyReply) {
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      DecideContestCommandEvent.set({ settlementId: req.params.id, paid: req.body.paid }),
+    );
+  }
+
+  /** An administrator lists the settlements contested now, the earliest contested first: 401 or 403 to anyone else (request 33). */
+  async getContests(req: FastifyRequest, reply: FastifyReply) {
+    const result = await this.#module.getQuery(GetContestsQueryHandler).handle(undefined, req.executionContext);
+    return result.isFailure() ? refuse(reply, result.error, req.executionContext) : result.data;
   }
 
   /** The provider's webhook: refused with 401 and nothing changed unless it is signed; otherwise acknowledged at once. */

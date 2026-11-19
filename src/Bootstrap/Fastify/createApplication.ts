@@ -15,7 +15,13 @@ import { FastifyApplication } from '@Bootstrap/Fastify/FastifyApplication';
 import { authenticate, groupsModuleWith, tokens } from '@Contexts/Groups/module.local';
 import { LedgerMemberBalances } from '@Contexts/Groups/Infrastructure/LedgerMemberBalances';
 import { SettlementsWaitingPayments } from '@Contexts/Groups/Infrastructure/SettlementsWaitingPayments';
-import { accountRoutes, groupRoutes, invitationRoutes } from '@Contexts/Groups/Presentation/API/REST/Routes';
+import { SettlementsAdministratorDecisions } from '@Contexts/Groups/Infrastructure/SettlementsAdministratorDecisions';
+import {
+  accountRoutes,
+  adminRoutes,
+  groupRoutes,
+  invitationRoutes,
+} from '@Contexts/Groups/Presentation/API/REST/Routes';
 import {
   groupBalanceSums,
   groupBalanceSumsInCommand,
@@ -26,6 +32,7 @@ import {
 import { HttpOfferedRates } from '@Contexts/Ledger/Infrastructure/HttpOfferedRates';
 import { HttpReceiptStore } from '@Contexts/Ledger/Infrastructure/HttpReceiptStore';
 import {
+  administratorDecisionEntries,
   memberDebtsWith,
   memberPaymentsWaitingInCommand,
   settlementsModuleWith,
@@ -76,9 +83,17 @@ export async function createApplication({
   const database = PostgresDatabase.shared();
   // Groups asks Ledger a member's balance when one leaves (ADR 4), and Settlements whether a payment of theirs waits at the
   // provider (ADR 13): the wirings do not import each other, so the composition root gives Groups both ports over their reads.
+  // The administrators (request 33, ADR 24): the emails in ADMIN_EMAILS, a comma-separated list, are given the administrator's role
+  // at sign-in; Groups' log of the administrators' decisions is Settlements' entries, read through its adapter.
+  const administratorEmails = String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map(email => email.trim())
+    .filter(Boolean);
   const localGroupsModule = groupsModuleWith(
     new LedgerMemberBalances(memberBalanceSumsInCommand),
     new SettlementsWaitingPayments(memberPaymentsWaitingInCommand),
+    new SettlementsAdministratorDecisions(administratorDecisionEntries),
+    administratorEmails,
   );
   // Settlements decides on the balances Ledger reads (GroupBalances, ADR 5, ADR 7), outside a transaction for its
   // queries and inside the command's for its command; Ledger in turn reads what Settlements paid. Neither wiring imports
@@ -113,6 +128,7 @@ export async function createApplication({
     .registerModule(localNotificationsModule)
     .registerRoutes('/', accountRoutes, { accountsModule: localGroupsModule })
     .registerRoutes('/', groupRoutes, { groupsModule: localGroupsModule })
+    .registerRoutes('/', adminRoutes, { groupsModule: localGroupsModule })
     .registerRoutes('/', invitationRoutes, { groupsModule: localGroupsModule })
     .registerRoutes('/', expenseRoutes, { ledgerModule: localLedgerModule })
     .registerRoutes('/', balanceRoutes, { ledgerModule: localLedgerModule })

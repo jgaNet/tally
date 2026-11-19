@@ -4,10 +4,12 @@ import { InvalidCredentials } from '@Contexts/Groups/Domain/Account/AccountExcep
 import { IAccountQueries } from '@Contexts/Groups/Application/Ports/IAccountQueries';
 import { IPasswordHasher } from '@Contexts/Groups/Application/Ports/IPasswordHasher';
 import { ITokens } from '@Contexts/Groups/Application/Ports/ITokens';
+import { roleAtSignIn } from '@Contexts/Groups/Domain/Account/Administrators';
 
 /**
  * Signing in is not a fact of the domain: it checks the credentials and answers a token, and
- * nothing changes. An email no account has and a wrong password are the same refusal.
+ * nothing changes. An email no account has and a wrong password are the same refusal. The token carries the role the
+ * account has at sign-in: an administrator when its email is one of `administratorEmails` (request 33, ADR 24).
  */
 export class LoginQueryHandler extends QueryHandler<
   IAccountQueries,
@@ -18,6 +20,7 @@ export class LoginQueryHandler extends QueryHandler<
     queries: IAccountQueries,
     private readonly hasher: IPasswordHasher,
     private readonly tokens: ITokens,
+    private readonly administratorEmails: readonly string[] = [],
   ) {
     super(queries);
   }
@@ -30,6 +33,6 @@ export class LoginQueryHandler extends QueryHandler<
     // An unknown email costs the same check as a wrong password, so that time does not tell them apart.
     const matches = await this.hasher.verify(password, credentials?.passwordHash ?? '');
     if (!credentials || !matches) return Result.fail(new InvalidCredentials());
-    return Result.ok({ token: this.tokens.issue(credentials.id) });
+    return Result.ok({ token: this.tokens.issue(credentials.id, roleAtSignIn(email, this.administratorEmails)) });
   }
 }

@@ -108,6 +108,16 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
         settlement.payUrl ?? null,
       );
     }
+    for (const decision of book.unsavedDecisions) {
+      await connection.run(
+        'INSERT INTO administrator_decisions (id, at, by_id, action, subject_id) VALUES (?, ?, ?, ?, ?)',
+        decision.id.value,
+        decision.at.toISOString(),
+        decision.by.value,
+        decision.action,
+        decision.subjectId.value,
+      );
+    }
     for (const change of book.unsavedHistory) {
       await connection.run(
         'INSERT INTO settlement_history (settlement_id, status, at) VALUES (?, ?, ?)',

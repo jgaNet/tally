@@ -10,7 +10,7 @@ export interface SettlementReadModel {
   to: string;
   amount: number;
   method: 'cash' | 'provider' | 'net';
-  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
   at: string;
   history: { status: SettlementReadModel['status']; at: string }[];
   payUrl?: string;

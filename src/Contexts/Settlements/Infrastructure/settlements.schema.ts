@@ -17,6 +17,8 @@ function advancePast(table: string, column: string): string {
  * when Tally learned it, written in the transaction of the change (request 19). A table an earlier version made keeps its
  * CHECK: it is created again. `rowid` is the order the settlements were written in, as SQLite's own was, and breaks a tie of
  * `recorded_at`. The tables and their columns are those of the SQLite file, which the move copies as they are.
+ * Request 33 adds the statuses `contested` and `annulled` (ADR 24), and the administrators' log, `administrator_decisions`, one
+ * row per decision an administrator made, written in the transaction of the decision.
  */
 export const SETTLEMENT_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS settlement_books (
@@ -30,7 +32,7 @@ export const SETTLEMENT_STATEMENTS = [
      payee_id TEXT NOT NULL,
      amount BIGINT NOT NULL,
      method TEXT NOT NULL CHECK (method IN ('cash', 'provider', 'net')),
-     status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+     status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled')),
      recorded_at TEXT NOT NULL,
      provider_payment_id TEXT,
      pay_url TEXT,
@@ -43,7 +45,7 @@ export const SETTLEMENT_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS settlement_history (
      id BIGSERIAL PRIMARY KEY,
      settlement_id TEXT NOT NULL,
-     status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
+     status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled')),
      at TEXT NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS settlement_history_by_settlement ON settlement_history (settlement_id)`,
@@ -55,6 +57,24 @@ export const SETTLEMENT_STATEMENTS = [
   // that the next status learned (a webhook after the move) is written after them. It only ever moves forward.
   advancePast('settlement_history', 'id'),
   advancePast('settlements', 'rowid'),
+  // A table an earlier version made keeps its CHECK on the status: a contested or annulled settlement (request 33) is the two
+  // values it adds, so the CHECK is widened when it does not hold them yet, here and on the history.
+  `DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'settlements_status_check'
+                AND pg_get_constraintdef(oid) NOT LIKE '%''annulled''%') THEN
+       ALTER TABLE settlements DROP CONSTRAINT settlements_status_check;
+       ALTER TABLE settlements ADD CONSTRAINT settlements_status_check
+         CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'));
+     END IF;
+     IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'settlement_history_status_check'
+                AND pg_get_constraintdef(oid) NOT LIKE '%''annulled''%') THEN
+       ALTER TABLE settlement_history DROP CONSTRAINT settlement_history_status_check;
+       ALTER TABLE settlement_history ADD CONSTRAINT settlement_history_status_check
+         CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'));
+     END IF;
+   END
+   $$`,
   // A table an earlier version made keeps its CHECK on the method: a settlement made by a netting (request 32) is the value it
   // adds, so the CHECK is widened when it does not hold it yet.
   `DO $$
@@ -82,6 +102,17 @@ export const SETTLEMENT_STATEMENTS = [
      settlement_id TEXT NOT NULL UNIQUE,
      PRIMARY KEY (netting_id, position)
    )`,
+  // The administrators' log (request 33, ADR 24): every decision an administrator made about a contested settlement, in the
+  // transaction of the decision; `seq` is the order they were written in, and breaks a tie of `at`.
+  `CREATE TABLE IF NOT EXISTS administrator_decisions (
+     id TEXT PRIMARY KEY,
+     at TEXT NOT NULL,
+     by_id TEXT NOT NULL,
+     action TEXT NOT NULL CHECK (action IN ('decided-paid', 'decided-annulled')),
+     subject_id TEXT NOT NULL,
+     seq BIGSERIAL
+   )`,
+  `CREATE INDEX IF NOT EXISTS administrator_decisions_by_subject ON administrator_decisions (subject_id)`,
   // A person's payout account at the provider (request 16, ADR 10): one row per person, replaced when they set another.
   `CREATE TABLE IF NOT EXISTS payout_accounts (
      id TEXT PRIMARY KEY,

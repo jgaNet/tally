@@ -72,3 +72,25 @@ export class SettlementBookMergedEvent extends DomainEvent<{
   settlementIds: string[];
   mergedAt: string;
 }> {}
+
+/**
+ * The payee of a settlement paid through the provider said the money did not reach them (request 33, ADR 24): the settlement is
+ * contested, held out of the balances, and waits until an administrator decides it.
+ */
+export class SettlementContestedEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+  contestedAt: string;
+}> {}
+
+/** An administrator decided a contested settlement was not paid: it is annulled, nothing counts it, and what was owed is owed again (request 33). */
+export class SettlementAnnulledEvent extends DomainEvent<{
+  settlementId: string;
+  groupId: string;
+  payer: string;
+  payee: string;
+  amount: number;
+}> {}

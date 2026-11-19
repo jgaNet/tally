@@ -10,6 +10,10 @@ import {
   GetPayoutAccountResSchema,
   GetSettlementResSchema,
   GetSuggestedSettlementsResSchema,
+  ContestSettlementResSchema,
+  DecideContestBodySchema,
+  DecideContestResSchema,
+  GetContestsResSchema,
   NetDebtsBodySchema,
   NetDebtsResSchema,
   PayThroughProviderBodySchema,
@@ -100,6 +104,28 @@ export const settlementRoutes = function (
     '/settlements/:id/refund',
     { schema: { tags: ['settlements'], response: RefundSettlementResSchema } },
     controller.refundSettlement.bind(controller),
+  );
+
+  fastify.post(
+    '/settlements/:id/contest',
+    { schema: { tags: ['settlements'], response: ContestSettlementResSchema } },
+    controller.contestSettlement.bind(controller),
+  );
+  fastify.get(
+    '/admin/contests',
+    { schema: { tags: ['settlements'], response: GetContestsResSchema } },
+    controller.getContests.bind(controller),
+  );
+  fastify.post(
+    '/admin/settlements/:id/decision',
+    {
+      schema: {
+        tags: ['settlements'],
+        body: DecideContestBodySchema,
+        response: DecideContestResSchema,
+      },
+    },
+    controller.decideContest.bind(controller),
   );
 
   fastify.put(

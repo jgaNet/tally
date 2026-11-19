@@ -39,6 +39,23 @@ export class PostgresSettlementQueries implements ISettlementQueries {
     });
   }
 
+  /** The settlements contested now, the earliest contested first: the time each was contested, then the order it was stored in (request 33). */
+  findContested(): Promise<SettlementReadModel[]> {
+    return this.database.exclusive(async connection => {
+      const rows = await connection.rows<SettlementRow>(
+        `SELECT s.* FROM settlements s
+          WHERE s.status = 'contested'
+          ORDER BY (SELECT MIN(h.at) FROM settlement_history h WHERE h.settlement_id = s.id AND h.status = 'contested'), s.rowid`,
+      );
+      const history = await connection.rows<HistoryRow>(
+        `SELECT h.settlement_id, h.status, h.at FROM settlement_history h
+         JOIN settlements s ON s.id = h.settlement_id
+         WHERE s.status = 'contested' ORDER BY h.id`,
+      );
+      return rows.map(row => toReadModel(row, history));
+    });
+  }
+
   findByGroup(groupId: string): Promise<SettlementReadModel[]> {
     return this.database.exclusive(async connection => {
       // The most recently recorded first; a tie is broken by the order the rows were stored in.

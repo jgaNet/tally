@@ -1,6 +1,8 @@
 import { AggregateRoot, Exception, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { GroupArchived } from '@SharedKernel/Domain';
 import {
+  SettlementAnnulledEvent,
+  SettlementContestedEvent,
   PaymentRequestedEvent,
   RefundRequestedEvent,
   SettlementFailedEvent,
@@ -10,6 +12,9 @@ import {
   SettlementRefundedEvent,
 } from '@Contexts/Settlements/Domain/Settlement/Events/SettlementEvents';
 import {
+  SettlementAlreadyContested,
+  SettlementNotContestable,
+  SettlementNotContested,
   CashSettlementNotRefundable,
   InvalidSettlementAmount,
   NettedSettlementNotRefundable,
@@ -25,7 +30,16 @@ import {
 /** How a settlement is paid: in cash, through the provider, or netted with the others of a netting (request 32). */
 export type SettlementMethod = 'cash' | 'provider' | 'net';
 /** A settlement is pending until the provider says how its payment ended; a paid one may be refunded, and then refunding and refunded (ADR 9). */
-export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
+
+/** A decision an administrator made about a contested settlement, for the repository to store in the administrators' log (request 33, ADR 24). */
+export interface AdministratorDecisionRecord {
+  readonly id: Id;
+  readonly at: Date;
+  readonly by: Id;
+  readonly action: 'decided-paid' | 'decided-annulled';
+  readonly subjectId: Id;
+}
 
 /** A status a settlement has had, and when Tally learned it (request 19). */
 export interface SettlementStatusLine {
@@ -85,13 +99,15 @@ export interface RefundProposal {
  * or failed. The book refuses a settlement unless the amount is a whole number of at least 1, the payer and the payee are
  * two different members, and the amount is no more than what the payer still owes and no more than what the payee is still
  * owed. A payment waiting at the provider counts as paid for that, so the book adds what is waiting to the balances it is
- * given; the balances themselves count a settlement only once it is paid. The caller reads the balances in the same
+ * given; the balances themselves count a settlement only once it is paid. A settlement contested by its payee waits the same
+ * way, and the balances stop counting it until an administrator decides (request 33, ADR 24). The caller reads the balances in the same
  * transaction; the book's version (CONC-OPTIMISTIC) makes a second settlement decided at once re-read them.
  */
 export class SettlementBook extends AggregateRoot {
   #settlements: Settlement[];
   #unsaved = new Set<Settlement>();
   #unsavedHistory: SettlementStatusChange[] = [];
+  #unsavedDecisions: AdministratorDecisionRecord[] = [];
 
   private constructor(groupId: Id, version: number, settlements: Settlement[]) {
     super(groupId, version);
@@ -111,6 +127,11 @@ export class SettlementBook extends AggregateRoot {
   /** The statuses settlements took since the book was read, in the order they were taken, for the repository to store. */
   get unsavedHistory(): readonly SettlementStatusChange[] {
     return [...this.#unsavedHistory];
+  }
+
+  /** The administrators' decisions made since the book was read, for the repository to store in the administrators' log (request 33). */
+  get unsavedDecisions(): readonly AdministratorDecisionRecord[] {
+    return [...this.#unsavedDecisions];
   }
 
   /** A payee's payment in cash, decided now: recorded as paid, and SettlementRecorded. */
@@ -261,6 +282,88 @@ export class SettlementBook extends AggregateRoot {
     return Result.ok({ settlementId, paymentId: settlement.providerPaymentId });
   }
 
+  /**
+   * The payee of a settlement paid through the provider says the money did not reach them (request 33, ADR 24). The caller must be
+   * a member of the group, or the settlement does not exist for them; the payee, and no one else; not contested before, since a
+   * settlement is contested once; a settlement through the provider that is `paid`; and its payer and payee must still be members,
+   * so the balances of the group still add up to 0. The settlement is contested: the balances stop counting it, and it waits as a
+   * pending payment does. SettlementContested is recorded. Nothing is asked of the provider.
+   */
+  contest({
+    settlementId,
+    caller,
+    members,
+    groupArchived,
+    at,
+  }: {
+    settlementId: Id;
+    caller: Id;
+    members: readonly string[];
+    groupArchived: boolean;
+    at: Date;
+  }): IResult {
+    if (groupArchived) return Result.fail(new GroupArchived());
+    const settlement = this.#settlements.find(candidate => candidate.id.equals(settlementId));
+    if (!settlement || !members.includes(caller.value)) {
+      return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));
+    }
+    if (!settlement.payee.equals(caller)) return Result.fail(new NotThePayee());
+    if (settlement.history.some(line => line.status === 'contested'))
+      return Result.fail(new SettlementAlreadyContested());
+    if (settlement.method !== 'provider' || settlement.status !== 'paid')
+      return Result.fail(new SettlementNotContestable());
+    if (!members.includes(settlement.payer.value)) return Result.fail(new PayerNotAMember());
+    if (!members.includes(settlement.payee.value)) return Result.fail(new PayeeNotAMember());
+
+    this.#moveTo(settlement, 'contested', at);
+    this.record(
+      SettlementContestedEvent.set({
+        settlementId: settlement.id.value,
+        groupId: this._id.value,
+        payer: settlement.payer.value,
+        payee: settlement.payee.value,
+        amount: settlement.amount,
+        contestedAt: at.toISOString(),
+      }),
+    );
+    return Result.ok();
+  }
+
+  /**
+   * An administrator decides a contested settlement (request 33, ADR 24). Paid, when the money arrived: the settlement is paid
+   * again and the balances count it as they did before it was contested. Not paid: it is annulled, nothing counts it, and what
+   * was owed is owed again. Only a contested settlement is decided, once. The decision is kept in the administrators' log, in the
+   * transaction of the decision, and SettlementPaid or SettlementAnnulled is recorded.
+   */
+  decideContest({ settlementId, by, paid, at }: { settlementId: Id; by: Id; paid: boolean; at: Date }): IResult {
+    const settlement = this.#settlements.find(candidate => candidate.id.equals(settlementId));
+    if (!settlement) return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));
+    if (settlement.status !== 'contested') return Result.fail(new SettlementNotContested());
+
+    const ended = {
+      settlementId: settlement.id.value,
+      groupId: this._id.value,
+      payer: settlement.payer.value,
+      payee: settlement.payee.value,
+      amount: settlement.amount,
+    };
+    if (paid) {
+      this.#moveTo(settlement, 'paid', at);
+      this.record(SettlementPaidEvent.set(ended));
+    } else {
+      this.#moveTo(settlement, 'annulled', at);
+      this.record(SettlementAnnulledEvent.set(ended));
+    }
+    this.#unsavedDecisions.push({
+      id: Id.generate(),
+      at,
+      by,
+      action: paid ? 'decided-paid' : 'decided-annulled',
+      subjectId: settlementId,
+    });
+    return Result.ok();
+  }
+
   /** The provider accepted the refund: the settlement is refunding, still counted, and RefundRequested is recorded. */
   keepRefund(proposal: RefundProposal, at: Date): IResult {
     const settlement = this.#settlements.find(candidate => candidate.id.equals(proposal.settlementId));
@@ -357,7 +460,7 @@ export class SettlementBook extends AggregateRoot {
   stillOwing(balances: ReadonlyMap<string, number>): Map<string, number> {
     const owing = new Map(balances);
     for (const settlement of this.#settlements) {
-      if (settlement.status !== 'pending') continue;
+      if (settlement.status !== 'pending' && settlement.status !== 'contested') continue;
       owing.set(settlement.payer.value, (owing.get(settlement.payer.value) ?? 0) + settlement.amount);
       owing.set(settlement.payee.value, (owing.get(settlement.payee.value) ?? 0) - settlement.amount);
     }

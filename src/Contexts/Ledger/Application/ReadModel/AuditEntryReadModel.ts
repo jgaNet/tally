@@ -3,6 +3,7 @@ export type AuditAction =
   | 'expense-recorded'
   | 'expense-edited'
   | 'expense-deleted'
+  | 'settlement-contested'
   | 'settlement-paid'
   | 'settlement-refunded'
   | 'balance-passed';

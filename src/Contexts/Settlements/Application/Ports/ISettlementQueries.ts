@@ -6,4 +6,6 @@ export interface ISettlementQueries {
   findById(id: string): Promise<SettlementReadModel | null>;
   /** The settlements of a group as they are now, the most recently recorded first (request 19). */
   findByGroup(groupId: string): Promise<SettlementReadModel[]>;
+  /** The settlements contested now, the earliest contested first (request 33). */
+  findContested(): Promise<SettlementReadModel[]>;
 }

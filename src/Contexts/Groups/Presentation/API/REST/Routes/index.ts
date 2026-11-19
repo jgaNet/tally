@@ -4,3 +4,5 @@ export * from './group.routes';
 export * from './group.routes.schema';
 export * from './invitation.routes';
 export * from './invitation.routes.schema';
+export * from './admin.routes';
+export * from './admin.routes.schema';

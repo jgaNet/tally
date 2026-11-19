@@ -58,6 +58,28 @@ export const RefundSettlementResSchema = {
   401: RefusedSchema,
 } as const;
 
+/** The payee contests a settlement paid through the provider: asked at once and answered later, as a refund is (request 33). */
+export const ContestSettlementResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  401: RefusedSchema,
+} as const;
+
+/** The body of an administrator's decision on a contested settlement: `paid` is true when the money arrived (request 33). */
+export const DecideContestBodySchema = {
+  type: 'object',
+  required: ['paid'],
+  properties: {
+    paid: { type: 'boolean' },
+  },
+} as const;
+
+/** A decision is asked at once and answered later; a refusal of the rule is the operation's error (request 33). */
+export const DecideContestResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  400: RefusedSchema,
+  401: RefusedSchema,
+} as const;
+
 /** The body of setting a payout account: the provider's id of the account. Whether the provider knows it is the domain's. */
 export const SetPayoutAccountBodySchema = {
   type: 'object',
@@ -96,7 +118,7 @@ const SettlementStatusLineSchema = {
   type: 'object',
   required: ['status', 'at'],
   properties: {
-    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string' },
   },
 } as const;
@@ -111,7 +133,7 @@ const SettlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
     method: { enum: ['cash', 'provider', 'net'] },
-    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+    status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string' },
     history: { type: 'array', minItems: 1, items: SettlementStatusLineSchema },
     payUrl: { type: 'string', minLength: 1 },
@@ -129,6 +151,13 @@ export const GetSettlementResSchema = {
   200: SettlementSchema,
   401: RefusedSchema,
   404: RefusedSchema,
+} as const;
+
+/** The settlements contested now, the earliest contested first; 401 for a caller not signed in, 403 for one who is not an administrator (request 33). */
+export const GetContestsResSchema = {
+  200: { type: 'array', items: SettlementSchema },
+  401: RefusedSchema,
+  403: RefusedSchema,
 } as const;
 
 /** The settlements of a group, the most recently recorded first, as a member of the group reads them (request 19). */

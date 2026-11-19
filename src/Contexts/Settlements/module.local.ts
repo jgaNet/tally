@@ -32,6 +32,13 @@ import {
   SetPayoutAccountCommandHandler,
 } from '@Contexts/Settlements/Application/Commands';
 import { GetPayoutAccountQueryHandler } from '@Contexts/Settlements/Application/Queries';
+import { GetContestsQueryHandler } from '@Contexts/Settlements/Application/Queries/GetContests/GetContestsQueryHandler';
+import { ContestSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/ContestSettlement/ContestSettlementCommandEvent';
+import { ContestSettlementCommandHandler } from '@Contexts/Settlements/Application/Commands/ContestSettlement/ContestSettlementCommandHandler';
+import { DecideContestCommandEvent } from '@Contexts/Settlements/Application/Commands/DecideContest/DecideContestCommandEvent';
+import { DecideContestCommandHandler } from '@Contexts/Settlements/Application/Commands/DecideContest/DecideContestCommandHandler';
+import { IAdministratorDecisionEntries } from '@Contexts/Settlements/Domain/Settlement/Ports/IAdministratorDecisionEntries';
+import { PostgresAdministratorDecisionEntries } from '@Contexts/Settlements/Infrastructure/PostgresAdministratorDecisionEntries';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
 import { IWaitingEffects } from '@Contexts/Settlements/Domain/Settlement/Ports/IWaitingEffects';
 import { GroupsGroupCurrency } from '@Contexts/Settlements/Infrastructure/GroupsGroupCurrency';
@@ -87,8 +94,19 @@ export const memberPaymentsWaitingInCommand: IMemberPaymentsWaiting = new Postgr
  */
 export const settlementAuditEntries: ISettlementAuditEntries = new PostgresSettlementAuditEntries(database);
 
-/** What the payments waiting at the provider do to each balance, for the suggestions (ADR 8), outside any transaction. */
-const waitingEffects: IWaitingEffects = new PostgresSettlementEffects(database, false, ['pending']);
+/**
+ * What the payments waiting at the provider do to each balance, for the suggestions (ADR 8), outside any transaction. A contested
+ * settlement waits as a pending one does, for what is still owed (request 33, ADR 24).
+ */
+const waitingEffects: IWaitingEffects = new PostgresSettlementEffects(database, false, ['pending', 'contested']);
+
+/**
+ * The administrators' log's entries, as Groups reads them (AdministratorDecisions, request 33, ADR 24), outside any transaction.
+ * Groups' wiring takes it through its adapter; this wiring does not import Groups'.
+ */
+export const administratorDecisionEntries: IAdministratorDecisionEntries = new PostgresAdministratorDecisionEntries(
+  database,
+);
 
 /**
  * Who still owes what, as Notifications' sweep asks it (ADR 12), given the balances it reads from Ledger for the sweep
@@ -164,6 +182,20 @@ export function settlementsModuleWith(
         ],
       },
       {
+        event: ContestSettlementCommandEvent,
+        handlers: [
+          new ContestSettlementCommandHandler(
+            new PostgresSettlementBookRepository(database),
+            new GroupsSettlementMembers(groupMembershipInCommand),
+            systemClock,
+          ),
+        ],
+      },
+      {
+        event: DecideContestCommandEvent,
+        handlers: [new DecideContestCommandHandler(new PostgresSettlementBookRepository(database), systemClock)],
+      },
+      {
         event: ReceivePaymentWebhookCommandEvent,
         handlers: [
           new ReceivePaymentWebhookCommandHandler(new PostgresSettlementBookRepository(database), systemClock),
@@ -188,6 +220,7 @@ export function settlementsModuleWith(
       ),
       new GetPayoutAccountQueryHandler(new PostgresPayoutAccountQueries(database)),
       new GetNettingQueryHandler(new PostgresNettingQueries(database)),
+      new GetContestsQueryHandler(new PostgresSettlementQueries(database)),
     ],
   });
 }

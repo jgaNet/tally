@@ -3,3 +3,4 @@ export * from '@Contexts/Settlements/Application/Queries/GetSettlement/GetSettle
 export * from '@Contexts/Settlements/Application/Queries/GetGroupSettlements/GetGroupSettlementsQueryHandler';
 export * from '@Contexts/Settlements/Application/Queries/GetNetting/GetNettingQueryHandler';
 export * from '@Contexts/Settlements/Application/Queries/GetPayoutAccount/GetPayoutAccountQueryHandler';
+export * from '@Contexts/Settlements/Application/Queries/GetContests/GetContestsQueryHandler';
