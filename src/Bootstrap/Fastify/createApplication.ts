@@ -17,6 +17,7 @@ import { localGroupsModule, authenticatedCallerOf } from '@Contexts/Groups/modul
 import { localLedgerModule, sweepRecurringExpenseDays } from '@Contexts/Ledger/module.local';
 import { recurringRoutes } from '@Contexts/Ledger/Presentation/recurring.routes';
 import { budgetRoutes } from '@Contexts/Ledger/Presentation/budgets.routes';
+import { insightRoutes } from '@Contexts/Ledger/Presentation/insights.routes';
 import { auditRoutes } from '@Contexts/Ledger/Presentation/audit.routes';
 import { templateRoutes } from '@Contexts/Ledger/Presentation/templates.routes';
 import { receiptRoutes } from '@Contexts/Ledger/Presentation/receipts.routes';
@@ -94,6 +95,7 @@ export async function createApplication({
     .registerRoutes('/', expenseRoutes, { module: localLedgerModule })
     .registerRoutes('/', recurringRoutes, { module: localLedgerModule })
     .registerRoutes('/', budgetRoutes, { module: localLedgerModule })
+    .registerRoutes('/', insightRoutes, { module: localLedgerModule })
     .registerRoutes('/', auditRoutes, { module: localLedgerModule })
     .registerRoutes('/', templateRoutes, { module: localLedgerModule })
     .registerRoutes('/', receiptRoutes, { module: localLedgerModule })

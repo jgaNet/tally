@@ -5,7 +5,7 @@ feature: spending-insights
 intent: >-
   A person reads what they spent across the groups they are a member of now — their shares, by month, currency and category, in a stated order.
 
-done: false
+done: true
 
 hotSpots:
   - question: Which context answers it?

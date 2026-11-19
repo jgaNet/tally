@@ -14,6 +14,8 @@ import {
   settlementAuditOfSettlements,
 } from '@Bootstrap/Fastify/readModels';
 import { getGroupAudit } from '@Contexts/Ledger/Application/Audit';
+import { getMyInsights } from '@Contexts/Ledger/Application/Insights';
+import { PostgresInsightQueries } from '@Contexts/Ledger/Infrastructure/PostgresInsightQueries';
 import { PostgresAuditQueries } from '@Contexts/Ledger/Infrastructure/PostgresAuditEntries';
 import {
   deleteExpense,
@@ -98,6 +100,8 @@ const receiptStore = new HttpReceiptStore();
 const auditQueries = new PostgresAuditQueries(sharedDatabase);
 // What a merged group keeps in Ledger's own tables (request 31, docs/adr/0031): its audit entries and receipts move, its budgets and templates go.
 const mergedRecords = new PostgresMergedGroupRecords(sharedDatabase);
+// The spending insights (request 37, docs/adr/0037): read from the expenses' shares, over the groups the caller is a member of now.
+const insightQueries = new PostgresInsightQueries(sharedDatabase);
 
 export const localLedgerModule = new LiteModule({
   name: 'Ledger',
@@ -128,6 +132,7 @@ export const localLedgerModule = new LiteModule({
     attachReceipt(receipts, receiptStore, ledgerReadModel, groupMembers),
     getReceipt(receiptQueries, expenseQueries, groupMembers),
     getGroupAudit(auditQueries, settlementAuditOfSettlements, passedBalancesOfGroups, groupMembers),
+    getMyInsights(insightQueries, groupMembers, groupCurrency),
   ],
   domainEvents: [
     // An expense recorded is told to the other contexts as the published fact (request 17, docs/adr/0017), and may pass its month's budget (request 24).

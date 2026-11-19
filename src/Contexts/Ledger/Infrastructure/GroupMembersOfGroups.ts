@@ -22,6 +22,10 @@ export class GroupMembersOfGroups implements IGroupMembers {
     return this.groups.currentMemberIdsOf(groupId);
   }
 
+  async currentGroupIdsOf(accountId: string): Promise<string[]> {
+    return (await this.groups.listGroupsOf(accountId)).map(group => group.id);
+  }
+
   async isArchived(groupId: string): Promise<boolean> {
     return this.groups.isArchived(groupId);
   }

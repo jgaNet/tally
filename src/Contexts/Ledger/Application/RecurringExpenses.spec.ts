@@ -91,6 +91,10 @@ class MemoryMembers implements IGroupMembers {
   async isDeleted(accountId: string): Promise<boolean> {
     return this.deleted.has(accountId);
   }
+  async currentGroupIdsOf(): Promise<string[]> {
+    return [];
+  }
+
   async currentMemberIds(): Promise<string[]> {
     this.currentAsked += 1;
     return [...this.current];

@@ -33,6 +33,11 @@ export interface IGroupMembers {
    */
   currentMemberIds(groupId: string): Promise<string[]>;
   /**
+   * The ids of the groups the account is a member of now, the most recently created first, for the spending insights (request 37,
+   * docs/adr/0037): a group it left is not among them. Each group's currency is asked through GroupCurrency. Empty for an account in none.
+   */
+  currentGroupIdsOf(accountId: string): Promise<string[]>;
+  /**
    * Whether the group is archived (request 27, docs/adr/0026): nothing in it changes any more, so an expense, a budget, a template, a
    * receipt or a recurring expense is refused by GroupArchived. Groups answers it; a change asks the caller's membership first, through
    * `membersOf`.
