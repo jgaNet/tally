@@ -2,16 +2,25 @@ import { randomUUID } from 'node:crypto';
 import { isDeleted } from '../accounts/accounts';
 import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
+import { type Currency, minorUnitDigitsOf } from '../groups/validation';
 import { isNoticeOn } from '../notices/preferences';
 
-/** A member owing more than this, in hundredths of the group's currency (20.00), is noted, and may be reminded. */
-export const REMINDED_ABOVE = 2000;
+/** A member owing more than this many of the group's currency is noted, and may be reminded. */
+const REMINDED_ABOVE_UNITS = 20;
+
+/**
+ * What a member of a group in `currency` must owe to be noted and reminded: more than 20 of it, in its minor unit, so
+ * 2000 hundredths (20.00) of euros, 20 yen, and 20000 thousandths (20.000) of dinars.
+ */
+export function reminderAboveOf(currency: Currency): number {
+  return REMINDED_ABOVE_UNITS * 10 ** minorUnitDigitsOf(currency);
+}
 
 /**
  * One run of the background job's sweep over the debts, as of `at`. For every member of every group:
  *
- * - a member owing more than `REMINDED_ABOVE` and not noted is noted from this run;
- * - a member owing `REMINDED_ABOVE` or less is no longer noted;
+ * - a member owing more than `reminderAboveOf` the group's currency and not noted is noted from this run;
+ * - a member owing `reminderAboveOf` or less is no longer noted;
  * - a member noted for `reminderPeriodMs` or more, and not reminded during that period, is reminded
  *   at this run: a notice of kind `reminder` with what they still owe.
  *
@@ -26,15 +35,16 @@ export async function sweepDebts(db: Database, at: Date, reminderPeriodMs: numbe
     const now = at.toISOString();
     const periodStart = new Date(at.getTime() - reminderPeriodMs).toISOString();
 
-    const groupIds = (await db.rows<{ id: string }>('SELECT id FROM groups')).map(row => row.id);
-    for (const groupId of groupIds) {
+    const groups = await db.rows<{ id: string; currency: Currency }>('SELECT id, currency FROM groups');
+    for (const { id: groupId, currency } of groups) {
+      const above = reminderAboveOf(currency);
       for (const { memberId, balance } of await balancesWithPendingOf(db, groupId)) {
         // A deleted account keeps its balance, and is told nothing of it.
         if (await isDeleted(db, memberId)) {
           continue;
         }
         const owed = -balance;
-        if (owed <= REMINDED_ABOVE) {
+        if (owed <= above) {
           await db.execute('DELETE FROM noted_debts WHERE group_id = ? AND account_id = ?', [groupId, memberId]);
           continue;
         }

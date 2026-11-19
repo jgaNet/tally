@@ -4,6 +4,7 @@ import { recordAudit } from '../audit/audit';
 import { type Database, inTransaction } from '../database';
 import { requireNotSuspended } from '../admin/suspensions';
 import { requireMembership, requireNotArchived } from '../groups/groups';
+import { type Currency, minorUnitDigitsOf } from '../groups/validation';
 import { payoutAccountOf } from '../payouts/payout-accounts';
 import { type RatesConfig, convertedAmount } from '../rates/rates';
 import { Refusal } from '../refusal';
@@ -101,6 +102,7 @@ export async function requestProviderSettlement(
       provider,
       { reference: held.id, amount: paid.amount, currency: paid.currency, payee: held.payee },
       priced,
+      group.currency,
     );
   } catch {
     await db.execute('DELETE FROM settlements WHERE id = ?', [held.id]);
@@ -124,19 +126,20 @@ interface ProviderPayment {
   id: string;
   /** Where the payer pays. */
   payUrl: string;
-  /** The provider's fee, in hundredths of the group's currency, converted at the settlement's rate: a whole number from 0, below the group's amount. */
+  /** The provider's fee, in the minor unit of the group's currency, converted at the settlement's rate: a whole number from 0, below the group's amount. */
   fee: number;
 }
 
 /**
- * `POST {url}/payments`. Anything but `201` with an `id`, a `payUrl` and a `fee` is an error. The fee is in the currency
- * the payment is made in: it must be a whole number from 0 below the amount paid, and, converted to the group's currency
- * at the settlement's rate, below the group's amount, else a payment whose fee is not known is not started.
+ * `POST {url}/payments`. Anything but `201` with an `id`, a `payUrl` and a `fee` is an error. The fee is in the minor unit
+ * of the currency the payment is made in: it must be a whole number from 0 below the amount paid, and, converted to the
+ * group's currency at the settlement's rate, below the group's amount, else a payment whose fee is not known is not started.
  */
 async function createProviderPayment(
   provider: ProviderConfig,
-  body: { reference: string; amount: number; currency: string; payee: string },
+  body: { reference: string; amount: number; currency: Currency; payee: string },
   priced: PricedSettlement,
+  groupCurrency: Currency,
 ): Promise<ProviderPayment> {
   const response = await fetch(`${provider.url}/payments`, {
     method: 'POST',
@@ -162,7 +165,12 @@ async function createProviderPayment(
   if (typeof answer.fee !== 'number' || !Number.isInteger(answer.fee) || answer.fee < 0 || answer.fee >= body.amount) {
     throw new Error('the provider did not answer with a fee below the amount');
   }
-  const fee = convertedAmount(answer.fee, priced.millionths);
+  const fee = convertedAmount(
+    answer.fee,
+    priced.millionths,
+    minorUnitDigitsOf(body.currency),
+    minorUnitDigitsOf(groupCurrency),
+  );
   if (fee >= BigInt(priced.amount)) {
     throw new Error('the provider did not answer with a fee below the amount, in the group’s currency');
   }

@@ -271,7 +271,7 @@ describe('settling up in another currency, at the rate offered on the day', () =
 
     it.each([
       ['the group’s own currency', { currency: 'EUR', amount: 1000 }, 'InvalidOriginalCurrency'],
-      ['a currency Tally does not have', { currency: 'JPY', amount: 1000 }, 'InvalidOriginalCurrency'],
+      ['a currency Tally does not have', { currency: 'SEK', amount: 1000 }, 'InvalidOriginalCurrency'],
       ['an amount of nothing', { currency: 'CHF', amount: 0 }, 'InvalidOriginalAmount'],
       ['an amount that is not whole', { currency: 'CHF', amount: 10.5 }, 'InvalidOriginalAmount'],
       ['an amount above 100 000 000', { currency: 'CHF', amount: 100_000_001 }, 'InvalidOriginalAmount'],

@@ -149,7 +149,7 @@ describe('an expense in another currency, at the rate a rates service offers', (
 
     it('is refused with 422, and asks nothing, for a currency Tally does not have or the group currency', async () => {
       const { ada, grace, groupId } = await twoMembers();
-      for (const currency of ['JPY', 'EUR']) {
+      for (const currency of ['SEK', 'EUR']) {
         const response = await record(ada.token, groupId, inChf(ada, grace, { currency }));
         expect(response.statusCode).toBe(422);
         expect(response.json().type).toBe('InvalidOriginalCurrency');

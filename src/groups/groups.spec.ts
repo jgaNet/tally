@@ -50,8 +50,8 @@ describe('groups', () => {
       expect(response.statusCode).toBe(201);
     });
 
-    it.each(['eur', 'JPY', 'EURO', '', ' EUR'])(
-      'refuses the currency %j, which is not one of the six, with 422',
+    it.each(['eur', 'SEK', 'EURO', '', ' EUR'])(
+      'refuses the currency %j, which is not one of the ten, with 422',
       async currency => {
         const { token } = await signedUpAccount(app);
         const response = await send(app, 'POST', '/groups', { token, payload: { ...group, currency } });

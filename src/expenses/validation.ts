@@ -1,10 +1,10 @@
 import { type Category, categoryOf } from '../budgets/categories';
-import { CURRENCIES, type Currency } from '../groups/validation';
+import { CURRENCIES, type Currency, minorUnitDigitsOf } from '../groups/validation';
 import { convertedAmount, millionthsOf } from '../rates/rates';
 import { Refusal } from '../refusal';
 import { charLength } from '../text';
 
-/** The largest amount an expense can have, in hundredths of the group's currency. */
+/** The largest amount an expense can have, in the minor unit of the group's currency. */
 export const MAX_AMOUNT = 100_000_000;
 
 /** How an expense is split: equally, by exact amounts, or by shares. */
@@ -19,7 +19,7 @@ export type SplitInput =
     }
   | {
       kind: 'exact';
-      /** Each member with the exact amount of their share, in hundredths. */
+      /** Each member with the exact amount of their share, in the minor unit of the group's currency. */
       splitExactly: { memberId: string; amount: number }[];
     }
   | {
@@ -38,7 +38,7 @@ export type MoneyInput =
 /** An expense's amount in another currency, and the rate it was paid at: what one of that currency is worth. */
 export interface Original {
   currency: Currency;
-  /** In hundredths of `currency`. */
+  /** In the minor unit of `currency`. */
   amount: number;
   rate: string;
 }
@@ -63,7 +63,7 @@ export interface ExpenseInput {
 export interface ValidExpense {
   /** Trimmed. */
   description: string;
-  /** In hundredths of the group's currency: the original amount times the rate, when there is one. */
+  /** In the minor unit of the group's currency: the original amount times the rate, when there is one. */
   amount: number;
   /** Present when the expense was paid in another currency. */
   original?: Original;
@@ -150,7 +150,8 @@ function rateOf(stated: string | undefined, offer: RateOffer): { rate: string; m
 
 /**
  * The amount in the group's currency, and for one in another currency, the original with its currency and
- * rate. That amount is the original times the rate, rounded to the nearest whole number, a half rounded up.
+ * rate. That amount is the original, in its currency's minor unit, times the rate, written in the group's minor unit,
+ * rounded to the nearest whole number, a half rounded up.
  * It is worked in integers of any size, in millionths of the rate, so no product overflows or rounds early.
  */
 function validateMoney(
@@ -182,7 +183,12 @@ function validateMoney(
   }
 
   const { rate, millionths } = rateOf(money.rate, offer);
-  const converted = convertedAmount(money.amount, millionths);
+  const converted = convertedAmount(
+    money.amount,
+    millionths,
+    minorUnitDigitsOf(money.currency as Currency),
+    minorUnitDigitsOf(groupCurrency),
+  );
   if (converted < 1n || converted > BigInt(MAX_AMOUNT)) {
     throw new Refusal(
       422,

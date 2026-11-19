@@ -21,7 +21,7 @@ export interface AuditEntry {
   action: AuditAction;
   /** What the change is about: an expense, a settlement, or the member who left. */
   subjectId: string;
-  /** What the change moved, in hundredths of the group's currency; negative when it moved a balance down. */
+  /** What the change moved, in the minor unit of the group's currency; negative when it moved a balance down. */
   amount: number;
 }
 

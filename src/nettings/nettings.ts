@@ -16,13 +16,13 @@ export interface Netting {
   /** The account id of the other member. */
   with: string;
   currency: Currency;
-  /** What was netted, in hundredths of `currency`. */
+  /** What was netted, in the minor unit of `currency`. */
   amount: number;
   /** The settlements made, in the order they were made. */
   settlements: string[];
 }
 
-/** What one group lets each of the two members pay the other, in hundredths of the group's currency. */
+/** What one group lets each of the two members pay the other, in the minor unit of the group's currency. */
 interface GroupShare {
   groupId: string;
   /** What the caller can pay the other member in this group. */

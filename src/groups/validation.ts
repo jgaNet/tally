@@ -1,10 +1,32 @@
 import { Refusal } from '../refusal';
 import { charLength } from '../text';
 
-/** The currencies a group can be in. Each counts its amounts in hundredths (cents, pence). */
-export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD'] as const;
+/** The currencies a group can be in. Each counts its amounts in its own minor unit, as `MINOR_UNIT_DIGITS` says. */
+export const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD'] as const;
 
 export type Currency = (typeof CURRENCIES)[number];
+
+/**
+ * The decimal digits of each currency's minor unit: an amount is a whole number of it. Most count in hundredths (cents,
+ * pence), 2 digits; yen and won have no minor unit, 0 digits; dinars count in thousandths, 3 digits.
+ */
+const MINOR_UNIT_DIGITS: Record<Currency, number> = {
+  EUR: 2,
+  USD: 2,
+  GBP: 2,
+  CHF: 2,
+  CAD: 2,
+  AUD: 2,
+  JPY: 0,
+  KRW: 0,
+  KWD: 3,
+  BHD: 3,
+};
+
+/** The decimal digits of the minor unit of `currency`: 2 for hundredths, 0 for a currency with none, 3 for thousandths. */
+export function minorUnitDigitsOf(currency: Currency): number {
+  return MINOR_UNIT_DIGITS[currency];
+}
 
 export interface GroupInput {
   name: string;

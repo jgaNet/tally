@@ -5,7 +5,7 @@ export interface Balance {
   /**
    * What the member paid for the group's expenses, minus their shares in them, plus what they paid
    * in settlements, minus what they were paid in settlements, plus what was passed on to them when a
-   * member left, minus what they passed on when they left, in hundredths of the group's currency.
+   * member left, minus what they passed on when they left, in the minor unit of the group's currency.
    * Positive: the group owes them. Negative: they owe the group.
    */
   balance: number;

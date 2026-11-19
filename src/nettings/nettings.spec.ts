@@ -190,7 +190,7 @@ describe('netting what two people owe each other across their groups', () => {
     expect(self.statusCode).toBe(422);
     expect(self.json()).toEqual({ type: 'NettingWithSelf', message: expect.any(String) });
 
-    const unknownCurrency = await netting(ann.token, bob.id, 'JPY');
+    const unknownCurrency = await netting(ann.token, bob.id, 'SEK');
     expect(unknownCurrency.statusCode).toBe(422);
     expect(unknownCurrency.json()).toEqual({ type: 'InvalidCurrency', message: expect.any(String) });
 

@@ -9,7 +9,7 @@ export interface ExpenseNotice {
   kind: 'expense';
   groupId: string;
   expenseId: string;
-  /** The member's share of the expense, in hundredths of the group's currency. */
+  /** The member's share of the expense, in the minor unit of the group's currency. */
   amount: number;
   /** When the notice was made: the moment the expense was recorded. */
   at: string;
@@ -20,7 +20,7 @@ export interface ReminderNotice {
   id: string;
   kind: 'reminder';
   groupId: string;
-  /** What the member still owes, in hundredths of the group's currency: more than 2000. */
+  /** What the member still owes, in the minor unit of the group's currency: more than 20 of it (2000 hundredths of euros, 20 yen). */
   amount: number;
   /** When the background job made the reminder. */
   at: string;
@@ -37,9 +37,9 @@ export interface BudgetNotice {
   category: Category;
   /** The month, `YYYY-MM`, in UTC. */
   month: string;
-  /** The category's budget for the month, in hundredths of the group's currency. */
+  /** The category's budget for the month, in the minor unit of the group's currency. */
   budget: number;
-  /** What the month spends in the category, in hundredths of the group's currency: more than `budget`. */
+  /** What the month spends in the category, in the minor unit of the group's currency: more than `budget`. */
   amount: number;
   /** When the notice was made: the moment the expense that passed the budget was recorded or edited. */
   at: string;

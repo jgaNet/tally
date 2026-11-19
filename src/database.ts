@@ -377,6 +377,33 @@ const migrations: readonly string[] = [
     AND (original_currency IS NULL) = (original_rate IS NULL)
   );
   `,
+  `
+  -- Four more currencies: JPY and KRW, which have no minor unit, and KWD and BHD, which count in thousandths. Each amount
+  -- is in the minor unit of its currency. The amounts kept before are in hundredths of the six that counted in them, so
+  -- they read as they did.
+  ALTER TABLE groups DROP CONSTRAINT groups_currency_check;
+  ALTER TABLE groups ADD CONSTRAINT groups_currency_check
+    CHECK (currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD'));
+  ALTER TABLE expenses DROP CONSTRAINT expenses_original_currency_check;
+  ALTER TABLE expenses ADD CONSTRAINT expenses_original_currency_check
+    CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD'));
+  ALTER TABLE settlements DROP CONSTRAINT settlements_original_currency_check;
+  ALTER TABLE settlements ADD CONSTRAINT settlements_original_currency_check
+    CHECK (original_currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD'));
+  ALTER TABLE nettings DROP CONSTRAINT nettings_currency_check;
+  ALTER TABLE nettings ADD CONSTRAINT nettings_currency_check
+    CHECK (currency IN ('EUR', 'USD', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY', 'KRW', 'KWD', 'BHD'));
+  -- A reminder is for more than 20 of its group's currency, which only the group says, so the background job checks it, not
+  -- this table: the check that a reminder is for more than 2000 hundredths is dropped, and a reminder only for an amount.
+  DO $$
+  DECLARE reminder_check text;
+  BEGIN
+    SELECT conname INTO reminder_check FROM pg_constraint
+     WHERE conrelid = 'notices'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%amount > 2000%';
+    EXECUTE format('ALTER TABLE notices DROP CONSTRAINT %I', reminder_check);
+  END $$;
+  ALTER TABLE notices ADD CONSTRAINT notices_reminder_check CHECK (kind <> 'reminder' OR amount >= 1);
+  `,
 ];
 
 /** The database: every read and write Tally makes goes through it, to the PostgreSQL database it was opened on. */

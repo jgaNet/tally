@@ -60,9 +60,15 @@ export async function offeredRate(
 }
 
 /**
- * An amount in hundredths of one currency, at a rate in millionths, in hundredths of another: the product to the
- * nearest whole number, a half rounded up. Worked in integers, so no product rounds early.
+ * An amount in the minor unit of one currency, with `fromDigits` decimal digits in it, at a rate in millionths, in the
+ * minor unit of another, with `toDigits`: what one unit of the first is worth in the second, times the amount, written
+ * in the second's minor unit, to the nearest whole number, a half rounded up. The two units differ by a power of ten,
+ * which the product is scaled by. Worked in integers, so no product rounds early.
  */
-export function convertedAmount(amount: number, millionths: bigint): bigint {
-  return (BigInt(amount) * millionths + 500_000n) / 1_000_000n;
+export function convertedAmount(amount: number, millionths: bigint, fromDigits: number, toDigits: number): bigint {
+  const scale = 10n ** BigInt(Math.max(0, toDigits - fromDigits));
+  const divisor = 1_000_000n * 10n ** BigInt(Math.max(0, fromDigits - toDigits));
+  const product = BigInt(amount) * millionths * scale;
+  // The product over the divisor, to the nearest whole number, a half up: floor((2 * product + divisor) / (2 * divisor)).
+  return (2n * product + divisor) / (2n * divisor);
 }

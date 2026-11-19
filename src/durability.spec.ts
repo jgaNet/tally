@@ -96,7 +96,7 @@ describe('the database', () => {
     await (await openDatabase(databaseUrl)).close();
     const again = await openDatabase(databaseUrl);
     try {
-      expect(await again.row('SELECT version FROM tally_schema')).toEqual({ version: 9 });
+      expect(await again.row('SELECT version FROM tally_schema')).toEqual({ version: 10 });
     } finally {
       await again.close();
     }

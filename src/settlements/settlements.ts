@@ -20,7 +20,7 @@ export interface Settlement {
   /** The account id of the member who was paid, and who recorded a cash settlement. */
   to: string;
   /**
-   * The amount asked for, in hundredths of the group's currency: in another currency (see `original`), the original
+   * The amount asked for, in the minor unit of the group's currency: in another currency (see `original`), the original
    * times its rate. What it settles is this, less the part of the provider's fee its payer bears (see `fee`): the
    * balances, the statement and the audit count that.
    */

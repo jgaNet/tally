@@ -7,9 +7,9 @@ import { CATEGORIES, type Category, categoryOf } from './categories';
 
 export interface Budget {
   category: Category;
-  /** In hundredths of the group's currency. */
+  /** In the minor unit of the group's currency. */
   amount: number;
-  /** What the current month spends in the category, in hundredths of the group's currency. */
+  /** What the current month spends in the category, in the minor unit of the group's currency. */
   spent: number;
 }
 
@@ -39,7 +39,7 @@ async function requireOwner(db: Database, groupId: string, accountId: string): P
 }
 
 /**
- * Sets the monthly budget of `category` in `groupId` to `amount`, in hundredths of the group's currency, from 1 to
+ * Sets the monthly budget of `category` in `groupId` to `amount`, in the minor unit of the group's currency, from 1 to
  * `MAX_AMOUNT`, replacing any budget it had. Only the owner may. Setting a budget makes no notice by itself.
  */
 export async function setBudget(

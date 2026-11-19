@@ -133,7 +133,7 @@ describe('an expense in another currency', () => {
       expect(same.statusCode).toBe(422);
       expect(same.json().type).toBe('InvalidOriginalCurrency');
 
-      const unknown = await record(ada.token, groupId, inOther({ currency: 'JPY' }, ada, grace));
+      const unknown = await record(ada.token, groupId, inOther({ currency: 'SEK' }, ada, grace));
       expect(unknown.statusCode).toBe(422);
       expect(unknown.json().type).toBe('InvalidOriginalCurrency');
     });

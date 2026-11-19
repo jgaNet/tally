@@ -1,5 +1,5 @@
 import { MAX_AMOUNT, isOtherCurrency, todayInUtc } from '../expenses/validation';
-import type { Currency } from '../groups/validation';
+import { type Currency, minorUnitDigitsOf } from '../groups/validation';
 import { convertedAmount, millionthsOf, offeredRate, type RatesConfig } from '../rates/rates';
 import { Refusal } from '../refusal';
 
@@ -13,7 +13,7 @@ export type SettlementMoneyInput =
 /** A settlement paid in another currency: what was paid in it, and the rate it was decided at. */
 export interface SettlementOriginal {
   currency: Currency;
-  /** In hundredths of `currency`. */
+  /** In the minor unit of `currency`. */
   amount: number;
   /** The rate as the rates service wrote it: what one of `currency` is worth in the group's currency. */
   rate: string;
@@ -21,7 +21,7 @@ export interface SettlementOriginal {
 
 /** A settlement's amount, decided: in the group's currency, with its original and rate when it has one. */
 export interface PricedSettlement {
-  /** In hundredths of the group's currency: the original times the rate, to the nearest whole number. */
+  /** In the minor unit of the group's currency: the original times the rate, to the nearest whole number. */
   amount: number;
   original?: SettlementOriginal;
   /** The rate in millionths, which converts the provider's fee the same way. `SAME_CURRENCY` for the group's own. */
@@ -31,7 +31,7 @@ export interface PricedSettlement {
 /**
  * Decides the amount of a settlement of a `groupCurrency` group. An amount in the group's currency is taken as it is,
  * the rules of the settlement checking it. An amount in another currency must be one of Tally's currencies other than
- * the group's, in a whole number of hundredths from 1 to `MAX_AMOUNT`, and is converted at the rate the rates service
+ * the group's, in a whole number of its minor unit from 1 to `MAX_AMOUNT`, and is converted at the rate the rates service
  * offers for that currency on today (UTC), which the payer does not give. Refused with `409 NoRateOffered` when there
  * is no rate to take, with `422` for a currency or an amount that is not allowed, and with `422 InvalidAmount` when the
  * converted amount is not in the group's currency's range. Asks the rates service and writes nothing.
@@ -70,7 +70,12 @@ export async function priceSettlement(
     );
   }
 
-  const converted = convertedAmount(money.amount, millionths);
+  const converted = convertedAmount(
+    money.amount,
+    millionths,
+    minorUnitDigitsOf(currency),
+    minorUnitDigitsOf(groupCurrency),
+  );
   if (converted < 1n || converted > BigInt(MAX_AMOUNT)) {
     throw new Refusal(
       422,
@@ -86,7 +91,7 @@ export async function priceSettlement(
 }
 
 /** The settlement's amount in the currency it is paid in: the original when it has one, else the group's amount. */
-export function paidOf(priced: PricedSettlement, groupCurrency: Currency): { currency: string; amount: number } {
+export function paidOf(priced: PricedSettlement, groupCurrency: Currency): { currency: Currency; amount: number } {
   return priced.original === undefined
     ? { currency: groupCurrency, amount: priced.amount }
     : { currency: priced.original.currency, amount: priced.original.amount };

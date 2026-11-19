@@ -36,7 +36,7 @@ function splitFor(db: Database, groupId: string, split: SplitRequest): Promise<S
 
 export interface Share {
   memberId: string;
-  /** In hundredths of the group's currency. */
+  /** In the minor unit of the group's currency. */
   amount: number;
 }
 

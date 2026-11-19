@@ -6,7 +6,7 @@ export interface Transfer {
   from: string;
   /** The member who is paid. */
   to: string;
-  /** In hundredths of the group's currency; at least 1. */
+  /** In the minor unit of the group's currency; at least 1. */
   amount: number;
 }
 

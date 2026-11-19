@@ -84,7 +84,7 @@ describe('the rate a rates service offers', () => {
     const { ada, groupId } = await eurGroup();
     rates.offer('EUR', 'EUR', todayInUtc(), '1');
 
-    for (const currency of ['EUR', 'JPY']) {
+    for (const currency of ['EUR', 'SEK']) {
       const response = await offered(ada.token, groupId, currency);
       expect(response.statusCode).toBe(404);
       expect(response.json().type).toBe('NoRateOffered');

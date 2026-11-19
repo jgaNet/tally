@@ -8,7 +8,7 @@ export interface Insight {
   /** The currency of the group the expenses are in. */
   currency: string;
   category: Category;
-  /** In hundredths of `currency`. Always more than 0. */
+  /** In the minor unit of `currency`. Always more than 0. */
   amount: number;
 }
 
