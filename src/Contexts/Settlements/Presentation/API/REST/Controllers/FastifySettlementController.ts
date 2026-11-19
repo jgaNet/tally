@@ -9,10 +9,12 @@ import {
   ReceivePaymentWebhookCommandEvent,
   RecordCashSettlementCommandEvent,
   RefundSettlementCommandEvent,
+  SetFeePolicyCommandEvent,
   SetPayoutAccountCommandEvent,
 } from '@Contexts/Settlements/Application/Commands';
 import {
   GetContestsQueryHandler,
+  GetFeePolicyQueryHandler,
   GetGroupSettlementsQueryHandler,
   GetNettingQueryHandler,
   GetPayoutAccountQueryHandler,
@@ -152,6 +154,24 @@ export class FastifySettlementController {
     const result = await this.#module
       .getQuery(GetGroupSettlementsQueryHandler)
       .handle({ id: req.params.id }, req.executionContext);
+    return result.isFailure() ? refuse(reply, result.error) : result.data;
+  }
+
+  /** A member of the group sets who bears the provider's fee: answered at once, its outcome read later (request 38). */
+  setFeePolicy(req: FastifyRequest<{ Params: { id: string }; Body: { borneBy: string } }>, reply: FastifyReply) {
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      SetFeePolicyCommandEvent.set({ groupId: req.params.id, borneBy: req.body.borneBy }),
+    );
+  }
+
+  /** A member of the group reads who bears the provider's fee: 404 for anyone else (request 38). */
+  async getFeePolicy(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetFeePolicyQueryHandler)
+      .handle({ groupId: req.params.id }, req.executionContext);
     return result.isFailure() ? refuse(reply, result.error) : result.data;
   }
 

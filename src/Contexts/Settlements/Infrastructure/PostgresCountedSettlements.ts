@@ -21,7 +21,7 @@ export class PostgresCountedSettlements implements ICountedSettlements {
   async countedOf(groupId: string, memberId: string): Promise<CountedSettlement[]> {
     const read = async (connection: Connection): Promise<CountedSettlement[]> => {
       const rows = await connection.rows<Omit<CountedSettlement, 'amount'> & { amount: number }>(
-        `SELECT s.id AS "settlementId", s.payer_id AS "payerId", s.payee_id AS "payeeId", s.amount, s.method,
+        `SELECT s.id AS "settlementId", s.payer_id AS "payerId", s.payee_id AS "payeeId", COALESCE(s.settled, s.amount) AS amount, s.method,
                 (SELECT MIN(h.at) FROM settlement_history h WHERE h.settlement_id = s.id AND h.status = 'paid') AS "countedFrom"
            FROM settlements s
           WHERE s.group_id = ? AND s.status IN ('paid', 'refunding') AND (s.payer_id = ? OR s.payee_id = ?)

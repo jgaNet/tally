@@ -1,6 +1,8 @@
 import { ConcurrencyConflictException, Id, IResult, Result } from '@Architecture/Domain';
 import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/PostgresDatabase';
 import {
+  FeeBearer,
+  isFeeBearer,
   Settlement,
   SettlementBook,
   SettlementStatusLine,
@@ -19,6 +21,9 @@ interface SettlementRow {
   recorded_at: string;
   provider_payment_id: string | null;
   pay_url: string | null;
+  settled: number | null;
+  fee_amount: number | null;
+  fee_borne_by: FeeBearer | null;
 }
 
 /** The books' repository over the PostgreSQL database; used inside the command's transaction, which holds the connection. */
@@ -29,8 +34,8 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
 
   async findByGroup(groupId: Id): Promise<SettlementBook> {
     const { connection } = this.database;
-    const row = await connection.row<{ version: number }>(
-      'SELECT version FROM settlement_books WHERE group_id = ?',
+    const row = await connection.row<{ version: number; fee_borne_by: string | null }>(
+      'SELECT version, fee_borne_by FROM settlement_books WHERE group_id = ?',
       groupId.value,
     );
     const rows = await connection.rows<SettlementRow>(
@@ -47,6 +52,7 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
       groupId,
       row ? Number(row.version) : 0,
       rows.map(row => toSettlement(row, historyOf(history, row.id))),
+      row?.fee_borne_by && isFeeBearer(row.fee_borne_by) ? row.fee_borne_by : 'payee',
     );
   }
 
@@ -78,13 +84,15 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
 
     if (book.version === 0) {
       const { changes } = await connection.run(
-        'INSERT INTO settlement_books (group_id, version) VALUES (?, 1) ON CONFLICT DO NOTHING',
+        'INSERT INTO settlement_books (group_id, version, fee_borne_by) VALUES (?, 1, ?) ON CONFLICT DO NOTHING',
         groupId,
+        book.feePolicy,
       );
       if (changes === 0) return conflict();
     } else {
       const { changes } = await connection.run(
-        'UPDATE settlement_books SET version = version + 1 WHERE group_id = ? AND version = ?',
+        'UPDATE settlement_books SET version = version + 1, fee_borne_by = ? WHERE group_id = ? AND version = ?',
+        book.feePolicy,
         groupId,
         book.version,
       );
@@ -93,8 +101,9 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
 
     for (const settlement of book.unsaved) {
       await connection.run(
-        `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, provider_payment_id, pay_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, provider_payment_id, pay_url,
+                                  settled, fee_amount, fee_borne_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET status = excluded.status, group_id = excluded.group_id`,
         settlement.id.value,
         groupId,
@@ -106,6 +115,9 @@ export class PostgresSettlementBookRepository implements ISettlementBookReposito
         settlement.at.toISOString(),
         settlement.providerPaymentId ?? null,
         settlement.payUrl ?? null,
+        settlement.settled,
+        settlement.fee?.amount ?? null,
+        settlement.fee?.borneBy ?? null,
       );
     }
     for (const decision of book.unsavedDecisions) {
@@ -156,5 +168,9 @@ function toSettlement(row: SettlementRow, history: SettlementStatusLine[]): Sett
     history,
     ...(row.provider_payment_id !== null && { providerPaymentId: row.provider_payment_id }),
     ...(row.pay_url !== null && { payUrl: row.pay_url }),
+    settled: row.settled === null ? Number(row.amount) : Number(row.settled),
+    ...(row.fee_borne_by !== null && {
+      fee: { amount: Number(row.fee_amount), borneBy: row.fee_borne_by },
+    }),
   };
 }

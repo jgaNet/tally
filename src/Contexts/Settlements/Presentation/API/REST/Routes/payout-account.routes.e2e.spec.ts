@@ -39,7 +39,9 @@ beforeAll(async () => {
       if (req.method === 'POST' && req.url === '/payments') {
         asked.push(JSON.parse(data));
         res.writeHead(201, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ id: `prov-${asked.length}`, payUrl: `https://pay.example/prov-${asked.length}` }));
+        res.end(
+          JSON.stringify({ id: `prov-${asked.length}`, payUrl: `https://pay.example/prov-${asked.length}`, fee: 0 }),
+        );
         return;
       }
       res.writeHead(404).end();

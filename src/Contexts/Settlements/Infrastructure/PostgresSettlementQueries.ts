@@ -2,6 +2,8 @@ import { PostgresDatabase } from '@Architecture/Infrastructure/Postgres/Postgres
 import { ISettlementQueries } from '@Contexts/Settlements/Application/Ports/ISettlementQueries';
 import { SettlementReadModel } from '@Contexts/Settlements/Application/ReadModel/SettlementReadModel';
 import { SETTLEMENT_STATEMENTS } from '@Contexts/Settlements/Infrastructure/settlements.schema';
+import type { FeeBearer } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
+import type { FeePolicyReadModel } from '@Contexts/Settlements/Application/ReadModel/FeePolicyReadModel';
 
 interface SettlementRow {
   id: string;
@@ -13,6 +15,8 @@ interface SettlementRow {
   status: SettlementReadModel['status'];
   recorded_at: string;
   pay_url: string | null;
+  fee_amount: number | null;
+  fee_borne_by: FeeBearer | null;
 }
 
 interface HistoryRow {
@@ -36,6 +40,17 @@ export class PostgresSettlementQueries implements ISettlementQueries {
         id,
       );
       return toReadModel(row, history);
+    });
+  }
+
+  /** Who bears the provider's fee of the group, as its owner decided it: the payee until then (request 38). */
+  findFeePolicy(groupId: string): Promise<FeePolicyReadModel> {
+    return this.database.exclusive(async connection => {
+      const row = await connection.row<{ fee_borne_by: FeeBearer }>(
+        'SELECT fee_borne_by FROM settlement_books WHERE group_id = ?',
+        groupId,
+      );
+      return { borneBy: row?.fee_borne_by ?? 'payee' };
     });
   }
 
@@ -87,5 +102,6 @@ function toReadModel(row: SettlementRow, history: HistoryRow[]): SettlementReadM
     at: row.recorded_at,
     history: history.filter(line => line.settlement_id === row.id).map(line => ({ status: line.status, at: line.at })),
     ...(row.pay_url !== null && { payUrl: row.pay_url }),
+    ...(row.fee_borne_by !== null && { fee: { amount: Number(row.fee_amount), borneBy: row.fee_borne_by } }),
   };
 }

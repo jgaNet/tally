@@ -94,3 +94,11 @@ export class SettlementAnnulledEvent extends DomainEvent<{
   payee: string;
   amount: number;
 }> {}
+
+/** The owner of a group decided who bears the provider's fee from now on: the payer, the payee, or both, shared (request 38). */
+export class FeePolicySetEvent extends DomainEvent<{
+  groupId: string;
+  borneBy: string;
+  by: string;
+  setAt: string;
+}> {}

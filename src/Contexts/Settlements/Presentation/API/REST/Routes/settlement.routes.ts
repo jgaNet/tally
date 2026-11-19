@@ -5,6 +5,7 @@ import {
   WebhookRequest,
 } from '@Contexts/Settlements/Presentation/API/REST/Controllers/FastifySettlementController';
 import {
+  GetFeePolicyResSchema,
   GetGroupSettlementsResSchema,
   GetNettingResSchema,
   GetPayoutAccountResSchema,
@@ -22,6 +23,8 @@ import {
   RecordCashSettlementBodySchema,
   RecordCashSettlementResSchema,
   RefundSettlementResSchema,
+  SetFeePolicyBodySchema,
+  SetFeePolicyResSchema,
   SetPayoutAccountBodySchema,
   SetPayoutAccountResSchema,
 } from '@Contexts/Settlements/Presentation/API/REST/Routes/settlement.routes.schema';
@@ -71,6 +74,22 @@ export const settlementRoutes = function (
       },
     },
     controller.payThroughProvider.bind(controller),
+  );
+  fastify.put(
+    '/groups/:id/fee-policy',
+    {
+      schema: {
+        tags: ['settlements'],
+        body: SetFeePolicyBodySchema,
+        response: SetFeePolicyResSchema,
+      },
+    },
+    controller.setFeePolicy.bind(controller),
+  );
+  fastify.get(
+    '/groups/:id/fee-policy',
+    { schema: { tags: ['settlements'], response: GetFeePolicyResSchema } },
+    controller.getFeePolicy.bind(controller),
   );
   fastify.get(
     '/groups/:id/settlements',

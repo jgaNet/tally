@@ -130,7 +130,11 @@ describe('SettlementBook: a payment through the provider waits, counts as paid f
   function kept(amount: number, book = SettlementBook.open(Id.generate(), 0)) {
     const proposal = book.proposePayment({ groupArchived: false, ...decision, amount });
     if (proposal.isFailure()) throw new Error('refused');
-    const settlement = book.keepPayment(proposal.data, { id: `pay-${amount}`, payUrl: `https://pay/${amount}` }, at);
+    const settlement = book.keepPayment(
+      proposal.data,
+      { id: `pay-${amount}`, payUrl: `https://pay/${amount}`, fee: 0 },
+      at,
+    );
     return { book, settlement };
   }
 

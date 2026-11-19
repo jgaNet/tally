@@ -1,6 +1,7 @@
 import { AggregateRoot, Exception, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
 import { AccountDeleted, AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import {
+  FeePolicySetEvent,
   SettlementAnnulledEvent,
   SettlementContestedEvent,
   PaymentRequestedEvent,
@@ -19,10 +20,13 @@ import {
   InvalidSettlementAmount,
   NettedSettlementNotRefundable,
   NotThePayee,
+  OnlyTheOwnerSetsFeePolicy,
+  InvalidFeePolicy,
   PayeeHasNoPayoutAccount,
   PayeeNotAMember,
   PayerIsPayee,
   PayerNotAMember,
+  ProviderFeeOutOfRange,
   SettlementExceedsDebt,
   SettlementNotPaid,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
@@ -31,6 +35,29 @@ import {
 export type SettlementMethod = 'cash' | 'provider' | 'net';
 /** A settlement is pending until the provider says how its payment ended; a paid one may be refunded, and then refunding and refunded (ADR 9). */
 export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
+/** Who bears the provider's fee of a group's payments: the payer, the payee, or both, each half (request 38). The payee, until decided. */
+export type FeeBearer = 'payer' | 'payee' | 'shared';
+/** The provider's fee on a payment, and who bore it, fixed when the payment was asked for (request 38). */
+export interface SettlementFee {
+  readonly amount: number;
+  readonly borneBy: FeeBearer;
+}
+
+export function isFeeBearer(value: string): value is FeeBearer {
+  return value === 'payer' || value === 'payee' || value === 'shared';
+}
+
+/** The part of its fee a settlement's payer bears: all of it, none, or half of it shared (the payee bears the extra hundredth). */
+export function payerPartOf(fee: SettlementFee): number {
+  if (fee.borneBy === 'payer') return fee.amount;
+  if (fee.borneBy === 'shared') return Math.floor(fee.amount / 2);
+  return 0;
+}
+
+/** What a settlement settles: its amount, less the part of the provider's fee its payer bears (request 38). */
+export function settledAmountOf(amount: number, fee: SettlementFee | undefined): number {
+  return fee === undefined ? amount : amount - payerPartOf(fee);
+}
 
 /** A decision an administrator made about a contested settlement, for the repository to store in the administrators' log (request 33, ADR 24). */
 export interface AdministratorDecisionRecord {
@@ -68,6 +95,10 @@ export interface Settlement {
   readonly providerPaymentId?: string;
   /** The link the payer pays at, for a settlement through the provider. */
   readonly payUrl?: string;
+  /** What the settlement settles: its amount, less the part of the provider's fee its payer bears (request 38). */
+  readonly settled: number;
+  /** The provider's fee and who bore it, for a settlement through the provider asked from request 38 on (request 38). */
+  readonly fee?: SettlementFee;
 }
 
 /** What a settlement is decided on: who pays whom, how much, and the balances and members the caller read in its transaction. */
@@ -108,15 +139,30 @@ export class SettlementBook extends AggregateRoot {
   #unsaved = new Set<Settlement>();
   #unsavedHistory: SettlementStatusChange[] = [];
   #unsavedDecisions: AdministratorDecisionRecord[] = [];
+  #feePolicy: FeeBearer;
 
-  private constructor(groupId: Id, version: number, settlements: Settlement[]) {
+  private constructor(groupId: Id, version: number, settlements: Settlement[], feePolicy: FeeBearer) {
     super(groupId, version);
     this.#settlements = settlements;
+    this.#feePolicy = feePolicy;
   }
 
-  /** The book of a group, at the version it was read at, with the settlements stored in it; 0 when none was ever stored. */
-  static open(groupId: Id, version: number, settlements: readonly Settlement[] = []): SettlementBook {
-    return new SettlementBook(groupId, version, [...settlements]);
+  /**
+   * The book of a group, at the version it was read at, with the settlements stored in it; 0 when none was ever stored. Its fee
+   * policy is the payee's until an owner decides otherwise (request 38).
+   */
+  static open(
+    groupId: Id,
+    version: number,
+    settlements: readonly Settlement[] = [],
+    feePolicy: FeeBearer = 'payee',
+  ): SettlementBook {
+    return new SettlementBook(groupId, version, [...settlements], feePolicy);
+  }
+
+  /** Who bears the provider's fee of the group's payments, as the owner decided it (request 38). */
+  get feePolicy(): FeeBearer {
+    return this.#feePolicy;
   }
 
   /** The settlements the book decided or changed since it was read, for the repository to store. */
@@ -192,11 +238,46 @@ export class SettlementBook extends AggregateRoot {
         payer: decision.payer,
         payee: decision.payee,
         amount: decision.amount,
+        settled: decision.amount,
         method,
         status: 'paid',
         at,
       }),
     );
+  }
+
+  /**
+   * An owner of the group decides who bears the provider's fee from now on (request 38): the payer, the payee or both, shared.
+   * Only the owner changes it: `callerIsOwner` is the caller's role in the group, and any other member is refused by
+   * OnlyTheOwnerSetsFeePolicy; an archived group is refused by GroupArchived. A payment asked after this keeps the policy it
+   * is asked with; FeePolicySet is recorded.
+   */
+  setFeePolicy({
+    borneBy,
+    by,
+    callerIsOwner,
+    groupArchived,
+    at,
+  }: {
+    borneBy: string;
+    by: Id;
+    callerIsOwner: boolean;
+    groupArchived: boolean;
+    at: Date;
+  }): IResult {
+    if (groupArchived) return Result.fail(new GroupArchived());
+    if (!callerIsOwner) return Result.fail(new OnlyTheOwnerSetsFeePolicy());
+    if (!isFeeBearer(borneBy)) return Result.fail(new InvalidFeePolicy());
+    this.#feePolicy = borneBy;
+    this.record(
+      FeePolicySetEvent.set({
+        groupId: this._id.value,
+        borneBy,
+        by: by.value,
+        setAt: at.toISOString(),
+      }),
+    );
+    return Result.ok();
   }
 
   /**
@@ -229,17 +310,29 @@ export class SettlementBook extends AggregateRoot {
 
   /**
    * Keeps a payment the provider gave a link for: the rules are decided again with the link in hand, and the settlement is
-   * kept pending, not counted, with its link; PaymentRequested is recorded.
+   * kept pending, not counted, with its link; PaymentRequested is recorded. The provider's fee is kept with the settlement,
+   * and who bears it is the group's policy as it is now: a settlement keeps it whatever is decided later (request 38). The fee
+   * is a whole number, 0 or more, and less than the amount; a fee the provider gives otherwise is refused, and nothing is kept.
    */
-  keepPayment(proposal: PaymentProposal, link: { id: string; payUrl: string }, at: Date): IResult<Settlement> {
+  keepPayment(
+    proposal: PaymentProposal,
+    link: { id: string; payUrl: string; fee: number },
+    at: Date,
+  ): IResult<Settlement> {
     const refusal = this.#refusal(proposal);
     if (refusal) return Result.fail(refusal);
+    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= proposal.amount) {
+      return Result.fail(new ProviderFeeOutOfRange());
+    }
+    const fee: SettlementFee = { amount: link.fee, borneBy: this.#feePolicy };
     const settlement = this.#keep({
       id: proposal.id,
       groupId: this._id,
       payer: proposal.payer,
       payee: proposal.payee,
       amount: proposal.amount,
+      settled: settledAmountOf(proposal.amount, fee),
+      fee,
       method: 'provider',
       status: 'pending',
       at,
@@ -473,8 +566,8 @@ export class SettlementBook extends AggregateRoot {
     const owing = new Map(balances);
     for (const settlement of this.#settlements) {
       if (settlement.status !== 'pending' && settlement.status !== 'contested') continue;
-      owing.set(settlement.payer.value, (owing.get(settlement.payer.value) ?? 0) + settlement.amount);
-      owing.set(settlement.payee.value, (owing.get(settlement.payee.value) ?? 0) - settlement.amount);
+      owing.set(settlement.payer.value, (owing.get(settlement.payer.value) ?? 0) + settlement.settled);
+      owing.set(settlement.payee.value, (owing.get(settlement.payee.value) ?? 0) - settlement.settled);
     }
     return owing;
   }

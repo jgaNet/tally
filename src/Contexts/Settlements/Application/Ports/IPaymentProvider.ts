@@ -28,8 +28,12 @@ export interface IPaymentProvider {
   refundPayment(refund: { paymentId: string; reference: string }): Promise<IResult>;
 }
 
-/** The provider's payment: its id at the provider, and the link where the payer pays. */
+/**
+ * The provider's payment: its id at the provider, the link where the payer pays, and the provider's fee on it, a whole number in
+ * the hundredths of the currency (request 38). An answer without a fee is not an answer.
+ */
 export interface PaymentLink {
   id: string;
   payUrl: string;
+  fee: number;
 }

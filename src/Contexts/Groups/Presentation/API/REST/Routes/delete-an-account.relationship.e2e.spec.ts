@@ -34,7 +34,7 @@ beforeAll(async () => {
       counter++;
       lastProviderId = `del-${counter}`;
       res.writeHead(201, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ id: lastProviderId, payUrl: `https://pay.example/${lastProviderId}` }));
+      res.end(JSON.stringify({ id: lastProviderId, payUrl: `https://pay.example/${lastProviderId}`, fee: 0 }));
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', () => resolve()));

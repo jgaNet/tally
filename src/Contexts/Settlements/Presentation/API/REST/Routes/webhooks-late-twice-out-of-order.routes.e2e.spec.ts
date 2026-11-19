@@ -39,7 +39,7 @@ beforeAll(async () => {
       JSON.parse(data);
       counter++;
       res.writeHead(201, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ id: `late-${counter}`, payUrl: `https://pay.example/late-${counter}` }));
+      res.end(JSON.stringify({ id: `late-${counter}`, payUrl: `https://pay.example/late-${counter}`, fee: 0 }));
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', () => resolve()));

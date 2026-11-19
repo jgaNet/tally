@@ -123,3 +123,27 @@ export class SettlementNotContested extends SettlementException {
     super('SettlementNotContested', 'Only a contested settlement is decided');
   }
 }
+
+/** Only the owner of the group decides who bears the provider's fee (request 38). */
+export class OnlyTheOwnerSetsFeePolicy extends SettlementException {
+  constructor() {
+    super('OnlyTheOwnerSetsFeePolicy', 'Only the owner of the group decides who bears the provider fee');
+  }
+}
+
+/** Who bears the provider's fee is the payer, the payee or both, shared (request 38). */
+export class InvalidFeePolicy extends SettlementException {
+  constructor() {
+    super('InvalidFeePolicy', 'The provider fee is borne by the payer, the payee or shared');
+  }
+}
+
+/** The provider's fee is a whole number, 0 or more, and less than the amount; otherwise nothing is kept (request 38). */
+export class ProviderFeeOutOfRange extends SettlementException {
+  constructor() {
+    super(
+      'ProviderFeeOutOfRange',
+      'The provider fee must be 0 or more and less than the amount, and nothing was recorded',
+    );
+  }
+}

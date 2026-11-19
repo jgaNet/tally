@@ -37,7 +37,7 @@ function paidThroughProvider(): { book: SettlementBook; settlementId: Id } {
     payeeAccount: 'acct-payee',
   });
   if (proposal.isFailure()) throw new Error('the payment must be proposed');
-  const kept = book.keepPayment(proposal.data, { id: 'prov-1', payUrl: 'https://pay.example/prov-1' }, at);
+  const kept = book.keepPayment(proposal.data, { id: 'prov-1', payUrl: 'https://pay.example/prov-1', fee: 0 }, at);
   if (kept.isFailure()) throw new Error('the payment must be kept');
   book.receivePayment({ paymentId: 'prov-1', status: 'succeeded', at: NOW });
   book.pullDomainEvents();
@@ -95,7 +95,7 @@ describe('SettlementBook: the payee refunds a settlement paid through the provid
       payeeAccount: 'acct-payee',
     });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
-    book.keepPayment(proposal.data, { id: 'prov-2', payUrl: 'https://pay.example/prov-2' }, at);
+    book.keepPayment(proposal.data, { id: 'prov-2', payUrl: 'https://pay.example/prov-2', fee: 0 }, at);
 
     const pending = book.proposeRefund({
       groupArchived: false,
@@ -166,7 +166,7 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
       payeeAccount: 'acct-payee',
     });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
-    book.keepPayment(proposal.data, { id: 'prov-3', payUrl: 'https://pay.example/prov-3' }, at);
+    book.keepPayment(proposal.data, { id: 'prov-3', payUrl: 'https://pay.example/prov-3', fee: 0 }, at);
     book.pullDomainEvents();
 
     book.receivePayment({ paymentId: 'prov-3', status: 'refunded', at: NOW });
@@ -215,7 +215,7 @@ describe('SettlementBook: the provider says a payment is refunded, and it is nev
       payeeAccount: 'acct-payee',
     });
     if (proposal.isFailure()) throw new Error('the payment must be proposed');
-    book.keepPayment(proposal.data, { id: 'prov-4', payUrl: 'https://pay.example/prov-4' }, at);
+    book.keepPayment(proposal.data, { id: 'prov-4', payUrl: 'https://pay.example/prov-4', fee: 0 }, at);
     book.receivePayment({ paymentId: 'prov-4', status: 'failed', at: NOW });
     book.pullDomainEvents();
 

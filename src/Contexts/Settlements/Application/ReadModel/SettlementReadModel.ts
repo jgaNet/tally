@@ -14,4 +14,6 @@ export interface SettlementReadModel {
   at: string;
   history: { status: SettlementReadModel['status']; at: string }[];
   payUrl?: string;
+  /** The provider's fee and who bore it, for a settlement through the provider asked from request 38 on (request 38). */
+  fee?: { amount: number; borneBy: 'payer' | 'payee' | 'shared' };
 }

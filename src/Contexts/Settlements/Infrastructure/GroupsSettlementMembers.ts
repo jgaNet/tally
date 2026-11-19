@@ -12,6 +12,10 @@ export class GroupsSettlementMembers implements ISettlementMembers {
     return this.groups.listMemberIds(groupId);
   }
 
+  roleOf(groupId: string, accountId: string): Promise<'owner' | 'member' | null> {
+    return this.groups.roleOf(groupId, accountId);
+  }
+
   isArchived(groupId: string): Promise<boolean> {
     return this.groups.isArchived(groupId);
   }

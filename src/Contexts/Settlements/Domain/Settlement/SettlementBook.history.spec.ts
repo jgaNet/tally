@@ -34,7 +34,7 @@ function askedThroughProvider(): { book: SettlementBook; settlementId: Id } {
     payeeAccount: 'acct-payee',
   });
   if (proposal.isFailure()) throw new Error('the payment must be proposed');
-  const kept = book.keepPayment(proposal.data, { id: 'prov-1', payUrl: 'https://pay.example/prov-1' }, asked);
+  const kept = book.keepPayment(proposal.data, { id: 'prov-1', payUrl: 'https://pay.example/prov-1', fee: 0 }, asked);
   if (kept.isFailure()) throw new Error('the payment must be kept');
   return { book, settlementId: proposal.data.id };
 }

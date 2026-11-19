@@ -113,6 +113,13 @@ export const SETTLEMENT_STATEMENTS = [
      seq BIGSERIAL
    )`,
   `CREATE INDEX IF NOT EXISTS administrator_decisions_by_subject ON administrator_decisions (subject_id)`,
+  // The provider's fee (request 38): the group's policy, who bears the fee (the payee until an owner decides), and for each
+  // settlement through the provider asked from then on, what it settles, its fee and who bore it. A settlement asked before has
+  // none of them, and settles its amount: every read of what a settlement settles takes COALESCE(settled, amount).
+  `ALTER TABLE settlement_books ADD COLUMN IF NOT EXISTS fee_borne_by TEXT CHECK (fee_borne_by IN ('payer', 'payee', 'shared'))`,
+  `ALTER TABLE settlements ADD COLUMN IF NOT EXISTS settled BIGINT`,
+  `ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_amount BIGINT`,
+  `ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_borne_by TEXT CHECK (fee_borne_by IN ('payer', 'payee', 'shared'))`,
   // A person's payout account at the provider (request 16, ADR 10): one row per person, replaced when they set another.
   `CREATE TABLE IF NOT EXISTS payout_accounts (
      id TEXT PRIMARY KEY,

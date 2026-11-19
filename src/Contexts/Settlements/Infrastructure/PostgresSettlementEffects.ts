@@ -23,9 +23,9 @@ export class PostgresSettlementEffects {
       const marks = this.statuses.map(() => '?').join(', ');
       const rows = await connection.rows<{ memberId: string; effect: number }>(
         `SELECT member_id AS "memberId", SUM(effect) AS effect FROM (
-           SELECT payer_id AS member_id, amount AS effect FROM settlements WHERE group_id = ? AND status IN (${marks})
+           SELECT payer_id AS member_id, COALESCE(settled, amount) AS effect FROM settlements WHERE group_id = ? AND status IN (${marks})
            UNION ALL
-           SELECT payee_id AS member_id, -amount AS effect FROM settlements WHERE group_id = ? AND status IN (${marks})
+           SELECT payee_id AS member_id, -COALESCE(settled, amount) AS effect FROM settlements WHERE group_id = ? AND status IN (${marks})
          ) AS effects GROUP BY member_id`,
         groupId,
         ...this.statuses,

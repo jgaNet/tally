@@ -4,3 +4,4 @@ export * from '@Contexts/Settlements/Application/Queries/GetGroupSettlements/Get
 export * from '@Contexts/Settlements/Application/Queries/GetNetting/GetNettingQueryHandler';
 export * from '@Contexts/Settlements/Application/Queries/GetPayoutAccount/GetPayoutAccountQueryHandler';
 export * from '@Contexts/Settlements/Application/Queries/GetContests/GetContestsQueryHandler';
+export * from '@Contexts/Settlements/Application/Queries/GetFeePolicy/GetFeePolicyQueryHandler';

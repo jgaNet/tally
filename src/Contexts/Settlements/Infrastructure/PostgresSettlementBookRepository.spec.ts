@@ -77,7 +77,7 @@ describe('PostgresSettlementBookRepository: a webhook that is late, or at the sa
       payeeAccount: 'acct-payee',
     });
     if (proposal.isFailure()) throw new Error('refused');
-    book.keepPayment(proposal.data, { id: 'late-pay', payUrl: 'https://pay.example/late-pay' }, at);
+    book.keepPayment(proposal.data, { id: 'late-pay', payUrl: 'https://pay.example/late-pay', fee: 0 }, at);
     expect((await first.inTransaction(repository => repository.save(book))).isSuccess()).toBe(true);
     await stop(first);
 
@@ -113,7 +113,7 @@ describe('PostgresSettlementBookRepository: a webhook that is late, or at the sa
       payeeAccount: 'acct-payee',
     });
     if (proposal.isFailure()) throw new Error('refused');
-    book.keepPayment(proposal.data, { id: 'shared-pay', payUrl: 'https://pay.example/shared-pay' }, at);
+    book.keepPayment(proposal.data, { id: 'shared-pay', payUrl: 'https://pay.example/shared-pay', fee: 0 }, at);
     await setup.inTransaction(repository => repository.save(book));
 
     // Two servers on the same database read the same book, and both hear the same webhook.

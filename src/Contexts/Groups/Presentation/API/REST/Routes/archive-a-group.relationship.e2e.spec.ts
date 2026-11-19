@@ -29,7 +29,7 @@ beforeAll(async () => {
       }
       counter++;
       res.writeHead(201, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ id: `rel-${counter}`, payUrl: `https://pay.example/rel-${counter}` }));
+      res.end(JSON.stringify({ id: `rel-${counter}`, payUrl: `https://pay.example/rel-${counter}`, fee: 0 }));
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', () => resolve()));

@@ -137,11 +137,24 @@ const SettlementSchema = {
     at: { type: 'string' },
     history: { type: 'array', minItems: 1, items: SettlementStatusLineSchema },
     payUrl: { type: 'string', minLength: 1 },
+    fee: {
+      type: 'object',
+      required: ['amount', 'borneBy'],
+      properties: {
+        amount: { type: 'integer', minimum: 0 },
+        borneBy: { enum: ['payer', 'payee', 'shared'] },
+      },
+    },
   },
   allOf: [
     {
       if: { required: ['method'], properties: { method: { const: 'provider' } } },
       then: { required: ['payUrl'] },
+    },
+    {
+      // Only a settlement through the provider has a fee (request 38).
+      if: { required: ['fee'] },
+      then: { properties: { method: { const: 'provider' } } },
     },
   ],
 } as const;
@@ -199,6 +212,33 @@ const NettingSchema = {
 
 export const GetNettingResSchema = {
   200: NettingSchema,
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;
+
+/** The body of setting who bears the provider's fee: `payer`, `payee` or `shared`. Whether the value is one of them is the domain's (request 38). */
+export const SetFeePolicyBodySchema = {
+  type: 'object',
+  required: ['borneBy'],
+  properties: {
+    borneBy: { type: 'string' },
+  },
+} as const;
+
+/** Setting the fee policy is asked at once and answered later, as a command is; a refusal is the operation's error (request 38). */
+export const SetFeePolicyResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  400: RefusedSchema,
+  401: RefusedSchema,
+} as const;
+
+/** Who bears the provider's fee of a group: `payer`, `payee` or `shared` (request 38). */
+export const GetFeePolicyResSchema = {
+  200: {
+    type: 'object',
+    required: ['borneBy'],
+    properties: { borneBy: { enum: ['payer', 'payee', 'shared'] } },
+  },
   401: RefusedSchema,
   404: RefusedSchema,
 } as const;

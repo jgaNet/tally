@@ -45,7 +45,7 @@ beforeAll(async () => {
       }
       counter++;
       res.writeHead(201, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ id: `prov-${counter}`, payUrl: `https://pay.example/prov-${counter}` }));
+      res.end(JSON.stringify({ id: `prov-${counter}`, payUrl: `https://pay.example/prov-${counter}`, fee: 0 }));
     });
   });
   await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', () => resolve()));
@@ -189,6 +189,8 @@ describe('Settlements: a payment through the provider waits as pending, and the 
       at: expect.any(String),
       history: [{ status: 'pending', at: expect.any(String) }],
       payUrl: 'https://pay.example/prov-' + String(counter),
+      // A settlement through the provider asked from request 38 on reads the fee it was asked with (request 38): none here.
+      fee: { amount: 0, borneBy: 'payee' },
     });
     expect(await balances(groupId, ann.token)).toEqual({ [ann.id]: 30, [bob.id]: -30 });
     const waiting = await http.get(`${api}/groups/${groupId}/settlements/suggested`, { token: bob.token });

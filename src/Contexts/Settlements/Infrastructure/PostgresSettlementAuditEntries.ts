@@ -36,7 +36,7 @@ export class PostgresSettlementAuditEntries implements ISettlementAuditEntries {
         afterContest: boolean;
         amount: number;
       }>(
-        `SELECT h.id AS seq, h.status, h.at, s.id AS "subjectId", s.method, s.payer_id AS payer, s.payee_id AS payee, s.amount,
+        `SELECT h.id AS seq, h.status, h.at, s.id AS "subjectId", s.method, s.payer_id AS payer, s.payee_id AS payee, COALESCE(s.settled, s.amount) AS amount,
                 (SELECT n.by_id FROM netting_settlements ns JOIN nettings n ON n.id = ns.netting_id
                   WHERE ns.settlement_id = s.id) AS asker,
                 (SELECT d.by_id FROM administrator_decisions d

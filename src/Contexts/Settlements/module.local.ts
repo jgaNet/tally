@@ -32,6 +32,9 @@ import {
   SetPayoutAccountCommandHandler,
 } from '@Contexts/Settlements/Application/Commands';
 import { GetPayoutAccountQueryHandler } from '@Contexts/Settlements/Application/Queries';
+import { GetFeePolicyQueryHandler } from '@Contexts/Settlements/Application/Queries/GetFeePolicy/GetFeePolicyQueryHandler';
+import { SetFeePolicyCommandEvent } from '@Contexts/Settlements/Application/Commands/SetFeePolicy/SetFeePolicyCommandEvent';
+import { SetFeePolicyCommandHandler } from '@Contexts/Settlements/Application/Commands/SetFeePolicy/SetFeePolicyCommandHandler';
 import { GetContestsQueryHandler } from '@Contexts/Settlements/Application/Queries/GetContests/GetContestsQueryHandler';
 import { ContestSettlementCommandEvent } from '@Contexts/Settlements/Application/Commands/ContestSettlement/ContestSettlementCommandEvent';
 import { ContestSettlementCommandHandler } from '@Contexts/Settlements/Application/Commands/ContestSettlement/ContestSettlementCommandHandler';
@@ -167,6 +170,16 @@ export function settlementsModuleWith(
         ],
       },
       {
+        event: SetFeePolicyCommandEvent,
+        handlers: [
+          new SetFeePolicyCommandHandler(
+            new PostgresSettlementBookRepository(database),
+            new GroupsSettlementMembers(groupMembershipInCommand),
+            systemClock,
+          ),
+        ],
+      },
+      {
         event: SetPayoutAccountCommandEvent,
         handlers: [new SetPayoutAccountCommandHandler(new PostgresPayoutAccountRepository(database), provider)],
       },
@@ -221,6 +234,10 @@ export function settlementsModuleWith(
       new GetPayoutAccountQueryHandler(new PostgresPayoutAccountQueries(database)),
       new GetNettingQueryHandler(new PostgresNettingQueries(database)),
       new GetContestsQueryHandler(new PostgresSettlementQueries(database)),
+      new GetFeePolicyQueryHandler(
+        new PostgresSettlementQueries(database),
+        new GroupsSettlementMembers(groupMembership),
+      ),
     ],
   });
 }

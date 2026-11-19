@@ -72,6 +72,7 @@ describe('netDebts (request 32)', () => {
         history: [{ status: 'pending', at }],
         providerPaymentId: 'p1',
         payUrl: 'https://pay.example/p1',
+        settled: 300,
       },
     ]);
     const flatWaiting = { ...flat, book: waiting };
