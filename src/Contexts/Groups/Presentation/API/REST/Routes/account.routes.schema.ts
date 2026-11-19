@@ -34,6 +34,11 @@ export const LoginResSchema = {
   401: RefusedSchema,
 } as const;
 
+export const DeleteAccountResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  401: RefusedSchema,
+} as const;
+
 export const GetMyAccountResSchema = {
   200: {
     type: 'object',

@@ -57,6 +57,22 @@ describe('RecurringExpense', () => {
     expect(ended.isRemoved).toBe(true);
   });
 
+  test('a set-up with a deleted account in its split is refused by AccountDeleted (request 35)', () => {
+    const refused = RecurringExpense.setUp({
+      groupId: Id.generate(),
+      payer,
+      description: 'Rent',
+      amount: 90000,
+      startsOn: '2030-03-05',
+      request: { splitBetween: [payer.value, other.value] },
+      groupMembers: [payer, other],
+      groupArchived: false,
+      deletedMembers: [other],
+      at: today,
+    });
+    expect(refused.error?.type).toBe('AccountDeleted');
+  });
+
   test('a stop by someone who is neither its payer nor the owner is refused', () => {
     const recurring = setUp([payer, other]);
     expect(recurring!.stop({ by: other, byOwner: false, groupArchived: false, at: today }).isFailure()).toBe(true);

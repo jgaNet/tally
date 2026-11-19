@@ -29,6 +29,8 @@ why, what it costs, and when to revisit it.
 | [22](0022-postgresql.md) | PostgreSQL is the one store, and a first start moves the SQLite file into it |
 | [23](0023-a-merge-moves-the-expenses-and-the-settlements-by-one-fact.md) | A merge moves the expenses and the settlements by one fact, and the people stay in Groups |
 | [24](0024-contesting-a-settlement-and-the-administrators-log.md) | Contesting a settlement: the book decides, the administrators are a role of the caller, and the log is each context's own |
+| [25](0025-suspending-an-account.md) | Suspending an account: Groups decides, every context asks Groups through its ports, and the refusal is one shared name |
+| [26](0026-deleting-an-account.md) | Deleting an account: Groups decides and erases, every context asks Groups, and the id stays as a member who is no one |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

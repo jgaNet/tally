@@ -8,3 +8,6 @@ export class AccountSuspendedEvent extends DomainEvent<{ accountId: string; susp
 
 /** An administrator reinstated a suspended account, and when (request 34). */
 export class AccountReinstatedEvent extends DomainEvent<{ accountId: string; reinstatedAt: string }> {}
+
+/** A person deleted their account, and when (request 35): its name and email are erased, its id stays where it was. */
+export class AccountDeletedEvent extends DomainEvent<{ accountId: string; deletedAt: string }> {}

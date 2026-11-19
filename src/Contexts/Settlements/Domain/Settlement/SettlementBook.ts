@@ -1,5 +1,5 @@
 import { AggregateRoot, Exception, Id, IResult, NotFoundException, Result } from '@Architecture/Domain';
-import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
+import { AccountDeleted, AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import {
   SettlementAnnulledEvent,
   SettlementContestedEvent,
@@ -209,14 +209,18 @@ export class SettlementBook extends AggregateRoot {
     payeeAccount,
     groupArchived,
     callerSuspended = false,
+    payeeDeleted = false,
     ...decision
   }: SettlementDecision & {
     payeeAccount: string | undefined;
     groupArchived: boolean;
     callerSuspended?: boolean;
+    /** Whether the payee's person deleted their account (request 35): no one is paid through the provider then, refused by AccountDeleted. */
+    payeeDeleted?: boolean;
   }): IResult<PaymentProposal> {
     if (groupArchived) return Result.fail(new GroupArchived());
     if (callerSuspended) return Result.fail(new AccountSuspended());
+    if (payeeDeleted) return Result.fail(new AccountDeleted());
     const refusal = this.#refusal(decision);
     if (refusal) return Result.fail(refusal);
     if (payeeAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccount());

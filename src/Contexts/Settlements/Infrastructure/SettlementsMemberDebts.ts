@@ -21,6 +21,8 @@ export class SettlementsMemberDebts implements IMemberDebts {
       const balances = await this.balances.balancesOf(groupId);
       const waiting = await this.waiting.effectsOf(groupId);
       for (const memberId of await this.members.currentMembers(groupId)) {
+        // Tally tells a deleted account nothing any more (request 35): it is no one's debtor to remind.
+        if (await this.members.isDeleted(memberId)) continue;
         const net = (balances.get(memberId) ?? 0) + (waiting.get(memberId) ?? 0);
         if (net < 0) debts.push({ groupId, memberId, owed: -net });
       }

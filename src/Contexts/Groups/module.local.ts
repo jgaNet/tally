@@ -39,6 +39,10 @@ import { IWaitingPayments } from '@Contexts/Groups/Domain/Group/Ports/IWaitingPa
 import { LeaveGroupCommandEvent, LeaveGroupCommandHandler } from '@Contexts/Groups/Application/Commands';
 import { ArchiveGroupCommandEvent, ArchiveGroupCommandHandler } from '@Contexts/Groups/Application/Commands';
 import { MergeGroupsCommandEvent, MergeGroupsCommandHandler } from '@Contexts/Groups/Application/Commands';
+import {
+  DeleteAccountCommandEvent,
+  DeleteAccountCommandHandler,
+} from '@Contexts/Groups/Application/Commands/DeleteAccount';
 import { GroupsMergedEventHandler } from '@Contexts/Groups/Application/Events/GroupsMergedEventHandler';
 import { GroupsMergedEvent } from '@Contexts/Groups/Domain/Group/Events/GroupEvents';
 import { IAdministratorDecisions } from '@Contexts/Groups/Application/Ports/IAdministratorDecisions';
@@ -89,7 +93,7 @@ export const groupCurrencyInCommand: IGroupCurrency = new PostgresGroupCurrency(
 export const groupCurrencyForQueries: IGroupCurrency = new PostgresGroupCurrency(database, true);
 
 /** Says who is calling, for the transport: the context that owns accounts provides it. */
-export const authenticate = authenticateWith(tokens);
+export const authenticate = authenticateWith(tokens, accountQueries);
 
 /**
  * The Groups module, given the ports it asks when a member leaves: the balance it asks of Ledger (MemberBalances, ADR 4), and
@@ -122,6 +126,17 @@ export function groupsModuleWith(
         event: ReinstateAccountCommandEvent,
         handlers: [
           new ReinstateAccountCommandHandler(new PostgresAccountRepository(database), administratorLog, systemClock),
+        ],
+      },
+      {
+        event: DeleteAccountCommandEvent,
+        handlers: [
+          new DeleteAccountCommandHandler(
+            new PostgresAccountRepository(database),
+            new PostgresGroupRepository(database),
+            waitingPayments,
+            systemClock,
+          ),
         ],
       },
       {

@@ -15,6 +15,8 @@ export interface IGroupMembership {
   isArchived(groupId: string): Promise<boolean>;
   /** Whether an administrator has suspended the account (request 34, ADR 25): every expense or settlement it starts is refused by AccountSuspended. */
   isSuspended(accountId: string): Promise<boolean>;
+  /** Whether the person of the account deleted it (request 35, ADR 26): it is in no new split, is paid through no provider and is netted with no one; its balances stay. */
+  isDeleted(accountId: string): Promise<boolean>;
   /** The balances that passed when members left the group, each with its member who left, the owner it passed to and the amount, the earliest first. */
   balancesPassed(groupId: string): Promise<{ fromId: string; toId: string; amount: number }[]>;
 }

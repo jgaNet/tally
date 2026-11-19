@@ -67,6 +67,14 @@ export class PostgresGroupMembership implements IGroupMembership {
     return row !== undefined;
   }
 
+  async isDeleted(accountId: string): Promise<boolean> {
+    const row = await this.database.connection.row(
+      'SELECT 1 AS found FROM accounts WHERE id = ? AND deleted_at IS NOT NULL',
+      accountId,
+    );
+    return row !== undefined;
+  }
+
   async hasBeenMember(groupId: string, accountId: string): Promise<boolean> {
     const row = await this.database.connection.row(
       'SELECT 1 AS found FROM group_members WHERE group_id = ? AND account_id = ?',

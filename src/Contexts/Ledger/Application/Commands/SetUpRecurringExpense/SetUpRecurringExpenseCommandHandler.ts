@@ -2,7 +2,7 @@ import { Clock, CommandHandler, ExecutionContext, publishDomainEvents } from '@A
 import { Id, IResult, Result } from '@Architecture/Domain';
 import { requireSignedIn } from '@SharedKernel/Application/Guards';
 import { IGroupMembers } from '@Contexts/Ledger/Domain/Expense/Ports/IGroupMembers';
-import { RecurringExpense } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
+import { givenSplitOf, membersOf, RecurringExpense } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
 import { categoryOf } from '@Contexts/Ledger/Domain/Expense/Category';
 import { IRecurringExpenseRepository } from '@Contexts/Ledger/Domain/RecurringExpense/Ports/IRecurringExpenseRepository';
 import { SetUpRecurringExpenseCommandEvent } from '@Contexts/Ledger/Application/Commands/SetUpRecurringExpense/SetUpRecurringExpenseCommandEvent';
@@ -45,6 +45,9 @@ export class SetUpRecurringExpenseCommandHandler extends CommandHandler<SetUpRec
       groupMembers: await this.groupMembers.currentMembers(groupId),
       groupArchived,
       callerSuspended,
+      deletedMembers: await this.groupMembers.deletedAmong(
+        membersOf(givenSplitOf(payload)).map(member => new Id(member)),
+      ),
       at: this.clock(),
     });
     if (recurring.isFailure()) return recurring;

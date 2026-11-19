@@ -7,6 +7,7 @@ import { EventBus, ExecutionContext, IOperation, OperationStatus } from '@Archit
 import { toOperationRecord } from '@Contexts/Tracker/Application/Projections/OperationProjection';
 
 class DoSomething extends CommandEvent<{ what: string }> {}
+class DeleteAccountCommandEvent extends CommandEvent<Record<string, never>> {}
 
 const eventBus = { connect: jest.fn(), publish: jest.fn(), subscribe: jest.fn() } as EventBus;
 
@@ -56,6 +57,12 @@ describe('toOperationRecord', () => {
     expect(record.status).toBe(OperationStatus.ERROR);
     expect(record.result).toBeUndefined();
     expect(record.error).toEqual({ type: 'NotFound', message: 'Note not found' });
+  });
+
+  it('leaves subjectId out for the operation that deletes the account of its caller (request 35)', () => {
+    const operation = anOperation('alice');
+    const deleting = { ...operation, event: DeleteAccountCommandEvent.set({}) };
+    expect(toOperationRecord(deleting as never).subjectId).toBeUndefined();
   });
 
   it('leaves subjectId out for an anonymous caller', () => {

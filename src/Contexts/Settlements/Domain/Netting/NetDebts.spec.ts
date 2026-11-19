@@ -1,6 +1,6 @@
 import { Id } from '@Architecture/Domain';
 import { SettlementBook } from '@Contexts/Settlements/Domain/Settlement/SettlementBook';
-import { NetDebts, NettingGroup } from '@Contexts/Settlements/Domain/Netting/NetDebts';
+import { NetDebts, NettingGroup, refusalOfNetting } from '@Contexts/Settlements/Domain/Netting/NetDebts';
 
 /** Two people netting what they owe each other across their groups (request 32). */
 
@@ -90,5 +90,13 @@ describe('netDebts (request 32)', () => {
 
     expect(self.isFailure() && self.error?.type).toBe('NettingWithOneself');
     expect(unknown.isFailure() && unknown.error?.type).toBe('UnknownNettingCurrency');
+  });
+});
+
+describe('netting with a deleted account (request 35)', () => {
+  it('is refused by AccountDeleted before any group is read', () => {
+    const refusal = refusalOfNetting({ by: ann, with: bob, currency: 'EUR', otherDeleted: true });
+    expect(refusal?.type).toBe('AccountDeleted');
+    expect(refusalOfNetting({ by: ann, with: bob, currency: 'EUR' })).toBeUndefined();
   });
 });

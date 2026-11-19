@@ -5,4 +5,6 @@
  */
 export interface IMemberPaymentsWaiting {
   hasWaitingPayment(groupId: string, memberId: string): Promise<boolean>;
+  /** The same in any group (request 35): pending, refunding or contested, whichever group it is in. */
+  hasWaitingPaymentAnywhere(memberId: string): Promise<boolean>;
 }

@@ -12,4 +12,8 @@ export class SettlementsWaitingPayments implements IWaitingPayments {
   hasWaitingPayments(groupId: string, accountId: string): Promise<boolean> {
     return this.payments.hasWaitingPayment(groupId, accountId);
   }
+
+  hasWaitingPaymentsAnywhere(accountId: string): Promise<boolean> {
+    return this.payments.hasWaitingPaymentAnywhere(accountId);
+  }
 }

@@ -27,6 +27,12 @@ export class GroupsMembers implements IGroupMembers {
     return this.groups.isSuspended(accountId.value);
   }
 
+  async deletedAmong(accountIds: readonly Id[]): Promise<Id[]> {
+    const deleted: Id[] = [];
+    for (const accountId of accountIds) if (await this.groups.isDeleted(accountId.value)) deleted.push(accountId);
+    return deleted;
+  }
+
   async balancesPassed(groupId: Id): Promise<Map<string, number>> {
     const passed = await this.groups.balancesPassed(groupId.value);
     const sums = new Map<string, number>();

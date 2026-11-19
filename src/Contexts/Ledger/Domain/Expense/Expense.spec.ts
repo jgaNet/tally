@@ -411,3 +411,42 @@ describe('Expense moved by a merge (request 31)', () => {
     });
   });
 });
+
+describe('An expense and a deleted account (request 35)', () => {
+  const create = (deletedMembers: Id[]) =>
+    Expense.create({
+      groupId: new Id('group'),
+      description: Description.create('Bread').data!,
+      amount: amount(10),
+      date: ExpenseDate.create('2026-05-10', NOW).data!,
+      split: split(10, alice, [alice, bob]),
+      groupMembers: [alice, bob],
+      deletedMembers,
+      at: NOW,
+    });
+
+  it('refuses a new split with a deleted account in it, by AccountDeleted', () => {
+    expect(create([bob]).error?.type).toBe('AccountDeleted');
+    expect(create([]).isSuccess()).toBe(true);
+  });
+
+  it('refuses an edit that adds a deleted account to the split, and allows one that keeps a split it already had', () => {
+    const recorded = create([]).data!;
+    const edit = (between: Id[], deletedMembers: Id[]) =>
+      recorded.edit({
+        by: alice,
+        byOwner: false,
+        fromVersion: recorded.version,
+        description: Description.create('Bread').data!,
+        amount: amount(10),
+        date: ExpenseDate.create('2026-05-10', NOW).data!,
+        split: split(10, alice, between),
+        groupMembers: [alice, bob, carol],
+        groupArchived: false,
+        deletedMembers,
+        at: NOW,
+      });
+    expect(edit([alice, bob], [bob]).isSuccess()).toBe(true);
+    expect(edit([alice, carol], [carol]).error?.type).toBe('AccountDeleted');
+  });
+});

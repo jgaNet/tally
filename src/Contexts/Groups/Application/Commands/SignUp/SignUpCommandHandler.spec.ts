@@ -34,7 +34,7 @@ describe('SignUpCommandHandler', () => {
     const result = await new SignUpCommandHandler(accounts, hasher).execute(event, c);
     expect(result.isSuccess()).toBe(true);
     const stored = await accounts.findById(new Id(result.data as string));
-    expect(stored?.email.value).toBe('alice@example.com');
+    expect(stored?.email?.value).toBe('alice@example.com');
     expect(stored?.passwordHash).not.toContain('correct horse');
     expect(await hasher.verify('correct horse', stored?.passwordHash ?? '')).toBe(true);
     expect(await hasher.verify('wrong horse', stored?.passwordHash ?? '')).toBe(false);

@@ -1,5 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
-import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
+import { AccountDeleted, AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { SplitKind, SplitRequest } from '@Contexts/Ledger/Domain/Expense/DTOs';
@@ -100,6 +100,7 @@ export class RecurringExpense extends AggregateRoot {
     groupMembers,
     groupArchived,
     callerSuspended = false,
+    deletedMembers = [],
     at,
   }: {
     groupId: Id;
@@ -113,10 +114,13 @@ export class RecurringExpense extends AggregateRoot {
     groupArchived: boolean;
     /** Whether the payer, who sets it up, is suspended (request 34): then it is refused by AccountSuspended. */
     callerSuspended?: boolean;
+    /** The accounts, among those of the split, whose person deleted them (request 35): refused by AccountDeleted. */
+    deletedMembers?: readonly Id[];
     at: Date;
   }): IResult<RecurringExpense> {
     if (groupArchived) return Result.fail(new GroupArchived());
     if (callerSuspended) return Result.fail(new AccountSuspended());
+    if (deletedMembers.length > 0) return Result.fail(new AccountDeleted());
     const described = Description.create(description);
     if (described.isFailure()) return described;
     const paid = Amount.create(amount);
@@ -156,8 +160,8 @@ export class RecurringExpense extends AggregateRoot {
 
   /**
    * The day `next` has come: it is recorded with the members of the group now. When the payer or a member of the split has
-   * left, the recurring expense ends and no expense is recorded for the day (RecurringExpenseEnded); otherwise the day's
-   * expense is given its identity (`expenseId`), and `next` moves to the same day of the next month (RecurringExpenseDayCame).
+   * left, or deleted their account (the members given then leave it out, request 35), the recurring expense ends and no
+   * expense is recorded for the day (RecurringExpenseEnded); otherwise the day's expense is given its identity (`expenseId`), and `next` moves to the same day of the next month (RecurringExpenseDayCame).
    */
   recordDay({ groupMembers, at }: { groupMembers: readonly Id[]; at: Date }): {
     recurring: RecurringExpense;
@@ -329,8 +333,8 @@ export function givenSplitOf(request: SplitRequest): SplitRequest {
   };
 }
 
-/** The members a split names, in the order given. */
-function membersOf(given: SplitRequest): string[] {
+/** The account ids a given split names, in the order given. */
+export function membersOf(given: SplitRequest): string[] {
   if (given.splitBetween !== undefined) return [...given.splitBetween];
   if (given.splitExactly !== undefined) return given.splitExactly.map(share => share.memberId);
   return (given.splitByShares ?? []).map(share => share.memberId);

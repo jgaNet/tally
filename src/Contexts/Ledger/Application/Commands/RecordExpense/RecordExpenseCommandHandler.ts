@@ -73,6 +73,7 @@ export class RecordExpenseCommandHandler extends CommandHandler<RecordExpenseCom
       groupMembers: await this.groupMembers.currentMembers(groupId),
       groupArchived,
       callerSuspended: payerSuspended,
+      deletedMembers: await this.groupMembers.deletedAmong(split.data.memberIds),
       at: now,
     });
     if (expense.isFailure()) return expense;

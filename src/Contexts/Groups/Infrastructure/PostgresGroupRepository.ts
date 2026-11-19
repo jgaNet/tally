@@ -19,6 +19,17 @@ export class PostgresGroupRepository implements IGroupRepository {
     database.migrate(GROUP_STATEMENTS);
   }
 
+  async ownsAGroupWithOtherMembers(ownerId: Id): Promise<boolean> {
+    const row = await this.database.connection.row(
+      `SELECT 1 AS found FROM tally_groups g
+        WHERE g.owner_id = ?
+          AND EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.account_id <> g.owner_id AND m.left_at IS NULL)
+        LIMIT 1`,
+      ownerId.value,
+    );
+    return row !== undefined;
+  }
+
   async findById(id: Id): Promise<Group | null> {
     const { connection } = this.database;
     const row = await connection.row<GroupRow>('SELECT * FROM tally_groups WHERE id = ?', id.value);

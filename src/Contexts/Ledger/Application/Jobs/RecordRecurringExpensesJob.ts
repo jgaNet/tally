@@ -69,7 +69,11 @@ export class RecordRecurringExpensesJob {
     // A suspended payer records nothing (request 34): the day waits, and the first run after the reinstatement records it.
     if (await this.groupMembers.isSuspended(found.payer)) return Result.ok({ more: false });
 
-    const members = await this.groupMembers.currentMembers(found.groupId);
+    // An account its person deleted is no member of a day to come (request 35): the recurring expense it pays, or is in the split of,
+    // ends on its next day, as when a member has left (request 23).
+    const current = await this.groupMembers.currentMembers(found.groupId);
+    const deleted = await this.groupMembers.deletedAmong(current);
+    const members = current.filter(member => !deleted.some(gone => gone.equals(member)));
     const { recurring } = found.recordDay({ groupMembers: members, at });
     const saved = await this.recurring.save(recurring);
     if (saved.isFailure()) return saved;

@@ -5,4 +5,6 @@
  */
 export interface IWaitingPayments {
   hasWaitingPayments(groupId: string, accountId: string): Promise<boolean>;
+  /** Whether a payment of this account waits at the provider in any group, pending, refunding or contested (request 35): an account is deleted once none does. */
+  hasWaitingPaymentsAnywhere(accountId: string): Promise<boolean>;
 }

@@ -58,6 +58,7 @@ export class PayThroughProviderCommandHandler extends CommandHandler<PayThroughP
       payeeAccount: payeeAccount?.accountId,
       groupArchived,
       callerSuspended,
+      payeeDeleted: await this.members.isDeleted(payload.to),
     });
     if (proposed.isFailure()) return proposed;
 

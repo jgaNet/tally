@@ -24,4 +24,6 @@ export interface IGroupMembers {
   isArchived(groupId: Id): Promise<boolean>;
   /** Whether an administrator has suspended the account (request 34, ADR 25): a suspended account records no expense, in any group. */
   isSuspended(accountId: Id): Promise<boolean>;
+  /** Of these accounts, the ones whose person deleted them (request 35, ADR 26): none is put in a new split; their balances stay. */
+  deletedAmong(accountIds: readonly Id[]): Promise<Id[]>;
 }

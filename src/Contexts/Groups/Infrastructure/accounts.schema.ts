@@ -13,6 +13,10 @@ export const ACCOUNT_STATEMENTS = [
    )`,
   // When an administrator suspended the account (request 34, ADR 25): null while it is not suspended, cleared when reinstated.
   `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS suspended_at TEXT`,
+  // When its person deleted the account (request 35, ADR 26): its email, its name and its password are erased then, and the email
+  // is null (a unique column holds any number of nulls, so the email is free for a new account).
+  `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
+  `ALTER TABLE accounts ALTER COLUMN email DROP NOT NULL`,
   // The administrators' log of what Groups decides about accounts (request 34, ADR 25): every suspension and reinstatement, in
   // the transaction of the change; `seq` is the order they were written in, and breaks a tie of `at`.
   `CREATE TABLE IF NOT EXISTS account_administration_log (

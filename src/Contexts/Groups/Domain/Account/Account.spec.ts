@@ -4,6 +4,7 @@ import { AccountName } from '@Contexts/Groups/Domain/Account/AccountName';
 import { Password } from '@Contexts/Groups/Domain/Account/Password';
 import { InvalidAccountName, InvalidPassword } from '@Contexts/Groups/Domain/Account/AccountExceptions';
 import {
+  AccountDeletedEvent,
   AccountReinstatedEvent,
   AccountRegisteredEvent,
   AccountSuspendedEvent,
@@ -105,5 +106,47 @@ describe('Account suspension (request 34)', () => {
     expect(copy.suspendedAt).toEqual(at);
     expect(copy.pullDomainEvents()).toEqual([]);
     expect(Account.fromSnapshot({ ...account.toSnapshot(), suspendedAt: null }).isSuspended).toBe(false);
+  });
+
+  describe('deleting it (request 35)', () => {
+    const free = { ownsAGroupWithMembers: false, paymentWaiting: false };
+
+    it('erases its email, its name and its password, keeps its id, and records that it was deleted', () => {
+      const account = Account.register({ email, name, passwordHash: 'hash' });
+      account.pullDomainEvents();
+      expect(account.delete({ at, ...free }).isSuccess()).toBe(true);
+      expect(account.isDeleted).toBe(true);
+      expect(account.email).toBeNull();
+      expect(account.name.value).toBe('Deleted account');
+      expect(account.passwordHash).toBe('');
+      const [event] = account.pullDomainEvents();
+      expect(event).toBeInstanceOf(AccountDeletedEvent);
+      expect(event.payload).toEqual({ accountId: account._id.value, deletedAt: at.toISOString() });
+    });
+
+    it('is refused, and changes nothing, while it owns a group that has another member or a payment waits', () => {
+      const account = Account.register({ email, name, passwordHash: 'hash' });
+      account.pullDomainEvents();
+      const owner = account.delete({ at, ownsAGroupWithMembers: true, paymentWaiting: false });
+      expect(owner.isFailure() && owner.error.type).toBe('AccountOwnsAGroupWithMembers');
+      const waiting = account.delete({ at, ownsAGroupWithMembers: false, paymentWaiting: true });
+      expect(waiting.isFailure() && waiting.error.type).toBe('PaymentWaitingAtProvider');
+      expect(account.isDeleted).toBe(false);
+      expect(account.email?.value).toBe('alice@example.com');
+      expect(account.pullDomainEvents()).toEqual([]);
+    });
+
+    it('records nothing when it is already deleted, and survives a snapshot as deleted', () => {
+      const account = Account.register({ email, name, passwordHash: 'hash' });
+      account.delete({ at, ...free });
+      account.pullDomainEvents();
+      expect(account.delete({ at: later, ...free }).isSuccess()).toBe(true);
+      expect(account.pullDomainEvents()).toEqual([]);
+      const copy = Account.fromSnapshot({ ...account.toSnapshot(), version: 2 });
+      expect(copy.isDeleted).toBe(true);
+      expect(copy.deletedAt).toEqual(at);
+      expect(copy.email).toBeNull();
+      expect(copy.toSnapshot()).toMatchObject({ email: null, name: 'Deleted account', passwordHash: '' });
+    });
   });
 });

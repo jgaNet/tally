@@ -20,6 +20,10 @@ export class GroupsSettlementMembers implements ISettlementMembers {
     return this.groups.isSuspended(accountId);
   }
 
+  isDeleted(accountId: string): Promise<boolean> {
+    return this.groups.isDeleted(accountId);
+  }
+
   sharedGroups(first: string, second: string): Promise<SharedGroup[]> {
     return this.groups.groupsShared(first, second);
   }

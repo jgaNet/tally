@@ -30,3 +30,9 @@ export class InvalidCredentials extends AccountException {
     super('InvalidCredentials', 'The email or the password is wrong');
   }
 }
+
+export class AccountOwnsAGroupWithMembers extends AccountException {
+  constructor() {
+    super('AccountOwnsAGroupWithMembers', 'An account is deleted once it owns no group that has another member');
+  }
+}

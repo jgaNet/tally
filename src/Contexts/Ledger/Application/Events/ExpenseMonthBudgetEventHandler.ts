@@ -34,10 +34,13 @@ export class ExpenseMonthBudgetEventHandler extends EventHandler<ExpenseRecorded
 
     const month = expense.date.value.slice(0, 7);
     const spent = await this.spending.spentInMonth(expense.groupId, expense.category, month);
+    // Tally tells a deleted account nothing any more (request 35): it is left out of the members the notice is for.
+    const current = await this.groupMembers.currentMembers(expense.groupId);
+    const deleted = await this.groupMembers.deletedAmong(current);
     const judged = budget.judge({
       month,
       spent,
-      memberIds: await this.groupMembers.currentMembers(expense.groupId),
+      memberIds: current.filter(member => !deleted.some(gone => gone.equals(member))),
       at: this.clock(),
     });
     if (judged === budget) return Result.ok();

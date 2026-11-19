@@ -16,6 +16,13 @@ export class PostgresAccountQueries implements IAccountQueries {
     return row ?? null;
   }
 
+  async isDeleted(id: string): Promise<boolean> {
+    const row = await this.database.exclusive(connection =>
+      connection.row('SELECT 1 AS found FROM accounts WHERE id = ? AND deleted_at IS NOT NULL', id),
+    );
+    return row !== undefined;
+  }
+
   async findCredentials(email: string): Promise<AccountCredentials | null> {
     const row = await this.database.exclusive(connection =>
       connection.row<{ id: string; password_hash: string }>(

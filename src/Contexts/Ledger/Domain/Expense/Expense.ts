@@ -1,5 +1,5 @@
 import { AggregateRoot, Id, IResult, Result } from '@Architecture/Domain';
-import { AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
+import { AccountDeleted, AccountSuspended, GroupArchived } from '@SharedKernel/Domain';
 import { Amount } from '@Contexts/Ledger/Domain/Expense/Amount';
 import { Description } from '@Contexts/Ledger/Domain/Expense/Description';
 import { ExpenseDate } from '@Contexts/Ledger/Domain/Expense/ExpenseDate';
@@ -79,6 +79,7 @@ export class Expense extends AggregateRoot {
     groupMembers,
     groupArchived = false,
     callerSuspended = false,
+    deletedMembers = [],
     at,
   }: {
     /** The identity the expense is given, when a recurring expense's day already gave one (request 23, ADR 16); generated otherwise. */
@@ -98,10 +99,13 @@ export class Expense extends AggregateRoot {
     groupArchived?: boolean;
     /** Whether the account that starts it is suspended (request 34): an expense it starts is refused by AccountSuspended. */
     callerSuspended?: boolean;
+    /** The accounts, among those of the split, whose person deleted them (request 35): a new split has none, refused by AccountDeleted. */
+    deletedMembers?: readonly Id[];
     at: Date;
   }): IResult<Expense> {
     if (groupArchived) return Result.fail(new GroupArchived());
     if (callerSuspended) return Result.fail(new AccountSuspended());
+    if (deletedMembers.length > 0) return Result.fail(new AccountDeleted());
     const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
     if (outsider) return Result.fail(new NotAGroupMember());
 
@@ -138,6 +142,7 @@ export class Expense extends AggregateRoot {
     split,
     groupMembers,
     groupArchived,
+    deletedMembers = [],
     at,
   }: {
     by: Id;
@@ -151,12 +156,16 @@ export class Expense extends AggregateRoot {
     split: Split;
     groupMembers: readonly Id[];
     groupArchived: boolean;
+    /** The accounts of the new split whose person deleted them (request 35): one the expense did not already concern is refused by AccountDeleted. */
+    deletedMembers?: readonly Id[];
     at: Date;
   }): IResult<Expense> {
     if (groupArchived) return Result.fail(new GroupArchived());
     if (!this.mayBeChangedBy(by, byOwner)) return Result.fail(new NotAllowedToChangeExpense());
     if (fromVersion !== this.version) return Result.fail(new ExpenseChanged());
     if (this.concernsFormerMember(groupMembers)) return Result.fail(new FormerMemberInExpense());
+    const newlyDeleted = deletedMembers.some(deleted => !this.split.memberIds.some(member => member.equals(deleted)));
+    if (newlyDeleted) return Result.fail(new AccountDeleted());
     const outsider = split.memberIds.some(member => !groupMembers.some(current => current.equals(member)));
     if (outsider) return Result.fail(new NotAGroupMember());
 

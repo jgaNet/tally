@@ -92,6 +92,13 @@ export class PostgresGroupQueries implements IGroupQueries, IGroupMembership {
     return row !== undefined;
   }
 
+  async isDeleted(accountId: string): Promise<boolean> {
+    const row = await this.database.exclusive(connection =>
+      connection.row('SELECT 1 AS found FROM accounts WHERE id = ? AND deleted_at IS NOT NULL', accountId),
+    );
+    return row !== undefined;
+  }
+
   async isArchived(groupId: string): Promise<boolean> {
     const row = await this.database.exclusive(connection =>
       connection.row('SELECT 1 AS found FROM group_archives WHERE group_id = ?', groupId),

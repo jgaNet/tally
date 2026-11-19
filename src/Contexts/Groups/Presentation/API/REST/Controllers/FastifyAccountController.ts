@@ -2,7 +2,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { Exception, NotAllowedException, NotFoundException } from '@Architecture/Domain';
 import { Module } from '@Architecture/Application';
 import { acceptCommand } from '@Architecture/Presentation/AcceptCommand';
-import { SignUpCommandEvent } from '@Contexts/Groups/Application/Commands';
+import { DeleteAccountCommandEvent, SignUpCommandEvent } from '@Contexts/Groups/Application/Commands';
 import { GetMyAccountQueryHandler, LoginQueryHandler } from '@Contexts/Groups/Application/Queries';
 import { InvalidCredentials } from '@Contexts/Groups/Domain/Account/AccountExceptions';
 
@@ -15,6 +15,10 @@ export class FastifyAccountController {
 
   signUp(req: FastifyRequest<{ Body: { email: string; password: string; name: string } }>, reply: FastifyReply) {
     return acceptCommand(req, reply, this.#module, SignUpCommandEvent.set(req.body));
+  }
+
+  deleteAccount(req: FastifyRequest, reply: FastifyReply) {
+    return acceptCommand(req, reply, this.#module, DeleteAccountCommandEvent.set({}));
   }
 
   async login(req: FastifyRequest<{ Body: { email: string; password: string } }>, reply: FastifyReply) {

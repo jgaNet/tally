@@ -25,4 +25,16 @@ export class PostgresMemberPaymentsWaiting implements IMemberPaymentsWaiting {
     );
     return row !== undefined;
   }
+
+  async hasWaitingPaymentAnywhere(memberId: string): Promise<boolean> {
+    const row = await this.database.connection.row<{ found: number }>(
+      `SELECT 1 AS found FROM settlements
+        WHERE method = 'provider' AND status IN ('pending', 'refunding', 'contested')
+          AND (payer_id = ? OR payee_id = ?)
+        LIMIT 1`,
+      memberId,
+      memberId,
+    );
+    return row !== undefined;
+  }
 }

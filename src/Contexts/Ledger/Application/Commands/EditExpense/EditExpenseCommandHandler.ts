@@ -78,6 +78,7 @@ export class EditExpenseCommandHandler extends CommandHandler<EditExpenseCommand
       split: split.data,
       groupMembers: await this.groupMembers.currentMembers(expense.groupId),
       groupArchived,
+      deletedMembers: await this.groupMembers.deletedAmong(split.data.memberIds),
       at: now,
     });
     if (edited.isFailure()) return edited;
