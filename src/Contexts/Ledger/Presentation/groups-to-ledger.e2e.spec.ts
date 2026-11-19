@@ -515,3 +515,55 @@ describe('Groups → Ledger, a suspended account (request 34)', () => {
     expect(bobs.status).toBe(201);
   });
 });
+
+/** A person signed in with an email of this test's, as request 35 names them: the token, and the id their sign-up answered. */
+async function deletionPerson(name: string): Promise<{ token: string; id: string }> {
+  const email = `${name.toLowerCase()}.deleted35@example.org`;
+  const created = await http.request('POST', `${api}/accounts`, { body: { email, password: 'a long password', name } });
+  const { token } = (
+    await http.request('POST', `${api}/accounts/login`, { body: { email, password: 'a long password' } })
+  ).body as { token: string };
+  return { token, id: (created.body as { id: string }).id };
+}
+
+/** A group made by `owner`, which `other` has joined through an invitation: the group's id, which its request answered. */
+async function deletionGroup(owner: { token: string }, other: { token: string }): Promise<string> {
+  const { id } = (
+    await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: owner.token })
+  ).body as { id: string };
+  const invitation = (await http.request('POST', `${api}/groups/${id}/invitations`, { token: owner.token })).body as {
+    id: string;
+  };
+  await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: other.token });
+  return id;
+}
+
+/** Request 35 over the pair: a deleted account is read in Ledger by the id its sign-up answered, and refused in a new split by the one name. */
+describe('Groups → Ledger, a deleted account (request 35)', () => {
+  it('reads the deleted member by the id its sign-up answered, and refuses it in a new split by AccountDeleted', async () => {
+    const ann = await deletionPerson('Ann');
+    const cy = await deletionPerson('Cy');
+    const groupId = await deletionGroup(ann, cy);
+    // Ann pays 100, split between them: Cy owes Ann 50.
+    const paid = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Dinner', amount: 100, date: '2020-01-15', splitBetween: [ann.id, cy.id] },
+      token: ann.token,
+    });
+    expect(paid.status).toBeLessThan(300);
+
+    expect((await http.request('DELETE', `${api}/accounts/me`, { token: cy.token })).status).toBe(204);
+
+    const balances = (await http.request('GET', `${api}/groups/${groupId}/balances`, { token: ann.token })).body as {
+      memberId: string;
+      balance: number;
+    }[];
+    expect(balances.find(balance => balance.memberId === cy.id)?.balance).toBe(-50);
+    expect(balances.reduce((sum, balance) => sum + balance.balance, 0)).toBe(0);
+
+    const refused = await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Taxi', amount: 10, date: '2020-01-16', splitBetween: [ann.id, cy.id] },
+      token: ann.token,
+    });
+    expect((refused.body as { type: string }).type).toBe('AccountDeleted');
+  });
+});

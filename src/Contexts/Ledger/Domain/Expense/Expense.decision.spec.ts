@@ -8,6 +8,7 @@ const linus = 'linus';
 const members = {
   archived: false,
   suspended: false,
+  deleted: false,
   memberIds: [ada, grace, linus],
   groupCurrency: 'EUR',
   offered: NO_SERVICE,
@@ -127,6 +128,7 @@ describe('the category of an expense (request 24)', () => {
   const facts = {
     archived: false,
     suspended: false,
+    deleted: false,
     memberIds: ['ada', 'grace'],
     groupCurrency: 'EUR',
     offered: { kind: 'not-asked' } as never,

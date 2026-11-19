@@ -1,6 +1,6 @@
 import { IResult, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
-import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountDeletedException, AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import { ExpenseAmount } from './ExpenseAmount';
 import { categoryOf, ExpenseCategory } from './ExpenseCategory';
@@ -78,9 +78,13 @@ export interface GroupFacts {
   archived: boolean;
 }
 
-/** What a recording is given: the group's facts, and whether the caller, who would pay, is suspended (request 34): then it records no expense. */
+/**
+ * What a recording is given: the group's facts, whether the caller, who would pay, is suspended (request 34): then it records no expense, and whether
+ * the payer or a member of the split is deleted (request 35): then it records no expense either.
+ */
 export interface RecordExpenseGiven extends GroupFacts {
   suspended: boolean;
+  deleted: boolean;
 }
 
 /**
@@ -112,6 +116,7 @@ export const decideRecordExpense: Decision<NewExpenseValues, RecordExpenseComman
 ) => {
   if (facts.archived) return Result.fail(new GroupArchivedException());
   if (facts.suspended) return Result.fail(new AccountSuspendedException());
+  if (facts.deleted) return Result.fail(new AccountDeletedException());
   return newValues(command, facts, now);
 };
 

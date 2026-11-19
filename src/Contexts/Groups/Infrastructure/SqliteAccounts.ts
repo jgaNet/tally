@@ -13,6 +13,7 @@ type AccountRow = {
   password_hash: string;
   version: number;
   suspended_at: string | null;
+  deleted_at: string | null;
 };
 
 /** The accounts in PostgreSQL: the repository the sign-up, the sign-in and the administrators' suspensions use, and the read side `GetMyAccount` reads. */
@@ -21,7 +22,7 @@ export class SqliteAccounts implements IAccountRepository, IAccountQueries {
 
   async findByEmail(email: Email): Promise<Account | undefined> {
     const row = await this.database.row<AccountRow>(
-      'SELECT id, email, name, password_hash, version, suspended_at FROM accounts WHERE email = $1',
+      'SELECT id, email, name, password_hash, version, suspended_at, deleted_at FROM accounts WHERE email = $1',
       [email.value],
     );
     return row && toAccount(row);
@@ -29,7 +30,7 @@ export class SqliteAccounts implements IAccountRepository, IAccountQueries {
 
   async findById(id: string): Promise<Account | undefined> {
     const row = await this.database.row<AccountRow>(
-      'SELECT id, email, name, password_hash, version, suspended_at FROM accounts WHERE id = $1',
+      'SELECT id, email, name, password_hash, version, suspended_at, deleted_at FROM accounts WHERE id = $1',
       [id],
     );
     return row && toAccount(row);
@@ -46,11 +47,12 @@ export class SqliteAccounts implements IAccountRepository, IAccountQueries {
   }
 
   async save(account: Account): Promise<void> {
-    const { id, suspendedAt } = account.toSnapshot();
+    const { id, email, name, passwordHash, suspendedAt, deletedAt } = account.toSnapshot();
     // The account is stored at the version it was read at: a save over a newer one is refused, and the use case re-reads (CONC-OPTIMISTIC).
+    // A deletion stores the erased email, name and password in its place (request 35): the row keeps what the id needs and no more.
     const updated = await this.database.execute(
-      'UPDATE accounts SET version = $1, suspended_at = $2 WHERE id = $3 AND version = $4',
-      [account.version + 1, suspendedAt ?? null, id, account.version],
+      'UPDATE accounts SET version = $1, suspended_at = $2, deleted_at = $3, email = $4, name = $5, password_hash = $6 WHERE id = $7 AND version = $8',
+      [account.version + 1, suspendedAt ?? null, deletedAt ?? null, email, name, passwordHash, id, account.version],
     );
     if (updated !== 1) throw new ConcurrencyConflictException('Groups', 'The account changed since it was read');
   }
@@ -77,5 +79,6 @@ function toAccount(row: AccountRow): Account {
     passwordHash: row.password_hash,
     version: row.version,
     ...(row.suspended_at ? { suspendedAt: row.suspended_at } : {}),
+    ...(row.deleted_at ? { deletedAt: row.deleted_at } : {}),
   });
 }

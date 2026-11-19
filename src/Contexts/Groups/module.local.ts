@@ -2,6 +2,7 @@ import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { ledgerBalancesReadModel } from '@Contexts/Ledger/module.local';
 import { systemClock } from '@Architecture/Infrastructure/Clock/SystemClock';
 import {
+  deleteAccount,
   getAdministratorsLog,
   getMyAccount,
   reinstateAccount,
@@ -67,6 +68,7 @@ export const localGroupsModule = new LiteModule({
     signUp(accounts, passwords, systemClock),
     signIn(accounts, passwords, groupsAccessTokens, administratorEmails),
     getAdministratorsLog(new AdministratorDecisionsOfSettlements(() => settlementsReadModel), administratorLog),
+    deleteAccount(accounts, groups, new WaitingPaymentsOfSettlements(() => settlementsReadModel), systemClock),
     suspendAccount(accounts, administratorLog, systemClock),
     reinstateAccount(accounts, administratorLog, systemClock),
     getMyAccount(accounts),

@@ -17,7 +17,7 @@ const recurring = RecurringExpense.setUp({
 describe('a suspended payer and its recurring expenses (request 34)', () => {
   it('refuses to set up a recurring expense by a suspended payer, by the one name, before anything else is checked', () => {
     const refused = decideSetUpRecurringExpense(
-      { archived: false, suspended: true, memberIds: ['ada', 'grace'] },
+      { archived: false, suspended: true, deleted: false, memberIds: ['ada', 'grace'] },
       { description: '', amount: 0, startsOn: '2020-01-01', split, payer: 'ada' },
       at('2026-11-18'),
     );
@@ -26,7 +26,7 @@ describe('a suspended payer and its recurring expenses (request 34)', () => {
 
   it('records no day for a suspended payer, and leaves its next day where it is, so the days wait', () => {
     const waiting = decideSweepRecurringExpense(
-      { archived: false, suspended: true, recurring, memberIds: ['ada', 'grace'] },
+      { archived: false, suspended: true, deleted: false, recurring, memberIds: ['ada', 'grace'] },
       undefined,
       at('2026-11-18'),
     );
@@ -35,7 +35,7 @@ describe('a suspended payer and its recurring expenses (request 34)', () => {
 
   it('records every day that came once the payer is reinstated', () => {
     const reinstated = decideSweepRecurringExpense(
-      { archived: false, suspended: false, recurring, memberIds: ['ada', 'grace'] },
+      { archived: false, suspended: false, deleted: false, recurring, memberIds: ['ada', 'grace'] },
       undefined,
       at('2026-11-18'),
     );

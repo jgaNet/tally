@@ -42,10 +42,15 @@ export class ExpenseBudgetHandler extends EventHandler<ExpenseRecordedEvent | Ex
       }
       const members = await this.groupMembers.membersOf(groupId, paidBy);
       if (!members) return Result.ok(undefined);
+      // A deleted member is told nothing any more (request 35): the members the fact carries are the ones still telling people about.
+      const told: string[] = [];
+      for (const member of members) {
+        if (!(await this.groupMembers.deletedOf(member.memberId))) told.push(member.memberId);
+      }
 
       const spent = (await this.expenses.spentByCategory(groupId, month)).get(category) ?? 0;
       const decision = decidePassBudget(
-        { budget: budget.toSnapshot(), spent, memberIds: members.map(member => member.memberId) },
+        { budget: budget.toSnapshot(), spent, memberIds: told },
         { month },
         this.clock(),
       );

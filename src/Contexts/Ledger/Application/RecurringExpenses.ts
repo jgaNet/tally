@@ -2,7 +2,7 @@ import { NotFoundException, Result } from '@Architecture/Domain';
 import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
-import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
+import { memberIdsOfSplit, SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 import { RecurringExpense } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense';
 import {
   decideSetUpRecurringExpense,
@@ -11,6 +11,7 @@ import {
 } from '@Contexts/Ledger/Domain/RecurringExpense/RecurringExpense.decision';
 
 import { IGroupMembers, MemberOfGroup } from './IGroupMembers';
+import { anyDeletedOf } from './anyDeletedOf';
 import { IRecurringExpenseQueries, RecurringExpenseView } from './IRecurringExpenseQueries';
 import { IRecurringExpenseRepository } from './IRecurringExpenseRepository';
 
@@ -44,6 +45,7 @@ export const setUpRecurringExpense = command(
             memberIds: memberIdsOf(members),
             archived: await groupMembers.archivedOf(groupId),
             suspended: await groupMembers.suspendedOf(payer),
+            deleted: await anyDeletedOf(groupMembers, [payer, ...memberIdsOfSplit(split)]),
           },
           { description, amount, startsOn, split, payer, category },
           clock(),
@@ -151,6 +153,7 @@ export const sweepRecurringExpenses = command(
               memberIds: members && memberIdsOf(members),
               archived: await groupMembers.archivedOf(snapshot.groupId),
               suspended: await groupMembers.suspendedOf(snapshot.paidBy),
+              deleted: await anyDeletedOf(groupMembers, [snapshot.paidBy, ...memberIdsOfSplit(snapshot.split)]),
             },
             undefined,
             now,

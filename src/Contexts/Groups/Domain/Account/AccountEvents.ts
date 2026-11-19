@@ -17,3 +17,9 @@ export class AccountSuspendedEvent extends DomainEvent<{ accountId: string; susp
  * integration event, for the same reason as `AccountSuspended`.
  */
 export class AccountReinstatedEvent extends DomainEvent<{ accountId: string; reinstatedAt: Date }> {}
+
+/**
+ * A person deleted their account (request 35). Recorded by `Account.delete()` and published after its save; nothing reacts to it yet: every context
+ * refuses a deleted account through its port to Groups (ADR 33), so it is not an integration event.
+ */
+export class AccountDeletedEvent extends DomainEvent<{ accountId: string; deletedAt: Date }> {}

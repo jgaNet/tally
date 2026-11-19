@@ -29,15 +29,24 @@ export class SignedAccessTokens implements IAccessTokens {
     if (payload.length === 3 && payload[2] !== ADMINISTRATOR) return undefined;
     const given = Buffer.from(signature);
     const expected = Buffer.from(await this.sign(payload.join('.')));
-    return given.length === expected.length && timingSafeEqual(given, expected)
-      ? { accountId: payload[0], administrator: payload.length === 3 }
-      : undefined;
+    if (!(given.length === expected.length && timingSafeEqual(given, expected))) return undefined;
+    // A token of a deleted account proves nothing any more (request 35): its account is no one's.
+    if (await this.deleted(payload[0])) return undefined;
+    return { accountId: payload[0], administrator: payload.length === 3 };
   }
 
   private async sign(payload: string): Promise<string> {
     return createHmac('sha256', await this.key())
       .update(payload)
       .digest('base64url');
+  }
+
+  private async deleted(accountId: string): Promise<boolean> {
+    const row = await this.database.row<{ deleted_at: string | null }>(
+      'SELECT deleted_at FROM accounts WHERE id = $1',
+      [accountId],
+    );
+    return Boolean(row?.deleted_at);
   }
 
   /** The signing key, written once when the tables are set up (`GroupsDatabase`), so that signing only reads it. */

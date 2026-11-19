@@ -14,6 +14,7 @@ import { auditEntryOf } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
 import { IExpenseRepository } from '@Contexts/Ledger/Application/IExpenseRepository';
 import { IAuditEntries } from '@Contexts/Ledger/Application/IAuditEntries';
 import { IGroupMembers } from '@Contexts/Ledger/Application/IGroupMembers';
+import { anyDeletedOf } from '@Contexts/Ledger/Application/anyDeletedOf';
 
 /**
  * The policy that records the expense a day of a recurring expense became (request 23, ADR 20), in a transaction of its own: the expense
@@ -38,6 +39,8 @@ export class RecurringExpenseDayCameHandler extends EventHandler<RecurringExpens
     if (await this.groupMembers.archivedOf(groupId)) return Result.ok(undefined);
     // A payer suspended since the sweep decided this day records nothing for it (request 34): the day ends without an expense.
     if (await this.groupMembers.suspendedOf(paidBy)) return Result.ok(undefined);
+    // A payer or a member of the split deleted since the sweep decided this day records nothing for it (request 35): the day ends without an expense.
+    if (await anyDeletedOf(this.groupMembers, [paidBy, ...memberIdsOfSplit(split)])) return Result.ok(undefined);
 
     const members = await this.groupMembers.membersOf(groupId, paidBy);
     if (!members) return Result.ok(undefined);

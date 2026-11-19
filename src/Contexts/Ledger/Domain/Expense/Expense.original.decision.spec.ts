@@ -10,6 +10,7 @@ const now = new Date('2026-11-17T10:00:00Z');
 const facts = {
   archived: false,
   suspended: false,
+  deleted: false,
   memberIds: [ada, grace, linus],
   groupCurrency: 'EUR',
   offered: NO_SERVICE,
@@ -90,6 +91,7 @@ describe('editing an expense paid in another currency (request 21)', () => {
     const access = {
       archived: false,
       suspended: false,
+      deleted: false,
       expense: snapshot,
       memberIds: facts.memberIds,
       ownerId: grace,

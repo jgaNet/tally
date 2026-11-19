@@ -347,3 +347,51 @@ describe('Groups → Settlements, a suspended account (request 34)', () => {
     expect(suggested).toEqual([{ from: ann.id, to: bob.id, amount: 50 }]);
   });
 });
+
+/** A person signed in with an email of this test's, as request 35 names them: the token, and the id their sign-up answered. */
+async function deletionPerson(name: string): Promise<{ token: string; id: string }> {
+  const email = `${name.toLowerCase()}.deleted35@example.org`;
+  const created = await http.request('POST', `${api}/accounts`, { body: { email, password: 'a long password', name } });
+  const { token } = (
+    await http.request('POST', `${api}/accounts/login`, { body: { email, password: 'a long password' } })
+  ).body as { token: string };
+  return { token, id: (created.body as { id: string }).id };
+}
+
+/** A group made by `owner`, which `other` has joined through an invitation: the group's id, which its request answered. */
+async function deletionGroup(owner: { token: string }, other: { token: string }): Promise<string> {
+  const { id } = (
+    await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: owner.token })
+  ).body as { id: string };
+  const invitation = (await http.request('POST', `${api}/groups/${id}/invitations`, { token: owner.token })).body as {
+    id: string;
+  };
+  await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: other.token });
+  return id;
+}
+
+/** Request 35 over the pair: a deleted account is refused a payment through the provider and a netting, by the one name, found by its id. */
+describe('Groups → Settlements, a deleted account (request 35)', () => {
+  it('refuses a payment through the provider and a netting with a deleted account, by AccountDeleted', async () => {
+    const ann = await deletionPerson('Ann');
+    const cy = await deletionPerson('Cy');
+    const groupId = await deletionGroup(ann, cy);
+    // Cy pays 100, split between them: Ann owes Cy 50, so Ann may pay Cy, were Cy not deleted.
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Lunch', amount: 100, date: '2020-01-10', splitBetween: [ann.id, cy.id] },
+      token: cy.token,
+    });
+    expect((await http.request('DELETE', `${api}/accounts/me`, { token: cy.token })).status).toBe(204);
+
+    const asked = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      body: { to: cy.id, amount: 10 },
+      token: ann.token,
+    });
+    expect((asked.body as { type: string }).type).toBe('AccountDeleted');
+    const netted = await http.request('POST', `${api}/nettings`, {
+      body: { with: cy.id, currency: 'EUR' },
+      token: ann.token,
+    });
+    expect((netted.body as { type: string }).type).toBe('AccountDeleted');
+  });
+});

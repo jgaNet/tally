@@ -1,6 +1,6 @@
 import { Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
-import { AccountSuspendedException, isCurrencyCode } from '@SharedKernel/Domain';
+import { AccountDeletedException, AccountSuspendedException, isCurrencyCode } from '@SharedKernel/Domain';
 
 import { NettingCurrencyUnknownException, NettingWithSelfException, NothingToNetException } from './NettingExceptions';
 
@@ -20,6 +20,8 @@ export interface NetDebtsGiven {
   groups: readonly SharedGroupGiven[];
   /** Whether the asker is suspended (request 34): then it asks for no netting, in any group. */
   suspended: boolean;
+  /** Whether the asker or the other member is deleted (request 35): then no netting is made between them. */
+  deleted: boolean;
 }
 
 /** What a netting asks: who asks, with whom, and in which currency. */
@@ -55,10 +57,11 @@ export interface NettingDecided {
  * no clock, and records nothing; the use case records the settlements and the netting.
  */
 export const decideNetDebts: Decision<NettingDecided, NetDebtsCommand, never, NetDebtsGiven> = (
-  { groups, suspended },
+  { groups, suspended, deleted },
   { by, with: other, currency },
 ) => {
   if (suspended) return Result.fail(new AccountSuspendedException());
+  if (deleted) return Result.fail(new AccountDeletedException());
   if (by === other) return Result.fail(new NettingWithSelfException());
   if (!isCurrencyCode(currency)) return Result.fail(new NettingCurrencyUnknownException());
 

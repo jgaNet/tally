@@ -1,6 +1,6 @@
 import { Exception, Id, NotAllowedException, Result } from '@Architecture/Domain';
 import { Decision, decided } from '@Architecture/Domain/Lite/Decision';
-import { AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
+import { AccountDeletedException, AccountSuspendedException, GroupArchivedException } from '@SharedKernel/Domain';
 
 import type { SettlementMethod, SettlementStatus } from './SettlementBook';
 import {
@@ -61,6 +61,8 @@ export interface NewSettlementValues {
  */
 export interface ProviderPaymentGiven extends SettlementGiven {
   payeeAccount: string | undefined;
+  /** Whether the payer or the payee is deleted (request 35): then no payment through the provider is asked for between them. */
+  deleted: boolean;
 }
 
 /**
@@ -123,6 +125,7 @@ export const decideRequestProviderPayment: Decision<
 > = (given, { payer, to, amount }) => {
   const refusal = refuseSettlement(given, { from: payer, to, amount });
   if (refusal) return Result.fail(refusal);
+  if (given.deleted) return Result.fail(new AccountDeletedException());
   if (!given.payeeAccount) return Result.fail(new PayeeHasNoPayoutAccountException());
   return decided({ id: Id.generate().value, from: payer, to, amount, payeeAccount: given.payeeAccount });
 };

@@ -56,4 +56,9 @@ export interface IGroupQueries {
    * refuses by `AccountSuspended` if it is (ADR 32); nothing else of the account is read by it.
    */
   suspendedOf(accountId: string): Promise<boolean>;
+  /**
+   * Whether the account is deleted (request 35). Asked by no member: a context asks it about the account it is asked about, through its own port, and
+   * refuses by `AccountDeleted` if it is (ADR 33); nothing else of the account is read by it.
+   */
+  deletedOf(accountId: string): Promise<boolean>;
 }

@@ -2,7 +2,11 @@ import { IResult, NotAllowedException, NotFoundException, Result } from '@Archit
 import { Decided, Decision, decided } from '@Architecture/Domain/Lite/Decision';
 import { Email } from '@SharedKernel/Domain';
 
-import { EmailAlreadyUsedException } from './AccountExceptions';
+import {
+  AccountPaymentWaitingException,
+  EmailAlreadyUsedException,
+  OwnsGroupWithMembersException,
+} from './AccountExceptions';
 import { Account } from './Account';
 import { AccountName } from './AccountName';
 import { AdministratorLogEntry } from './AdministratorLogEntry';
@@ -89,4 +93,30 @@ export const decideReinstateAccount: Decision<
   if (!account) return Result.fail(new NotFoundException('Groups', 'No account is found'));
   if (!account.isSuspended) return decided(undefined);
   return decided(AdministratorLogEntry.of({ by, action: 'reinstated', subjectId: account._id.value, at: now }));
+};
+
+/**
+ * What a deletion is given (request 35): the account the caller is, `undefined` when it is not there, whether it owns a group with another member,
+ * and whether a payment of its through the provider is pending, refunding or contested in one of its groups. The shell reads them, in its transaction.
+ */
+export interface DeleteAccountGiven {
+  account: Account | undefined;
+  ownsGroupWithMembers: boolean;
+  paymentWaiting: boolean;
+}
+
+/**
+ * Deleting one's account (request 35): the account is there and not deleted yet; it owns no group with another member, which would be left without
+ * the people in it; and no payment of its through the provider is pending, refunding or contested in any of its groups. Otherwise nothing is
+ * refused, and the use case erases it with `Account.delete` in the same transaction. Pure: the facts are given.
+ */
+export const decideDeleteAccount: Decision<undefined, undefined, never, DeleteAccountGiven> = ({
+  account,
+  ownsGroupWithMembers,
+  paymentWaiting,
+}) => {
+  if (!account || account.isDeleted) return Result.fail(new NotFoundException('Groups', 'No account is signed in'));
+  if (ownsGroupWithMembers) return Result.fail(new OwnsGroupWithMembersException());
+  if (paymentWaiting) return Result.fail(new AccountPaymentWaitingException());
+  return decided(undefined);
 };

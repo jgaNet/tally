@@ -41,4 +41,9 @@ export interface IGroupMembers {
    * background job records no expense for its recurring ones (ADR 32). Asked by no member: it is the answer about the account asking.
    */
   suspendedOf(accountId: string): Promise<boolean>;
+  /**
+   * Whether the account is deleted (request 35): then it may not be put in the split of a new expense or a recurring expense, nor the payer of one,
+   * and the background job ends a recurring expense it pays or is in the split of (ADR 33). Asked by no member: it is the answer about an account.
+   */
+  deletedOf(accountId: string): Promise<boolean>;
 }

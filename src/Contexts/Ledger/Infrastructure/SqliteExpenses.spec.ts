@@ -29,7 +29,14 @@ const newDatabasePath = () => url;
 /** A recorded expense of 1000 paid by Ada, split between the three, as Ledger stores it. */
 function recorded(): Expense {
   const decision = decideRecordExpense(
-    { archived: false, suspended: false, memberIds: [ada, grace, linus], groupCurrency: 'EUR', offered: NO_SERVICE },
+    {
+      archived: false,
+      suspended: false,
+      deleted: false,
+      memberIds: [ada, grace, linus],
+      groupCurrency: 'EUR',
+      offered: NO_SERVICE,
+    },
     {
       description: 'Groceries',
       amount: 1000,

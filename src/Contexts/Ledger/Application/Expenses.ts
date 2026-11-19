@@ -5,7 +5,7 @@ import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase
 import { ExecutionContext } from '@Architecture/Application/ExecutionContext';
 import { isCurrencyCode } from '@SharedKernel/Domain';
 import { Expense, ExpenseSnapshot } from '@Contexts/Ledger/Domain/Expense/Expense';
-import { SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
+import { memberIdsOfSplit, SplitRequest } from '@Contexts/Ledger/Domain/Expense/Split';
 import { GivenAmount } from '@Contexts/Ledger/Domain/Expense/Expense.decision';
 import { IBalanceQueries } from '@Contexts/Ledger/Domain/IBalanceQueries';
 import { auditEntryOf } from '@Contexts/Ledger/Domain/Audit/AuditEntry';
@@ -25,6 +25,7 @@ import { IStatementQueries, StatementView } from './IStatementQueries';
 import { IAuditEntries } from './IAuditEntries';
 import { IExpenseRepository } from './IExpenseRepository';
 import { ISplitTemplateRepository } from './ISplitTemplateRepository';
+import { anyDeletedOf } from './anyDeletedOf';
 
 /**
  * How an expense is split as it is asked: either by a split given (request 7), between members equally, by exact amounts, or by shares,
@@ -94,6 +95,7 @@ export const recordExpense = command(
             offered,
             archived: await groupMembers.archivedOf(groupId),
             suspended: await groupMembers.suspendedOf(payer),
+            deleted: await anyDeletedOf(groupMembers, [payer, ...memberIdsOfSplit(asked)]),
           },
           { description, date, split: asked, payer, category, ...(given as GivenAmount) },
           clock(),

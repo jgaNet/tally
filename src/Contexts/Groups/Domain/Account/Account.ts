@@ -1,8 +1,29 @@
 import { AggregateRoot, Id } from '@Architecture/Domain';
 import { Email } from '@SharedKernel/Domain';
 
-import { AccountReinstatedEvent, AccountRegisteredEvent, AccountSuspendedEvent } from './AccountEvents';
+import {
+  AccountDeletedEvent,
+  AccountReinstatedEvent,
+  AccountRegisteredEvent,
+  AccountSuspendedEvent,
+} from './AccountEvents';
 import { AccountName } from './AccountName';
+
+/** The name a deleted account is shown by in every group (request 35): the members list names it so. */
+export const DELETED_NAME = 'Deleted account';
+
+/** The password hash a deleted account keeps: it is none that any password matches, so nobody signs in with it (request 35). */
+export const DELETED_PASSWORD_HASH = 'deleted';
+
+/**
+ * The email a deleted account keeps: one only its id makes, in the reserved `.invalid` domain (RFC 2606), so it is unique as the email was and is
+ * no one's (request 35). A new account may use the email the deleted one had, which is someone else.
+ */
+const tombstoneEmailOf = (accountId: string): Email => {
+  const email = Email.create(`${accountId}@deleted.invalid`);
+  if (email.isFailure()) throw new Error(`The id ${accountId} makes no tombstone email`);
+  return email.data;
+};
 
 /** An account as it is stored: its email normalised, its name trimmed, its password as a hash, and whether it is suspended (request 34). */
 export interface AccountSnapshot {
@@ -14,6 +35,8 @@ export interface AccountSnapshot {
   version?: number;
   /** When an administrator suspended it, while it is suspended; absent otherwise. */
   suspendedAt?: string;
+  /** When the person deleted it (request 35): from then on its name and email are erased, and it signs in nowhere; absent otherwise. */
+  deletedAt?: string;
 }
 
 /**
@@ -23,10 +46,11 @@ export interface AccountSnapshot {
  * by an administrator and reinstated by one, and nothing else changes it (request 34, ADR 32).
  */
 export class Account extends AggregateRoot {
-  readonly #email: Email;
-  readonly #name: AccountName;
-  readonly #passwordHash: string;
+  #email: Email;
+  #name: AccountName;
+  #passwordHash: string;
   #suspendedAt: Date | undefined;
+  #deletedAt: Date | undefined;
 
   private constructor(
     id: Id,
@@ -35,12 +59,14 @@ export class Account extends AggregateRoot {
     name: AccountName,
     passwordHash: string,
     suspendedAt: Date | undefined,
+    deletedAt: Date | undefined,
   ) {
     super(id, version);
     this.#email = email;
     this.#name = name;
     this.#passwordHash = passwordHash;
     this.#suspendedAt = suspendedAt;
+    this.#deletedAt = deletedAt;
   }
 
   /** A new account, with its id generated here, recording that it was registered at `at`. */
@@ -55,7 +81,7 @@ export class Account extends AggregateRoot {
     passwordHash: string;
     at: Date;
   }): Account {
-    const account = new Account(Id.generate(), 0, email, name, passwordHash, undefined);
+    const account = new Account(Id.generate(), 0, email, name, passwordHash, undefined, undefined);
     account.record(AccountRegisteredEvent.set({ accountId: account._id.value, registeredAt: at }));
     return account;
   }
@@ -71,6 +97,10 @@ export class Account extends AggregateRoot {
     if (suspendedAt !== undefined && Number.isNaN(suspendedAt.getTime())) {
       throw new Error(`Corrupted account ${snapshot.id}: its suspension is not a time`);
     }
+    const deletedAt = snapshot.deletedAt === undefined ? undefined : new Date(snapshot.deletedAt);
+    if (deletedAt !== undefined && Number.isNaN(deletedAt.getTime())) {
+      throw new Error(`Corrupted account ${snapshot.id}: its deletion is not a time`);
+    }
     return new Account(
       new Id(snapshot.id),
       snapshot.version ?? 0,
@@ -78,6 +108,7 @@ export class Account extends AggregateRoot {
       name.data,
       snapshot.passwordHash,
       suspendedAt,
+      deletedAt,
     );
   }
 
@@ -97,6 +128,20 @@ export class Account extends AggregateRoot {
     this.record(AccountReinstatedEvent.set({ accountId: this._id.value, reinstatedAt: at }));
   }
 
+  /**
+   * The person deletes the account at `at` (request 35): its name and its email are erased and replaced by what stands for no one, its password
+   * is no longer one it can be signed in with, and it is deleted for good. Its id stays where it is: in the groups' members, the expenses, the
+   * settlements and the audit, which mean no one any more. Recorded as `AccountDeleted`, published after its save; whether a deletion is allowed is
+   * the decision's to say (`decideDeleteAccount`), before this is called.
+   */
+  delete(at: Date): void {
+    this.#email = tombstoneEmailOf(this._id.value);
+    this.#name = AccountName.create(DELETED_NAME).data as AccountName;
+    this.#passwordHash = DELETED_PASSWORD_HASH;
+    this.#deletedAt = at;
+    this.record(AccountDeletedEvent.set({ accountId: this._id.value, deletedAt: at }));
+  }
+
   get email(): Email {
     return this.#email;
   }
@@ -114,6 +159,11 @@ export class Account extends AggregateRoot {
     return this.#suspendedAt !== undefined;
   }
 
+  /** Whether the person deleted the account (request 35): its name and email are erased, and it signs in nowhere. */
+  get isDeleted(): boolean {
+    return this.#deletedAt !== undefined;
+  }
+
   toSnapshot(): AccountSnapshot {
     return {
       id: this._id.value,
@@ -122,6 +172,7 @@ export class Account extends AggregateRoot {
       passwordHash: this.#passwordHash,
       version: this.version,
       ...(this.#suspendedAt === undefined ? {} : { suspendedAt: this.#suspendedAt.toISOString() }),
+      ...(this.#deletedAt === undefined ? {} : { deletedAt: this.#deletedAt.toISOString() }),
     };
   }
 }

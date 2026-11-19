@@ -8,6 +8,7 @@ const offering = (rate: string): RateOffer => ({ kind: 'rate', rate });
 const facts = (offered: RateOffer) => ({
   archived: false,
   suspended: false,
+  deleted: false,
   memberIds: [ada, grace],
   groupCurrency: 'EUR',
   offered,

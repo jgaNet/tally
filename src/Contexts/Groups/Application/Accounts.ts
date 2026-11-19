@@ -3,6 +3,7 @@ import { Clock } from '@Architecture/Application';
 import { publishDomainEvents } from '@Architecture/Application/DomainEvents';
 import { callerOf, command, query } from '@Architecture/Application/Lite/UseCase';
 import {
+  decideDeleteAccount,
   decideReinstateAccount,
   decideSignIn,
   decideSignUp,
@@ -10,6 +11,8 @@ import {
   isAdministratorAccount,
 } from '@Contexts/Groups/Domain/Account/Account.decision';
 import { EmailAlreadyUsedException } from '@Contexts/Groups/Domain/Account/AccountExceptions';
+import { IGroupQueries } from '@Contexts/Groups/Domain/IGroupQueries';
+import { IWaitingPayments } from './IWaitingPayments';
 
 import { AccountView, IAccountQueries } from './IAccountQueries';
 import { Email, Role } from '@SharedKernel/Domain';
@@ -135,6 +138,41 @@ export const reinstateAccount = command(
         account.reinstate(now);
         await accounts.save(account);
         await log.record(entry);
+        await publishDomainEvents(account, context);
+        return Result.ok(undefined);
+      });
+    },
+);
+
+/**
+ * A signed-in person deletes their own account (request 35): its name and its email are erased, it signs in nowhere, and its token proves nothing.
+ * It is refused while it owns a group with another member, and while a payment of its through the provider is pending, refunding or contested in
+ * one of its groups; then nothing changes. The account keeps its id, which the members, expenses, settlements and audit still name, and it stays a
+ * member of its groups with its balance. Erased in one transaction with the facts it made, and answers nothing (`204`).
+ */
+export const deleteAccount = command(
+  'DeleteAccount',
+  (accounts: IAccountRepository, groups: IGroupQueries, waiting: IWaitingPayments, clock: Clock) =>
+    async (_input: void, context) => {
+      return accounts.inTransaction(async () => {
+        const id = callerOf(context);
+        const account = await accounts.findById(id);
+        const mine = await groups.groupsOf(id);
+        let ownsGroupWithMembers = false;
+        for (const group of mine.filter(group => group.ownerId === id)) {
+          const members = await groups.membersOf(group.id, id);
+          if (members && members.length > 1) ownsGroupWithMembers = true;
+        }
+        let paymentWaiting = false;
+        for (const group of mine) {
+          if (await waiting.waitingOf(group.id, id)) paymentWaiting = true;
+        }
+        const decision = decideDeleteAccount({ account, ownsGroupWithMembers, paymentWaiting }, undefined, clock());
+        if (decision.isFailure()) return decision;
+        if (!account) return Result.fail(new NotFoundException('Groups', 'No account is signed in'));
+
+        account.delete(clock());
+        await accounts.save(account);
         await publishDomainEvents(account, context);
         return Result.ok(undefined);
       });

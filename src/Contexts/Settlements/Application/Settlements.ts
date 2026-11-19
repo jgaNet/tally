@@ -130,8 +130,10 @@ export const payThroughProvider = command(
         const now = clock();
         const archived = await members.archivedOf(groupId);
         const suspended = await members.suspendedOf(payer);
+        // A payment through the provider is between two accounts neither of which is deleted (request 35): the payer, the caller, and the payee.
+        const deleted = (await members.deletedOf(payer)) || (await members.deletedOf(to));
         const decision = decideRequestProviderPayment(
-          { memberIds, balances, payeeAccount, archived, suspended },
+          { memberIds, balances, payeeAccount, archived, suspended, deleted },
           { payer, to, amount },
           now,
         );

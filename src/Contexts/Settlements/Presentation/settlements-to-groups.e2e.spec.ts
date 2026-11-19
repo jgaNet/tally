@@ -146,3 +146,66 @@ describe('Settlements → Groups', () => {
     expect(log.find(entry => entry.subjectId === settlementId)?.action).toBe('decided-paid');
   });
 });
+
+/** A person signed in with an email of this test's, as request 35 names them: the token, and the id their sign-up answered. */
+async function deletionPerson(name: string): Promise<{ token: string; id: string }> {
+  const email = `${name.toLowerCase()}.deleted35@example.org`;
+  const created = await http.request('POST', `${api}/accounts`, { body: { email, password: 'a long password', name } });
+  const { token } = (
+    await http.request('POST', `${api}/accounts/login`, { body: { email, password: 'a long password' } })
+  ).body as { token: string };
+  return { token, id: (created.body as { id: string }).id };
+}
+
+/** A group made by `owner`, which `other` has joined through an invitation: the group's id, which its request answered. */
+async function deletionGroup(owner: { token: string }, other: { token: string }): Promise<string> {
+  const { id } = (
+    await http.request('POST', `${api}/groups`, { body: { name: 'Flat', currency: 'EUR' }, token: owner.token })
+  ).body as { id: string };
+  const invitation = (await http.request('POST', `${api}/groups/${id}/invitations`, { token: owner.token })).body as {
+    id: string;
+  };
+  await http.request('POST', `${api}/invitations/${invitation.id}/accept`, { token: other.token });
+  return id;
+}
+
+/**
+ * Request 35 over the pair: a payment through the provider Settlements made keeps its id, and Groups refuses the deletion of the payee while it
+ * waits, by `AccountPaymentWaiting`; the member is still in Groups, under the id the same request answered.
+ */
+describe('Settlements → Groups, a deleted account with a payment waiting (request 35)', () => {
+  it('refuses the deletion while a payment through the provider waits, and the member is still the one that id names', async () => {
+    const ann = await deletionPerson('Ann');
+    const cy = await deletionPerson('Cy');
+    const groupId = await deletionGroup(ann, cy);
+    // Cy has a payout account at the provider, so Ann may pay Cy through it; Cy paid 100 split between them, so Ann owes Cy 50.
+    await http.request('PUT', `${api}/accounts/me/payout-account`, {
+      body: { accountId: `acct_${cy.id}` },
+      token: cy.token,
+    });
+    await http.request('POST', `${api}/groups/${groupId}/expenses`, {
+      body: { description: 'Lunch', amount: 100, date: '2020-01-10', splitBetween: [ann.id, cy.id] },
+      token: cy.token,
+    });
+    const requested = await http.request('POST', `${api}/groups/${groupId}/settlements/provider`, {
+      body: { to: cy.id, amount: 10 },
+      token: ann.token,
+    });
+    expect(requested.status).toBeLessThan(300);
+    const settlementId = (requested.body as { id: string }).id;
+
+    const refused = await http.request('DELETE', `${api}/accounts/me`, { token: cy.token });
+    expect((refused.body as { type: string }).type).toBe('AccountPaymentWaiting');
+    // Groups still names the member by the id its sign-up answered, and Settlements still holds the payment by its id.
+    const listed = (await http.request('GET', `${api}/groups/${groupId}/members`, { token: ann.token })).body as {
+      memberId: string;
+      name: string;
+    }[];
+    expect(listed.find(member => member.memberId === cy.id)?.name).toBe('Cy');
+    const payment = (await http.request('GET', `${api}/settlements/${settlementId}`, { token: ann.token })).body as {
+      id: string;
+      status: string;
+    };
+    expect(payment).toMatchObject({ id: settlementId, status: 'pending' });
+  });
+});

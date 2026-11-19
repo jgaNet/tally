@@ -3,6 +3,7 @@ import { FastifyPluginCallback } from 'fastify';
 import { LiteModule } from '@Architecture/Application/Lite/LiteModule';
 import { answerAtOnce } from '@Architecture/Presentation/Lite/AnswerAtOnce';
 import {
+  deleteAccount,
   getAdministratorsLog,
   getMyAccount,
   reinstateAccount,
@@ -50,6 +51,11 @@ export const accountRoutes: FastifyPluginCallback<{ module: LiteModule }> = (fas
 
   fastify.get('/accounts/me', { schema: { tags: ['accounts'] } }, (req, reply) =>
     answerAtOnce(req, reply, module.useCase(getMyAccount), undefined),
+  );
+
+  // A signed-in person deletes their own account: refused while it owns a group with others or a payment waits, and nothing else changes (request 35).
+  fastify.delete('/accounts/me', { schema: { tags: ['accounts'] } }, (req, reply) =>
+    answerAtOnce(req, reply, module.useCase(deleteAccount), undefined),
   );
 
   // An administrator reads the log of their decisions, the oldest first; anyone else finds nothing (request 33).

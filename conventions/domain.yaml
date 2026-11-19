@@ -125,7 +125,9 @@ relationships:
       that passed when a member left, for the audit, through a port beside it (PassedBalances, ADR 25). Since request 34 it
       also asks whether the account that records an expense or sets up a recurring expense is suspended, through the same
       port (GroupMembers, `suspendedOf`): a suspended account records nothing in any group, and the background job records
-      no expense for a suspended payer, whose days wait (ADR 32).
+      no expense for a suspended payer, whose days wait (ADR 32). Since request 35 it asks whether an account is deleted, through the
+      same port (`deletedOf`): a deleted account is in no new split and no recurring expense, the background job ends a recurring
+      expense it pays or is in the split of, and the budget notice leaves it out (ADR 33).
   - upstream: Ledger
     downstream: Groups
     patterns: [customer-supplier, anti-corruption-layer]
@@ -148,6 +150,8 @@ relationships:
       Groups answers the administrators' log through a port beside it (AdministratorDecisions): each decision of an
       administrator is written by Settlements in the transaction of the decision, and Groups reads it (ADR 31). Since
       request 34 Groups writes its own entries of the log, the suspensions and reinstatements, beside them (ADR 32).
+      Since request 35 a person may not delete their account while a payment of theirs through the provider waits: Groups
+      asks WaitingPayments for each of the account's groups in the deletion's transaction (ADR 33).
   - upstream: Ledger
     downstream: Settlements
     patterns: [customer-supplier, anti-corruption-layer]
@@ -164,7 +168,9 @@ relationships:
       Only members of the group settle with each other, and only Groups knows who is a member. Settlements asks
       through a port it owns (SettlementMembers). Carried since feature 11 (ADR 10), for the suggested settlements.
       Since request 34 it also asks whether the account that records a settlement in cash, asks to pay through the provider
-      or asks for a netting is suspended, through the same port (`suspendedOf`): a suspended account settles nothing (ADR 32).
+      or asks for a netting is suspended, through the same port (`suspendedOf`): a suspended account settles nothing (ADR 32). Since request 35 it also asks whether
+      an account is deleted, through the same port (`deletedOf`): no payment through the provider and no netting involves a
+      deleted account, and a reminder leaves it out (ADR 33).
   - upstream: Settlements
     downstream: Ledger
     patterns: [customer-supplier, anti-corruption-layer]

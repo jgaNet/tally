@@ -34,4 +34,9 @@ export interface ISettlementMembers {
    * netting, in any group (ADR 32). Asked by no member: it is the answer about the account asking.
    */
   suspendedOf(accountId: string): Promise<boolean>;
+  /**
+   * Whether the account is deleted (request 35): then it is paid through the provider by no one and nets with no one (ADR 33), and a reminder of
+   * a debt of it is not made. Asked by no member: it is the answer about an account.
+   */
+  deletedOf(accountId: string): Promise<boolean>;
 }
