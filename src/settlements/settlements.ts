@@ -4,7 +4,7 @@ import { balancesWithPendingOf } from '../balances/balances';
 import { type Database, inTransaction } from '../database';
 import { requireMembership, requireNotArchived } from '../groups/groups';
 import { Refusal } from '../refusal';
-import { type StatusEntry, historyOf, recordStatus } from './history';
+import { type SettlementStatus, type StatusEntry, historyOf, recordStatus } from './history';
 
 /** A settlement as the API answers it. */
 export interface Settlement {
@@ -20,8 +20,10 @@ export interface Settlement {
   /**
    * `pending` only while the provider has not said the payment ended; a cash settlement is `paid`.
    * `refunding` once Tally has asked the provider to refund a paid one, `refunded` once the provider said so.
+   * `contested` once its payee says the money did not reach them, until an administrator decides it: `paid`
+   * again, or `annulled`.
    */
-  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+  status: SettlementStatus;
   /** When it was recorded. */
   at: string;
   /** Every status it has had, the earliest first, each with when Tally learned it. Its last is `status`. */
@@ -108,7 +110,7 @@ interface SettlementRow {
   payee_id: string;
   amount: number;
   method: 'cash' | 'provider' | 'net';
-  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+  status: SettlementStatus;
   pay_url: string | null;
   created_at: string;
 }
@@ -164,6 +166,26 @@ export async function settlementsOfGroup(db: Database, groupId: string): Promise
       WHERE settlements.group_id = ?
       ORDER BY settlements.created_at DESC, settlements.seq DESC`,
     [groupId],
+  );
+  const settlements: Settlement[] = [];
+  for (const row of rows) {
+    settlements.push(await settlementOf(db, row));
+  }
+  return settlements;
+}
+
+/**
+ * Every settlement contested now, the earliest contested first, each as `findSettlement` answers it. It does not check
+ * who asks: the caller must be an administrator.
+ */
+export async function contestedSettlements(db: Database): Promise<Settlement[]> {
+  const rows = await db.rows<SettlementRow>(
+    `SELECT ${SETTLEMENT_COLUMNS}
+       FROM settlements
+       JOIN settlement_statuses AS contests
+         ON contests.settlement_id = settlements.id AND contests.status = 'contested'
+      WHERE settlements.status = 'contested'
+      ORDER BY contests.at, contests.id`,
   );
   const settlements: Settlement[] = [];
   for (const row of rows) {

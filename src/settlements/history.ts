@@ -1,8 +1,15 @@
 import type { Database } from '../database';
 
+/**
+ * What a settlement's status is: `pending` and `failed` through the provider, `paid` once it counts, `refunding` and
+ * `refunded` once it is refunded, `contested` once its payee says the money did not reach them, and `annulled` once an
+ * administrator decides it was not paid.
+ */
+export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded' | 'contested' | 'annulled';
+
 /** A status a settlement has had, and when Tally learned of it. */
 export interface StatusEntry {
-  status: 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
+  status: SettlementStatus;
   at: string;
 }
 
@@ -14,7 +21,7 @@ export interface StatusEntry {
 export async function recordStatus(
   db: Database,
   settlementId: string,
-  status: StatusEntry['status'],
+  status: SettlementStatus,
   at?: string,
 ): Promise<void> {
   await db.execute('INSERT INTO settlement_statuses (settlement_id, status, at) VALUES (?, ?, ?)', [

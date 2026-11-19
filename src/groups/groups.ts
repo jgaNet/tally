@@ -185,14 +185,14 @@ export async function leaveGroup(db: Database, groupId: string, accountId: strin
     // at it once it is refunded: either must end first.
     const waiting = await db.row(
       `SELECT 1 FROM settlements
-        WHERE group_id = ? AND status IN ('pending', 'refunding') AND (payer_id = ? OR payee_id = ?)`,
+        WHERE group_id = ? AND status IN ('pending', 'refunding', 'contested') AND (payer_id = ? OR payee_id = ?)`,
       [groupId, accountId, accountId],
     );
     if (waiting) {
       throw new Refusal(
         409,
         'PaymentPending',
-        'A payment or a refund through the provider is waiting for you: it must end first.',
+        'A payment or a refund through the provider is waiting for you, or a payment of yours is contested: it must end first.',
       );
     }
     const balance = (await balancesOf(db, groupId)).find(entry => entry.memberId === accountId)?.balance ?? 0;
@@ -244,14 +244,14 @@ export async function archiveGroup(db: Database, groupId: string, accountId: str
       );
     }
     const waiting = await db.row(
-      `SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding')`,
+      `SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding', 'contested')`,
       [groupId],
     );
     if (waiting) {
       throw new Refusal(
         409,
         'PaymentPending',
-        'A payment or a refund through the provider is waiting: it must end first.',
+        'A payment or a refund through the provider is waiting, or a payment is contested: it must end first.',
       );
     }
     await db.execute('UPDATE groups SET archived_at = ? WHERE id = ?', [at.toISOString(), groupId]);

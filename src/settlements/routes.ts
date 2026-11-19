@@ -4,6 +4,7 @@ import type { Database } from '../database';
 import { requireMembership } from '../groups/groups';
 import { Refusal } from '../refusal';
 import { applyProviderStatus, type ProviderConfig, requestProviderSettlement, signatureIsValid } from './provider';
+import { contestSettlement } from './contests';
 import { requestRefund } from './refunds';
 import { recordCashSettlement, requireSettlement, settlementsOfGroup } from './settlements';
 import { suggestedTransfersOf } from './suggested';
@@ -18,7 +19,7 @@ const transferSchema = {
   },
 };
 
-const settlementSchema = {
+export const settlementSchema = {
   type: 'object',
   required: ['id', 'groupId', 'from', 'to', 'amount', 'method', 'status', 'at', 'history'],
   properties: {
@@ -28,7 +29,7 @@ const settlementSchema = {
     to: { type: 'string' },
     amount: { type: 'integer' },
     method: { type: 'string', enum: ['cash', 'provider', 'net'] },
-    status: { type: 'string', enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+    status: { type: 'string', enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'] },
     at: { type: 'string' },
     payUrl: { type: 'string' },
     history: {
@@ -38,7 +39,10 @@ const settlementSchema = {
         type: 'object',
         required: ['status', 'at'],
         properties: {
-          status: { type: 'string', enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
+          status: {
+            type: 'string',
+            enum: ['pending', 'paid', 'failed', 'refunding', 'refunded', 'contested', 'annulled'],
+          },
           at: { type: 'string' },
         },
       },
@@ -145,6 +149,21 @@ export function registerSettlementRoutes(app: FastifyInstance, db: Database, pro
       const account = await requireAccount(db, request);
       // The caller must be the payee: only the member who was paid may refund the payment.
       await requestRefund(db, provider, request.params.id, account.id);
+      return reply.code(204).send();
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/settlements/:id/contest',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      },
+    },
+    async (request, reply) => {
+      const account = await requireAccount(db, request);
+      // The caller must be the payee: only the member who was paid may say the money did not reach them.
+      await contestSettlement(db, request.params.id, account.id);
       return reply.code(204).send();
     },
   );

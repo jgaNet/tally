@@ -1,5 +1,7 @@
 import cors from '@fastify/cors';
 import Fastify, { FastifyError, FastifyInstance } from 'fastify';
+import { administratorsOf } from './admin/administrators';
+import { registerAdminRoutes } from './admin/routes';
 import { registerAccountRoutes } from './accounts/routes';
 import { registerAuditRoutes } from './audit/routes';
 import { registerBudgetRoutes } from './budgets/routes';
@@ -49,7 +51,8 @@ export interface Application {
  * rate is offered, and a rate an expense states is taken whatever it is. The background job runs every
  * `jobsIntervalSeconds` (`JOBS_INTERVAL_SECONDS`, 60), and a week of debt is `reminderPeriodSeconds`
  * (`REMINDER_PERIOD_SECONDS`, 604800). Receipts are kept in the receipts store at `receiptsUrl` (`RECEIPTS_URL`),
- * which is given up after `receiptsTimeoutMs` (5 seconds); without it a receipt is refused.
+ * which is given up after `receiptsTimeoutMs` (5 seconds); without it a receipt is refused. The administrators are the
+ * accounts whose email is one of `adminEmails` (`ADMIN_EMAILS`, a list separated by commas, whatever its case).
  */
 export async function createApplication({
   apiPrefix = process.env.API_PREFIX || 'v1',
@@ -65,6 +68,7 @@ export async function createApplication({
   receiptsTimeoutMs = 5000,
   jobsIntervalSeconds = Number(process.env.JOBS_INTERVAL_SECONDS || 60),
   reminderPeriodSeconds = Number(process.env.REMINDER_PERIOD_SECONDS || 604800),
+  adminEmails = process.env.ADMIN_EMAILS || '',
 }: {
   apiPrefix?: string;
   port?: number;
@@ -79,6 +83,7 @@ export async function createApplication({
   receiptsTimeoutMs?: number;
   jobsIntervalSeconds?: number;
   reminderPeriodSeconds?: number;
+  adminEmails?: string;
 } = {}): Promise<Application> {
   // Types are checked, not converted: a password sent as a number is a body of the wrong type.
   const server = Fastify({ ajv: { customOptions: { coerceTypes: false } } });
@@ -136,6 +141,7 @@ export async function createApplication({
       registerPayoutAccountRoutes(routes, db, provider);
       registerSettlementRoutes(routes, db, provider);
       registerNettingRoutes(routes, db);
+      registerAdminRoutes(routes, db, administratorsOf(adminEmails));
       registerOperationRoutes(routes, db);
     },
     { prefix: `/${apiPrefix}` },

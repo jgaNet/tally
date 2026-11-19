@@ -4,8 +4,8 @@ import { type Group, requireMembership, requireNotArchived } from './groups';
 
 /**
  * Merges the group `mergedId` into the group `keptId`, by its owner, who must own both. Refused when they are one
- * group, when either is archived, when their currencies differ, and while a payment through the provider in the group
- * merged is pending or being refunded. Anyone outside a group is refused with `404`, as for a group that does not
+ * group, when either is archived, when their currencies differ, while a payment through the provider in the group
+ * merged is pending or being refunded, and while a payment is contested in either group. Anyone outside a group is refused with `404`, as for a group that does not
  * exist; a member who does not own it with `403`.
  *
  * Everything of the group merged moves to the group kept, keeping its id: its expenses, settlements, recurring
@@ -29,16 +29,28 @@ export async function mergeGroups(db: Database, keptId: string, mergedId: string
     if (kept.currency !== merged.currency) {
       throw new Refusal(409, 'CurrencyMismatch', 'Only groups in the same currency can be merged.');
     }
-    // A payment waiting at the provider, or a refund of one, would move a balance once the provider answers.
+    // A payment waiting at the provider, or a refund of one, would move a balance once the provider answers. A
+    // contested payment is held until an administrator decides it, in either group: neither is merged meanwhile.
     const waiting = await db.row(
       `SELECT 1 FROM settlements WHERE group_id = ? AND status IN ('pending', 'refunding')`,
       [mergedId],
     );
+    const contested = await db.row(`SELECT 1 FROM settlements WHERE group_id IN (?, ?) AND status = 'contested'`, [
+      keptId,
+      mergedId,
+    ]);
     if (waiting) {
       throw new Refusal(
         409,
         'PaymentPending',
         'A payment or a refund through the provider is waiting in the group merged: it must end first.',
+      );
+    }
+    if (contested) {
+      throw new Refusal(
+        409,
+        'PaymentPending',
+        'A payment through the provider is contested in one of the groups: it must be decided first.',
       );
     }
     await moveGroup(db, keptId, mergedId);
