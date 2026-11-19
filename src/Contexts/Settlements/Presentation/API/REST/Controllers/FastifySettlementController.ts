@@ -2,6 +2,7 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { Module } from '@Architecture/Application';
 import { acceptCommand } from '@Architecture/Presentation/AcceptCommand';
 import {
+  NetDebtsCommandEvent,
   PayThroughProviderCommandEvent,
   ReceivePaymentWebhookCommandEvent,
   RecordCashSettlementCommandEvent,
@@ -10,6 +11,7 @@ import {
 } from '@Contexts/Settlements/Application/Commands';
 import {
   GetGroupSettlementsQueryHandler,
+  GetNettingQueryHandler,
   GetPayoutAccountQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
@@ -58,6 +60,24 @@ export class FastifySettlementController {
       this.#module,
       PayThroughProviderCommandEvent.set({ groupId: req.params.id, to: req.body.to, amount: req.body.amount }),
     );
+  }
+
+  /** A member nets what they and another member owe each other across their groups, in one currency: answered at once, its outcome read later (request 32). */
+  netDebts(req: FastifyRequest<{ Body: { with: string; currency: string } }>, reply: FastifyReply) {
+    return acceptCommand(
+      req,
+      reply,
+      this.#module,
+      NetDebtsCommandEvent.set({ with: req.body.with, currency: req.body.currency }),
+    );
+  }
+
+  /** One of the two people reads a netting: 404 for anyone else (request 32). */
+  async getNetting(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    const result = await this.#module
+      .getQuery(GetNettingQueryHandler)
+      .handle({ id: req.params.id }, req.executionContext);
+    return result.isFailure() ? refuse(reply, result.error) : result.data;
   }
 
   /** The payee asks the provider to refund a settlement paid through it: answered at once, its outcome read later (request 15). */

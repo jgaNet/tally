@@ -5,7 +5,7 @@ feature: net-across-groups
 intent: >-
   A person nets what they and another owe each other in one currency across the groups they share, at once, as settlements of each group that count at once; all of them or none, and never more than is still owed.
 
-done: false
+done: true
 
 hotSpots:
   - question: What decides a netting, when it spans several SettlementBooks?

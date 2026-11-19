@@ -17,7 +17,7 @@ export interface CountedSettlement {
   payerId: string;
   payeeId: string;
   amount: number;
-  method: 'cash' | 'provider';
+  method: 'cash' | 'provider' | 'net';
   /** When the balances started to count it, an ISO instant. */
   countedFrom: string;
 }

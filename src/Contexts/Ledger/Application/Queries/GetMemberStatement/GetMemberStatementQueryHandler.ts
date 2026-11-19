@@ -48,7 +48,12 @@ export async function readMemberStatement(
       kind: 'settlement',
       settlementId: settlement.settlementId,
       date: new Date(settlement.countedFrom).toISOString().slice(0, 10),
-      description: settlement.method === 'cash' ? 'Settlement in cash' : 'Settlement through the provider',
+      description:
+        settlement.method === 'cash'
+          ? 'Settlement in cash'
+          : settlement.method === 'net'
+            ? 'Settlement by netting'
+            : 'Settlement through the provider',
       paid: payer ? settlement.amount : 0,
       share: payer ? 0 : settlement.amount,
       at: settlement.countedFrom,

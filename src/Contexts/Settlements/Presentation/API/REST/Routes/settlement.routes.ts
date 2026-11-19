@@ -6,9 +6,12 @@ import {
 } from '@Contexts/Settlements/Presentation/API/REST/Controllers/FastifySettlementController';
 import {
   GetGroupSettlementsResSchema,
+  GetNettingResSchema,
   GetPayoutAccountResSchema,
   GetSettlementResSchema,
   GetSuggestedSettlementsResSchema,
+  NetDebtsBodySchema,
+  NetDebtsResSchema,
   PayThroughProviderBodySchema,
   PayThroughProviderResSchema,
   ProviderWebhookResSchema,
@@ -74,6 +77,23 @@ export const settlementRoutes = function (
     '/settlements/:id',
     { schema: { tags: ['settlements'], response: GetSettlementResSchema } },
     controller.getSettlement.bind(controller),
+  );
+
+  fastify.post(
+    '/nettings',
+    {
+      schema: {
+        tags: ['settlements'],
+        body: NetDebtsBodySchema,
+        response: NetDebtsResSchema,
+      },
+    },
+    controller.netDebts.bind(controller),
+  );
+  fastify.get(
+    '/nettings/:id',
+    { schema: { tags: ['settlements'], response: GetNettingResSchema } },
+    controller.getNetting.bind(controller),
   );
 
   fastify.post(

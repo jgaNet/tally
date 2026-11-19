@@ -7,6 +7,15 @@ import { GROUP_STATEMENTS } from '@Contexts/Groups/Infrastructure/groups.schema'
  * connection the transaction holds, as the repositories do (ADR 2, ADR 22). A query of another context reads through
  * `PostgresGroupQueries`, outside any transaction, through `exclusive()`.
  */
+/** The groups two accounts are members of now, the earliest created first (request 32); shared by the two read sides of Groups. */
+export const SHARED_GROUPS_SQL = `
+  SELECT g.id AS "groupId", g.currency AS currency,
+         EXISTS (SELECT 1 FROM group_archives a WHERE a.group_id = g.id) AS archived
+    FROM tally_groups g
+    JOIN group_members m ON m.group_id = g.id AND m.account_id = ? AND m.left_at IS NULL
+    JOIN group_members n ON n.group_id = g.id AND n.account_id = ? AND n.left_at IS NULL
+   ORDER BY g.created_at, g.rowid`;
+
 export class PostgresGroupMembership implements IGroupMembership {
   constructor(private readonly database: PostgresDatabase) {
     database.migrate(GROUP_STATEMENTS);
@@ -36,6 +45,13 @@ export class PostgresGroupMembership implements IGroupMembership {
       'SELECT from_id AS "fromId", to_id AS "toId", amount FROM group_balances_passed WHERE group_id = ? ORDER BY position',
       groupId,
     );
+  }
+
+  async groupsShared(
+    first: string,
+    second: string,
+  ): Promise<{ groupId: string; currency: string; archived: boolean }[]> {
+    return this.database.connection.rows(SHARED_GROUPS_SQL, first, second);
   }
 
   async isArchived(groupId: string): Promise<boolean> {

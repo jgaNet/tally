@@ -11,10 +11,15 @@ import { IGroupBalances } from '@Contexts/Settlements/Domain/Settlement/Ports/IG
 import { IMemberDebts } from '@Contexts/Settlements/Domain/Settlement/Ports/IMemberDebts';
 import {
   GetGroupSettlementsQueryHandler,
+  GetNettingQueryHandler,
   GetSettlementQueryHandler,
   GetSuggestedSettlementsQueryHandler,
 } from '@Contexts/Settlements/Application/Queries';
+import { PostgresNettingRepository } from '@Contexts/Settlements/Infrastructure/PostgresNettingRepository';
+import { PostgresNettingQueries } from '@Contexts/Settlements/Infrastructure/PostgresNettingQueries';
 import {
+  NetDebtsCommandEvent,
+  NetDebtsCommandHandler,
   PayThroughProviderCommandEvent,
   PayThroughProviderCommandHandler,
   ReceivePaymentWebhookCommandEvent,
@@ -107,6 +112,18 @@ export function settlementsModuleWith(
     name: 'Settlements',
     commands: [
       {
+        event: NetDebtsCommandEvent,
+        handlers: [
+          new NetDebtsCommandHandler(
+            new PostgresSettlementBookRepository(database),
+            balancesInCommand,
+            new GroupsSettlementMembers(groupMembershipInCommand),
+            new PostgresNettingRepository(database),
+            systemClock,
+          ),
+        ],
+      },
+      {
         event: RecordCashSettlementCommandEvent,
         handlers: [
           new RecordCashSettlementCommandHandler(
@@ -170,6 +187,7 @@ export function settlementsModuleWith(
         new GroupsSettlementMembers(groupMembership),
       ),
       new GetPayoutAccountQueryHandler(new PostgresPayoutAccountQueries(database)),
+      new GetNettingQueryHandler(new PostgresNettingQueries(database)),
     ],
   });
 }

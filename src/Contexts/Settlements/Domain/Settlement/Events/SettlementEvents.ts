@@ -1,12 +1,16 @@
 import { DomainEvent } from '@Architecture/Domain';
 
-/** A settlement in cash was recorded: its id, its group, who paid whom, the amount, and when it was recorded. */
+/**
+ * A settlement was recorded as paid: in cash, or by a netting (method `net`, request 32): its id, its group, who paid whom, the
+ * amount, how it was made, and when it was recorded.
+ */
 export class SettlementRecordedEvent extends DomainEvent<{
   settlementId: string;
   groupId: string;
   payer: string;
   payee: string;
   amount: number;
+  method: 'cash' | 'net';
   recordedAt: string;
 }> {}
 

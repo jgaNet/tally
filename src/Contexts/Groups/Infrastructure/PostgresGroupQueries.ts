@@ -4,6 +4,7 @@ import { IGroupMembership } from '@Contexts/Groups/Domain/Group/Ports/IGroupMemb
 import { GroupReadModel } from '@Contexts/Groups/Application/ReadModel/GroupReadModel';
 import { MemberReadModel } from '@Contexts/Groups/Application/ReadModel/MemberReadModel';
 import { GROUP_STATEMENTS } from '@Contexts/Groups/Infrastructure/groups.schema';
+import { SHARED_GROUPS_SQL } from '@Contexts/Groups/Infrastructure/PostgresGroupMembership';
 
 const READ_MODEL =
   'SELECT g.id, g.name, g.currency, g.owner_id AS "ownerId", a.archived_at AS "archivedAt" FROM tally_groups g LEFT JOIN group_archives a ON a.group_id = g.id';
@@ -75,6 +76,13 @@ export class PostgresGroupQueries implements IGroupQueries, IGroupMembership {
       ...row,
       amount: Number(row.amount),
     }));
+  }
+
+  async groupsShared(
+    first: string,
+    second: string,
+  ): Promise<{ groupId: string; currency: string; archived: boolean }[]> {
+    return this.database.exclusive(connection => connection.rows(SHARED_GROUPS_SQL, first, second));
   }
 
   async isArchived(groupId: string): Promise<boolean> {

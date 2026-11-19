@@ -1,5 +1,5 @@
 import { IGroupMembership } from '@Contexts/Groups/Domain/Group/Ports/IGroupMembership';
-import { ISettlementMembers } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementMembers';
+import { ISettlementMembers, SharedGroup } from '@Contexts/Settlements/Domain/Settlement/Ports/ISettlementMembers';
 
 /**
  * Settlements' SettlementMembers, answered over Groups' read side (ADR 3, ADR 5): the current members Groups lists, in the
@@ -14,5 +14,9 @@ export class GroupsSettlementMembers implements ISettlementMembers {
 
   isArchived(groupId: string): Promise<boolean> {
     return this.groups.isArchived(groupId);
+  }
+
+  sharedGroups(first: string, second: string): Promise<SharedGroup[]> {
+    return this.groups.groupsShared(first, second);
   }
 }

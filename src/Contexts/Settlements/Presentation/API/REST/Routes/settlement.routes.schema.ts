@@ -110,7 +110,7 @@ const SettlementSchema = {
     from: { type: 'string' },
     to: { type: 'string' },
     amount: { type: 'integer', minimum: 1 },
-    method: { enum: ['cash', 'provider'] },
+    method: { enum: ['cash', 'provider', 'net'] },
     status: { enum: ['pending', 'paid', 'failed', 'refunding', 'refunded'] },
     at: { type: 'string' },
     history: { type: 'array', minItems: 1, items: SettlementStatusLineSchema },
@@ -134,6 +134,42 @@ export const GetSettlementResSchema = {
 /** The settlements of a group, the most recently recorded first, as a member of the group reads them (request 19). */
 export const GetGroupSettlementsResSchema = {
   200: { type: 'array', items: SettlementSchema },
+  401: RefusedSchema,
+  404: RefusedSchema,
+} as const;
+
+/** The body of a netting: the other member's account id and the currency. Whether the currency is Tally's is the domain's (request 32). */
+export const NetDebtsBodySchema = {
+  type: 'object',
+  required: ['with', 'currency'],
+  properties: {
+    with: { type: 'string' },
+    currency: { type: 'string' },
+  },
+} as const;
+
+export const NetDebtsResSchema = {
+  202: { type: 'object', properties: { operationId: { type: 'string' } } },
+  400: RefusedSchema,
+  401: RefusedSchema,
+} as const;
+
+/** A netting as the two people read it: who asked, with whom, its currency, the amount netted, and its settlements in order (request 32). */
+const NettingSchema = {
+  type: 'object',
+  required: ['id', 'by', 'with', 'currency', 'amount', 'settlements'],
+  properties: {
+    id: { type: 'string' },
+    by: { type: 'string' },
+    with: { type: 'string' },
+    currency: { type: 'string', pattern: '^[A-Z]{3}$' },
+    amount: { type: 'integer', minimum: 1 },
+    settlements: { type: 'array', minItems: 2, items: { type: 'string' } },
+  },
+} as const;
+
+export const GetNettingResSchema = {
+  200: NettingSchema,
   401: RefusedSchema,
   404: RefusedSchema,
 } as const;

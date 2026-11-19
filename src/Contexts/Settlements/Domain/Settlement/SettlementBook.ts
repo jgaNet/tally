@@ -12,6 +12,7 @@ import {
 import {
   CashSettlementNotRefundable,
   InvalidSettlementAmount,
+  NettedSettlementNotRefundable,
   NotThePayee,
   PayeeHasNoPayoutAccount,
   PayeeNotAMember,
@@ -21,7 +22,8 @@ import {
   SettlementNotPaid,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
 
-export type SettlementMethod = 'cash' | 'provider';
+/** How a settlement is paid: in cash, through the provider, or netted with the others of a netting (request 32). */
+export type SettlementMethod = 'cash' | 'provider' | 'net';
 /** A settlement is pending until the provider says how its payment ended; a paid one may be refunded, and then refunding and refunded (ADR 9). */
 export type SettlementStatus = 'pending' | 'paid' | 'failed' | 'refunding' | 'refunded';
 
@@ -118,29 +120,60 @@ export class SettlementBook extends AggregateRoot {
     ...decision
   }: SettlementDecision & { at: Date; groupArchived: boolean }): IResult<Settlement> {
     if (groupArchived) return Result.fail(new GroupArchived());
-    const refusal = this.#refusal(decision);
-    if (refusal) return Result.fail(refusal);
-    const settlement = this.#keep({
-      id: Id.generate(),
-      groupId: this._id,
-      payer: decision.payer,
-      payee: decision.payee,
-      amount: decision.amount,
-      method: 'cash',
-      status: 'paid',
-      at,
-    });
+    const settlement = this.#keepSettled('cash', decision, at);
+    if (settlement.isFailure()) return settlement;
     this.record(
       SettlementRecordedEvent.set({
-        settlementId: settlement.id.value,
+        settlementId: settlement.data.id.value,
         groupId: this._id.value,
-        payer: settlement.payer.value,
-        payee: settlement.payee.value,
-        amount: settlement.amount,
+        payer: settlement.data.payer.value,
+        payee: settlement.data.payee.value,
+        amount: settlement.data.amount,
+        method: 'cash',
         recordedAt: at.toISOString(),
       }),
     );
-    return Result.ok(settlement);
+    return settlement;
+  }
+
+  /**
+   * A settlement a netting makes, decided now with the others of the netting (request 32): recorded as paid, by method `net`,
+   * and SettlementRecorded. The netting decides the amounts (NetDebts) on the balances it read in this transaction; the book
+   * checks each settlement on them as any other.
+   */
+  recordNet({ at, ...decision }: SettlementDecision & { at: Date }): IResult<Settlement> {
+    const settlement = this.#keepSettled('net', decision, at);
+    if (settlement.isFailure()) return settlement;
+    this.record(
+      SettlementRecordedEvent.set({
+        settlementId: settlement.data.id.value,
+        groupId: this._id.value,
+        payer: settlement.data.payer.value,
+        payee: settlement.data.payee.value,
+        amount: settlement.data.amount,
+        method: 'net',
+        recordedAt: at.toISOString(),
+      }),
+    );
+    return settlement;
+  }
+
+  /** The rules of a settlement that is paid now, by its method, on the balances given; kept when they hold (nothing is recorded). */
+  #keepSettled(method: 'cash' | 'net', decision: SettlementDecision, at: Date): IResult<Settlement> {
+    const refusal = this.#refusal(decision);
+    if (refusal) return Result.fail(refusal);
+    return Result.ok(
+      this.#keep({
+        id: Id.generate(),
+        groupId: this._id,
+        payer: decision.payer,
+        payee: decision.payee,
+        amount: decision.amount,
+        method,
+        status: 'paid',
+        at,
+      }),
+    );
   }
 
   /**
@@ -217,6 +250,7 @@ export class SettlementBook extends AggregateRoot {
       return Result.fail(new NotFoundException('Settlements', 'Settlement not found'));
     }
     if (!settlement.payee.equals(caller)) return Result.fail(new NotThePayee());
+    if (settlement.method === 'net') return Result.fail(new NettedSettlementNotRefundable());
     if (settlement.method !== 'provider') return Result.fail(new CashSettlementNotRefundable());
     if (settlement.status !== 'paid') return Result.fail(new SettlementNotPaid());
     if (!members.includes(settlement.payer.value)) return Result.fail(new PayerNotAMember());
@@ -309,15 +343,18 @@ export class SettlementBook extends AggregateRoot {
     if (!members.includes(payer.value)) return new PayerNotAMember();
     if (!members.includes(payee.value)) return new PayeeNotAMember();
 
-    const owing = this.#stillOwing(balances);
+    const owing = this.stillOwing(balances);
     const owedByPayer = Math.max(0, -(owing.get(payer.value) ?? 0));
     const owedToPayee = Math.max(0, owing.get(payee.value) ?? 0);
     if (amount > owedByPayer || amount > owedToPayee) return new SettlementExceedsDebt();
     return undefined;
   }
 
-  /** The balances as if every payment waiting at the provider were paid: what is still owed (ADR 8). */
-  #stillOwing(balances: ReadonlyMap<string, number>): Map<string, number> {
+  /**
+   * The balances as if every payment waiting at the provider were paid: what is still owed (ADR 8). A netting reads what each
+   * member still owes and is owed in each group through it (NetDebts, request 32).
+   */
+  stillOwing(balances: ReadonlyMap<string, number>): Map<string, number> {
     const owing = new Map(balances);
     for (const settlement of this.#settlements) {
       if (settlement.status !== 'pending') continue;

@@ -51,6 +51,13 @@ export class CashSettlementNotRefundable extends SettlementException {
   }
 }
 
+/** A settlement a netting made is not refunded through Tally: nothing moved through it (request 32). */
+export class NettedSettlementNotRefundable extends SettlementException {
+  constructor() {
+    super('NettedSettlementNotRefundable', 'A settlement made by netting is not refunded through Tally');
+  }
+}
+
 /** Only a settlement that is paid, and not yet refunding or refunded, is refunded (request 15). */
 export class SettlementNotPaid extends SettlementException {
   constructor() {

@@ -29,7 +29,7 @@ export const SETTLEMENT_STATEMENTS = [
      payer_id TEXT NOT NULL,
      payee_id TEXT NOT NULL,
      amount BIGINT NOT NULL,
-     method TEXT NOT NULL CHECK (method IN ('cash', 'provider')),
+     method TEXT NOT NULL CHECK (method IN ('cash', 'provider', 'net')),
      status TEXT NOT NULL CHECK (status IN ('pending', 'paid', 'failed', 'refunding', 'refunded')),
      recorded_at TEXT NOT NULL,
      provider_payment_id TEXT,
@@ -55,6 +55,33 @@ export const SETTLEMENT_STATEMENTS = [
   // that the next status learned (a webhook after the move) is written after them. It only ever moves forward.
   advancePast('settlement_history', 'id'),
   advancePast('settlements', 'rowid'),
+  // A table an earlier version made keeps its CHECK on the method: a settlement made by a netting (request 32) is the value it
+  // adds, so the CHECK is widened when it does not hold it yet.
+  `DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'settlements_method_check'
+                AND pg_get_constraintdef(oid) NOT LIKE '%''net''%') THEN
+       ALTER TABLE settlements DROP CONSTRAINT settlements_method_check;
+       ALTER TABLE settlements ADD CONSTRAINT settlements_method_check CHECK (method IN ('cash', 'provider', 'net'));
+     END IF;
+   END
+   $$`,
+  // A netting (request 32, ADR 23): who asked, with whom, the currency, the amount, and the settlements it made, in the order made.
+  // A settlement is netted once, so its id is unique in `netting_settlements`.
+  `CREATE TABLE IF NOT EXISTS nettings (
+     id TEXT PRIMARY KEY,
+     by_id TEXT NOT NULL,
+     with_id TEXT NOT NULL,
+     currency TEXT NOT NULL,
+     amount BIGINT NOT NULL,
+     netted_at TEXT NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS netting_settlements (
+     netting_id TEXT NOT NULL,
+     position BIGINT NOT NULL,
+     settlement_id TEXT NOT NULL UNIQUE,
+     PRIMARY KEY (netting_id, position)
+   )`,
   // A person's payout account at the provider (request 16, ADR 10): one row per person, replaced when they set another.
   `CREATE TABLE IF NOT EXISTS payout_accounts (
      id TEXT PRIMARY KEY,
