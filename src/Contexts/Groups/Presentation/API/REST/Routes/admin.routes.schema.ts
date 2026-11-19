@@ -11,7 +11,7 @@ const AdministratorLogEntrySchema = {
   },
 } as const;
 
-/** The administrators' log, the oldest first; 401 for a caller not signed in, 403 for one who is not an administrator. */
+/** The administrators' log, the oldest first; 401 for a caller not signed in, 404 for one who is not an administrator. */
 export const GetAdministratorsLogResSchema = {
   200: { type: 'array', items: AdministratorLogEntrySchema },
 } as const;

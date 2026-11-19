@@ -153,11 +153,11 @@ export const GetSettlementResSchema = {
   404: RefusedSchema,
 } as const;
 
-/** The settlements contested now, the earliest contested first; 401 for a caller not signed in, 403 for one who is not an administrator (request 33). */
+/** The settlements contested now, the earliest contested first; 401 for a caller not signed in, 404 for one who is not an administrator (request 33). */
 export const GetContestsResSchema = {
   200: { type: 'array', items: SettlementSchema },
   401: RefusedSchema,
-  403: RefusedSchema,
+  404: RefusedSchema,
 } as const;
 
 /** The settlements of a group, the most recently recorded first, as a member of the group reads them (request 19). */

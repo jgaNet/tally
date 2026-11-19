@@ -11,7 +11,7 @@ export class FastifyAdminController {
     this.#module = module;
   }
 
-  /** An administrator reads the administrators' log: 401 to a caller not signed in, 403 to one who is not an administrator (request 33). */
+  /** An administrator reads the administrators' log: 401 to a caller not signed in, 404 to one who is not an administrator (request 33). */
   async getAdministratorsLog(req: FastifyRequest, reply: FastifyReply) {
     const result = await this.#module
       .getQuery(GetAdministratorsLogQueryHandler)

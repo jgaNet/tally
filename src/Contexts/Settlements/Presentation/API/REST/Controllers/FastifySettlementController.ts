@@ -103,7 +103,7 @@ export class FastifySettlementController {
     );
   }
 
-  /** An administrator lists the settlements contested now, the earliest contested first: 401 or 403 to anyone else (request 33). */
+  /** An administrator lists the settlements contested now, the earliest contested first: 401 to a caller not signed in, 404 to anyone else (request 33). */
   async getContests(req: FastifyRequest, reply: FastifyReply) {
     const result = await this.#module.getQuery(GetContestsQueryHandler).handle(undefined, req.executionContext);
     return result.isFailure() ? refuse(reply, result.error, req.executionContext) : result.data;

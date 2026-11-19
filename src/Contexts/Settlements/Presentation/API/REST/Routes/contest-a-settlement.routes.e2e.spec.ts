@@ -255,9 +255,10 @@ describe('Settlements: a settlement paid through the provider is contested by it
     const refusedAgain = await outcome((again.body as Body).operationId as string, ann.token);
     expect((refusedAgain.body.error as { type: string }).type).toBe('SettlementAlreadyContested');
 
-    expect((await http.get(`${api}/admin/contests`, { token: ann.token })).status).toBe(403);
+    expect((await http.get(`${api}/admin/contests`, { token: ann.token })).status).toBe(404);
     expect((await http.get(`${api}/admin/contests`)).status).toBe(401);
-    expect((await http.get(`${api}/admin/log`, { token: ann.token })).status).toBe(403);
+    expect((await http.get(`${api}/admin/log`, { token: ann.token })).status).toBe(404);
+    expect((await http.get(`${api}/admin/log`)).status).toBe(401);
 
     const asPayee = await http.request('POST', `${api}/admin/settlements/${id}/decision`, {
       body: { paid: true },
