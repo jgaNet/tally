@@ -22,6 +22,7 @@ import { PostgresPayoutAccounts } from '@Contexts/Settlements/Infrastructure/Pos
 import { GroupBalancesOfLedger } from '@Contexts/Settlements/Infrastructure/GroupBalancesOfLedger';
 import { HmacWebhookSignature } from '@Contexts/Settlements/Infrastructure/HmacWebhookSignature';
 import { HttpPaymentProvider } from '@Contexts/Settlements/Infrastructure/HttpPaymentProvider';
+import { HttpSettlementRates } from '@Contexts/Settlements/Infrastructure/HttpSettlementRates';
 import { SettlementMembersOfGroups } from '@Contexts/Settlements/Infrastructure/SettlementMembersOfGroups';
 import { PostgresSettlementBooks } from '@Contexts/Settlements/Infrastructure/PostgresSettlementBooks';
 import { PostgresSettlementQueries } from '@Contexts/Settlements/Infrastructure/PostgresSettlementQueries';
@@ -47,13 +48,15 @@ const payouts = new PostgresPayoutAccounts(sharedDatabase);
 const payoutQueries = new PostgresPayoutAccountQueries(sharedDatabase);
 // The provider and its webhook's key are the environment's: read when they are used, not when the module loads (request 13).
 const provider = new HttpPaymentProvider();
+// The rates service is the environment's too: read when it is asked (request 39, docs/adr/0038).
+const rates = new HttpSettlementRates();
 const signatures = new HmacWebhookSignature();
 
 export const localSettlementsModule = new LiteModule({
   name: 'Settlements',
   useCases: [
-    recordCashSettlement(books, balances, members, systemClock),
-    payThroughProvider(books, balances, members, payouts, provider, systemClock),
+    recordCashSettlement(books, balances, members, rates, systemClock),
+    payThroughProvider(books, balances, members, payouts, provider, rates, systemClock),
     receivePaymentWebhook(books, signatures, systemClock),
     refundSettlement(books, members, provider, systemClock),
     getSettlement(settlements, members),

@@ -15,6 +15,25 @@ import { contestSettlement, decideContest, getContests } from '@Contexts/Settlem
 import { getFeePolicy, setFeePolicy } from '@Contexts/Settlements/Application/FeePolicies';
 
 /**
+ * A settlement's body (requests 12, 13, 39): its counterpart, and exactly one of its `amount` in the group's currency or its `original`, what is
+ * paid in another currency. Both or neither is the wrong shape (`400`); whether the values are allowed is the domain's (API-BODY-SHAPE).
+ */
+const amountBody = (counterpart: 'from' | 'to') => ({
+  type: 'object',
+  required: [counterpart],
+  properties: {
+    [counterpart]: { type: 'string' },
+    amount: { type: 'integer' },
+    original: {
+      type: 'object',
+      required: ['currency', 'amount'],
+      properties: { currency: { type: 'string' }, amount: { type: 'integer' } },
+    },
+  },
+  oneOf: [{ required: ['amount'] }, { required: ['original'] }],
+});
+
+/**
  * The settlements' routes, at the API's root with their full path (docs/adr/0003): each answers its use case at once. A body says
  * its shape only (API-BODY-SHAPE): whether an amount is allowed is the domain's to refuse, as a `422`.
  */
@@ -25,16 +44,15 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
     (req, reply) => answerAtOnce(req, reply, module.useCase(getSuggestedSettlements), { groupId: req.params.id }),
   );
 
-  fastify.post<{ Params: { id: string }; Body: { from: string; amount: number } }>(
+  fastify.post<{
+    Params: { id: string };
+    Body: { from: string; amount?: number; original?: { currency: string; amount: number } };
+  }>(
     '/groups/:id/settlements/cash',
     {
       schema: {
         tags: ['settlements'],
-        body: {
-          type: 'object',
-          required: ['from', 'amount'],
-          properties: { from: { type: 'string' }, amount: { type: 'integer' } },
-        },
+        body: amountBody('from'),
       },
     },
     (req, reply) =>
@@ -42,21 +60,20 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
         req,
         reply,
         module.useCase(recordCashSettlement),
-        { groupId: req.params.id, from: req.body.from, amount: req.body.amount },
+        { groupId: req.params.id, from: req.body.from, amount: req.body.amount, original: req.body.original },
         { created: true },
       ),
   );
 
-  fastify.post<{ Params: { id: string }; Body: { to: string; amount: number } }>(
+  fastify.post<{
+    Params: { id: string };
+    Body: { to: string; amount?: number; original?: { currency: string; amount: number } };
+  }>(
     '/groups/:id/settlements/provider',
     {
       schema: {
         tags: ['settlements'],
-        body: {
-          type: 'object',
-          required: ['to', 'amount'],
-          properties: { to: { type: 'string' }, amount: { type: 'integer' } },
-        },
+        body: amountBody('to'),
       },
     },
     (req, reply) =>
@@ -64,7 +81,7 @@ export const settlementRoutes: FastifyPluginCallback<{ module: LiteModule }> = (
         req,
         reply,
         module.useCase(payThroughProvider),
-        { groupId: req.params.id, to: req.body.to, amount: req.body.amount },
+        { groupId: req.params.id, to: req.body.to, amount: req.body.amount, original: req.body.original },
         { created: true },
       ),
   );

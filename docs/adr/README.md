@@ -42,6 +42,7 @@ why, what it costs, and when to revisit it.
 | [35](0035-a-deleted-account-is-erased-by-groups-and-stays-a-member.md) | A deleted account is decided by Groups and erased where it is named, and stays a member where its balance is |
 | [36](0036-a-person-turns-each-kind-of-notice-on-or-off-and-the-preference-is-read-when-a-notice-is-made.md) | A person turns each kind of notice on or off, kept by Notifications and read when a notice would be made |
 | [37](0037-the-owner-decides-who-bears-the-provider-fee-and-a-settlement-keeps-the-fee-it-was-asked-with.md) | The owner decides who bears the provider's fee, and a settlement keeps the fee it was asked with |
+| [38](0038-a-settlement-in-another-currency-takes-the-rate-offered-when-it-is-decided.md) | A settlement in another currency takes the rate offered when it is decided, and keeps it |
 
 The decisions behind the building blocks themselves are recorded in the reference:
 https://github.com/jgaNet/clean-ddd/tree/main/docs/adr — copy the shape of one, number it, and link

@@ -8,12 +8,19 @@ import { IGroupBalances } from '@Contexts/Settlements/Domain/Suggestion/Ports/IG
 import { ISettlementMembers } from '@Contexts/Settlements/Domain/Suggestion/Ports/ISettlementMembers';
 import { IPaymentProvider } from '@Contexts/Settlements/Application/Ports/IPaymentProvider';
 import { IWebhookSignature } from '@Contexts/Settlements/Application/Ports/IWebhookSignature';
+import { ISettlementRates } from '@Contexts/Settlements/Application/Ports/ISettlementRates';
+import { offeredRateOf } from '@Contexts/Settlements/Application/OfferedRateOf';
+import { OriginalPaymentInput } from '@Contexts/Settlements/Domain/Settlement/OriginalPayment';
 
-/** What a member gives to pay through the provider: the group, the payee (`to`, an account id) and the amount (request 13). */
+/**
+ * What a member gives to pay through the provider: the group, the payee (`to`, an account id) and either its `amount` in the group's currency
+ * (request 13) or its `original`, what is paid in another currency (request 39): exactly one of the two.
+ */
 export interface PayThroughProviderInput {
   groupId: string;
   to: string;
-  amount: number;
+  amount?: number;
+  original?: OriginalPaymentInput;
 }
 
 /**
@@ -33,9 +40,10 @@ export const payThroughProvider = command(
     members: ISettlementMembers,
     payouts: IPayoutAccounts,
     provider: IPaymentProvider,
+    rates: ISettlementRates,
     clock: Clock,
   ) =>
-    async ({ groupId, to, amount }: PayThroughProviderInput, context) => {
+    async ({ groupId, to, amount, original }: PayThroughProviderInput, context) => {
       const by = callerOf(context);
       const group = await members.groupOf(by, groupId);
       if (!group) return Result.fail(new NotFoundException('Settlements', 'There is no such group'));
@@ -47,25 +55,30 @@ export const payThroughProvider = command(
       const balanceOf = (memberId: string) => owed.find(balance => balance.memberId === memberId)?.balance ?? 0;
 
       const payee = await payouts.get(to);
+      const at = clock();
       const request = {
         by,
         to,
         amount,
+        original,
+        groupCurrency: group.currency,
+        offered: await offeredRateOf({ rates, original, groupCurrency: group.currency, at }),
         members: group.members.map(member => member.memberId),
         balances: { payer: balanceOf(by), payee: balanceOf(to) },
         payoutAccount: payee.providerAccountId,
         archived: group.archived,
         suspended,
         payeeDeleted,
-        at: clock(),
+        at,
       };
       const reserved = book.reserveProviderPayment(request);
       if (reserved.isFailure()) return reserved;
 
+      // The provider is asked for what is paid, in its currency: the original's when the settlement is in another currency (request 39).
       const link = await provider.requestPayment({
         reference: reserved.data.settlementId,
-        amount,
-        currency: group.currency,
+        amount: reserved.data.payment.amount,
+        currency: reserved.data.payment.currency,
         payee: reserved.data.payee,
       });
       if (link.isFailure()) return link;

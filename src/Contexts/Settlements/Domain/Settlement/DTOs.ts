@@ -30,6 +30,8 @@ export interface SettlementView {
   at: string;
   payUrl?: string;
   fee?: SettlementFee;
+  /** What was paid in another currency, with the rate it was decided at (request 39): absent for one in the group's currency. */
+  original?: { currency: string; amount: number; rate: string };
 }
 
 /** One status a settlement has had, and when Tally learned it (request 19). */

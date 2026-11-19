@@ -126,3 +126,50 @@ export class SettlementNotContestedException extends Exception {
     });
   }
 }
+
+/** What is paid is in a currency that is not one of Tally's (request 39): a value the domain does not allow, `422`. */
+export class UnknownOriginalCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'UnknownCurrency',
+      message: 'A settlement is paid in one of the currencies of Tally',
+    });
+  }
+}
+
+/** What is paid is in the group's own currency, which is not another one (request 39): a settlement in it is given as its `amount`, `422`. */
+export class OriginalCurrencyIsGroupCurrencyException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'OriginalCurrencyIsGroupCurrency',
+      message: 'A settlement paid in the currency of the group is given in its amount, not in another currency',
+    });
+  }
+}
+
+/** The amount paid in another currency is not a whole number of 1 to 100 000 000 hundredths (request 39), `422`. */
+export class InvalidOriginalAmountException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'InvalidOriginalAmount',
+      message: 'A settlement paid in another currency is a whole amount of 1 to 100 000 000 in that currency',
+    });
+  }
+}
+
+/**
+ * The rates service offers no rate for the settlement's currency and the group's on the day it is decided, or none that can be used
+ * (request 39): nothing is kept and the provider is not asked, `422`.
+ */
+export class NoRateOfferedException extends Exception {
+  constructor() {
+    super({
+      service: 'Settlements',
+      type: 'NoRateOffered',
+      message: 'There is no rate offered for this settlement on the day it is decided',
+    });
+  }
+}

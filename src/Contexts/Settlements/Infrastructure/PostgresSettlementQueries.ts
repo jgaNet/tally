@@ -63,7 +63,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
   async findSettlement(settlementId: string): Promise<SettlementWithHistory | undefined> {
     return this.database.exclusive(async () => {
       const row = await this.database.get<SettlementRow>(
-        'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, fee_amount, fee_borne_by FROM settlements WHERE id = ?',
+        'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, fee_amount, fee_borne_by, original_currency, original_amount, original_rate FROM settlements WHERE id = ?',
         [settlementId],
       );
       if (!row) return undefined;
@@ -82,7 +82,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
   async listSettlementsOf(groupId: string): Promise<SettlementWithHistory[]> {
     return this.database.exclusive(async () => {
       const rows = await this.database.all<SettlementRow>(
-        'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, fee_amount, fee_borne_by FROM settlements WHERE group_id = ? ORDER BY recorded_at COLLATE "C" DESC, seq DESC',
+        'SELECT id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, fee_amount, fee_borne_by, original_currency, original_amount, original_rate FROM settlements WHERE group_id = ? ORDER BY recorded_at COLLATE "C" DESC, seq DESC',
         [groupId],
       );
       const lines = await this.database.all<HistoryRow>(
@@ -170,7 +170,7 @@ export class PostgresSettlementQueries implements ISettlementQueries {
   async contestedSettlements(): Promise<SettlementWithHistory[]> {
     return this.database.exclusive(async () => {
       const rows = await this.database.all<SettlementRow>(
-        `SELECT s.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.recorded_at, s.pay_url, s.fee_amount, s.fee_borne_by FROM settlements s
+        `SELECT s.id, s.group_id, s.payer_id, s.payee_id, s.amount, s.method, s.status, s.recorded_at, s.pay_url, s.fee_amount, s.fee_borne_by, s.original_currency, s.original_amount, s.original_rate FROM settlements s
            WHERE s.status = 'contested'
            ORDER BY (SELECT MIN(l.learned_at COLLATE "C") FROM settlement_statuses l WHERE l.settlement_id = s.id AND l.status = 'contested') COLLATE "C", s.seq`,
         [],

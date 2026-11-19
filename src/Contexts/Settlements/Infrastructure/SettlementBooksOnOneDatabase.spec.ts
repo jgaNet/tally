@@ -86,6 +86,7 @@ async function recordPending(database: PostgresDatabase): Promise<void> {
       suspended: false,
       payeeDeleted: false,
       by: PAYER,
+      groupCurrency: 'EUR',
       to: PAYEE,
       amount: 50,
       members: [PAYER, PAYEE],

@@ -6,6 +6,7 @@ const book = (version = 0) => SettlementBook.fromSnapshot({ groupId: 'group-1', 
 /** Ann (the payee) records 30 paid by Bob (the payer): Bob owes 30, Ann is owed 30, and both are members. */
 const cash = (overrides: Partial<Parameters<SettlementBook['recordCash']>[0]> = {}) => ({
   by: 'ann',
+  groupCurrency: 'EUR',
   from: 'bob',
   amount: 30,
   members: ['ann', 'bob', 'cy'],
@@ -120,6 +121,7 @@ describe('an archived group takes no settlement (request 27)', () => {
     expect(empty.recordCash(cash({ archived: true })).error?.type).toBe('GroupArchived');
     const payment = {
       by: 'bob',
+      groupCurrency: 'EUR',
       to: 'ann',
       amount: 30,
       members: ['ann', 'bob', 'cy'],

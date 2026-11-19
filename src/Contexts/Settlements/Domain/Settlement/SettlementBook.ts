@@ -25,6 +25,11 @@ import {
   SettlementNotRefundableException,
   SettlementToSelfException,
 } from '@Contexts/Settlements/Domain/Settlement/SettlementExceptions';
+import {
+  OfferedRate,
+  OriginalPayment,
+  OriginalPaymentInput,
+} from '@Contexts/Settlements/Domain/Settlement/OriginalPayment';
 import { stillBalance, Waiting } from '@Contexts/Settlements/Domain/Settlement/StillOwed';
 import {
   DEFAULT_FEE_BORNE,
@@ -43,11 +48,23 @@ export interface SetFeePolicyCommand {
   archived: boolean;
 }
 
+/**
+ * How much a settlement is for (request 39): its `amount` in the group's currency, or its `original`, what is paid in another currency, which
+ * is converted at `offered`, the rate the rates service offers for it on the day it is decided. Exactly one of the two is given.
+ */
+export interface SettlementAmountInput {
+  amount?: number;
+  original?: OriginalPaymentInput;
+  /** The group's currency, which `original` is converted to. */
+  groupCurrency: string;
+  /** The rate offered for `original`'s currency to the group's on the day, asked before the book decides; `none` when nothing was offered. */
+  offered?: OfferedRate;
+}
+
 /** What a member asks to record: the payee (`by`), the payer (`from`) and the amount, and what the decision reads of the group. */
-export interface RecordCashSettlementCommand {
+export interface RecordCashSettlementCommand extends SettlementAmountInput {
   by: string;
   from: string;
-  amount: number;
   /** The members of the group, as Groups lists them now: the payer must be one of them. */
   members: string[];
   /** The payer's and the payee's balances, as Ledger counts them now (settlements paid included): what each is owed, or owes. */
@@ -63,10 +80,9 @@ export interface RecordCashSettlementCommand {
  * What a member asks to pay through the provider: the payer is the caller (`by`), the payee `to`; the rest as for a cash one, and the payee's
  * payout account as its PayoutAccount reads it now: `undefined` when the payee has none (request 16).
  */
-export interface RequestProviderPaymentCommand {
+export interface RequestProviderPaymentCommand extends SettlementAmountInput {
   by: string;
   to: string;
-  amount: number;
   members: string[];
   balances: { payer: number; payee: number };
   payoutAccount: string | undefined;
@@ -79,10 +95,15 @@ export interface RequestProviderPaymentCommand {
   at: Date;
 }
 
-/** A settlement the provider is asked to pay: its id, which is the reference the provider is given, and the payee's payout account (request 16). */
+/**
+ * A settlement the provider is asked to pay: its id, which is the reference the provider is given, and the payee's payout account (request 16),
+ * and what the provider is asked to pay: the amount and the currency of the payment, the original's when the settlement is in another
+ * currency (request 39), the group's otherwise.
+ */
 export interface ProviderReservation {
   settlementId: string;
   payee: string;
+  payment: { amount: number; currency: string };
 }
 
 /** What a payee asks to refund: the caller (`by`), the settlement, and the members of the group as Groups lists them now. */
@@ -136,6 +157,10 @@ export type NewSettlement = SettlementView & { providerPaymentId?: string; settl
 
 /** What a settlement held by the book settles: its amount less the payer's part of the fee, or its amount for one from before request 38. */
 const settledOfHeld = (held: { amount: number; settled?: number }): number => held.settled ?? held.amount;
+
+/** What a settlement keeps of what it was paid in, when that was another currency (request 39): nothing for one in the group's currency. */
+const originalOf = (original?: OriginalPayment): { original?: SettlementView['original'] } =>
+  original ? { original: original.toSnapshot() } : {};
 
 /**
  * A settlement whose status the book moves: a pending one the provider ended (`paid`, `failed`, or `refunded` when the refund overtook the
@@ -356,16 +381,11 @@ export class SettlementBook extends AggregateRoot {
     return this.#paid;
   }
 
-  recordCash({
-    by,
-    from,
-    amount,
-    members,
-    balances,
-    archived,
-    suspended,
-    at,
-  }: RecordCashSettlementCommand): IResult<SettlementView> {
+  recordCash(command: RecordCashSettlementCommand): IResult<SettlementView> {
+    const { by, from, members, balances, archived, suspended, at } = command;
+    const paid = this.#amountOf(command);
+    if (paid.isFailure()) return paid;
+    const { amount, original } = paid.data;
     const decided = this.#decide({ from, to: by, amount, members, balances, archived, suspended });
     if (decided.isFailure()) return decided;
 
@@ -379,6 +399,7 @@ export class SettlementBook extends AggregateRoot {
       status: 'paid',
       at: at.toISOString(),
       settled: amount,
+      ...originalOf(original),
     };
     this.#recorded.push(settlement);
     this.#audited.push({
@@ -460,9 +481,13 @@ export class SettlementBook extends AggregateRoot {
    * the provider pays. Records nothing. A payee with no payout account is refused (`PayeeHasNoPayoutAccount`), before the provider is asked.
    */
   reserveProviderPayment(command: RequestProviderPaymentCommand): IResult<ProviderReservation> {
-    const payee = this.#decideProvider(command);
-    if (payee.isFailure()) return payee;
-    return Result.ok({ settlementId: Id.generate().value, payee: payee.data });
+    const decided = this.#decideProvider(command);
+    if (decided.isFailure()) return decided;
+    const { amount, original, payee } = decided.data;
+    const payment = original
+      ? { amount: original.amount, currency: original.currency }
+      : { amount, currency: command.groupCurrency };
+    return Result.ok({ settlementId: Id.generate().value, payee, payment });
   }
 
   /**
@@ -473,12 +498,18 @@ export class SettlementBook extends AggregateRoot {
   recordProviderPayment(command: RequestProviderPaymentCommand, link: ProviderPaymentLink): IResult<SettlementView> {
     const decided = this.#decideProvider(command);
     if (decided.isFailure()) return decided;
-    const { by, to, amount, at } = command;
-    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= amount) {
+    const { by, to, at } = command;
+    const { amount, original } = decided.data;
+    // The provider's fee is in the payment's currency, and less than the payment in it (request 38); it is converted at the settlement's rate,
+    // as its amount is (request 39), and is refused when that is not less than the settlement's amount in the group's currency.
+    const paid = original?.amount ?? amount;
+    if (!Number.isInteger(link.fee) || link.fee < 0 || link.fee >= paid) {
       return Result.fail(new ProviderFeeNotAcceptedException());
     }
+    const feeAmount = original ? original.groupAmountOf(link.fee) : link.fee;
+    if (feeAmount >= amount) return Result.fail(new ProviderFeeNotAcceptedException());
 
-    const fee: SettlementFee = { amount: link.fee, borneBy: this.#feeBorne };
+    const fee: SettlementFee = { amount: feeAmount, borneBy: this.#feeBorne };
     const settled = settledAmountOf({ amount, fee: fee.amount, borneBy: fee.borneBy });
     const settlement: NewSettlement = {
       id: link.settlementId,
@@ -493,6 +524,7 @@ export class SettlementBook extends AggregateRoot {
       providerPaymentId: link.providerPaymentId,
       settled,
       fee,
+      ...originalOf(original),
     };
     this.#recorded.push(settlement);
     this.#pending = [
@@ -689,13 +721,36 @@ export class SettlementBook extends AggregateRoot {
    * The rules of a settlement through the provider: the rules every settlement has (`#decide`), and a payee that has a payout account
    * (request 16). Answers the payout account the provider is asked to pay.
    */
-  #decideProvider(command: RequestProviderPaymentCommand): IResult<string> {
-    const { by, to, amount, members, balances, payoutAccount, archived, suspended, payeeDeleted } = command;
+  #decideProvider(
+    command: RequestProviderPaymentCommand,
+  ): IResult<{ amount: number; original?: OriginalPayment; payee: string }> {
+    const { by, to, members, balances, payoutAccount, archived, suspended, payeeDeleted } = command;
+    const paid = this.#amountOf(command);
+    if (paid.isFailure()) return paid;
+    const { amount, original } = paid.data;
     const decided = this.#decide({ from: by, to, amount, members, balances, archived, suspended });
     if (decided.isFailure()) return decided;
     if (payeeDeleted) return Result.fail(new AccountDeletedException('Settlements'));
     if (payoutAccount === undefined) return Result.fail(new PayeeHasNoPayoutAccountException());
-    return Result.ok(payoutAccount);
+    return Result.ok({ amount, original, payee: payoutAccount });
+  }
+
+  /**
+   * What a settlement is for in the group's currency (request 39): its `amount` as given, or what it pays in another currency converted at
+   * the rate offered. Exactly one of the two is given: both or neither is refused, as an amount the domain does not allow.
+   */
+  #amountOf({ amount, original, groupCurrency, offered }: SettlementAmountInput): IResult<{
+    amount: number;
+    original?: OriginalPayment;
+  }> {
+    if (original === undefined) {
+      if (amount === undefined) return Result.fail(new InvalidSettlementAmountException());
+      return Result.ok({ amount });
+    }
+    if (amount !== undefined) return Result.fail(new InvalidSettlementAmountException());
+    const decided = OriginalPayment.decide(original, groupCurrency, offered ?? { kind: 'none' });
+    if (decided.isFailure()) return decided;
+    return Result.ok({ amount: decided.data.groupAmountOf(original.amount), original: decided.data });
   }
 
   /**

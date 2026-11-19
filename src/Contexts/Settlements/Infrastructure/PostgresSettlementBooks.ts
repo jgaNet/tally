@@ -33,6 +33,10 @@ export const prepareSettlementSchema: Setup = async database => {
   await database.exec('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS settled INTEGER');
   await database.exec('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_amount INTEGER');
   await database.exec('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS fee_borne_by TEXT');
+  // What a settlement in another currency was paid in, and the rate it was decided at (request 39): all null for one in the group's currency.
+  await database.exec('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_currency TEXT');
+  await database.exec('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_amount INTEGER');
+  await database.exec('ALTER TABLE settlements ADD COLUMN IF NOT EXISTS original_rate TEXT');
   // Each status a settlement has had, in the order the book recorded it, and when Tally learned it (request 19). Written by the book's
   // save, in its transaction.
   await database.exec(
@@ -142,7 +146,7 @@ export class PostgresSettlementBooks implements ISettlementBooks {
     // Each status the book records is a line of the history, written with the fact, in this transaction (request 19).
     for (const settlement of book.recorded) {
       await this.database.run(
-        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, provider_payment_id, settled, fee_amount, fee_borne_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO settlements (id, group_id, payer_id, payee_id, amount, method, status, recorded_at, pay_url, provider_payment_id, settled, fee_amount, fee_borne_by, original_currency, original_amount, original_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           settlement.id,
           settlement.groupId,
@@ -157,6 +161,9 @@ export class PostgresSettlementBooks implements ISettlementBooks {
           settlement.settled,
           settlement.fee?.amount ?? null,
           settlement.fee?.borneBy ?? null,
+          settlement.original?.currency ?? null,
+          settlement.original?.amount ?? null,
+          settlement.original?.rate ?? null,
         ],
       );
       await this.learn(settlement.id, settlement.status, settlement.at);
@@ -235,6 +242,9 @@ export type SettlementRow = {
   pay_url: string | null;
   fee_amount: number | null;
   fee_borne_by: string | null;
+  original_currency: string | null;
+  original_amount: number | null;
+  original_rate: string | null;
 };
 
 export function settlementView(row: SettlementRow): SettlementView {
@@ -253,6 +263,14 @@ export function settlementView(row: SettlementRow): SettlementView {
   // A settlement through the provider asked since request 38 keeps the fee it was asked with; one from before has none (request 38).
   if (row.fee_amount !== null && row.fee_borne_by !== null) {
     view.fee = { amount: Number(row.fee_amount), borneBy: String(row.fee_borne_by) as FeeBorne };
+  }
+  // A settlement in another currency keeps what it was paid in and the rate it was decided at (request 39), as the rates service wrote it.
+  if (row.original_currency !== null && row.original_amount !== null && row.original_rate !== null) {
+    view.original = {
+      currency: String(row.original_currency),
+      amount: Number(row.original_amount),
+      rate: String(row.original_rate),
+    };
   }
   return view;
 }

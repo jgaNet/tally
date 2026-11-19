@@ -6,6 +6,7 @@ const at = new Date('2026-11-17T10:00:00.000Z');
 /** Bob (the payer) pays Ann (the payee) 300 through the provider, Bob owing Ann 300, with both members of the group. */
 const request = (overrides: Partial<RequestProviderPaymentCommand> = {}): RequestProviderPaymentCommand => ({
   by: 'bob',
+  groupCurrency: 'EUR',
   to: 'ann',
   suspended: false,
   payeeDeleted: false,
